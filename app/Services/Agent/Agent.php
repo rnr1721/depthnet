@@ -9,7 +9,7 @@ use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandValidatorInterface;
 use App\Contracts\Agent\ModelRegistryInterface;
 use App\Contracts\Agent\Plugins\NotepadServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
 use Illuminate\Support\Facades\Log;
 

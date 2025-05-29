@@ -5,7 +5,7 @@ namespace App\Providers;
 use App\Contracts\Chat\ChatExporterRegistryInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Chat\ChatExporterRegistry;
 use App\Services\Chat\ChatExporterService;
 use App\Services\Chat\ChatService;

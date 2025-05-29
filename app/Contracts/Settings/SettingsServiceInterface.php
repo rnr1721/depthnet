@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Contracts;
+namespace App\Contracts\Settings;
 
 use Illuminate\Http\Request;
 

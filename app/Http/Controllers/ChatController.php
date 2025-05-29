@@ -6,7 +6,7 @@ use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\ModelRegistryInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Http\Requests\Chat\ChatExportRequest;
 use App\Http\Requests\Chat\SendMessageRequest;
 use App\Http\Requests\Chat\UpdateModelSettingsRequest;

@@ -3,7 +3,7 @@
 namespace App\Services\Agent\Plugins\Services;
 
 use App\Contracts\Agent\Plugins\NotepadServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 
 class NotepadService implements NotepadServiceInterface
 {

@@ -3,7 +3,7 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use Illuminate\Support\Facades\Log;
 
 class DopaminePlugin implements CommandPluginInterface

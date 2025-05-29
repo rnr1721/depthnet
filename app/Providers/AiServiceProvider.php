@@ -23,7 +23,7 @@ use App\Contracts\Agent\ModelRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Services\Agent\Plugins\Services\NotepadService;
 use App\Contracts\Agent\Plugins\NotepadServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\AgentJobService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;

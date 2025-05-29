@@ -3,7 +3,7 @@
 namespace App\Services\Chat;
 
 use App\Contracts\Chat\ChatServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;

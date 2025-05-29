@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Settings;
 
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Option;
 use Illuminate\Support\Facades\Cache;
 

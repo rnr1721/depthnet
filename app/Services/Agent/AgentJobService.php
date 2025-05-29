@@ -4,7 +4,7 @@ namespace App\Services\Agent;
 
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Jobs\ProcessAgentThinking;
 use Psr\Log\LoggerInterface;
 

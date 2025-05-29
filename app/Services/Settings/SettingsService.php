@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Settings;
 
-use App\Contracts\OptionsServiceInterface;
-use App\Contracts\SettingsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
+use App\Contracts\Settings\SettingsServiceInterface;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 

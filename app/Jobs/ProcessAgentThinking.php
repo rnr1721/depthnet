@@ -26,10 +26,6 @@ class ProcessAgentThinking implements ShouldQueue
      */
     public $tries = 1;
 
-    private $lockKey = 'task_lock';
-    private $modelActiveKey = 'model_active';
-    private $modeKey = 'model_agent_mode';
-
     /**
      * Execute the job.
      */

@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\ModelRegistryInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\OptionsServiceInterface;
+use App\Http\Requests\Chat\ChatExportRequest;
 use App\Http\Requests\Chat\SendMessageRequest;
+use App\Http\Requests\Chat\UpdateModelSettingsRequest;
 use App\Jobs\ProcessAgentThinking;
 use Illuminate\Auth\AuthManager;
 use Illuminate\Http\Request;
@@ -29,7 +32,7 @@ class ChatController extends Controller
      *
      * @return void
      */
-    public function index()
+    public function index(AgentJobServiceInterface $agentJobService)
     {
 
         $messages = $this->chatService->getAllMessages();
@@ -43,16 +46,14 @@ class ChatController extends Controller
         ];
 
         if ($user && $user->isAdmin()) {
+            $modelSettings = $agentJobService->getModelSettings();
             $availableModels = $this->modelRegistry->all();
-            $currentModel = $this->optionsService->get('model_default', $this->modelRegistry->getDefaultModelName());
-            $modelActive = $this->optionsService->get('model_active', true);
-
             $data['availableModels'] = array_map(fn ($model) => [
                 'name' => $model->getName(),
                 'displayName' => $model->getName()
             ], $availableModels);
-            $data['currentModel'] = $currentModel;
-            $data['modelActive'] = $modelActive;
+            $data['currentModel'] = $modelSettings['model_default'];
+            $data['modelActive'] = $modelSettings['model_active'];
             $data['exportFormats'] = $this->chatExporterService->getAvailableFormats();
         }
 
@@ -121,48 +122,43 @@ class ChatController extends Controller
     }
 
     /**
-     * Update Ai model settings
+     * Update AI model settings
      *
-     * @param Request $request
+     * @param UpdateModelSettingsRequest $request
+     * @param AgentJobServiceInterface $agentJobService
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function updateModelSettings(Request $request)
-    {
-        $request->validate([
-            'model_default' => 'required|string',
-            'model_active' => 'required|boolean'
-        ]);
+    public function updateModelSettings(
+        UpdateModelSettingsRequest $request,
+        AgentJobServiceInterface $agentJobService
+    ) {
+        $success = $agentJobService->updateModelSettings(
+            $request->getModelName(),
+            $request->isActive()
+        );
 
-        $this->optionsService->set('model_default', $request->model_default);
-        $this->optionsService->set('model_active', $request->model_active);
-
-        Artisan::call('queue:restart');
-
-        if ($request->model_active) {
-            ProcessAgentThinking::dispatch();
+        if ($success) {
+            return back()->with('success', 'Model settings updated successfully');
         }
 
-        return back()->with('success', 'Model settings updated successfully');
+        return back()->with('error', 'Failed to update model settings');
     }
 
     /**
      * Export chat history
      *
-     * @param Request $request
+     * @param ChatExportRequest $request
      * @return Response
      */
-    public function exportChat(Request $request)
+    public function exportChat(ChatExportRequest $request)
     {
-        $request->validate([
-            'format' => 'required|string',
-            'include_thinking' => 'boolean'
-        ]);
+        $params = $request->validated();
 
         $options = [
-            'include_thinking' => $request->boolean('include_thinking', false)
+            'include_thinking' => $params['include_thinking']
         ];
 
-        return $this->chatExporterService->export($request->format, $options);
+        return $this->chatExporterService->export($request['format'], $options);
     }
 
 }

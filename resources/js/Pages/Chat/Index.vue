@@ -147,7 +147,7 @@
               isDark ? 'text-gray-200' : 'text-gray-700'
             ]">{{ t('chat_dark_mode') }}</span>
             <button @click="toggleTheme" :class="[
-              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 cursor-pointer',
               isDark ? 'bg-indigo-600' : 'bg-gray-300'
             ]">
               <span :class="[

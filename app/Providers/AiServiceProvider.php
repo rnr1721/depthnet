@@ -8,6 +8,7 @@ use App\Services\Agent\Agent;
 use App\Services\Agent\ModelRegistry;
 use App\Services\Agent\PluginRegistry;
 use App\Contracts\Agent\AgentInterface;
+use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandParserInterface;
@@ -23,6 +24,7 @@ use App\Contracts\Agent\PluginRegistryInterface;
 use App\Services\Agent\Plugins\Services\NotepadService;
 use App\Contracts\Agent\Plugins\NotepadServiceInterface;
 use App\Contracts\OptionsServiceInterface;
+use App\Services\Agent\AgentJobService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandParser;
@@ -38,6 +40,7 @@ class AiServiceProvider extends ServiceProvider
     public function register(): void
     {
 
+        $this->app->bind(AgentJobServiceInterface::class, AgentJobService::class);
         $this->app->bind(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
 
         $this->app->bind(NotepadServiceInterface::class, NotepadService::class);
@@ -48,8 +51,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(PluginRegistryInterface::class, function ($app) {
             $registry = new PluginRegistry();
             $registry->register(new PHPPlugin());
-            // $registry->register(new MySQLPlugin());
-            $registry->register(new DateTimePlugin());
+            //$registry->register(new MySQLPlugin());
+            //$registry->register(new DateTimePlugin());
             $registry->register($app->make(MemoryPlugin::class));
             $registry->register($app->make(DopaminePlugin::class));
             return $registry;

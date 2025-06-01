@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Contracts\SettingsServiceInterface;
+use App\Contracts\Settings\SettingsServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Cache\Repository as CacheRepository;
 use Inertia\Inertia;

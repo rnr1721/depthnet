@@ -62,4 +62,5 @@ interface ChatServiceInterface
      * @return bool
      */
     public function deleteMessage(int $messageId): bool;
+
 }

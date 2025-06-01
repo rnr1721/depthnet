@@ -9,8 +9,6 @@ namespace App\Contracts\Agent;
  * including starting, stopping, and monitoring the execution state.
  * The agent can operate in different modes (single/looped) and uses
  * locking mechanism to prevent concurrent executions.
- *
- * @package App\Contracts\Agent
  */
 interface AgentJobServiceInterface
 {
@@ -106,11 +104,11 @@ interface AgentJobServiceInterface
      * - Starts the agent if it was activated
      * - Stops the agent if it was deactivated
      *
-     * @param string $modelName The name of the model to set as default
+     * @param int $presetId The ID of the preset to set as default
      * @param bool $isActive Whether the agent should be active
      * @return bool True if settings were updated successfully
      */
-    public function updateModelSettings(string $modelName, bool $isActive): bool;
+    public function updateModelSettings(int $presetId, bool $isActive): bool;
 
     /**
      * Get current model settings.

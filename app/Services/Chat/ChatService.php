@@ -3,9 +3,10 @@
 namespace App\Services\Chat;
 
 use App\Contracts\Chat\ChatServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
 use App\Models\User;
+use Exception;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -91,4 +92,5 @@ class ChatService implements ChatServiceInterface
 
         return $message->delete();
     }
+
 }

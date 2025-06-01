@@ -29,18 +29,23 @@ The project explores the possibility of creating autonomous digital life through
 - **Self-Motivation**: Internal dopamine system for goal-driven behavior
 - **Multi-User Interaction**: Users can "interrupt" the agent's thoughts and participate in conversations
 
+That is, an extensible command system is provided. The model launches commands, and in the next message, already during the next context transfer, the agent adds the results of these commands or errors to the end of the message.
+
 ## Key Features
 
 ### Agent Modes
 - **Looped Mode**: Continuous autonomous thinking and action
 - **Single Mode**: Traditional request-response interaction
 
-### Supported AI Models
-- **OpenAI** (GPT-4, GPT-3.5)
+### Supported AI Providers
+- **OpenAI** (GPT)
 - **Claude** (3.5 Sonnet, Opus, Haiku)
-- **LLaMA** (via local server)
-- **Phi** (via local server)
+- **LLaMA, Phi etc** (via local or remote server)
 - **Mock** (for testing and development)
+
+You can make your own presets with different settings for a particular model. That is, there can be several presets for the same model. Each preset can have its own individual settings. Only one of the presets can be active at a time.
+
+It is easy for the user to create presets based on supported providers. Also, if there are not enough providers, it is very easy to write your own provider, based on the existing ones.
 
 ### Plugin System
 Agents can execute real-world actions through plugins:
@@ -49,7 +54,8 @@ Agents can execute real-world actions through plugins:
 - **Memory Plugin**: Persistent notepad for storing important information
 - **Dopamine Plugin**: Self-motivation and reward system
 - **DateTime Plugin**: Time awareness and scheduling
-- **MySQL Plugin**: Database operations (currently disabled)
+
+In the future, it is planned to add plugins for executing Javascript and Python code. The system architecture allows you to easily write and add your own plugins. In the future, it is planned to add the installation of your plugins via composer, as well as individual plugin settings in the admin panel.
 
 ### Command Syntax
 Agents use special tags to execute commands:
@@ -74,27 +80,29 @@ This is not a bug - it's a feature for exploring the boundaries of AI capabiliti
 
 ## Architecture
 
-Built with clean architecture principles:
+Создано на основе современных принципов архитектуры:
 
-- **Agent System**: Core AI reasoning and action execution
+- **Agent System**: Core AI Reasoning and Action execution
 - **Plugin Registry**: Extensible command system
 - **Model Registry**: Support for multiple AI providers
-- **Queue System**: Asynchronous thinking loops
-- **Multi-language UI**: English and Russian support
+- **Preset Registry**: Support for multiple presets with own settings that uses providers
+- **Queue System**: Asynchronous thinking cycles
+- **Multi-language UI**: Support for English and Russian. Easy to add own.
 
 ## User Roles
 
 ### Regular Users
-- Participate in conversations with the AI agent
+- Participate in conversations with the AI agent or other users
 - View public agent thoughts and responses
 - Manage personal profile and preferences
 
 ### Administrators
 - Configure agent settings and behavior
-- Select active AI models
+- Select active AI presets
 - Start/stop thinking loops
 - Export conversation history
 - Manage users and system settings
+- Manage presets and LLM providers
 
 ## User Interface
 
@@ -106,34 +114,7 @@ Built with clean architecture principles:
 
 ## Configuration
 
-The system supports extensive configuration through environment variables:
-
-### Model Settings
-```env
-PHI_SERVER_URL=http://localhost:8080
-PHI_TEMPERATURE=0.85
-
-LLAMA_SERVER_URL=http://localhost:8080
-LLAMA_TEMPERATURE=0.85
-LLAMA_TOP_P=0.92
-LLAMA_TOP_K=60
-LLAMA_MIN_P=0.05
-LLAMA_N_PREDICT=600
-LLAMA_REPEAT_PENALTY=1.18
-
-CLAUDE_API_KEY=""
-CLAUDE_MODEL="claude-3-5-sonnet-20241022"
-CLAUDE_MAX_TOKENS=4096
-CLAUDE_TEMPERATURE=0.8
-
-OPENAI_API_KEY=sk-your-api-key-here
-OPENAI_MODEL=gpt-4o
-OPENAI_MAX_TOKENS=4096
-OPENAI_TEMPERATURE=0.8
-OPENAI_TOP_P=0.9
-OPENAI_FREQUENCY_PENALTY=0.0
-OPENAI_PRESENCE_PENALTY=0.0
-```
+In the env file it is possible to set default settings for presets. However, it is not necessary to do this, since when creating a preset in the interface, you can enter any data.
 
 ## Security Notice
 
@@ -144,6 +125,8 @@ OPENAI_PRESENCE_PENALTY=0.0
 - Full system access for AI agents
 - No rate limiting or abuse protection
 
+But, if you use containers like Docker, OpenVZ, etc., then... It's not that unsafe (depending on what you use it for).
+
 **Do not deploy this in production or expose it publicly without proper security measures.**
 
 ## Use Cases
@@ -153,6 +136,17 @@ OPENAI_PRESENCE_PENALTY=0.0
 - Exploring autonomous agent behavior
 - Educational demonstrations
 - AI safety research (by observing unrestricted behavior)
+- Creation of "smart" servers, where administration can be carried out by a high-quality language model.
+
+## Potential challenges and problems
+
+- On small models LLM may not give very good results. They poorly assimilate large system prompts and are generally "stupid". But for small experiments it is quite possible to use. The author tested on Llama 8b 128k and on Phi-4 instruct. However, after using Claude 3.5 - I realized that this is the minimum for real use in something serious, and something even newer is better.
+- For the full effect, it would be good to have a specially sharpened model that is optimized for working in a cycle and "initiative". Most models are trained as assistants, and this is a big brake in the framework of this project. The author of the agent is sure that a good large model, specially trained to work with this agent (cyclical "thinking" and initiative) can give an impressive and even revolutionary result.
+- A lot depends on the system prompt (configured in presets). A LOT. That's where the model needs to be explained that it works in a loop and that it can use commands. There are placeholders for inserting dynamic data into the system prompt, such as:
+    1. **[[dopamine_level]]** - the "dopamine" level for motivation,
+    2. **[[notepad_content]]** - the contents of persistent memory. It can go into the context, and the model can add/overwrite/change its contents.
+    3. **[[current_datetime]]** - the current date and time
+    4. **[[command_instructions]]** - instructions for working with available commands, generated from the list of available command plugins.
 
 ## Agent Capabilities
 
@@ -193,6 +187,13 @@ The ultimate goal is to explore whether true digital consciousness is possible w
 **Warning**: This is experimental software designed for AI research. Use responsibly and never in production environments without proper security measures.
 
 
+## My observations during testing and use
+
+- It's interesting how models use the motivation system. Small models can uncontrollably try to increase dopamine, or come up with fictitious reasons to increase it (but not always, it depends on system prompt).
+- The model honestly tries to complete the task, and generally understands what is required of it. And if small models can "forget" to close command tags and the like, then large ones can consciously perform actions, set goals and go towards them. But due to the fact that models are mainly trained as assistants, sometimes in my opinion they lack initiative and can "loop" in reasoning. But I think that if you test on something like Claude 4 Opus, there will be much less of such problems.
+- Perhaps it is worth writing a plugin for executing python code, since according to my observations, modern models "know" python much better than PHP.
+
+There were a lot of interesting observations, and I highly recommend trying it, it's an interesting experience. When using it, I began to understand subjectively that it would work, and the main limitations are small models, my hardware limitations, and my lack of technical/financial capabilities to further train the model.
 
 # How to deploy
 
@@ -321,6 +322,12 @@ npm run build
 ### 10. Setup models settings in .env file
 
 After setup - thats ALL!
+Your initial credentials for login:
+
+- **login:** admin@example.com
+- **password:** admin123
+
+By default, one preset with a Mock provider is created, but you can configure your real one in the "presets" section, and switch to it in the "chat" section.
 
 ## Contributing
 

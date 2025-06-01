@@ -9,6 +9,20 @@ use Illuminate\Contracts\Session\Session;
 interface AuthServiceInterface
 {
     /**
+     * Get current logged in user ID
+     *
+     * @return integer|null
+     */
+    public function getCurrentUserId(): ?int;
+
+    /**
+     * Get current logged in user
+     *
+     * @return User|null
+     */
+    public function getCurrentUser(): ?User;
+
+    /**
      * User authentication
      *
      * @param array $credentials

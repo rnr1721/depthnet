@@ -2,30 +2,6 @@
 
 return [
     'fields' => [
-        'system_start_message' => [
-            'type' => 'textarea',
-            'label' => 'settings_start_message',
-            'description' => 'settings_start_message_description',
-            'placeholder' => 'settings_please_input_start_message',
-            'default' => '',
-            'validation' => 'nullable|string|max:8000',
-            'rows' => 14,
-            'group' => 'agent_settings',
-            'order' => 1,
-        ],
-
-        'plugin_notepad_content' => [
-            'type' => 'textarea',
-            'label' => 'settings_notepad_content',
-            'description' => 'settings_notepad_content_description',
-            'placeholder' => 'settings_notepad_content',
-            'default' => '',
-            'validation' => 'nullable|string|max:50000',
-            'rows' => 12,
-            'group' => 'agent_settings',
-            'order' => 2,
-            'font_family' => 'mono',
-        ],
 
         'model_reply_from_model' => [
             'type' => 'input',

@@ -2,8 +2,18 @@
 
 namespace App\Contracts\Agent;
 
+use App\Models\AiPreset;
+
 interface CommandPluginInterface
 {
+    /**
+     * Set current model preset
+     *
+     * @param AiPreset $preset
+     * @return void
+     */
+    public function setCurrentPreset(AiPreset $preset): void;
+
     /**
      * Get plugin (command) name
      *

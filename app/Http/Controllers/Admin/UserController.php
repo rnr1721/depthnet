@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Contracts\Auth\AuthServiceInterface;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Contracts\Users\AdminUserServiceInterface;
 use App\Contracts\Users\UserServiceInterface;
@@ -9,7 +10,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\CreateUserRequest;
 use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Models\User;
-use Illuminate\Auth\AuthManager;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -20,7 +20,7 @@ class UserController extends Controller
     public function __construct(
         protected UserServiceInterface $userService,
         protected AdminUserServiceInterface $adminUserService,
-        protected AuthManager $auth,
+        protected AuthServiceInterface $authService,
     ) {
     }
 
@@ -38,7 +38,7 @@ class UserController extends Controller
 
         return Inertia::render('Admin/Users/Index', [
             'users' => $users,
-            'currentUserId' => $this->auth->id(),
+            'currentUserId' => $this->authService->getCurrentUserId(),
             'filters' => $filters,
         ]);
     }

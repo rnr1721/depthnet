@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Cache\Repository as CacheRepository;

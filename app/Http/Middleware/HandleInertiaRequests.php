@@ -3,7 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Contracts\Chat\ChatServiceInterface;
-use App\Contracts\OptionsServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Contracts\Users\UserServiceInterface;
 use Illuminate\Http\Request;
 use Inertia\Middleware;

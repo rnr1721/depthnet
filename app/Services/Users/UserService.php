@@ -2,10 +2,10 @@
 
 namespace App\Services\Users;
 
+use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Users\UserServiceInterface;
 use App\Models\User;
 use Carbon\CarbonInterface;
-use Illuminate\Auth\AuthManager;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -13,8 +13,8 @@ use Illuminate\Pagination\LengthAwarePaginator;
 class UserService implements UserServiceInterface
 {
     public function __construct(
+        protected AuthServiceInterface $authService,
         protected User $userModel,
-        protected AuthManager $auth,
         protected Hasher $hash
     ) {
     }
@@ -22,7 +22,7 @@ class UserService implements UserServiceInterface
     /**
      * @inheritDoc
      */
-    public function getUserById(int $id): ?User
+    public function findUserById(int $id): ?User
     {
         return $this->userModel->find($id);
     }
@@ -30,9 +30,9 @@ class UserService implements UserServiceInterface
     /**
      * @inheritDoc
      */
-    public function getCurrentUser(): ?User
+    public function getUserById(int $id): User
     {
-        return $this->auth->user();
+        return $this->userModel->findOrFail($id);
     }
 
     /**
@@ -151,7 +151,7 @@ class UserService implements UserServiceInterface
      */
     public function bulkDeleteUsers(array $userIds): int
     {
-        $currentUserId = $this->auth->id();
+        $currentUserId = $this->authService->getCurrentUserId();
         $userIds = array_filter($userIds, fn ($id) => $id != $currentUserId);
 
         if (empty($userIds)) {
@@ -166,7 +166,7 @@ class UserService implements UserServiceInterface
      */
     public function bulkToggleAdmin(array $userIds, bool $isAdmin): int
     {
-        $currentUserId = $this->auth->id();
+        $currentUserId = $this->authService->getCurrentUserId();
         $userIds = array_filter($userIds, fn ($id) => $id != $currentUserId);
 
         if (empty($userIds)) {

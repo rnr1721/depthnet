@@ -103,6 +103,15 @@
             <span>{{ $t('settings') }}</span>
             </Link>
 
+            <Link v-if="isAdmin" :href="route('admin.presets.index')" :class="[
+              'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
+              isDark
+                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
+                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
+            ]">
+            <span>{{ $t('presets') }}</span>
+            </Link>
+
             <Link v-if="isAdmin" :href="route('admin.users.index')" :class="[
               'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
               isDark

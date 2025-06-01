@@ -3,19 +3,14 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
-use App\Contracts\Agent\Plugins\NotepadServiceInterface;
 use Illuminate\Support\Facades\Log;
 
 class MemoryPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
+    use PluginPresetTrait;
 
     private $limit = 2000;
-
-    public function __construct(
-        protected NotepadServiceInterface $notepadService
-    ) {
-    }
 
     public function getName(): string
     {
@@ -77,7 +72,8 @@ class MemoryPlugin implements CommandPluginInterface
     public function replace(string $content): string
     {
         try {
-            $this->notepadService->setNotepad($content);
+            $this->preset->notes = $content;
+            $this->preset->save();
             return "Memory replaced successfully. New content stored.";
         } catch (\Throwable $e) {
             Log::error("MemoryPlugin::replace error: " . $e->getMessage());
@@ -91,12 +87,13 @@ class MemoryPlugin implements CommandPluginInterface
     public function append(string $content): string
     {
         try {
-            $currentContent = $this->notepadService->getNotepad();
+            $currentContent = $this->preset->notes;
             $newContent = empty($currentContent)
                 ? $content
                 : $currentContent . "\n" . $content;
 
-            $this->notepadService->setNotepad($newContent);
+            $this->preset->notes = $newContent;
+            $this->preset->save();
             return "Content appended to memory successfully.";
         } catch (\Throwable $e) {
             Log::error("MemoryPlugin::append error: " . $e->getMessage());
@@ -110,7 +107,8 @@ class MemoryPlugin implements CommandPluginInterface
     public function clear(string $content): string
     {
         try {
-            $this->notepadService->setNotepad('');
+            $this->preset->notes = '';
+            $this->preset->save();
             return "Memory cleared successfully.";
         } catch (\Throwable $e) {
             Log::error("MemoryPlugin::clear error: " . $e->getMessage());
@@ -124,7 +122,7 @@ class MemoryPlugin implements CommandPluginInterface
     public function show(string $content): string
     {
         try {
-            $currentContent = $this->notepadService->getNotepad();
+            $currentContent = $this->preset->notes;
             return empty($currentContent)
                 ? "Memory is empty."
                 : "Current memory content:\n" . $currentContent;

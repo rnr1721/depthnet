@@ -18,4 +18,6 @@ interface AgentInterface
      * @return Message|null
      */
     public function think(): ?Message;
+
+    public function getAvailablePresets(): array;
 }

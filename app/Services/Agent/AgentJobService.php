@@ -4,20 +4,23 @@ namespace App\Services\Agent;
 
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Chat\ChatServiceInterface;
+use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Jobs\ProcessAgentThinking;
+use Illuminate\Support\Facades\Artisan;
 use Psr\Log\LoggerInterface;
 
 class AgentJobService implements AgentJobServiceInterface
 {
     private const LOCK_KEY = 'task_lock';
-    private const MODEL_DEFAULT_KEY = 'model_default';
-    private const MODEL_ACTIVE_KEY = 'model_active';
-    private const MODE_KEY = 'model_agent_mode';
     private const TIMEOUT_KEY = 'model_timeout_between_requests';
 
     public function __construct(
         private OptionsServiceInterface $options,
+        private ChatStatusServiceInterface $chatStatusService,
+        private PresetServiceInterface $presetService,
         private AgentInterface $agent,
         private LoggerInterface $logger
     ) {
@@ -28,7 +31,7 @@ class AgentJobService implements AgentJobServiceInterface
     */
     public function isActive(): bool
     {
-        return $this->options->get(self::MODEL_ACTIVE_KEY, false);
+        return $this->chatStatusService->getChatStatus();
     }
 
     /**
@@ -36,8 +39,7 @@ class AgentJobService implements AgentJobServiceInterface
     */
     public function canStart(): bool
     {
-        $mode = $this->options->get(self::MODE_KEY, 'looped');
-        return $this->isActive() && $mode === 'looped' && !$this->isLocked();
+        return $this->isActive() && $this->chatStatusService->isLoopedMode() && !$this->isLocked();
     }
 
     /**
@@ -93,9 +95,8 @@ class AgentJobService implements AgentJobServiceInterface
     */
     public function processThinkingCycle(): void
     {
-        $mode = $this->options->get(self::MODE_KEY, 'looped');
 
-        if (!$this->isActive() || $mode === 'single') {
+        if (!$this->isActive() || $this->chatStatusService->isSingleMode()) {
             $this->unlock();
             return;
         }
@@ -111,16 +112,16 @@ class AgentJobService implements AgentJobServiceInterface
     /**
      * @inheritDoc
     */
-    public function updateModelSettings(string $modelName, bool $isActive): bool
+    public function updateModelSettings(int $presetId, bool $isActive): bool
     {
         try {
             $wasActive = $this->isActive();
 
-            $this->options->set(self::MODEL_DEFAULT_KEY, $modelName);
-            $this->options->set(self::MODEL_ACTIVE_KEY, $isActive);
+            $this->presetService->setDefaultPreset($presetId);
+            $this->chatStatusService->setChatStatus($isActive);
 
             $this->logger->info("AgentJobService: Model settings updated", [
-                'model' => $modelName,
+                'preset_id' => $presetId,
                 'active' => $isActive,
                 'was_active' => $wasActive
             ]);
@@ -138,7 +139,7 @@ class AgentJobService implements AgentJobServiceInterface
         } catch (\Throwable $e) {
             $this->logger->error("AgentJobService: Failed to update model settings", [
                 'error' => $e->getMessage(),
-                'model' => $modelName,
+                'model' => $presetId,
                 'active' => $isActive
             ]);
 
@@ -157,14 +158,14 @@ class AgentJobService implements AgentJobServiceInterface
         // If model is marked active but cannot actually start due to queue issues
         if ($isActive && !$canActuallyStart && !$this->isLocked()) {
             $this->logger->info("AgentJobService: Auto-correcting model state in getModelSettings()");
-            $this->options->set(self::MODEL_ACTIVE_KEY, false);
+            $this->chatStatusService->setChatStatus(false);
             $isActive = false;
         }
 
         return [
-            'model_default' => $this->options->get(self::MODEL_DEFAULT_KEY, 'default'),
-            'model_active' => $isActive,
-            'model_agent_mode' => $this->options->get(self::MODE_KEY, 'looped'),
+            'preset_id' => $this->presetService->getDefaultPreset()->getId(),
+            'chat_active' => $isActive,
+            'mode' => $this->chatStatusService->getChatMode(),
             'is_locked' => $this->isLocked(),
             'can_start' => $this->canStart(),
             'can_stop' => $this->canStop()
@@ -215,7 +216,7 @@ class AgentJobService implements AgentJobServiceInterface
     private function restartQueue(): void
     {
         try {
-            \Illuminate\Support\Facades\Artisan::call('queue:restart');
+            Artisan::call('queue:restart');
             $this->logger->info("AgentJobService: Queue restarted successfully");
         } catch (\Throwable $e) {
             $this->logger->error("AgentJobService: Failed to restart queue", [

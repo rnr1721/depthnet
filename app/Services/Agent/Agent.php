@@ -7,23 +7,27 @@ use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandValidatorInterface;
-use App\Contracts\Agent\ModelRegistryInterface;
+use App\Contracts\Agent\Models\PresetRegistryInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\NotepadServiceInterface;
+use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
-use Illuminate\Support\Facades\Log;
+use Psr\Log\LoggerInterface;
 
 class Agent implements AgentInterface
 {
     public function __construct(
-        protected ModelRegistryInterface $modelRegistry,
+        protected PresetRegistryInterface $presetRegistry,
         protected CommandParserInterface $commandParser,
         protected CommandExecutorInterface $commandExecutor,
         protected CommandValidatorInterface $commandValidator,
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
-        protected NotepadServiceInterface $notepadService,
+        protected PluginRegistryInterface $pluginRegistry,
         protected OptionsServiceInterface $optionsService,
+        protected ChatStatusServiceInterface $chatStatusService,
         protected Message $messageModel,
+        protected LoggerInterface $logger
     ) {
     }
 
@@ -31,33 +35,46 @@ class Agent implements AgentInterface
     {
         try {
             $context = $this->buildContext();
-            $currentModelName = $this->optionsService->get('model_default', 'mock');
-            $model = $this->modelRegistry->get($currentModelName);
+            $defaultPreset = $this->presetRegistry->getDefaultPreset();
 
+            // Set plugins that disabled in this current preset for now
+            $disabledPlugins = $defaultPreset->getPluginsDisabled();
+            $this->pluginRegistry->setDisabledForNow($disabledPlugins);
+
+            // Set current preset to all plugins
+            $this->pluginRegistry->setCurrentPreset($defaultPreset);
+
+            // Get engine for call model, using current preset ID
+            $currentPresetId = $defaultPreset->getId();
+            $currentEngine = $this->presetRegistry->createInstance($currentPresetId);
+
+            // Get system prompt text
+            $systemPrompt = $defaultPreset->getSystemPrompt();
             $thinkingPhrase = $this->optionsService->get('model_message_thinking_phrase', 'Thinking:');
-            $mode = $this->optionsService->get('model_agent_mode', 'looped');
             $replyFromModelLabel = $this->optionsService->get('model_reply_from_model', 'reply_from_model');
-            $initialMessageRaw = $this->optionsService->get('system_start_message', '');
-            $currentDophamineLevel = intval($this->optionsService->get('plugin_dophamine', 5));
-            $currentNotepadContent = $this->notepadService->getNotepad();
+            $currentDopamineLevel = $defaultPreset->getDopamineLevel();
+            $currentNotepadContent = $defaultPreset->getNotes();
             $commandInstructions = $this->commandInstructionBuilder->buildInstructions();
 
-            $output = $model->generate(
+            $response = $currentEngine->generate(
                 $context,
-                $initialMessageRaw,
+                $systemPrompt,
                 $currentNotepadContent,
-                $currentDophamineLevel,
+                $currentDopamineLevel,
                 $commandInstructions
             );
 
-            if (empty($output)) {
+            if ($response->isError()) {
                 return $this->messageModel->create([
                     'role' => 'system',
-                    'content' => "empty message",
+                    'content' => $response->getResponse(),
                     'from_user_id' => null,
-                    'is_visible_to_user' => true
+                    'is_visible_to_user' => true,
+                    'metadata' => $response->getMetadata()
                 ]);
             }
+
+            $output = $response->getResponse();
 
             // Parse commands using the dedicated service
             $commands = $this->commandParser->parse($output);
@@ -67,7 +84,7 @@ class Agent implements AgentInterface
             $visibleToUser = false;
             $role = 'thinking';
 
-            if ($mode === 'looped') {
+            if ($this->chatStatusService->isLoopedMode()) {
                 if (str_contains($output, $replyFromModelLabel)) {
                     $visibleToUser = true;
                     $role = 'speaking';
@@ -93,16 +110,16 @@ class Agent implements AgentInterface
                 }
             }
 
-
             return $this->messageModel->create([
                 'role' => $role,
                 'content' => $output,
                 'from_user_id' => null,
-                'is_visible_to_user' => $visibleToUser
+                'is_visible_to_user' => $visibleToUser,
+                'metadata' => $response->getMetadata()
             ]);
 
         } catch (\Exception $e) {
-            Log::error("Agent: Error in think method", [
+            $this->logger->error("Agent: Error in think method", [
                 'error_message' => $e->getMessage(),
                 'exception' => get_class($e),
                 'file' => $e->getFile(),
@@ -114,7 +131,8 @@ class Agent implements AgentInterface
                 'role' => 'system',
                 'content' => "Error in thinking process: " . $e->getMessage(),
                 'from_user_id' => null,
-                'is_visible_to_user' => true
+                'is_visible_to_user' => true,
+                'metadata' => $response->getMetadata()
             ]);
         }
     }
@@ -138,6 +156,53 @@ class Agent implements AgentInterface
         }
 
         return $context;
+    }
+
+    /**
+     * Get information about current preset
+     */
+    public function getCurrentPresetInfo(): array
+    {
+        try {
+            $preset = $this->presetRegistry->getDefaultPreset();
+            return [
+                'id' => $preset->getId(),
+                'name' => $preset->getName(),
+                'description' => $preset->getDescription(),
+                'engine_name' => $preset->getEngineName(),
+                'is_default' => $preset->isDefault(),
+            ];
+        } catch (\Exception $e) {
+            return [
+                'error' => 'Failed to get preset info: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get available presets
+     */
+    public function getAvailablePresets(): array
+    {
+        try {
+            $presets = $this->presetRegistry->getActivePresets();
+
+            return $presets->map(function ($preset) {
+                return [
+                    'id' => $preset->getId(),
+                    'name' => $preset->getName(),
+                    'description' => $preset->getDescription(),
+                    'engine_name' => $preset->getEngineName(),
+                    'is_default' => $preset->isDefault(),
+                ];
+            })->toArray();
+        } catch (\Exception $e) {
+            $this->logger->error("Agent: Failed to get available presets", [
+                'error' => $e->getMessage()
+            ]);
+
+            return [];
+        }
     }
 
 }

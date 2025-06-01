@@ -2,11 +2,11 @@
 
 namespace App\Services\Users;
 
+use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Users\AdminUserServiceInterface;
 use App\Contracts\Users\UserExporterInterface;
 use App\Contracts\Users\UserServiceInterface;
 use App\Models\User;
-use Illuminate\Auth\AuthManager;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminUserService implements AdminUserServiceInterface
@@ -14,8 +14,8 @@ class AdminUserService implements AdminUserServiceInterface
     public function __construct(
         protected UserServiceInterface $userService,
         protected UserExporterInterface $userExporter,
-        protected User $userModel,
-        protected AuthManager $auth,
+        protected AuthServiceInterface $authService,
+        protected User $userModel
     ) {
     }
 
@@ -38,7 +38,7 @@ class AdminUserService implements AdminUserServiceInterface
 
         return [
             'users' => $users,
-            'currentUserId' => $this->auth->id(),
+            'currentUserId' => $this->authService->getCurrentUserId(),
             'stats' => [
                 'total' => $users->count(),
                 'admins' => $users->where('is_admin', true)->count(),
@@ -136,7 +136,7 @@ class AdminUserService implements AdminUserServiceInterface
     {
         try {
             // Check that the user does not delete himself
-            if ($user->id === $this->auth->id()) {
+            if ($user->id === $this->authService->getCurrentUserId()) {
                 return [
                     'type' => 'error',
                     'message' => 'You cannot delete your own account!'
@@ -181,7 +181,7 @@ class AdminUserService implements AdminUserServiceInterface
             }
 
             // We check that the user does not remove rights from himself
-            if (!$newStatus && $user->id === $this->auth->id()) {
+            if (!$newStatus && $user->id === $this->authService->getCurrentUserId()) {
                 return [
                     'type' => 'error',
                     'message' => 'You can\'t remove administrator rights from yourself!'
@@ -212,7 +212,7 @@ class AdminUserService implements AdminUserServiceInterface
     public function performBulkAction(string $action, array $userIds): array
     {
         try {
-            $currentUserId = $this->auth->id();
+            $currentUserId = $this->authService->getCurrentUserId();
 
             // Exclude the current user from bulk operations
             $userIds = array_filter($userIds, fn ($id) => $id != $currentUserId);
@@ -334,7 +334,7 @@ class AdminUserService implements AdminUserServiceInterface
      */
     public function canPerformActionOn(User $targetUser, string $action): bool
     {
-        $currentUser = $this->auth->user();
+        $currentUser = $this->authService->getCurrentUser();
 
         if (!$currentUser || !$currentUser->is_admin) {
             return false;

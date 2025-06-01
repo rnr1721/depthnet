@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthController;
@@ -37,8 +39,10 @@ Route::middleware('auth')->group(function () {
         Route::delete('message/{messageId}', [ChatController::class, 'deleteMessage'])->name('delete-message');
         Route::post('clear', [ChatController::class, 'clearHistory'])->name('clear');
         Route::get('new-messages/{lastId?}', [ChatController::class, 'getNewMessages'])->name('new-messages');
-        Route::post('model-settings', [ChatController::class, 'updateModelSettings'])->middleware(AdminMiddleware::class)->name('model-settings');
+        Route::post('/chat/preset-settings', [ChatController::class, 'updatePresetSettings'])->name('preset-settings');
         Route::post('export', [ChatController::class, 'exportChat'])->middleware(AdminMiddleware::class)->name('export');
+        Route::put('preset/{id}', [ChatController::class, 'updatePreset'])->middleware(AdminMiddleware::class)->name('preset.update');
+        Route::get('users', [ChatController::class, 'getUsers'])->name('users');
     });
 
     Route::prefix('profile')->name('profile.')->group(function () {
@@ -52,6 +56,7 @@ Route::middleware('auth')->group(function () {
         Route::get('settings', [SettingsController::class, 'index'])
         ->name('settings');
         Route::post('save-options', [SettingsController::class, 'saveOptions'])->name('save-options');
+
         // Users management routes
         Route::prefix('users')->name('users.')->group(function () {
             Route::get('/', [UserController::class, 'index'])->name('index');
@@ -62,6 +67,30 @@ Route::middleware('auth')->group(function () {
             Route::patch('/{user}/toggle-admin', [UserController::class, 'toggleAdmin'])->name('toggle-admin');
 
         });
+
+        // AI Presets management routes
+        Route::prefix('presets')->name('presets.')->group(function () {
+            Route::get('/', [PresetController::class, 'index'])->name('index');
+            Route::post('/', [PresetController::class, 'store'])->name('store');
+            Route::get('/{id}', [PresetController::class, 'show'])->name('show');
+            Route::put('/{id}', [PresetController::class, 'update'])->name('update');
+            Route::delete('/{id}', [PresetController::class, 'destroy'])->name('destroy');
+            Route::post('/{id}/set-default', [PresetController::class, 'setDefault'])->name('set-default');
+            Route::get('/{id}/duplicate', [PresetController::class, 'duplicate'])->name('duplicate');
+        });
+
+        // AI Engines management routes
+        Route::prefix('engines')->name('engines.')->group(function () {
+            Route::get('/', [EngineController::class, 'index'])->name('index');
+            Route::get('/{engineName}/defaults', [EngineController::class, 'getDefaults'])->name('defaults');
+            Route::post('/{engineName}/validate', [EngineController::class, 'validateConfig'])->name('validate');
+            Route::get('/{engineName}/test', [EngineController::class, 'testConnection'])->name('test');
+            Route::get('/{engineName}/config-fields', [EngineController::class, 'getConfigFields'])->name('config-fields');
+            Route::get('/{engineName}/recommended-presets', [EngineController::class, 'getRecommendedPresets'])->name('recommended-presets');
+            Route::post('/{engineName}/test-config', [EngineController::class, 'testWithConfig'])->name('test-config');
+            Route::get('/{engineName}/info', [EngineController::class, 'show'])->name('info');
+        });
+
     });
 
 });

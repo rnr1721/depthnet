@@ -7,6 +7,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 class DateTimePlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
+    use PluginPresetTrait;
 
     public function getName(): string
     {

@@ -7,12 +7,13 @@ use App\Contracts\Agent\PluginRegistryInterface;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 use App\Services\Agent\Plugins\DTO\CommandResult;
 use App\Services\Agent\Plugins\DTO\ParsedCommand;
-use Illuminate\Support\Facades\Log;
+use Psr\Log\LoggerInterface;
 
 class CommandExecutor implements CommandExecutorInterface
 {
     public function __construct(
-        protected PluginRegistryInterface $pluginRegistry
+        protected PluginRegistryInterface $pluginRegistry,
+        protected LoggerInterface $logger
     ) {
     }
 
@@ -71,7 +72,7 @@ class CommandExecutor implements CommandExecutorInterface
             return new CommandResult($command, $result, true);
 
         } catch (\Exception $e) {
-            Log::error("Command execution error", [
+            $this->logger->error("Command execution error", [
                 'plugin' => $command->plugin,
                 'method' => $command->method,
                 'error' => $e->getMessage()

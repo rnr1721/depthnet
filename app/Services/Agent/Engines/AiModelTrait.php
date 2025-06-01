@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Agent\Models;
+namespace App\Services\Agent\Engines;
 
 trait AiModelTrait
 {

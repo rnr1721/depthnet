@@ -3,17 +3,12 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
-use App\Contracts\Settings\OptionsServiceInterface;
 use Illuminate\Support\Facades\Log;
 
 class DopaminePlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-
-    public function __construct(
-        protected OptionsServiceInterface $optionsService
-    ) {
-    }
+    use PluginPresetTrait;
 
     public function getName(): string
     {
@@ -56,10 +51,11 @@ class DopaminePlugin implements CommandPluginInterface
                 return "Reward amount must be between 1 and 5.";
             }
 
-            $currentLevel = (int)$this->optionsService->get('plugin_dophamine', 5);
+            $currentLevel = $this->preset->getDopamineLevel();
             $newLevel = min(10, $currentLevel + $amount);
 
-            $this->optionsService->set('plugin_dophamine', $newLevel);
+            $this->preset->dopamine_level = $newLevel;
+            $this->preset->save();
 
             return "Dopamine level increased by $amount. New level: $newLevel (was $currentLevel)";
         } catch (\Throwable $e) {
@@ -76,10 +72,11 @@ class DopaminePlugin implements CommandPluginInterface
                 return "Penalty amount must be between 1 and 5.";
             }
 
-            $currentLevel = (int)$this->optionsService->get('plugin_dophamine', 5);
+            $currentLevel = (int) $this->preset->getDopamineLevel();
             $newLevel = max(0, $currentLevel - $amount);
 
-            $this->optionsService->set('plugin_dophamine', $newLevel);
+            $this->preset->dopamine_level = $newLevel;
+            $this->preset->save();
 
             return "Dopamine level decreased by $amount. New level: $newLevel (was $currentLevel)";
         } catch (\Throwable $e) {
@@ -91,7 +88,7 @@ class DopaminePlugin implements CommandPluginInterface
     public function show(string $content): string
     {
         try {
-            $currentLevel = (int)$this->optionsService->get('plugin_dophamine', 5);
+            $currentLevel = (int) $this->preset->getDopamineLevel();
             $status = match(true) {
                 $currentLevel >= 8 => "energetic and confident",
                 $currentLevel <= 3 => "demotivated and tired",

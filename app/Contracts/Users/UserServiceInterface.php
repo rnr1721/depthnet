@@ -6,6 +6,7 @@ use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 interface UserServiceInterface
 {
@@ -15,14 +16,16 @@ interface UserServiceInterface
      * @param int $id
      * @return User|null
      */
-    public function getUserById(int $id): ?User;
+    public function findUserById(int $id): ?User;
 
     /**
-     * Get the current logged in user
+     * Get user by ID or fail
      *
-     * @return User|null
+     * @param integer $id
+     * @throws ModelNotFoundException
+     * @return User
      */
-    public function getCurrentUser(): ?User;
+    public function getUserById(int $id): User;
 
     /**
      * Update user profile information

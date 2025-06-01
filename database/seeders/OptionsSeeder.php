@@ -23,13 +23,6 @@ class OptionsSeeder extends Seeder
                 'is_system' => true,
             ],
             [
-                'key' => 'system_start_message',
-                'value' => 'I am your AI assistant. How can I help you today? [[dopamine_level]], [[notepad_content]], [[current_datetime]], [[command_instructions]]',
-                'type' => 'string',
-                'description' => 'System start message for AI agent',
-                'is_system' => true,
-            ],
-            [
                 'key' => 'plugin_notepad_content',
                 'value' => 'Here is your notepad content. You can add notes here.',
                 'type' => 'string',

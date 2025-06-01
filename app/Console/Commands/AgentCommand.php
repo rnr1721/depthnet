@@ -7,6 +7,11 @@ use Illuminate\Console\Command;
 
 class AgentCommand extends Command
 {
+    private const CHAT_ACTIVE_KEY = 'chat_active';
+    private const PRESET_ID_KEY = 'preset_id';
+    private const MODE_KEY = 'mode';
+    private const IS_LOCKED_KEY = 'is_locked';
+
     protected $signature = 'agent {action : start|stop|status} {--json : Output as JSON (status only)}';
 
     protected $description = 'Manage agent thinking process (start|stop|status)';
@@ -33,7 +38,7 @@ class AgentCommand extends Command
         $this->info('Force starting agent (ensuring it works)...');
 
         $success = $agentJobService->updateModelSettings(
-            $settings['model_default'],
+            $settings[self::PRESET_ID_KEY],
             true
         );
 
@@ -54,7 +59,7 @@ class AgentCommand extends Command
         $settings = $agentJobService->getModelSettings();
         $this->displayStatusTable($settings);
 
-        if (!$settings['model_active']) {
+        if (!$settings[self::CHAT_ACTIVE_KEY]) {
             $this->info('Agent is already inactive');
             return 0;
         }
@@ -62,7 +67,7 @@ class AgentCommand extends Command
         $this->info('Force stopping agent (complete shutdown)...');
 
         $success = $agentJobService->updateModelSettings(
-            $settings['model_default'],
+            $settings[self::PRESET_ID_KEY],
             false
         );
 
@@ -107,10 +112,10 @@ class AgentCommand extends Command
     private function displayStatusTable(array $settings): void
     {
         $this->table(['Setting', 'Value', 'Status'], [
-            ['Model Active', $settings['model_active'] ? 'Yes' : 'No', $settings['model_active'] ? '+' : '-'],
-            ['Current Model', $settings['model_default'], ''],
-            ['Agent Mode', $settings['model_agent_mode'], $settings['model_agent_mode'] === 'looped' ? 'looped' : 'single'],
-            ['Is Locked', $settings['is_locked'] ? 'Yes' : 'No', $settings['is_locked'] ? '+' : '-'],
+            ['Model Active', $settings[self::CHAT_ACTIVE_KEY] ? 'Yes' : 'No', $settings[self::CHAT_ACTIVE_KEY] ? '+' : '-'],
+            ['Current Model', $settings['preset_id'], ''],
+            ['Agent Mode', $settings[self::MODE_KEY], $settings[self::MODE_KEY] === 'looped' ? 'looped' : 'single'],
+            ['Is Locked', $settings[self::IS_LOCKED_KEY] ? 'Yes' : 'No', $settings[self::IS_LOCKED_KEY] ? '+' : '-'],
         ]);
     }
 
@@ -131,7 +136,7 @@ class AgentCommand extends Command
 
     private function displayRecommendations(array $settings): void
     {
-        if (!$settings['model_active']) {
+        if (!$settings[self::CHAT_ACTIVE_KEY]) {
             $this->warn('Model is inactive. Use "agent start" to begin thinking cycles.');
         } elseif ($settings['is_locked']) {
             $this->info('Agent is currently thinking...');

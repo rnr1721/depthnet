@@ -4,6 +4,7 @@ namespace App\Services\Auth;
 
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\User;
+use Illuminate\Auth\AuthManager;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Auth\PasswordBroker as PasswordBrokerContract;
@@ -16,10 +17,27 @@ class AuthService implements AuthServiceInterface
 {
     public function __construct(
         protected User $userModel,
-        protected AuthFactory $auth,
+        protected AuthFactory $authFactory,
+        protected AuthManager $authManager,
         protected Hasher $hasher,
         protected PasswordBrokerContract $passwordBroker
     ) {
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getCurrentUser(): ?User
+    {
+        return $this->authManager->user();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getCurrentUserId(): ?int
+    {
+        return $this->authManager->id();
     }
 
     /**
@@ -33,7 +51,7 @@ class AuthService implements AuthServiceInterface
             'password' => $credentials['password']
         ];
 
-        if ($this->auth->attempt($loginCredentials, $remember)) {
+        if ($this->authFactory->attempt($loginCredentials, $remember)) {
             return true;
         }
 
@@ -53,7 +71,7 @@ class AuthService implements AuthServiceInterface
             'password' => $this->hasher->make($userData['password']),
         ]);
 
-        $this->auth->login($user);
+        $this->authFactory->login($user);
 
         return $user;
     }
@@ -63,7 +81,7 @@ class AuthService implements AuthServiceInterface
      */
     public function logout(Session $session): void
     {
-        $this->auth->logout();
+        $this->authFactory->logout();
         $session->invalidate();
         $session->regenerateToken();
     }

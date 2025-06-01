@@ -40,7 +40,7 @@ class DopaminePlugin implements CommandPluginInterface
                 : $this->penalty((string)$amount);
         }
 
-        return "Invalid format. Use 'reward N' or 'penalty N' where N is 1-5.";
+        return "Invalid format. Use '[dopamine reward]N[/dopamine]' or '[dopamine penalty]N[/dopamine]' where N is 1-5.";
     }
 
     public function reward(string $content): string

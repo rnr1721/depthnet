@@ -128,7 +128,9 @@ return [
             'name' => 'Mock',
             'description' => 'Mock engine for development and testing',
             'engine_name' => 'mock',
-            'system_prompt' => 'You are useful AI assistant',
+            'system_prompt' => "You are useful AI assistant\nDopamine level: [[dopamine_level]]\nYou know: [[notepad_content]]\nCurrent datetime: [[current_datetime]]\nCommand instructions: [[command_instructions]]\n",
+            'notes' => 'Today I need to create new project',
+            'dopamine_level' => '5',
             'engine_config' => [
                 'processing_delay' => 1,
                 'scenario_mode' => 'random',

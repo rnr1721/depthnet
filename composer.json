@@ -2,7 +2,7 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "rnr1721/depthnet",
     "type": "project",
-    "description": "An experimental AI agent system for creating autonomous digital life",
+    "description": "Laravel-based autonomous AI agent platform with cyclic thinking, persistent memory and real-time code execution",
     "homepage": "https://github.com/rnr1721",
     "keywords": [
         "laravel",

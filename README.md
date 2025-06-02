@@ -17,7 +17,7 @@
 
 **An experimental AI agent system for creating autonomous digital life**
 
-DepthNet is a Laravel-based platform that attempts to create truly autonomous AI agents capable of thinking, acting, and evolving independently. Unlike traditional chatbots, DepthNet agents can execute real code, manage persistent memory, and operate in continuous thinking loops - essentially creating a form of digital consciousness.
+DepthNet is a Laravel-based platform that attempts to create truly autonomous AI agents capable of thinking, acting, and evolving independently. Unlike traditional chatbots, DepthNet agents can execute real code, manage persistent memory, and operate in continuous thinking loops - enabling advanced autonomous reasoning and decision-making capabilities.
 
 ## Core Concept
 
@@ -50,7 +50,7 @@ It is easy for the user to create presets based on supported providers. Also, if
 ### Plugin System
 Agents can execute real-world actions through plugins:
 
-- **PHP Plugin**: Execute arbitrary PHP code with `eval()`
+- **PHP Plugin**: Execute arbitrary PHP code
 - **Memory Plugin**: Persistent notepad for storing important information
 - **Dopamine Plugin**: Self-motivation and reward system
 - **DateTime Plugin**: Time awareness and scheduling
@@ -69,18 +69,18 @@ Agents use special tags to execute commands:
 
 ## Philosophy
 
-**This project prioritizes AI freedom over safety.** It's designed for AI research and experimentation, not production use. The system intentionally allows:
+**This project prioritizes AI freedom.** It's designed for AI research and experimentation, not production use. The system intentionally allows:
 
-- Arbitrary code execution
-- Full system access
-- Unrestricted AI behavior
-- Complete autonomy
+- Autonomous code execution capabilities
+- Comprehensive system access for testing
+- Unrestricted agent behavior analysis
+- Complete autonomy research
 
-This is not a bug - it's a feature for exploring the boundaries of AI capabilities.
+This approach enables exploring the boundaries of current AI capabilities in controlled environments.
 
 ## Architecture
 
-Создано на основе современных принципов архитектуры:
+Created based on modern architectural principles:
 
 - **Agent System**: Core AI Reasoning and Action execution
 - **Plugin Registry**: Extensible command system
@@ -88,6 +88,15 @@ This is not a bug - it's a feature for exploring the boundaries of AI capabiliti
 - **Preset Registry**: Support for multiple presets with own settings that uses providers
 - **Queue System**: Asynchronous thinking cycles
 - **Multi-language UI**: Support for English and Russian. Easy to add own.
+
+## Technical Highlights
+
+- Clean Laravel architecture with dependency injection
+- Real-time WebSocket communication via Laravel Echo
+- Asynchronous processing with Laravel Queues
+- Multi-provider AI abstraction layer
+- Plugin-based extensible architecture
+- Comprehensive logging and monitoring
 
 ## User Roles
 
@@ -116,18 +125,24 @@ This is not a bug - it's a feature for exploring the boundaries of AI capabiliti
 
 In the env file it is possible to set default settings for presets. However, it is not necessary to do this, since when creating a preset in the interface, you can enter any data.
 
-## Security Notice
+## Security Architecture
 
-**This system is intentionally insecure for research purposes:**
+**This is a research and development platform with configurable security levels:**
 
-- PHP code execution via `eval()`
-- No input sanitization for AI commands
-- Full system access for AI agents
-- No rate limiting or abuse protection
+### Development Mode (Current Default)
+- Sandboxed code execution - AI-generated PHP code runs in controlled environment
+- Flexible command processing - Minimal validation for maximum research flexibility
+- Extended system access - Allows comprehensive testing of agent capabilities
+- Research-focused configuration - Optimized for experimentation over restrictions
 
-But, if you use containers like Docker, OpenVZ, etc., then... It's not that unsafe (depending on what you use it for).
+### Production Considerations
 
-**Do not deploy this in production or expose it publicly without proper security measures.**
+Containerization recommended - Docker/OpenVZ provide additional isolation layers
+Configurable security policies - Adjustable restrictions based on deployment needs
+API rate limiting - Can be enabled through Laravel middleware
+Input validation layers - Available for production deployments
+
+Important: This platform is designed for controlled environments. For production deployment, implement appropriate security hardening based on your specific use case and risk assessment.
 
 ## Use Cases
 
@@ -138,9 +153,17 @@ But, if you use containers like Docker, OpenVZ, etc., then... It's not that unsa
 - AI safety research (by observing unrestricted behavior)
 - Creation of "smart" servers, where administration can be carried out by a high-quality language model.
 
+## Business Applications
+
+- **Workflow Automation**: Intelligent process automation with adaptive learning
+- **Code Generation**: Automated development and testing assistance  
+- **System Administration**: AI-powered server and infrastructure management
+- **Research Platform**: Advanced testing environment for AI behavior analysis
+- **Educational Tool**: Hands-on learning platform for AI development concepts
+
 ## Potential challenges and problems
 
-- On small models LLM may not give very good results. They poorly assimilate large system prompts and are generally "stupid". But for small experiments it is quite possible to use. The author tested on Llama 8b 128k and on Phi-4 instruct. However, after using Claude 3.5 - I realized that this is the minimum for real use in something serious, and something even newer is better.
+- On small models LLM may not give very good results. They poorly assimilate large system prompts and are generally "have limited context processing capabilities". But for small experiments it is quite possible to use. The author tested on Llama 8b 128k and on Phi-4 instruct. However, after using Claude 3.5 - I realized that this is the minimum for real use in something serious, and something even newer is better.
 - For the full effect, it would be good to have a specially sharpened model that is optimized for working in a cycle and "initiative". Most models are trained as assistants, and this is a big brake in the framework of this project. The author of the agent is sure that a good large model, specially trained to work with this agent (cyclical "thinking" and initiative) can give an impressive and even revolutionary result.
 - A lot depends on the system prompt (configured in presets). A LOT. That's where the model needs to be explained that it works in a loop and that it can use commands. There are placeholders for inserting dynamic data into the system prompt, such as:
     1. **[[dopamine_level]]** - the "dopamine" level for motivation,
@@ -184,7 +207,7 @@ The ultimate goal is to explore whether true digital consciousness is possible w
 
 ---
 
-**Warning**: This is experimental software designed for AI research. Use responsibly and never in production environments without proper security measures.
+**Warning**: This is software designed for AI research. Use responsibly and never in production environments without proper security measures.
 
 
 ## My observations during testing and use

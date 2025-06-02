@@ -91,12 +91,10 @@ Created based on modern architectural principles:
 
 ## Technical Highlights
 
-- Clean Laravel architecture with dependency injection
-- Real-time WebSocket communication via Laravel Echo
+- Flexible Laravel architecture with dependency injection
 - Asynchronous processing with Laravel Queues
 - Multi-provider AI abstraction layer
 - Plugin-based extensible architecture
-- Comprehensive logging and monitoring
 
 ## User Roles
 

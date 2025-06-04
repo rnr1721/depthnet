@@ -60,4 +60,10 @@ class PHPPlugin implements CommandPluginInterface
             'Try-catch example: [php]try { $result = 10/0; } catch(DivisionByZeroError $e) { echo "Error: " . $e->getMessage(); }[/php]'
         ];
     }
+
+    public function getMergeSeparator(): ?string
+    {
+        return "\n";
+    }
+
 }

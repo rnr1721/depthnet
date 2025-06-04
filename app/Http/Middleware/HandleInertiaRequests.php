@@ -3,7 +3,6 @@
 namespace App\Http\Middleware;
 
 use App\Contracts\Chat\ChatServiceInterface;
-use App\Contracts\Settings\OptionsServiceInterface;
 use App\Contracts\Users\UserServiceInterface;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -41,7 +40,6 @@ class HandleInertiaRequests extends Middleware
 
         $userService = app(UserServiceInterface::class);
         $chatService = app(ChatServiceInterface::class);
-        $optionsService = app(OptionsServiceInterface::class);
 
         return array_merge(parent::share($request), [
             'auth' => [
@@ -55,7 +53,6 @@ class HandleInertiaRequests extends Middleware
             'app_name' => config('app.name'),
             'users_count' => $userService->getUserCount(),
             'messages_count' => $chatService->getMessagesCount(),
-            'current_model' => $optionsService->get('model_default', 'mock'),
             'locale' => app()->getLocale(),
         ]);
     }

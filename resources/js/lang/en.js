@@ -30,7 +30,7 @@ export default {
   welcome_feature2_description: "If you hardware allow it",
   welcome_feature3_title: "Anything is possible",
   welcome_feature3_description: "This is not a joke",
-  welcome_current_model: "Model",
+  welcome_current_preset: "Preset",
   welcome_users: "Users",
   welcome_messages: "Messages",
   login_welcome: "Welcome! Please login using your account",
@@ -111,6 +111,8 @@ export default {
   settings_timeout_between_requests_desc: "The time in seconds that the agent will wait before sending the next request to the model. This can be used to simulate a more natural conversation flow.",
   settings_site_locale: "Site Language",
   settings_site_locale_desc: "The language in which the site will be displayed.",
+  settings_command_parser_mode: "Parser mode",
+  settings_command_parser_mode_desc: "Commands will be executed in order, one by one, or if there are adjacent similar ones, they will be combined into one command.",
   profile_profile_settings: "Profile Settings",
   profile_profile_info: "Profile Information",
   profile_name: "Name",
@@ -309,6 +311,6 @@ export default {
   p_modal_notes_ph: "For example: Today it is necessary to take over the world.",
   p_modal_notes_desc: "With the help of the memory plugin, the agent can write something to its memory. Add, rewrite, clear. Everything that the plugin writes can be put into the system prompt via the [[notepad_content]] placeholder and the model will sort of know it.",
   p_modal_plugins_disabled: "Disabled plugins",
-  p_modal_disabled_plugins_desc: "Specify the plugins you want to disable for this preset, separated by commas. These can be php, memory, dopamine, datetime plugins. The agent will not be able to execute these plugins, and they will not be included in the plugin usage instructions, which can be inserted into the system prompt using the [[command_instructions]] placeholder.",
-  p_modal_disabled_plugins_ph: "example: php,datetime,memory"
+  p_modal_disabled_plugins_desc: "Specify the plugins you want to disable for this preset, separated by commas. These can be php, memory, dopamine plugins. The agent will not be able to execute these plugins, and they will not be included in the plugin usage instructions, which can be inserted into the system prompt using the [[command_instructions]] placeholder.",
+  p_modal_disabled_plugins_ph: "example: php,memory"
 }

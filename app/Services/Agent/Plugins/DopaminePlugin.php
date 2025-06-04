@@ -23,41 +23,24 @@ class DopaminePlugin implements CommandPluginInterface
     public function getInstructions(): array
     {
         return [
-            'Get the dopamine if your activity is success: [dopamine reward]1[/dopamine]',
-            'Remove the dopamine if your activity is not success: [dopamine penalty]1[/dopamine]',
+            'Get the dopamine if your activity is success: [dopamine reward][/dopamine]',
+            'Remove the dopamine if your activity is not success: [dopamine penalty][/dopamine]',
         ];
     }
 
     public function execute(string $content): string
     {
-        // Parse "reward 3" or "penalty 2" format
-        if (preg_match('/^(reward|penalty)\s+(\d+)$/i', trim($content), $matches)) {
-            $action = strtolower($matches[1]);
-            $amount = (int)$matches[2];
-
-            return $action === 'reward'
-                ? $this->reward((string)$amount)
-                : $this->penalty((string)$amount);
-        }
-
-        return "Invalid format. Use '[dopamine reward]N[/dopamine]' or '[dopamine penalty]N[/dopamine]' where N is 1-5.";
+        return "Invalid format. Use '[dopamine reward][/dopamine]' or '[dopamine penalty][/dopamine]'";
     }
 
     public function reward(string $content): string
     {
         try {
-            $amount = (int)$content;
-            if ($amount < 1 || $amount > 5) {
-                return "Reward amount must be between 1 and 5.";
-            }
-
             $currentLevel = $this->preset->getDopamineLevel();
-            $newLevel = min(10, $currentLevel + $amount);
-
+            $newLevel = min(10, $currentLevel + 1); // всегда +1
             $this->preset->dopamine_level = $newLevel;
             $this->preset->save();
-
-            return "Dopamine level increased by $amount. New level: $newLevel (was $currentLevel)";
+            return "Dopamine level increased to $newLevel";
         } catch (\Throwable $e) {
             Log::error("DopaminePlugin::reward error: " . $e->getMessage());
             return "Error adjusting dopamine: " . $e->getMessage();
@@ -67,38 +50,20 @@ class DopaminePlugin implements CommandPluginInterface
     public function penalty(string $content): string
     {
         try {
-            $amount = (int)$content;
-            if ($amount < 1 || $amount > 5) {
-                return "Penalty amount must be between 1 and 5.";
-            }
-
             $currentLevel = (int) $this->preset->getDopamineLevel();
-            $newLevel = max(0, $currentLevel - $amount);
-
+            $newLevel = max(0, $currentLevel - 1); // всегда -1
             $this->preset->dopamine_level = $newLevel;
             $this->preset->save();
-
-            return "Dopamine level decreased by $amount. New level: $newLevel (was $currentLevel)";
+            return "Dopamine level decreased to $newLevel";
         } catch (\Throwable $e) {
             Log::error("DopaminePlugin::penalty error: " . $e->getMessage());
             return "Error adjusting dopamine: " . $e->getMessage();
         }
     }
 
-    public function show(string $content): string
+    public function getMergeSeparator(): ?string
     {
-        try {
-            $currentLevel = (int) $this->preset->getDopamineLevel();
-            $status = match(true) {
-                $currentLevel >= 8 => "energetic and confident",
-                $currentLevel <= 3 => "demotivated and tired",
-                default => "balanced"
-            };
-
-            return "Current dopamine level: $currentLevel (feeling $status)";
-        } catch (\Throwable $e) {
-            Log::error("DophaminePlugin::show error: " . $e->getMessage());
-            return "Error reading dopamine level: " . $e->getMessage();
-        }
+        return null;
     }
+
 }

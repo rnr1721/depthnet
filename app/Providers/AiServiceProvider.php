@@ -15,15 +15,16 @@ use Illuminate\Support\ServiceProvider;
 use App\Services\Agent\Plugins\PHPPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use Illuminate\Database\ConnectionInterface;
-use App\Services\Agent\Plugins\DateTimePlugin;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\AgentJobService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandParser;
+use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandValidator;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\Engines\ClaudeModel;
@@ -31,6 +32,7 @@ use App\Services\Agent\Engines\LocalModel;
 use App\Services\Agent\Engines\MockModel;
 use App\Services\Agent\Engines\OpenAIModel;
 use App\Services\Agent\Plugins\DopaminePlugin;
+use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetService;
 use Psr\Log\LoggerInterface;
@@ -44,16 +46,25 @@ class AiServiceProvider extends ServiceProvider
     {
         $this->app->bind(AgentJobServiceInterface::class, AgentJobService::class);
         $this->app->bind(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
-        $this->app->bind(CommandParserInterface::class, CommandParser::class);
+        $this->app->bind(CommandParserInterface::class, function ($app) {
+            $options = $app->make(OptionsServiceInterface::class);
+            $parserMode = $options->get('agent_command_parser_mode', 'smart');
+            switch ($parserMode) {
+                case 'smart':
+                    return $app->make(CommandParserSmart::class);
+                    break;
+            }
+            return $app->make(CommandParser::class);
+        });
         $this->app->bind(CommandExecutorInterface::class, CommandExecutor::class);
         $this->app->bind(CommandValidatorInterface::class, CommandValidator::class);
 
         $this->app->singleton(PluginRegistryInterface::class, function ($app) {
             $registry = new PluginRegistry();
             $registry->register($app->make(PHPPlugin::class));
-            $registry->register($app->make(DateTimePlugin::class));
             $registry->register($app->make(MemoryPlugin::class));
             $registry->register($app->make(DopaminePlugin::class));
+            $registry->register($app->make(ShellPlugin::class));
             return $registry;
         });
 

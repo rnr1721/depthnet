@@ -16,6 +16,13 @@ class OptionsSeeder extends Seeder
         $options = [
             // Agent Settings
             [
+                'key' => 'agent_command_parser_mode',
+                'value' => 'smart',
+                'type' => 'string',
+                'description' => 'Default agent command parser',
+                'is_system' => true,
+            ],
+            [
                 'key' => 'model_default',
                 'value' => 'mock',
                 'type' => 'string',

@@ -100,18 +100,18 @@ class CommandExecutor implements CommandExecutorInterface
 
         foreach ($results as $i => $result) {
             $command = $result->command;
-            $methodDisplay = $command->method === 'execute' ? '' : " {$command->method}";
+            //$methodDisplay = $command->method === 'execute' ? '' : " {$command->method}";
 
-            $formatted .= "SUCCESS: Command " . ($i + 1) . ": {$command->plugin}{$methodDisplay}\n";
+            //$formatted .= "SUCCESS: Command " . ": {$command->plugin}{$methodDisplay}\n";
 
             if (!empty($command->content)) {
                 //$formatted .= "Input:\n" . $command->content . "\n\n";
             }
 
             if ($result->success) {
-                $formatted .= "Result: \n" . $result->result . "\n\n";
+                $formatted .= "Result of command {$command->plugin} {$command->method} \n" . $result->result . "\n\n";
             } else {
-                $formatted .= "ERROR: " . $result->error . "\n\n";
+                $formatted .= "Error in command: {$command->plugin} {$command->method} \n" . $result->error . "\n\n";
             }
 
             $formatted .= str_repeat("-", 30) . "\n\n";

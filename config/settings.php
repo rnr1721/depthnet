@@ -3,6 +3,20 @@
 return [
     'fields' => [
 
+        'agent_command_parser_mode' => [
+            'type' => 'select',
+            'label' => 'settings_command_parser_mode',
+            'description' => 'settings_command_parser_mode_desc',
+            'default' => 'smart',
+            'validation' => 'required|string|in:simple,smart',
+            'group' => 'agent_settings',
+            'order' => 2,
+            'options' => [
+                'simple' => 'Separate commands',
+                'smart' => 'Glue similar commands'
+            ],
+        ],
+
         'model_reply_from_model' => [
             'type' => 'input',
             'input_type' => 'text',

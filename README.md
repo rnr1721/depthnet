@@ -53,7 +53,7 @@ Agents can execute real-world actions through plugins:
 - **PHP Plugin**: Execute arbitrary PHP code
 - **Memory Plugin**: Persistent notepad for storing important information
 - **Dopamine Plugin**: Self-motivation and reward system
-- **DateTime Plugin**: Time awareness and scheduling
+- **Shell Plugin**: Execute shell commands
 
 In the future, it is planned to add plugins for executing Javascript and Python code. The system architecture allows you to easily write and add your own plugins. In the future, it is planned to add the installation of your plugins via composer, as well as individual plugin settings in the admin panel.
 

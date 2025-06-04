@@ -67,4 +67,12 @@ interface CommandPluginInterface
      */
     public function getInstructions(): array;
 
+    /**
+     * Separator for merge similar commands
+     * Used in smart command parser
+     *
+     * @return string|null Null will be "\n"
+     */
+    public function getMergeSeparator(): ?string;
+
 }

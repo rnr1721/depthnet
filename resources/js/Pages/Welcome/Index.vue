@@ -294,7 +294,7 @@ const features = [
 
 // Stats data (for authenticated users)
 const stats = [
-  { value: page.props.current_model, label: t('welcome_current_model') },
+  { value: page.props.defaultPresetName, label: t('welcome_current_preset') },
   { value: page.props.users_count, label: t('welcome_users') },
   { value: page.props.messages_count, label: t('welcome_messages') }
 ];

@@ -38,8 +38,12 @@ class CommandInstructionBuilder implements CommandInstructionBuilderInterface
             $instructions .= str_repeat("-", 40) . "\n\n";
         }
 
-        $instructions .= "IMPORTANT: Always use proper command syntax with opening and closing tags!";
-
+        $instructions .= "CRITICAL RULES FOR COMMANDS:\n";
+        $instructions .= "- NEVER write 'AGENT COMMAND RESULTS' - system adds them automatically\n";
+        $instructions .= "- NEVER invent or imitate the output of commands.\n";
+        $instructions .= "- ALWAYS pay attention to the output of commands\n";
+        $instructions .= "- Wait for real results before continuing\n\n";
+        $instructions .= "- Always use proper command syntax with opening and closing tags!\n\n";
         return $instructions;
     }
 }

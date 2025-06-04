@@ -7,14 +7,12 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\WelcomeController;
 use App\Http\Middleware\AdminMiddleware;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
 // Mainpage route
-Route::get('/', function () {
-    return Inertia::render('Welcome/Index');
-})->name('home');
+Route::get('/', [WelcomeController::class,'index'])->name('home');
 
 // Authentication routes
 Route::middleware('guest')->group(function () {

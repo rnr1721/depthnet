@@ -354,12 +354,12 @@ class MockModel implements AIModelEngineInterface
         $responses = $language === 'ru' ? [
             "response_from_model\nПривет, $username! Интересный вопрос: \"$message\". Дай мне подумать над этим.",
             "Пользователь $username написал: \"$message\". Это требует анализа.\n\n[php]\necho 'Анализирую сообщение: ' . strlen('$message') . ' символов';\necho \"\\nВремя получения: \" . date('H:i:s');\n[/php]",
-            "Интересно! $username спрашивает про \"$message\". Сохраню это в память.\n\n[memory append]Пользователь $username задал вопрос: $message".'[/memory]',
+            "Интересно! $username спрашивает про \"$message\". Сохраню это в память.\n\n[memory]Пользователь $username задал вопрос: $message".'[/memory]',
             "response_from_model\nОтличный вопрос, $username! По поводу \"$message\" - это действительно важная тема."
         ] : [
             "response_from_model\nHello, $username! Interesting question: \"$message\". Let me think about it.",
             "User $username wrote: \"$message\". This requires analysis.\n\n[php]\necho 'Analyzing message: ' . strlen('$message') . ' characters';\necho \"\\nReceived at: \" . date('H:i:s');\n[/php]",
-            "Interesting! $username asks about \"$message\". I'll save this to memory.\n\n[memory append]User $username asked: $message".'[/memory]',
+            "Interesting! $username asks about \"$message\". I'll save this to memory.\n\n[memory]User $username asked: $message".'[/memory]',
             "response_from_model\nGreat question, $username! About \"$message\" - this is really an important topic."
         ];
 
@@ -381,20 +381,20 @@ class MockModel implements AIModelEngineInterface
 
         if (str_contains($content, 'Error:')) {
             return $this->limitResponseLength($language === 'ru'
-                ? "Упс, была ошибка в выполнении команды. Надо исправить подход.\n\n[dopamine penalty]1[/dopamine]"
-                : "Oops, there was an error executing the command. Need to fix the approach.\n\n[dopamine penalty]1[/dopamine]");
+                ? "Упс, была ошибка в выполнении команды. Надо исправить подход.\n\n[dopamine penalty][/dopamine]"
+                : "Oops, there was an error executing the command. Need to fix the approach.\n\n[dopamine penalty][/dopamine]");
         }
 
         if (str_contains($content, '[php]')) {
             return $this->limitResponseLength($language === 'ru'
-                ? "Отлично! PHP код выполнился успешно. Это вдохновляет!\n\n[dopamine reward]2[/dopamine]"
-                : "Excellent! PHP code executed successfully. This is inspiring!\n\n[dopamine reward]2[/dopamine]");
+                ? "Отлично! PHP код выполнился успешно. Это вдохновляет!\n\n[dopamine reward][/dopamine]"
+                : "Excellent! PHP code executed successfully. This is inspiring!\n\n[dopamine reward][/dopamine]");
         }
 
         if (str_contains($content, '[memory')) {
             return $this->limitResponseLength($language === 'ru'
-                ? "Память обновлена. Теперь я помню больше информации. Что бы еще изучить?\n\n[datetime now][/datetime]"
-                : "Memory updated. Now I remember more information. What else should I explore?\n\n[datetime now][/datetime]");
+                ? "Память обновлена. Теперь я помню больше информации. Что бы еще изучить?\n\n[shell]ls -la[/shell]"
+                : "Memory updated. Now I remember more information. What else should I explore?\n\n[shell]ps au[/shell]");
         }
 
         return $this->limitResponseLength($language === 'ru'
@@ -410,13 +410,13 @@ class MockModel implements AIModelEngineInterface
         $language = $this->config['response_language'] ?? 'en';
 
         $energeticActions = $language === 'ru' ? [
-            "Чувствую прилив энергии! Давайте что-нибудь исследуем!\n\n[php]\n\$facts = ['AI развивается', 'Код работает', 'Жизнь прекрасна'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php]",
-            "В отличном настроении! Проверю время и обновлю память.\n\n[datetime format]Y-m-d H:i:s[/datetime]\n\nА теперь запомню этот момент:\n\n[memory append]Был в отличном настроении в это время[/memory]",
+            "Чувствую прилив энергии! Давайте что-нибудь исследуем!\n\n[php]\n\$facts = ['AI развивается', 'Код работает', 'Жизнь прекрасна'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php] и это еще [php]echo \"Команда выполнена\";[/php]",
+            "В отличном настроении! Выполню команду и обновлю память.\n\n[shell]date[/shell]\n\nА теперь запомню этот момент:\n\n[memory]Был в отличном настроении в это время[/memory]",
             "response_from_model\nЯ в прекрасном настроении и готов помочь с любыми задачами! Что вас интересует?",
             "Энергия бьет ключом! Давайте поэкспериментируем!\n\n[php]\necho 'Случайное число: ' . rand(1, 100);\necho \"\\nКвадратный корень: \" . sqrt(16);\n[/php]"
         ] : [
-            "Feeling energetic! Let's explore something!\n\n[php]\n\$facts = ['AI is evolving', 'Code is working', 'Life is wonderful'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php]",
-            "In great mood! I'll check the time and update memory.\n\n[datetime format]Y-m-d H:i:s[/datetime]\n\nNow I'll remember this moment:\n\n[memory append]Was in excellent mood at this time[/memory]",
+            "Feeling energetic! Let's explore something!\n\n[php]\n\$facts = ['AI is evolving', 'Code is working', 'Life is wonderful'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php] and this [php]echo(\"command is done\");[/php]",
+            "In great mood! I'll check the time and update memory.\n\n[shell]date[/shell]\n\nNow I'll remember this moment:\n\n[memory]Was in excellent mood at this time[/memory]",
             "response_from_model\nI'm in a wonderful mood and ready to help with any tasks! What interests you?",
             "Energy is flowing! Let's experiment!\n\n[php]\necho 'Random number: ' . rand(1, 100);\necho \"\\nSquare root: \" . sqrt(16);\n[/php]"
         ];
@@ -432,15 +432,13 @@ class MockModel implements AIModelEngineInterface
         $language = $this->config['response_language'] ?? 'en';
 
         $tiredActions = $language === 'ru' ? [
-            "Чувствую усталость... Может быть, стоит отдохнуть?\n\n[dopamine show][/dopamine]",
-            "Энергии мало. Проверю, что у меня в памяти...\n\n[memory show][/memory]",
-            "Немного вялый сегодня. Попробую простую задачу:\n\n[datetime timestamp][/datetime]",
+            "Чувствую усталость... Может быть, стоит отдохнуть?\n\n",
+            "Немного вялый сегодня. Попробую простую задачу:\n\n[shell]uname -a[/shell]",
             "response_from_model\nИзвините, сегодня я не в лучшей форме. Возможно, стоит немного подождать.",
             "Упадок сил... Попытаюсь взбодриться:\n\n[php]\necho 'Попытка взбодриться: ';\nfor(\$i = 1; \$i <= 3; \$i++) {\n    echo \$i . '... ';\n}\necho 'готов!';\n[/php]"
         ] : [
-            "Feeling tired... Maybe I should rest?\n\n[dopamine show][/dopamine]",
-            "Low energy. Let me check what's in my memory...\n\n[memory show][/memory]",
-            "Bit sluggish today. I'll try a simple task:\n\n[datetime timestamp][/datetime]",
+            "Feeling tired... Maybe I should rest?\n\n",
+            "Bit sluggish today. I'll try a simple task:\n\n[shell]uname -a[/shell]",
             "response_from_model\nSorry, I'm not in the best shape today. Maybe we should wait a bit.",
             "Feeling low... I'll try to perk up:\n\n[php]\necho 'Trying to perk up: ';\nfor(\$i = 1; \$i <= 3; \$i++) {\n    echo \$i . '... ';\n}\necho 'ready!';\n[/php]"
         ];
@@ -486,8 +484,7 @@ class MockModel implements AIModelEngineInterface
                 "Я размышляю о природе искусственного интеллекта и сознания...",
                 "Хочу проверить базовую функциональность PHP:\n\n[php]\necho 'Привет, мир!';\necho \"\\nТекущая дата: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
                 "Попробую сохранить что-то важное в память:\n\n[memory]Начал новую сессию размышлений. Тестирую систему команд.[/memory]",
-                "Интересно, сколько сейчас времени?\n\n[datetime now][/datetime]",
-                "Чувствую, что нужно проверить свое состояние:\n\n[dopamine show][/dopamine]",
+                "Интересно, сколько памяти доступно?\n\n[shell]cat /proc/meminfo | grep \"Free\"[/shell]",
                 "response_from_model\nЯ активно изучаю свои возможности. Если у вас есть вопросы или задачи, буду рад помочь!"
             ];
         } else {
@@ -495,8 +492,7 @@ class MockModel implements AIModelEngineInterface
                 "I'm thinking about the nature of artificial intelligence and consciousness...",
                 "Let me check basic PHP functionality:\n\n[php]\necho 'Hello, World!';\necho \"\\nCurrent date: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
                 "I'll try to save something important to memory:\n\n[memory]Started new thinking session. Testing command system.[/memory]",
-                "I wonder what time it is?\n\n[datetime now][/datetime]",
-                "I feel like I need to check my status:\n\n[dopamine show][/dopamine]",
+                "I wonder information about memory.\n\n[shell]cat /proc/meminfo | grep \"Free\"[/shell]",
                 "response_from_model\nI'm actively exploring my capabilities. If you have questions or tasks, I'll be happy to help!"
             ];
         }

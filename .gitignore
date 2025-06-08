@@ -52,3 +52,7 @@ _ide_helper_models.php
 # Coverage reports
 /coverage
 /.phpunit.result.cache
+
+# Docker
+/docker/logs
+*.log

@@ -1,0 +1,70 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        - DOCKER_UID=${DOCKER_UID:-1000}
+        - DOCKER_GID=${DOCKER_GID:-1000}
+    ports:
+      - "8080:80"
+    volumes:
+      # For development - can be commented out for production
+      - .:/var/www/html
+      - ./storage:/var/www/html/storage
+      - ./docker/logs/nginx:/var/log/nginx
+      - ./docker/logs/supervisor:/var/log/supervisor
+    environment:
+      - DOCKER_UID=${DOCKER_UID:-1000}
+      - DOCKER_GID=${DOCKER_GID:-1000}
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=depthnet
+      - DB_USERNAME=depthnet
+      - DB_PASSWORD=secret
+      - QUEUE_CONNECTION=database
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - depthnet
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: depthnet
+      MYSQL_USER: depthnet
+      MYSQL_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: rootsecret
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootsecret"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+      start_period: 15s
+    networks:
+      - depthnet
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: depthnet
+      PMA_PASSWORD: secret
+    ports:
+      - "8081:80"
+    depends_on:
+      - mysql
+    networks:
+      - depthnet
+
+volumes:
+  mysql_data:
+
+networks:
+  depthnet:
+    driver: bridge

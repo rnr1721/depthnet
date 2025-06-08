@@ -253,7 +253,7 @@ make start
 
 The application automatically detects your host UID/GID and creates matching user inside container to prevent permission issues:
 
-- Container user: appuser:appgroup
+- Container user: depthnet:depthnet
 - Mapped to your host UID/GID
 - All services (nginx, php-fpm) run under this user
 
@@ -266,13 +266,14 @@ make start      # Build and start all services
 make up         # Start services (without rebuild)
 make down       # Stop all services
 make restart    # Full restart (clean + start)
+make status     # Check status of services
 ```
 
 ### Development
 
 ```bash
 make logs       # View application logs
-make shell      # Access container as appuser
+make shell      # Access container as depthnet
 make rootshell  # Access container as root (troubleshooting)
 ```
 
@@ -303,7 +304,19 @@ docker compose exec app tail -f /var/log/nginx/access.log /var/log/nginx/error.l
 docker compose exec app tail -f /usr/local/var/log/php-fpm.log
 ```
 
-# How to deploy without Docker
+## Default admin account
+
+Admin:
+
+- **login:** admin@example.com
+- **password:** admin123
+
+User:
+
+- **login:** test@example.com
+- **password:** password
+
+# How to deploy without Docker (Manual install)
 
 ### 1. Cloning a repository
 

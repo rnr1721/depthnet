@@ -25,6 +25,7 @@ services:
       - DB_USERNAME=depthnet
       - DB_PASSWORD=secret
       - QUEUE_CONNECTION=database
+    hostname: depthnet
     depends_on:
       mysql:
         condition: service_healthy

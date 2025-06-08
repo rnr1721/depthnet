@@ -37,7 +37,7 @@ Route::middleware('auth')->group(function () {
         Route::delete('message/{messageId}', [ChatController::class, 'deleteMessage'])->name('delete-message');
         Route::post('clear', [ChatController::class, 'clearHistory'])->name('clear');
         Route::get('new-messages/{lastId?}', [ChatController::class, 'getNewMessages'])->name('new-messages');
-        Route::post('/chat/preset-settings', [ChatController::class, 'updatePresetSettings'])->name('preset-settings');
+        Route::post('preset-settings', [ChatController::class, 'updatePresetSettings'])->name('preset-settings');
         Route::post('export', [ChatController::class, 'exportChat'])->middleware(AdminMiddleware::class)->name('export');
         Route::put('preset/{id}', [ChatController::class, 'updatePreset'])->middleware(AdminMiddleware::class)->name('preset.update');
         Route::get('users', [ChatController::class, 'getUsers'])->name('users');

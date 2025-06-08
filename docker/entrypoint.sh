@@ -11,12 +11,6 @@ if ! git config --get core.fileMode | grep -q false; then
     git config core.fileMode false
 fi
 
-# Fix permissions for Laravel directories
-chown -R appuser:appgroup /var/www/html/storage
-chown -R appuser:appgroup /var/www/html/bootstrap/cache
-chmod -R 775 /var/www/html/storage
-chmod -R 775 /var/www/html/bootstrap/cache
-
 # Initialize application if needed (only on first run)
 if [ ! -f /tmp/.app_initialized ]; then
     echo "Initializing application..."

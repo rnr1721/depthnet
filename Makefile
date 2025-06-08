@@ -6,7 +6,7 @@ DOCKER_GID := $(shell id -g)
 
 up:
 	@echo "Using UID: $(DOCKER_UID), GID: $(DOCKER_GID)"
-	DOCKER_UID=$(DOCKER_UID) DOCKER_GID=$(DOCKER_GID) docker compose up -d app
+	DOCKER_UID=$(DOCKER_UID) DOCKER_GID=$(DOCKER_GID) docker compose up -d
 
 down:
 	docker compose down
@@ -20,7 +20,7 @@ logs:
 	docker compose logs -f app
 
 shell:
-	docker compose exec --user appuser app bash
+	docker compose exec --user depthnet app bash
 
 rootshell:
 	docker compose exec app bash

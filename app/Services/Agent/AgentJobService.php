@@ -14,6 +14,7 @@ use Psr\Log\LoggerInterface;
 
 class AgentJobService implements AgentJobServiceInterface
 {
+    private string $queue = 'ai';
     private const LOCK_KEY = 'task_lock';
     private const TIMEOUT_KEY = 'model_timeout_between_requests';
 
@@ -61,7 +62,7 @@ class AgentJobService implements AgentJobServiceInterface
         }
 
         $this->logger->info("AgentJobService: Starting agent thinking process");
-        ProcessAgentThinking::dispatch();
+        ProcessAgentThinking::dispatch()->onQueue($this->queue);
 
         return true;
     }
@@ -200,7 +201,7 @@ class AgentJobService implements AgentJobServiceInterface
     private function scheduleNextCycle(): void
     {
         $thinkingDelay = $this->options->get(self::TIMEOUT_KEY, 15);
-        ProcessAgentThinking::dispatch()->delay($thinkingDelay);
+        ProcessAgentThinking::dispatch()->onQueue($this->queue)->delay($thinkingDelay);
     }
 
     private function lock(): void

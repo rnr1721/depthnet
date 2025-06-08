@@ -318,7 +318,7 @@ Disallow: /
 php artisan key:generate
 ```
 
-### 7. Database migration
+### 7. Database migration and seed data
 
 ```bash
 php artisan migrate
@@ -334,13 +334,19 @@ php artisan db:seed
 php artisan storage:link
 ```
 
-### 9. Build assets
+### 9. Generate Ziggy route data
+
+```bash
+php artisan ziggy:generate
+```
+
+### 10. Build assets
 
 ```bash
 npm run build
 ```
 
-### 10. Setup models settings in .env file
+### 11. Setup models settings in .env file
 
 After setup - thats ALL!
 Your initial credentials for login:

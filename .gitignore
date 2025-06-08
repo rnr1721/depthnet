@@ -28,7 +28,7 @@ yarn-error.log
 /.stuff
 /.devilbox
 /package-lock.json
-
+/resources/js/ziggy.js
 
 # OS generated files
 .DS_Store

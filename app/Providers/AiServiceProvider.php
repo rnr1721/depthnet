@@ -91,51 +91,66 @@ class AiServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register all AI engines
+     * Register all AI engines based on configuration
      */
     protected function registerEngines(EngineRegistryInterface $registry, HttpFactory $httpFactory): void
     {
-        // Always register Mock (for testing)
-        $mock = new MockModel(
-            $httpFactory,
-            config('ai.engines.mock.server_url', 'http://localhost:8080'),
-            config('ai.engines.mock', [])
-        );
-        $registry->register($mock, config('ai.engines.mock.is_default', false));
+        $enginesConfig = config('ai.engines', []);
+        $registeredDefault = false;
 
-        // Register OpenAI if enabled
-        if (config('ai.engines.openai.enabled', false)) {
-            $openai = new OpenAIModel(
-                $httpFactory,
-                config('ai.engines.openai.server_url', 'https://api.openai.com/v1/chat/completions'),
-                config('ai.engines.openai', [])
-            );
-            $registry->register($openai, config('ai.engines.openai.is_default', false));
+        // Register each engine if enabled
+        foreach ($enginesConfig as $engineName => $engineConfig) {
+            if (!($engineConfig['enabled'] ?? false)) {
+                continue;
+            }
+
+            $engine = $this->createEngine($engineName, $httpFactory, $engineConfig);
+            if ($engine) {
+                $isDefault = $engineConfig['is_default'] ?? false;
+                $registry->register($engine, $isDefault);
+
+                if ($isDefault) {
+                    $registeredDefault = true;
+                }
+            }
         }
 
-        // Register Claude if enabled
-        if (config('ai.engines.claude.enabled', false)) {
-            $claude = new ClaudeModel(
-                $httpFactory,
-                config('ai.engines.claude.server_url', 'https://api.anthropic.com/v1/messages'),
-                config('ai.engines.claude', [])
-            );
-            $registry->register($claude, config('ai.engines.claude.is_default', false));
+        // Set fallback default engine if no default was set
+        if (!$registeredDefault) {
+            $fallbackEngine = config('ai.global.fallback_engine', 'mock');
+            if ($registry->has($fallbackEngine)) {
+                $registry->setDefaultEngine($fallbackEngine);
+            }
         }
+    }
 
-        // Register Local models if enabled
-        if (config('ai.engines.local.enabled', false)) {
-            $local = new LocalModel(
-                $httpFactory,
-                config('ai.engines.local.server_url', 'http://localhost:11434'),
-                config('ai.engines.local', [])
-            );
-            $registry->register($local, config('ai.engines.local.is_default', false));
-        }
+    /**
+     * Create an engine instance based on its name and configuration
+     */
+    protected function createEngine(string $engineName, HttpFactory $httpFactory, array $config): ?object
+    {
+        $serverUrl = $config['server_url'] ?? null;
 
-        // Set Mock as default if no other engine is set as default
-        if (!$registry->getDefaultEngineName()) {
-            $registry->setDefaultEngine('mock');
+        switch ($engineName) {
+            case 'mock':
+                return new MockModel($httpFactory, $serverUrl, $config);
+
+            case 'openai':
+                return new OpenAIModel($httpFactory, $serverUrl, $config);
+
+            case 'claude':
+                return new ClaudeModel($httpFactory, $serverUrl, $config);
+
+            case 'local':
+                return new LocalModel($httpFactory, $serverUrl, $config);
+
+            default:
+                // Log warning about unknown engine
+                if ($this->app->bound(LoggerInterface::class)) {
+                    $logger = $this->app->make(LoggerInterface::class);
+                    $logger->warning("Unknown AI engine: {$engineName}");
+                }
+                return null;
         }
     }
 }

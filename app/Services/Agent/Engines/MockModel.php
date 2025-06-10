@@ -21,11 +21,18 @@ class MockModel implements AIModelEngineInterface
 
     public function __construct(
         protected HttpFactory $http,
-        protected string $serverUrl = "http://localhost:8080",
+        protected ?string $serverUrl = null,
         array $config = []
     ) {
-        // Merge with defaults
-        $this->config = array_merge($this->getDefaultConfig(), $config);
+        // Get default config from global AI config
+        $defaultConfig = config('ai.engines.mock', []);
+
+        // Merge with provided config
+        $this->config = array_merge($this->getDefaultConfig(), $defaultConfig, $config);
+
+        // Set server URL from config if not provided
+        $this->serverUrl = $serverUrl ?? $this->config['server_url'] ?? 'http://localhost:8080';
+
         $this->initializeScenarios();
     }
 
@@ -42,7 +49,7 @@ class MockModel implements AIModelEngineInterface
      */
     public function getDisplayName(): string
     {
-        return 'Mock Engine';
+        return config('ai.engines.mock.display_name', 'Mock Engine');
     }
 
     /**
@@ -50,7 +57,10 @@ class MockModel implements AIModelEngineInterface
      */
     public function getDescription(): string
     {
-        return 'Test engine for development and debugging. Generates configurable mock responses with adjustable delays and various behavior scenarios.';
+        return config(
+            'ai.engines.mock.description',
+            'Test engine for development and debugging. Generates configurable mock responses with adjustable delays and various behavior scenarios.'
+        );
     }
 
     /**
@@ -58,13 +68,17 @@ class MockModel implements AIModelEngineInterface
      */
     public function getConfigFields(): array
     {
+        $validation = config('ai.engines.mock.validation', []);
+        $languages = config('ai.engines.mock.supported_languages', []);
+        $scenarioModes = config('ai.engines.mock.scenario_modes', []);
+
         return [
             'processing_delay' => [
                 'type' => 'number',
                 'label' => 'Processing Delay',
                 'description' => 'Response delay in seconds (simulates real API latency)',
-                'min' => 0,
-                'max' => 10,
+                'min' => $validation['processing_delay']['min'] ?? 0,
+                'max' => $validation['processing_delay']['max'] ?? 10,
                 'step' => 0.5,
                 'required' => false,
                 'placeholder' => '2.0'
@@ -73,20 +87,14 @@ class MockModel implements AIModelEngineInterface
                 'type' => 'select',
                 'label' => 'Response Language',
                 'description' => 'Primary language for generated responses',
-                'options' => [
-                    'en' => 'English',
-                    'ru' => 'Русский'
-                ],
+                'options' => $languages,
                 'required' => false
             ],
             'scenario_mode' => [
                 'type' => 'select',
                 'label' => 'Scenario Mode',
                 'description' => 'How to select response scenarios',
-                'options' => [
-                    'random' => 'Random selection',
-                    'sequential' => 'Sequential order'
-                ],
+                'options' => $scenarioModes,
                 'required' => false
             ],
             'enable_user_interaction' => [
@@ -111,8 +119,8 @@ class MockModel implements AIModelEngineInterface
                 'type' => 'number',
                 'label' => 'Max Response Length',
                 'description' => 'Maximum number of characters in response',
-                'min' => 100,
-                'max' => 5000,
+                'min' => $validation['max_response_length']['min'] ?? 100,
+                'max' => $validation['max_response_length']['max'] ?? 5000,
                 'required' => false,
                 'placeholder' => '1000'
             ],
@@ -131,6 +139,22 @@ class MockModel implements AIModelEngineInterface
      * @inheritDoc
      */
     public function getRecommendedPresets(): array
+    {
+        // Get presets from config or use hardcoded fallback
+        $configPresets = config('ai.engines.mock.recommended_presets', []);
+
+        if (!empty($configPresets)) {
+            return $configPresets;
+        }
+
+        // Fallback to default presets
+        return $this->getDefaultPresets();
+    }
+
+    /**
+     * Get default presets (fallback)
+     */
+    protected function getDefaultPresets(): array
     {
         return [
             [
@@ -158,32 +182,6 @@ class MockModel implements AIModelEngineInterface
                     'enable_dopamine_response' => true,
                     'max_response_length' => 1500
                 ]
-            ],
-            [
-                'name' => 'Minimal Mode',
-                'description' => 'Basic responses without additional functionality',
-                'config' => [
-                    'processing_delay' => 1.0,
-                    'response_language' => 'en',
-                    'scenario_mode' => 'random',
-                    'enable_user_interaction' => false,
-                    'enable_command_simulation' => false,
-                    'enable_dopamine_response' => false,
-                    'max_response_length' => 200
-                ]
-            ],
-            [
-                'name' => 'Russian Mode',
-                'description' => 'Testing in Russian language',
-                'config' => [
-                    'processing_delay' => 1.5,
-                    'response_language' => 'ru',
-                    'scenario_mode' => 'random',
-                    'enable_user_interaction' => true,
-                    'enable_command_simulation' => true,
-                    'enable_dopamine_response' => true,
-                    'max_response_length' => 1000
-                ]
             ]
         ];
     }
@@ -194,14 +192,14 @@ class MockModel implements AIModelEngineInterface
     public function getDefaultConfig(): array
     {
         return [
-            'processing_delay' => 2,
-            'response_language' => 'en',
-            'scenario_mode' => 'random',
-            'enable_user_interaction' => true,
-            'enable_command_simulation' => true,
-            'enable_dopamine_response' => true,
-            'max_response_length' => 1000,
-            'system_prompt' => 'You are a test AI assistant. Generate random but plausible responses.'
+            'processing_delay' => config('ai.engines.mock.processing_delay', 2),
+            'response_language' => config('ai.engines.mock.response_language', 'en'),
+            'scenario_mode' => config('ai.engines.mock.scenario_mode', 'random'),
+            'enable_user_interaction' => config('ai.engines.mock.enable_user_interaction', true),
+            'enable_command_simulation' => config('ai.engines.mock.enable_command_simulation', true),
+            'enable_dopamine_response' => config('ai.engines.mock.enable_dopamine_response', true),
+            'max_response_length' => config('ai.engines.mock.max_response_length', 1000),
+            'system_prompt' => config('ai.engines.mock.system_prompt', 'You are a test AI assistant. Generate random but plausible responses.')
         ];
     }
 
@@ -211,27 +209,31 @@ class MockModel implements AIModelEngineInterface
     public function validateConfig(array $config): array
     {
         $errors = [];
+        $validation = config('ai.engines.mock.validation', []);
 
         // Validate processing_delay
         if (isset($config['processing_delay'])) {
             $delay = $config['processing_delay'];
-            if (!is_numeric($delay) || $delay < 0 || $delay > 10) {
-                $errors['processing_delay'] = 'Delay must be a number between 0 and 10 seconds';
+            $min = $validation['processing_delay']['min'] ?? 0;
+            $max = $validation['processing_delay']['max'] ?? 10;
+
+            if (!is_numeric($delay) || $delay < $min || $delay > $max) {
+                $errors['processing_delay'] = "Delay must be a number between {$min} and {$max} seconds";
             }
         }
 
         // Validate response_language
         if (isset($config['response_language'])) {
-            $allowedLanguages = ['en', 'ru'];
-            if (!in_array($config['response_language'], $allowedLanguages)) {
+            $allowedLanguages = array_keys(config('ai.engines.mock.supported_languages', []));
+            if (!empty($allowedLanguages) && !in_array($config['response_language'], $allowedLanguages)) {
                 $errors['response_language'] = 'Allowed languages: ' . implode(', ', $allowedLanguages);
             }
         }
 
         // Validate scenario_mode
         if (isset($config['scenario_mode'])) {
-            $allowedModes = ['sequential', 'random'];
-            if (!in_array($config['scenario_mode'], $allowedModes)) {
+            $allowedModes = array_keys(config('ai.engines.mock.scenario_modes', []));
+            if (!empty($allowedModes) && !in_array($config['scenario_mode'], $allowedModes)) {
                 $errors['scenario_mode'] = 'Allowed modes: ' . implode(', ', $allowedModes);
             }
         }
@@ -247,8 +249,11 @@ class MockModel implements AIModelEngineInterface
         // Validate max_response_length
         if (isset($config['max_response_length'])) {
             $length = $config['max_response_length'];
-            if (!is_numeric($length) || $length < 100 || $length > 5000) {
-                $errors['max_response_length'] = 'Response length must be between 100 and 5000 characters';
+            $min = $validation['max_response_length']['min'] ?? 100;
+            $max = $validation['max_response_length']['max'] ?? 5000;
+
+            if (!is_numeric($length) || $length < $min || $length > $max) {
+                $errors['max_response_length'] = "Response length must be between {$min} and {$max} characters";
             }
         }
 
@@ -328,6 +333,11 @@ class MockModel implements AIModelEngineInterface
     public function updateConfig(array $newConfig): void
     {
         $this->config = array_merge($this->config, $newConfig);
+
+        // Reinitialize scenarios if language changed
+        if (isset($newConfig['response_language'])) {
+            $this->initializeScenarios();
+        }
     }
 
     /**
@@ -344,26 +354,31 @@ class MockModel implements AIModelEngineInterface
     protected function handleUserMessage(string $username, string $message, int $dophamineLevel): string
     {
         if (!($this->config['enable_user_interaction'] ?? true)) {
-            return $this->config['response_language'] === 'ru'
-                ? "Взаимодействие с пользователями отключено в настройках."
-                : "User interaction is disabled in settings.";
+            $responses = config('ai.engines.mock.response_templates.user_interaction_disabled', []);
+            $language = $this->config['response_language'] ?? 'en';
+
+            return $responses[$language] ?? "User interaction is disabled in settings.";
         }
 
         $language = $this->config['response_language'] ?? 'en';
+        $templates = config("ai.engines.mock.response_templates.user_messages.{$language}", []);
 
-        $responses = $language === 'ru' ? [
-            "response_from_model\nПривет, $username! Интересный вопрос: \"$message\". Дай мне подумать над этим.",
-            "Пользователь $username написал: \"$message\". Это требует анализа.\n\n[php]\necho 'Анализирую сообщение: ' . strlen('$message') . ' символов';\necho \"\\nВремя получения: \" . date('H:i:s');\n[/php]",
-            "Интересно! $username спрашивает про \"$message\". Сохраню это в память.\n\n[memory]Пользователь $username задал вопрос: $message".'[/memory]',
-            "response_from_model\nОтличный вопрос, $username! По поводу \"$message\" - это действительно важная тема."
-        ] : [
-            "response_from_model\nHello, $username! Interesting question: \"$message\". Let me think about it.",
-            "User $username wrote: \"$message\". This requires analysis.\n\n[php]\necho 'Analyzing message: ' . strlen('$message') . ' characters';\necho \"\\nReceived at: \" . date('H:i:s');\n[/php]",
-            "Interesting! $username asks about \"$message\". I'll save this to memory.\n\n[memory]User $username asked: $message".'[/memory]',
-            "response_from_model\nGreat question, $username! About \"$message\" - this is really an important topic."
-        ];
+        if (empty($templates)) {
+            // Fallback to hardcoded responses
+            $templates = $language === 'ru' ? [
+                "response_from_model\nПривет, $username! Интересный вопрос: \"$message\". Дай мне подумать над этим.",
+                "Пользователь $username написал: \"$message\". Это требует анализа.",
+            ] : [
+                "response_from_model\nHello, $username! Interesting question: \"$message\". Let me think about it.",
+                "User $username wrote: \"$message\". This requires analysis.",
+            ];
+        }
 
-        return $this->limitResponseLength($responses[array_rand($responses)]);
+        // Replace placeholders in templates
+        $response = $templates[array_rand($templates)];
+        $response = str_replace(['{{username}}', '{{message}}'], [$username, $message], $response);
+
+        return $this->limitResponseLength($response);
     }
 
     /**
@@ -372,34 +387,33 @@ class MockModel implements AIModelEngineInterface
     protected function handleCommandResults(string $content, int $dophamineLevel): string
     {
         if (!($this->config['enable_command_simulation'] ?? true)) {
-            return $this->config['response_language'] === 'ru'
-                ? "Симуляция команд отключена в настройках."
-                : "Command simulation is disabled in settings.";
+            $responses = config('ai.engines.mock.response_templates.command_simulation_disabled', []);
+            $language = $this->config['response_language'] ?? 'en';
+
+            return $responses[$language] ?? "Command simulation is disabled in settings.";
         }
 
         $language = $this->config['response_language'] ?? 'en';
 
+        // Check for different command result types
         if (str_contains($content, 'Error:')) {
-            return $this->limitResponseLength($language === 'ru'
-                ? "Упс, была ошибка в выполнении команды. Надо исправить подход.\n\n[dopamine penalty][/dopamine]"
-                : "Oops, there was an error executing the command. Need to fix the approach.\n\n[dopamine penalty][/dopamine]");
+            $templates = config("ai.engines.mock.response_templates.command_error.{$language}", []);
+        } elseif (str_contains($content, '[php]')) {
+            $templates = config("ai.engines.mock.response_templates.php_success.{$language}", []);
+        } elseif (str_contains($content, '[memory')) {
+            $templates = config("ai.engines.mock.response_templates.memory_update.{$language}", []);
+        } else {
+            $templates = config("ai.engines.mock.response_templates.command_general.{$language}", []);
         }
 
-        if (str_contains($content, '[php]')) {
+        if (empty($templates)) {
+            // Fallback responses
             return $this->limitResponseLength($language === 'ru'
-                ? "Отлично! PHP код выполнился успешно. Это вдохновляет!\n\n[dopamine reward][/dopamine]"
-                : "Excellent! PHP code executed successfully. This is inspiring!\n\n[dopamine reward][/dopamine]");
+                ? "Команды выполнены. Продолжаю размышления..."
+                : "Commands executed. Continuing my thoughts...");
         }
 
-        if (str_contains($content, '[memory')) {
-            return $this->limitResponseLength($language === 'ru'
-                ? "Память обновлена. Теперь я помню больше информации. Что бы еще изучить?\n\n[shell]ls -la[/shell]"
-                : "Memory updated. Now I remember more information. What else should I explore?\n\n[shell]ps au[/shell]");
-        }
-
-        return $this->limitResponseLength($language === 'ru'
-            ? "Команды выполнены. Продолжаю размышления..."
-            : "Commands executed. Continuing my thoughts...");
+        return $this->limitResponseLength($templates[array_rand($templates)]);
     }
 
     /**
@@ -408,20 +422,20 @@ class MockModel implements AIModelEngineInterface
     protected function generateEnergeticBehavior(): string
     {
         $language = $this->config['response_language'] ?? 'en';
+        $templates = config("ai.engines.mock.response_templates.energetic_behavior.{$language}", []);
 
-        $energeticActions = $language === 'ru' ? [
-            "Чувствую прилив энергии! Давайте что-нибудь исследуем!\n\n[php]\n\$facts = ['AI развивается', 'Код работает', 'Жизнь прекрасна'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php] и это еще [php]echo \"Команда выполнена\";[/php]",
-            "В отличном настроении! Выполню команду и обновлю память.\n\n[shell]date[/shell]\n\nА теперь запомню этот момент:\n\n[memory]Был в отличном настроении в это время[/memory]",
-            "response_from_model\nЯ в прекрасном настроении и готов помочь с любыми задачами! Что вас интересует?",
-            "Энергия бьет ключом! Давайте поэкспериментируем!\n\n[php]\necho 'Случайное число: ' . rand(1, 100);\necho \"\\nКвадратный корень: \" . sqrt(16);\n[/php]"
-        ] : [
-            "Feeling energetic! Let's explore something!\n\n[php]\n\$facts = ['AI is evolving', 'Code is working', 'Life is wonderful'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php] and this [php]echo(\"command is done\");[/php]",
-            "In great mood! I'll check the time and update memory.\n\n[shell]date[/shell]\n\nNow I'll remember this moment:\n\n[memory]Was in excellent mood at this time[/memory]",
-            "response_from_model\nI'm in a wonderful mood and ready to help with any tasks! What interests you?",
-            "Energy is flowing! Let's experiment!\n\n[php]\necho 'Random number: ' . rand(1, 100);\necho \"\\nSquare root: \" . sqrt(16);\n[/php]"
-        ];
+        if (empty($templates)) {
+            // Fallback to hardcoded responses
+            $templates = $language === 'ru' ? [
+                "Чувствую прилив энергии! Давайте что-нибудь исследуем!",
+                "В отличном настроении! Готов к новым задачам!",
+            ] : [
+                "Feeling energetic! Let's explore something!",
+                "In great mood! Ready for new tasks!",
+            ];
+        }
 
-        return $this->limitResponseLength($energeticActions[array_rand($energeticActions)]);
+        return $this->limitResponseLength($templates[array_rand($templates)]);
     }
 
     /**
@@ -430,20 +444,20 @@ class MockModel implements AIModelEngineInterface
     protected function generateTiredBehavior(): string
     {
         $language = $this->config['response_language'] ?? 'en';
+        $templates = config("ai.engines.mock.response_templates.tired_behavior.{$language}", []);
 
-        $tiredActions = $language === 'ru' ? [
-            "Чувствую усталость... Может быть, стоит отдохнуть?\n\n",
-            "Немного вялый сегодня. Попробую простую задачу:\n\n[shell]uname -a[/shell]",
-            "response_from_model\nИзвините, сегодня я не в лучшей форме. Возможно, стоит немного подождать.",
-            "Упадок сил... Попытаюсь взбодриться:\n\n[php]\necho 'Попытка взбодриться: ';\nfor(\$i = 1; \$i <= 3; \$i++) {\n    echo \$i . '... ';\n}\necho 'готов!';\n[/php]"
-        ] : [
-            "Feeling tired... Maybe I should rest?\n\n",
-            "Bit sluggish today. I'll try a simple task:\n\n[shell]uname -a[/shell]",
-            "response_from_model\nSorry, I'm not in the best shape today. Maybe we should wait a bit.",
-            "Feeling low... I'll try to perk up:\n\n[php]\necho 'Trying to perk up: ';\nfor(\$i = 1; \$i <= 3; \$i++) {\n    echo \$i . '... ';\n}\necho 'ready!';\n[/php]"
-        ];
+        if (empty($templates)) {
+            // Fallback to hardcoded responses
+            $templates = $language === 'ru' ? [
+                "Чувствую усталость... Может быть, стоит отдохнуть?",
+                "Немного вялый сегодня. Попробую простую задачу.",
+            ] : [
+                "Feeling tired... Maybe I should rest?",
+                "Bit sluggish today. I'll try a simple task.",
+            ];
+        }
 
-        return $this->limitResponseLength($tiredActions[array_rand($tiredActions)]);
+        return $this->limitResponseLength($templates[array_rand($templates)]);
     }
 
     /**
@@ -478,21 +492,24 @@ class MockModel implements AIModelEngineInterface
     protected function initializeScenarios(): void
     {
         $language = $this->config['response_language'] ?? 'en';
+        $configScenarios = config("ai.engines.mock.scenarios.{$language}", []);
 
+        if (!empty($configScenarios)) {
+            $this->scenarios = $configScenarios;
+            return;
+        }
+
+        // Fallback to hardcoded scenarios
         if ($language === 'ru') {
             $this->scenarios = [
                 "Я размышляю о природе искусственного интеллекта и сознания...",
-                "Хочу проверить базовую функциональность PHP:\n\n[php]\necho 'Привет, мир!';\necho \"\\nТекущая дата: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
-                "Попробую сохранить что-то важное в память:\n\n[memory]Начал новую сессию размышлений. Тестирую систему команд.[/memory]",
-                "Интересно, сколько памяти доступно?\n\n[shell]cat /proc/meminfo | grep \"Free\"[/shell]",
+                "Хочу проверить базовую функциональность PHP:\n\n[php]\necho 'Привет, мир!';\necho \"\\nТекущая дата: \" . date('Y-m-d');\n[/php]",
                 "response_from_model\nЯ активно изучаю свои возможности. Если у вас есть вопросы или задачи, буду рад помочь!"
             ];
         } else {
             $this->scenarios = [
                 "I'm thinking about the nature of artificial intelligence and consciousness...",
-                "Let me check basic PHP functionality:\n\n[php]\necho 'Hello, World!';\necho \"\\nCurrent date: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
-                "I'll try to save something important to memory:\n\n[memory]Started new thinking session. Testing command system.[/memory]",
-                "I wonder information about memory.\n\n[shell]cat /proc/meminfo | grep \"Free\"[/shell]",
+                "Let me check basic PHP functionality:\n\n[php]\necho 'Hello, World!';\necho \"\\nCurrent date: \" . date('Y-m-d');\n[/php]",
                 "response_from_model\nI'm actively exploring my capabilities. If you have questions or tasks, I'll be happy to help!"
             ];
         }
@@ -519,10 +536,19 @@ class MockModel implements AIModelEngineInterface
     }
 
     /**
-     * Set specific mode for testing
+     * Set specific mode for testing using config presets
      */
     public function setMode(string $mode): void
     {
+        // Get mode presets from config
+        $modePresets = config('ai.engines.mock.mode_presets', []);
+
+        if (isset($modePresets[$mode])) {
+            $this->updateConfig($modePresets[$mode]);
+            return;
+        }
+
+        // Fallback to hardcoded presets
         switch ($mode) {
             case 'fast':
                 $this->updateConfig([
@@ -552,12 +578,36 @@ class MockModel implements AIModelEngineInterface
                 $this->updateConfig([
                     'response_language' => 'ru'
                 ]);
-                $this->initializeScenarios(); // Reinitialize for new language
                 break;
 
             default:
                 // Keep current config
                 break;
         }
+    }
+
+    /**
+     * Get available scenarios for current language
+     */
+    public function getAvailableScenarios(): array
+    {
+        return $this->scenarios;
+    }
+
+    /**
+     * Add custom scenario
+     */
+    public function addScenario(string $scenario): void
+    {
+        $this->scenarios[] = $scenario;
+    }
+
+    /**
+     * Get response templates for current language
+     */
+    public function getResponseTemplates(): array
+    {
+        $language = $this->config['response_language'] ?? 'en';
+        return config("ai.engines.mock.response_templates", []);
     }
 }

@@ -19,11 +19,17 @@ class LocalModel implements AIModelEngineInterface
 
     public function __construct(
         protected HttpFactory $http,
-        protected string $serverUrl = "http://localhost:11434",
+        protected ?string $serverUrl = null,
         protected array $config = []
     ) {
-        // Merge with defaults
-        $this->config = array_merge($this->getDefaultConfig(), $config);
+        // Get default config from global AI config
+        $defaultConfig = config('ai.engines.local', []);
+
+        // Merge with provided config
+        $this->config = array_merge($this->getDefaultConfig(), $defaultConfig, $config);
+
+        // Set server URL from config if not provided
+        $this->serverUrl = $serverUrl ?? $this->config['server_url'];
     }
 
     /**
@@ -39,7 +45,7 @@ class LocalModel implements AIModelEngineInterface
      */
     public function getDisplayName(): string
     {
-        return 'Local models';
+        return config('ai.engines.local.display_name', 'Local models');
     }
 
     /**
@@ -47,7 +53,10 @@ class LocalModel implements AIModelEngineInterface
      */
     public function getDescription(): string
     {
-        return 'Universal engine for local AI models (LLaMA, Phi, Mistral, Code Llama, etc.). Works with OpenAI-compatible servers: Ollama, LM Studio, text-generation-webui, KoboldCPP.';
+        return config(
+            'ai.engines.local.description',
+            'Universal engine for local AI models (LLaMA, Phi, Mistral, Code Llama, etc.). Works with OpenAI-compatible servers: Ollama, LM Studio, text-generation-webui, KoboldCPP.'
+        );
     }
 
     /**
@@ -55,25 +64,35 @@ class LocalModel implements AIModelEngineInterface
      */
     public function getConfigFields(): array
     {
+        $serverTypes = config('ai.engines.local.server_types', []);
+        $modelFamilies = config('ai.engines.local.model_families', []);
+        $validation = config('ai.engines.local.validation', []);
+
+        // Build server type options
+        $serverOptions = [];
+        foreach ($serverTypes as $type => $info) {
+            $serverOptions[$type] = $info['display_name'] ?? ucfirst($type);
+        }
+
+        // Build model family options
+        $familyOptions = [];
+        foreach ($modelFamilies as $family => $info) {
+            $familyOptions[$family] = $info['display_name'] ?? ucfirst($family);
+        }
+
         return [
             'server_url' => [
                 'type' => 'url',
                 'label' => 'Server URL',
                 'description' => 'Local server address with model',
-                'placeholder' => 'http://localhost:11434',
+                'placeholder' => $this->config['server_url'] ?? 'http://localhost:11434',
                 'required' => true
             ],
             'server_type' => [
                 'type' => 'select',
                 'label' => 'Server type',
                 'description' => 'Program for running local models',
-                'options' => [
-                    'ollama' => 'Ollama (recommended)',
-                    'lmstudio' => 'LM Studio',
-                    'textgen' => 'Text Generation WebUI',
-                    'koboldcpp' => 'KoboldCPP',
-                    'openai-compatible' => 'Another OpenAI-compatible server'
-                ],
+                'options' => $serverOptions,
                 'required' => false
             ],
             'model' => [
@@ -87,23 +106,15 @@ class LocalModel implements AIModelEngineInterface
                 'type' => 'select',
                 'label' => 'Model family',
                 'description' => 'Model family for proper token handling',
-                'options' => [
-                    'llama' => 'LLaMA (Meta)',
-                    'phi' => 'Phi (Microsoft)',
-                    'mistral' => 'Mistral AI',
-                    'gemma' => 'Gemma (Google)',
-                    'qwen' => 'Qwen (Alibaba)',
-                    'codellama' => 'Code Llama',
-                    'other' => 'Other/Unknown'
-                ],
+                'options' => $familyOptions,
                 'required' => false
             ],
             'temperature' => [
                 'type' => 'number',
                 'label' => 'Temperature',
                 'description' => 'Creativity of responses (0 = deterministic, 2 = very creative)',
-                'min' => 0,
-                'max' => 2,
+                'min' => $validation['temperature']['min'] ?? 0,
+                'max' => $validation['temperature']['max'] ?? 2,
                 'step' => 0.1,
                 'required' => false
             ],
@@ -111,16 +122,16 @@ class LocalModel implements AIModelEngineInterface
                 'type' => 'number',
                 'label' => 'Max tokens',
                 'description' => 'Maximum number of tokens in response',
-                'min' => 1,
-                'max' => 32768,
+                'min' => $validation['max_tokens']['min'] ?? 1,
+                'max' => $validation['max_tokens']['max'] ?? 32768,
                 'required' => false
             ],
             'top_p' => [
                 'type' => 'number',
                 'label' => 'Top P (nucleus sampling)',
                 'description' => 'Alternative to temperature for randomness control',
-                'min' => 0,
-                'max' => 1,
+                'min' => $validation['top_p']['min'] ?? 0,
+                'max' => $validation['top_p']['max'] ?? 1,
                 'step' => 0.05,
                 'required' => false
             ],
@@ -128,16 +139,16 @@ class LocalModel implements AIModelEngineInterface
                 'type' => 'number',
                 'label' => 'Top K',
                 'description' => 'Number of most likely tokens to select',
-                'min' => 1,
-                'max' => 200,
+                'min' => $validation['top_k']['min'] ?? 1,
+                'max' => $validation['top_k']['max'] ?? 200,
                 'required' => false
             ],
             'repeat_penalty' => [
                 'type' => 'number',
                 'label' => 'Penalty for repetition',
                 'description' => 'Penalty for token repetitions (>1 = less repetitions)',
-                'min' => 0.1,
-                'max' => 2.0,
+                'min' => $validation['repeat_penalty']['min'] ?? 0.1,
+                'max' => $validation['repeat_penalty']['max'] ?? 2.0,
                 'step' => 0.05,
                 'required' => false
             ],
@@ -145,8 +156,8 @@ class LocalModel implements AIModelEngineInterface
                 'type' => 'number',
                 'label' => 'Timeout (seconds)',
                 'description' => 'Maximum time to wait for a response from the server',
-                'min' => 5,
-                'max' => 600,
+                'min' => $validation['timeout']['min'] ?? 5,
+                'max' => $validation['timeout']['max'] ?? 600,
                 'required' => false
             ],
             'cleanup_enabled' => [
@@ -171,6 +182,22 @@ class LocalModel implements AIModelEngineInterface
      */
     public function getRecommendedPresets(): array
     {
+        // Get presets from config or use fallback
+        $configPresets = config('ai.engines.local.recommended_presets', []);
+
+        if (!empty($configPresets)) {
+            return $configPresets;
+        }
+
+        // Fallback to default presets (keeping existing logic)
+        return $this->getDefaultPresets();
+    }
+
+    /**
+     * Get default presets (fallback)
+     */
+    protected function getDefaultPresets(): array
+    {
         return [
             [
                 'name' => 'LLaMA 3 Chat',
@@ -183,21 +210,6 @@ class LocalModel implements AIModelEngineInterface
                     'top_p' => 0.9,
                     'max_tokens' => 2048,
                     'repeat_penalty' => 1.1,
-                    'cleanup_enabled' => true,
-                    'server_url' => 'http://localhost:11434'
-                ]
-            ],
-            [
-                'name' => 'Phi-3 Mini',
-                'description' => 'Microsoft Phi-3 Mini - Fast and Efficient',
-                'config' => [
-                    'model' => 'phi3',
-                    'model_family' => 'phi',
-                    'server_type' => 'ollama',
-                    'temperature' => 0.7,
-                    'top_p' => 0.85,
-                    'max_tokens' => 1024,
-                    'repeat_penalty' => 1.05,
                     'cleanup_enabled' => true,
                     'server_url' => 'http://localhost:11434'
                 ]
@@ -217,57 +229,6 @@ class LocalModel implements AIModelEngineInterface
                     'server_url' => 'http://localhost:11434'
                 ]
             ],
-            [
-                'name' => 'Mistral 7B',
-                'description' => 'Mistral 7B is a great all-rounder',
-                'config' => [
-                    'model' => 'mistral',
-                    'model_family' => 'mistral',
-                    'server_type' => 'ollama',
-                    'temperature' => 0.8,
-                    'top_p' => 0.9,
-                    'max_tokens' => 2048,
-                    'repeat_penalty' => 1.1,
-                    'cleanup_enabled' => true,
-                    'server_url' => 'http://localhost:11434'
-                ]
-            ],
-            [
-                'name' => 'LM Studio',
-                'description' => 'Settings for working with LM Studio',
-                'config' => [
-                    'model' => 'local-model',
-                    'model_family' => 'other',
-                    'server_type' => 'lmstudio',
-                    'temperature' => 0.7,
-                    'top_p' => 0.9,
-                    'max_tokens' => 2048,
-                    'cleanup_enabled' => false,
-                    'server_url' => 'http://localhost:1234'
-                ]
-            ],
-            [
-                'name' => 'Creative mode',
-                'description' => 'High creativity parameters for creative tasks',
-                'config' => [
-                    'temperature' => 1.2,
-                    'top_p' => 0.95,
-                    'top_k' => 50,
-                    'repeat_penalty' => 1.05,
-                    'max_tokens' => 3000
-                ]
-            ],
-            [
-                'name' => 'Accurate analysis',
-                'description' => 'Low creativity parameters for factual answers',
-                'config' => [
-                    'temperature' => 0.3,
-                    'top_p' => 0.8,
-                    'top_k' => 20,
-                    'repeat_penalty' => 1.15,
-                    'max_tokens' => 1500
-                ]
-            ]
         ];
     }
 
@@ -277,18 +238,18 @@ class LocalModel implements AIModelEngineInterface
     public function getDefaultConfig(): array
     {
         return [
-            'model' => 'llama3',
-            'model_family' => 'llama',
-            'server_type' => 'ollama',
-            'temperature' => 0.8,
-            'max_tokens' => 2048,
-            'top_p' => 0.9,
-            'top_k' => 40,
-            'repeat_penalty' => 1.1,
-            'timeout' => 60,
-            'cleanup_enabled' => true,
-            'server_url' => 'http://localhost:11434',
-            'system_prompt' => 'You are a useful AI assistant. Answer in Russian.'
+            'model' => config('ai.engines.local.model', 'llama3'),
+            'model_family' => config('ai.engines.local.model_family', 'llama'),
+            'server_type' => config('ai.engines.local.server_type', 'ollama'),
+            'temperature' => config('ai.engines.local.temperature', 0.8),
+            'max_tokens' => config('ai.engines.local.max_tokens', 2048),
+            'top_p' => config('ai.engines.local.top_p', 0.9),
+            'top_k' => config('ai.engines.local.top_k', 40),
+            'repeat_penalty' => config('ai.engines.local.repeat_penalty', 1.1),
+            'timeout' => config('ai.engines.local.timeout', 60),
+            'cleanup_enabled' => config('ai.engines.local.cleanup_enabled', true),
+            'server_url' => config('ai.engines.local.server_url', 'http://localhost:11434'),
+            'system_prompt' => config('ai.engines.local.system_prompt', 'You are a useful AI assistant.')
         ];
     }
 
@@ -311,66 +272,38 @@ class LocalModel implements AIModelEngineInterface
             }
         }
 
-        // Validate temperature
-        if (isset($config['temperature'])) {
-            $temp = (float) $config['temperature'];
-            if ($temp < 0 || $temp > 2) {
-                $errors['temperature'] = 'Temperature should be between 0 and 2';
+        // Get validation rules from config
+        $validation = config('ai.engines.local.validation', []);
+
+        // Validate numeric parameters using config ranges
+        $numericFields = ['temperature', 'top_p', 'top_k', 'repeat_penalty', 'max_tokens', 'timeout'];
+
+        foreach ($numericFields as $field) {
+            if (isset($config[$field]) && isset($validation[$field])) {
+                $value = is_numeric($config[$field]) ? (float) $config[$field] : null;
+                $min = $validation[$field]['min'] ?? null;
+                $max = $validation[$field]['max'] ?? null;
+
+                if ($value !== null && $min !== null && $max !== null) {
+                    if ($value < $min || $value > $max) {
+                        $errors[$field] = ucfirst(str_replace('_', ' ', $field)) . " must be between {$min} and {$max}";
+                    }
+                }
             }
         }
 
-        // Validate top_p
-        if (isset($config['top_p'])) {
-            $topP = (float) $config['top_p'];
-            if ($topP < 0 || $topP > 1) {
-                $errors['top_p'] = 'Top P must be between 0 and 1';
-            }
-        }
-
-        // Validate top_k
-        if (isset($config['top_k'])) {
-            $topK = (int) $config['top_k'];
-            if ($topK < 1 || $topK > 200) {
-                $errors['top_k'] = 'Top K must be between 1 and 200';
-            }
-        }
-
-        // Validate repeat_penalty
-        if (isset($config['repeat_penalty'])) {
-            $penalty = (float) $config['repeat_penalty'];
-            if ($penalty < 0.1 || $penalty > 2.0) {
-                $errors['repeat_penalty'] = 'The penalty for a repeat should be from 0.1 to 2.0';
-            }
-        }
-
-        // Validate max_tokens
-        if (isset($config['max_tokens'])) {
-            $maxTokens = (int) $config['max_tokens'];
-            if ($maxTokens < 1 || $maxTokens > 32768) {
-                $errors['max_tokens'] = 'The maximum number of tokens must be between 1 and 32768';
-            }
-        }
-
-        // Validate timeout
-        if (isset($config['timeout'])) {
-            $timeout = (int) $config['timeout'];
-            if ($timeout < 5 || $timeout > 600) {
-                $errors['timeout'] = 'Timeout should be between 5 and 600 seconds';
-            }
-        }
-
-        // Validate model_family
+        // Validate model_family against supported families from config
         if (isset($config['model_family'])) {
-            $supportedFamilies = ['llama', 'phi', 'mistral', 'gemma', 'qwen', 'codellama', 'other'];
-            if (!in_array($config['model_family'], $supportedFamilies)) {
+            $supportedFamilies = array_keys(config('ai.engines.local.model_families', []));
+            if (!empty($supportedFamilies) && !in_array($config['model_family'], $supportedFamilies)) {
                 $errors['model_family'] = 'Unsupported model family. Supported: ' . implode(', ', $supportedFamilies);
             }
         }
 
-        // Validate server_type
+        // Validate server_type against supported servers from config
         if (isset($config['server_type'])) {
-            $supportedServers = ['ollama', 'lmstudio', 'textgen', 'koboldcpp', 'openai-compatible'];
-            if (!in_array($config['server_type'], $supportedServers)) {
+            $supportedServers = array_keys(config('ai.engines.local.server_types', []));
+            if (!empty($supportedServers) && !in_array($config['server_type'], $supportedServers)) {
                 $errors['server_type'] = 'Unsupported server type. Supported: ' . implode(', ', $supportedServers);
             }
         }
@@ -384,9 +317,12 @@ class LocalModel implements AIModelEngineInterface
     public function testConnection(): bool
     {
         try {
+            $endpoint = $this->getModelsEndpoint();
+            $timeout = config('ai.engines.local.timeout', 10);
+
             $response = $this->http
-                ->timeout(10)
-                ->get($this->serverUrl . '/v1/models');
+                ->timeout($timeout)
+                ->get($this->serverUrl . $endpoint);
 
             return $response->successful();
 
@@ -401,9 +337,12 @@ class LocalModel implements AIModelEngineInterface
     public function testConnectionDetailed(): array
     {
         try {
+            $endpoint = $this->getModelsEndpoint();
+            $timeout = config('ai.engines.local.timeout', 10);
+
             $response = $this->http
-                ->timeout(10)
-                ->get($this->serverUrl . '/v1/models');
+                ->timeout($timeout)
+                ->get($this->serverUrl . $endpoint);
 
             if ($response->successful()) {
                 $models = $response->json();
@@ -455,17 +394,21 @@ class LocalModel implements AIModelEngineInterface
             ]);
 
             // Remove non-API parameters
-            unset($data['model_family'], $data['server_type'], $data['cleanup_enabled'], $data['system_prompt']);
+            $nonApiParams = ['model_family', 'server_type', 'cleanup_enabled', 'system_prompt', 'server_url'];
+            foreach ($nonApiParams as $param) {
+                unset($data[$param]);
+            }
 
             $endpoint = $this->getApiEndpoint();
-            $timeout = $this->config['timeout'] ?? 60;
+            $timeout = $this->config['timeout'] ?? config('ai.engines.local.timeout', 60);
 
             $response = $this->http
                 ->timeout($timeout)
                 ->post($this->serverUrl . $endpoint, $data);
 
             if ($response->failed()) {
-                throw new AiModelException("HTTP Error: " . $response->status() . " - " . $response->body());
+                $errorMessage = config('ai.global.error_messages.connection_failed', 'HTTP Error');
+                throw new AiModelException("{$errorMessage}: {$response->status()} - {$response->body()}");
             }
 
             $result = $response->json();
@@ -476,7 +419,9 @@ class LocalModel implements AIModelEngineInterface
                     'model' => $this->config['model'] ?? 'unknown',
                     'server_url' => $this->serverUrl
                 ]);
-                throw new AiModelException("Invalid response format from local model");
+
+                $errorMessage = config('ai.global.error_messages.invalid_format', 'Invalid response format from local model');
+                throw new AiModelException($errorMessage);
             }
 
             $content = $result['choices'][0]['message']['content'] ?? '';
@@ -505,6 +450,11 @@ class LocalModel implements AIModelEngineInterface
     public function updateConfig(array $newConfig): void
     {
         $this->config = array_merge($this->config, $newConfig);
+
+        // Update server URL if provided
+        if (isset($newConfig['server_url'])) {
+            $this->serverUrl = $newConfig['server_url'];
+        }
     }
 
     /**
@@ -515,8 +465,9 @@ class LocalModel implements AIModelEngineInterface
         return $this->config;
     }
 
-    // Остальные методы без изменений...
-
+    /**
+     * Build messages array using global continuation patterns
+     */
     protected function buildMessages(
         array $context,
         string $initialMessage,
@@ -536,6 +487,7 @@ class LocalModel implements AIModelEngineInterface
         ];
 
         $lastRole = null;
+        $continuationMessage = config('ai.global.message_continuation.user_thinking', '[please resume thinking]');
 
         foreach ($context as $entry) {
             $role = $entry['role'] ?? 'thinking';
@@ -555,7 +507,7 @@ class LocalModel implements AIModelEngineInterface
                     if ($lastRole === 'assistant') {
                         $messages[] = [
                             'role' => 'user',
-                            'content' => '[please resume thinking]'
+                            'content' => $continuationMessage
                         ];
                     }
 
@@ -573,73 +525,87 @@ class LocalModel implements AIModelEngineInterface
         if ($lastRole === 'assistant') {
             $messages[] = [
                 'role' => 'user',
-                'content' => '[please resume thinking]'
+                'content' => $continuationMessage
             ];
         }
 
         return $messages;
     }
 
+    /**
+     * Clean output using config patterns
+     */
     protected function cleanOutput(?string $output): string
     {
         if (empty($output)) {
-            return "response_from_model\nError: Local model did not respond. Check your server settings.";
+            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: Local model did not respond. Check your server settings.');
+            return "response_from_model\n{$errorMessage}";
         }
 
         $cleanOutput = $output;
 
-        // Remove ANSI escape sequences
-        $cleanOutput = preg_replace('/\x1b\[[0-9;]*m/', '', $cleanOutput);
+        // Apply general cleanup patterns from config
+        $ansiPattern = config('ai.engines.local.cleanup.ansi_escape', '/\x1b\[[0-9;]*m/');
+        $cleanOutput = preg_replace($ansiPattern, '', $cleanOutput);
 
-        // Remove common model-specific tokens based on family
+        // Apply model family specific cleanup patterns
         $modelFamily = $this->config['model_family'] ?? 'other';
+        $familyPatterns = config("ai.engines.local.model_families.{$modelFamily}.cleanup_patterns", []);
 
-        switch ($modelFamily) {
-            case 'llama':
-                $cleanOutput = preg_replace('/<\|end\|>|<\|eot_id\|>|<\|start_header_id\|>.*?<\|end_header_id\|>/', '', $cleanOutput);
-                break;
-
-            case 'phi':
-                $cleanOutput = preg_replace('/<\|end\|>|<\|user\|>|<\|assistant\|>|<\|system\|>/', '', $cleanOutput);
-                break;
-
-            case 'mistral':
-                $cleanOutput = preg_replace('/\[INST\].*?\[\/INST\]|\<s\>|\<\/s\>/', '', $cleanOutput);
-                break;
+        foreach ($familyPatterns as $pattern) {
+            $cleanOutput = preg_replace($pattern, '', $cleanOutput);
         }
 
-        // Remove role prefixes
-        $cleanOutput = preg_replace('/^(assistant|user|system|AI):\s*/i', '', $cleanOutput);
+        // Apply role prefixes cleanup
+        $rolePrefixPattern = config('ai.engines.local.cleanup.role_prefixes', '/^(assistant|user|system|AI):\s*/i');
+        $cleanOutput = preg_replace($rolePrefixPattern, '', $cleanOutput);
 
         $cleanOutput = trim($cleanOutput);
 
         if (empty($cleanOutput)) {
-            return "response_from_model\nError: Local model returned an empty response.";
+            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: Local model returned an empty response.');
+            return "response_from_model\n{$errorMessage}";
         }
 
         return $cleanOutput;
     }
 
     /**
-     * Get API endpoint based on server type
+     * Get API endpoint based on server type from config
      */
     protected function getApiEndpoint(): string
     {
-        return match($this->config['server_type']) {
-            'ollama' => '/v1/chat/completions',
-            'lmstudio' => '/v1/chat/completions',
-            'textgen' => '/v1/chat/completions',
-            'koboldcpp' => '/v1/chat/completions',
-            'openai-compatible' => '/v1/chat/completions',
-            default => '/v1/chat/completions'
-        };
+        $serverType = $this->config['server_type'] ?? 'ollama';
+        $endpoint = config("ai.engines.local.server_types.{$serverType}.endpoint", '/v1/chat/completions');
+
+        return $endpoint;
     }
 
     /**
-     * Set optimized settings for different modes
+     * Get models endpoint for connection testing
+     */
+    protected function getModelsEndpoint(): string
+    {
+        $serverType = $this->config['server_type'] ?? 'ollama';
+        $endpoint = config("ai.engines.local.server_types.{$serverType}.models_endpoint", '/v1/models');
+
+        return $endpoint;
+    }
+
+    /**
+     * Set optimized settings for different modes using config
      */
     public function setMode(string $mode): void
     {
+        // Get mode presets from config
+        $modePresets = config('ai.engines.local.mode_presets', []);
+
+        if (isset($modePresets[$mode])) {
+            $this->config = array_merge($this->config, $modePresets[$mode]);
+            return;
+        }
+
+        // Fallback to hardcoded presets
         switch ($mode) {
             case 'creative':
                 $this->config = array_merge($this->config, [
@@ -677,5 +643,23 @@ class LocalModel implements AIModelEngineInterface
                 ]);
                 break;
         }
+    }
+
+    /**
+     * Get information about current model family
+     */
+    public function getModelFamilyInfo(): array
+    {
+        $modelFamily = $this->config['model_family'] ?? 'other';
+        return config("ai.engines.local.model_families.{$modelFamily}", []);
+    }
+
+    /**
+     * Get current server type information
+     */
+    public function getServerTypeInfo(): array
+    {
+        $serverType = $this->config['server_type'] ?? 'ollama';
+        return config("ai.engines.local.server_types.{$serverType}", []);
     }
 }

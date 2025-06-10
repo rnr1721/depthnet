@@ -23,13 +23,19 @@ class OpenAIModel implements AIModelEngineInterface
 
     public function __construct(
         protected HttpFactory $http,
-        protected string $serverUrl = "https://api.openai.com/v1/chat/completions",
+        protected ?string $serverUrl = null,
         protected array $config = []
     ) {
-        // Merge with defaults first
-        $this->config = array_merge($this->getDefaultConfig(), $config);
+        // Get default config from global AI config
+        $defaultConfig = config('ai.engines.openai', []);
 
-        $this->apiKey = $config['api_key'] ?? '';
+        // Merge with provided config
+        $this->config = array_merge($this->getDefaultConfig(), $defaultConfig, $config);
+
+        // Set server URL from config if not provided
+        $this->serverUrl = $serverUrl ?? $this->config['server_url'];
+
+        $this->apiKey = $config['api_key'] ?? $this->config['api_key'] ?? '';
         $this->model = $config['model'] ?? $this->config['model'];
     }
 
@@ -46,7 +52,7 @@ class OpenAIModel implements AIModelEngineInterface
      */
     public function getDisplayName(): string
     {
-        return 'OpenAI GPT';
+        return config('ai.engines.openai.display_name', 'OpenAI GPT');
     }
 
     /**
@@ -54,7 +60,10 @@ class OpenAIModel implements AIModelEngineInterface
      */
     public function getDescription(): string
     {
-        return 'OpenAI GPT модели - самые популярные и мощные языковые модели. Включает GPT-4o, GPT-4 Turbo, GPT-3.5 Turbo и модели рассуждений o1. Отличается высоким качеством и надежностью.';
+        return config(
+            'ai.engines.openai.description',
+            'OpenAI GPT модели - самые популярные и мощные языковые модели. Включает GPT-4o, GPT-4 Turbo, GPT-3.5 Turbo и модели рассуждений o1. Отличается высоким качеством и надежностью.'
+        );
     }
 
     /**
@@ -62,6 +71,14 @@ class OpenAIModel implements AIModelEngineInterface
      */
     public function getConfigFields(): array
     {
+        $models = config('ai.engines.openai.models', []);
+        $validation = config('ai.engines.openai.validation', []);
+
+        $modelOptions = [];
+        foreach ($models as $modelId => $modelInfo) {
+            $modelOptions[$modelId] = $modelInfo['display_name'] ?? $modelId;
+        }
+
         return [
             'api_key' => [
                 'type' => 'password',
@@ -74,23 +91,15 @@ class OpenAIModel implements AIModelEngineInterface
                 'type' => 'select',
                 'label' => 'GPT model',
                 'description' => 'Select an OpenAI model to use',
-                'options' => [
-                    'gpt-4o' => 'GPT-4o (newest and fastest)',
-                    'gpt-4o-mini' => 'GPT-4o Mini (fast and economical)',
-                    'gpt-4-turbo' => 'GPT-4 Turbo (powerful, big context)',
-                    'gpt-4' => 'GPT-4 (original powerful model)',
-                    'gpt-3.5-turbo' => 'GPT-3.5 Turbo (fast and economical)',
-                    'o1-preview' => 'o1 Preview (reasoning, slow)',
-                    'o1-mini' => 'o1 Mini (reasoning, faster)'
-                ],
+                'options' => $modelOptions,
                 'required' => true
             ],
             'temperature' => [
                 'type' => 'number',
                 'label' => 'Temperature',
                 'description' => 'Controls randomness of responses (0 = deterministic, 2 = very creative)',
-                'min' => 0,
-                'max' => 2,
+                'min' => $validation['temperature']['min'] ?? 0,
+                'max' => $validation['temperature']['max'] ?? 2,
                 'step' => 0.1,
                 'required' => false
             ],
@@ -98,8 +107,8 @@ class OpenAIModel implements AIModelEngineInterface
                 'type' => 'number',
                 'label' => 'Top P',
                 'description' => 'Nucleus sampling - temperature alternative',
-                'min' => 0,
-                'max' => 1,
+                'min' => $validation['top_p']['min'] ?? 0,
+                'max' => $validation['top_p']['max'] ?? 1,
                 'step' => 0.05,
                 'required' => false
             ],
@@ -107,25 +116,25 @@ class OpenAIModel implements AIModelEngineInterface
                 'type' => 'number',
                 'label' => 'Max tokens',
                 'description' => 'Maximum number of tokens in response',
-                'min' => 1,
-                'max' => 128000,
+                'min' => $validation['max_tokens']['min'] ?? 1,
+                'max' => $validation['max_tokens']['max'] ?? 128000,
                 'required' => false
             ],
             'frequency_penalty' => [
                 'type' => 'number',
-                'label' => 'Штраф за частоту',
+                'label' => 'Frequency penalty',
                 'description' => 'Reduces the likelihood of repeating frequently used tokens',
-                'min' => -2,
-                'max' => 2,
+                'min' => $validation['frequency_penalty']['min'] ?? -2,
+                'max' => $validation['frequency_penalty']['max'] ?? 2,
                 'step' => 0.1,
                 'required' => false
             ],
             'presence_penalty' => [
                 'type' => 'number',
-                'label' => 'Fine for presence',
+                'label' => 'Presence penalty',
                 'description' => 'Reduces the likelihood of repeating already used tokens',
-                'min' => -2,
-                'max' => 2,
+                'min' => $validation['presence_penalty']['min'] ?? -2,
+                'max' => $validation['presence_penalty']['max'] ?? 2,
                 'step' => 0.1,
                 'required' => false
             ],
@@ -144,6 +153,22 @@ class OpenAIModel implements AIModelEngineInterface
      * @inheritDoc
      */
     public function getRecommendedPresets(): array
+    {
+        // Get presets from config or use hardcoded fallback
+        $configPresets = config('ai.engines.openai.recommended_presets', []);
+
+        if (!empty($configPresets)) {
+            return $configPresets;
+        }
+
+        // Fallback to default presets (keeping existing logic)
+        return $this->getDefaultPresets();
+    }
+
+    /**
+     * Get default presets (fallback)
+     */
+    protected function getDefaultPresets(): array
     {
         return [
             [
@@ -169,51 +194,6 @@ class OpenAIModel implements AIModelEngineInterface
                     'presence_penalty' => 0.0,
                     'max_tokens' => 2048,
                 ]
-            ],
-            [
-                'name' => 'GPT-4o Mini - Fast',
-                'description' => 'Fast and Cost-Effective Answers with GPT-4o Mini',
-                'config' => [
-                    'model' => 'gpt-4o-mini',
-                    'temperature' => 0.7,
-                    'top_p' => 0.9,
-                    'frequency_penalty' => 0.0,
-                    'presence_penalty' => 0.0,
-                    'max_tokens' => 2048,
-                ]
-            ],
-            [
-                'name' => 'o1 - Reasoning',
-                'description' => 'Advanced reasoning with o1-preview (slower but smarter)',
-                'config' => [
-                    'model' => 'o1-preview',
-                    'temperature' => 1.0,
-                    'max_tokens' => 8192,
-                ]
-            ],
-            [
-                'name' => 'GPT-4 Turbo - Balanced',
-                'description' => 'Universal settings with GPT-4 Turbo',
-                'config' => [
-                    'model' => 'gpt-4-turbo',
-                    'temperature' => 0.8,
-                    'top_p' => 0.9,
-                    'frequency_penalty' => 0.0,
-                    'presence_penalty' => 0.0,
-                    'max_tokens' => 4096,
-                ]
-            ],
-            [
-                'name' => 'GPT-3.5 Turbo - Economical',
-                'description' => 'Fast and Cheap Answers with GPT-3.5 Turbo',
-                'config' => [
-                    'model' => 'gpt-3.5-turbo',
-                    'temperature' => 0.7,
-                    'top_p' => 0.9,
-                    'frequency_penalty' => 0.0,
-                    'presence_penalty' => 0.0,
-                    'max_tokens' => 2048,
-                ]
             ]
         ];
     }
@@ -224,15 +204,15 @@ class OpenAIModel implements AIModelEngineInterface
     public function getDefaultConfig(): array
     {
         return [
-            'model' => 'gpt-4o',
-            'max_tokens' => 4096,
-            'temperature' => 0.8,
-            'top_p' => 0.9,
-            'frequency_penalty' => 0.0,
-            'presence_penalty' => 0.0,
-            'api_key' => '',
-            'server_url' => 'https://api.openai.com/v1/chat/completions',
-            'system_prompt' => 'You are a useful AI assistant. Answer in Russian.'
+            'model' => config('ai.engines.openai.model', 'gpt-4o'),
+            'max_tokens' => config('ai.engines.openai.max_tokens', 4096),
+            'temperature' => config('ai.engines.openai.temperature', 0.8),
+            'top_p' => config('ai.engines.openai.top_p', 0.9),
+            'frequency_penalty' => config('ai.engines.openai.frequency_penalty', 0.0),
+            'presence_penalty' => config('ai.engines.openai.presence_penalty', 0.0),
+            'api_key' => config('ai.engines.openai.api_key', ''),
+            'server_url' => config('ai.engines.openai.server_url', 'https://api.openai.com/v1/chat/completions'),
+            'system_prompt' => config('ai.engines.openai.system_prompt', 'You are a useful AI assistant.')
         ];
     }
 
@@ -248,58 +228,31 @@ class OpenAIModel implements AIModelEngineInterface
             $errors['api_key'] = 'API key is required';
         }
 
-        // Validate model
-        $supportedModels = [
-            'gpt-4o',
-            'gpt-4o-mini',
-            'gpt-4-turbo',
-            'gpt-4',
-            'gpt-3.5-turbo',
-            'o1-preview',
-            'o1-mini'
-        ];
+        // Validate model against supported models from config
+        $supportedModels = array_keys(config('ai.engines.openai.models', []));
 
-        if (isset($config['model']) && !in_array($config['model'], $supportedModels)) {
+        if (isset($config['model']) && !empty($supportedModels) && !in_array($config['model'], $supportedModels)) {
             $errors['model'] = 'Unsupported model: ' . $config['model'] . '. Supported: ' . implode(', ', $supportedModels);
         }
 
-        // Validate temperature
-        if (isset($config['temperature'])) {
-            $temp = (float) $config['temperature'];
-            if ($temp < 0 || $temp > 2) {
-                $errors['temperature'] = 'Temperature should be between 0 and 2';
-            }
-        }
+        // Get validation rules from config
+        $validation = config('ai.engines.openai.validation', []);
 
-        // Validate top_p
-        if (isset($config['top_p'])) {
-            $topP = (float) $config['top_p'];
-            if ($topP < 0 || $topP > 1) {
-                $errors['top_p'] = 'Top P must be between 0 and 1';
-            }
-        }
+        // Validate numeric parameters using config ranges
+        $numericFields = ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'max_tokens'];
 
-        // Validate frequency_penalty
-        if (isset($config['frequency_penalty'])) {
-            $penalty = (float) $config['frequency_penalty'];
-            if ($penalty < -2 || $penalty > 2) {
-                $errors['frequency_penalty'] = 'Frequency penalty should be between -2 and 2';
-            }
-        }
+        foreach ($numericFields as $field) {
+            if (isset($config[$field]) && isset($validation[$field])) {
+                $value = is_numeric($config[$field]) ? (float) $config[$field] : null;
+                $min = $validation[$field]['min'] ?? null;
+                $max = $validation[$field]['max'] ?? null;
 
-        // Validate presence_penalty
-        if (isset($config['presence_penalty'])) {
-            $penalty = (float) $config['presence_penalty'];
-            if ($penalty < -2 || $penalty > 2) {
-                $errors['presence_penalty'] = 'The penalty for presence should be from -2 to 2';
-            }
-        }
-
-        // Validate max_tokens
-        if (isset($config['max_tokens'])) {
-            $maxTokens = (int) $config['max_tokens'];
-            if ($maxTokens < 1 || $maxTokens > 128000) {
-                $errors['max_tokens'] = 'The maximum tokens must be from 1 to 128000';
+                if ($value !== null && $min !== null && $max !== null) {
+                    if ($value < $min || $value > $max) {
+                        $fieldName = ucfirst(str_replace('_', ' ', $field));
+                        $errors[$field] = "{$fieldName} must be between {$min} and {$max}";
+                    }
+                }
             }
         }
 
@@ -317,7 +270,6 @@ class OpenAIModel implements AIModelEngineInterface
     public function testConnection(): bool
     {
         try {
-            // Test with a minimal request
             $data = [
                 'model' => $this->model,
                 'messages' => [
@@ -326,12 +278,12 @@ class OpenAIModel implements AIModelEngineInterface
                 'max_tokens' => 5
             ];
 
+            $headers = $this->getRequestHeaders();
+            $timeout = config('ai.engines.openai.timeout', 10);
+
             $response = $this->http
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                    'Authorization' => 'Bearer ' . $this->apiKey,
-                ])
-                ->timeout(10)
+                ->withHeaders($headers)
+                ->timeout($timeout)
                 ->post($this->serverUrl, $data);
 
             return $response->successful();
@@ -371,17 +323,17 @@ class OpenAIModel implements AIModelEngineInterface
                 'stream' => false
             ];
 
+            $headers = $this->getRequestHeaders();
+            $timeout = config('ai.engines.openai.timeout', 120);
+
             $response = $this->http
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                    'Authorization' => 'Bearer ' . $this->apiKey,
-                ])
-                ->timeout(120)
+                ->withHeaders($headers)
+                ->timeout($timeout)
                 ->post($this->serverUrl, $data);
 
             if ($response->failed()) {
                 $errorBody = $response->json();
-                $errorMessage = $errorBody['error']['message'] ?? 'Unknown error';
+                $errorMessage = $errorBody['error']['message'] ?? config('ai.global.error_messages.connection_failed', 'Unknown error');
                 $errorCode = $errorBody['error']['code'] ?? 'unknown';
                 throw new AiModelException("OpenAI API Error ({$response->status()}, {$errorCode}): $errorMessage");
             }
@@ -390,11 +342,12 @@ class OpenAIModel implements AIModelEngineInterface
 
             if (!isset($result['choices'][0]['message']['content'])) {
                 Log::warning("Invalid OpenAI response format", ['response' => $result]);
-                throw new AiModelException("Invalid response format from OpenAI API");
+                $errorMessage = config('ai.global.error_messages.invalid_format', 'Invalid response format from OpenAI API');
+                throw new AiModelException($errorMessage);
             }
 
-            // Logging token usage
-            if (isset($result['usage'])) {
+            // Log token usage if enabled
+            if (isset($result['usage']) && config('ai.engines.openai.log_usage', true)) {
                 Log::info("OpenAI tokens used", [
                     'model' => $this->model,
                     'prompt_tokens' => $result['usage']['prompt_tokens'],
@@ -413,33 +366,35 @@ class OpenAIModel implements AIModelEngineInterface
                 'model' => $this->model
             ]);
 
-            // OpenAI's dedicated error handling
-            if (str_contains($e->getMessage(), 'rate_limit_exceeded')) {
-                return new ModelResponseDTO(
-                    "error\nOpenAI request limit exceeded. Please try again later.",
-                    true
-                );
-            }
-
-            if (str_contains($e->getMessage(), 'insufficient_quota')) {
-                return new ModelResponseDTO(
-                    "error\nNot enough OpenAI quota. Check your account balance.",
-                    true
-                );
-            }
-
-            if (str_contains($e->getMessage(), 'API Error')) {
-                return new ModelResponseDTO(
-                    "error\nError from OpenAI API: " . $e->getMessage(),
-                    true
-                );
-            }
-
-            return new ModelResponseDTO(
-                "error\nError contacting OpenAI: " . $e->getMessage(),
-                true
-            );
+            return $this->handleError($e);
         }
+    }
+
+    /**
+     * Handle different types of OpenAI errors
+     */
+    protected function handleError(\Exception $e): ModelResponseDTO
+    {
+        $errorMessages = config('ai.engines.openai.error_messages', []);
+
+        // Check for specific error types
+        if (str_contains($e->getMessage(), 'rate_limit_exceeded')) {
+            $message = $errorMessages['rate_limit'] ?? "OpenAI request limit exceeded. Please try again later.";
+            return new ModelResponseDTO("error\n{$message}", true);
+        }
+
+        if (str_contains($e->getMessage(), 'insufficient_quota')) {
+            $message = $errorMessages['insufficient_quota'] ?? "Not enough OpenAI quota. Check your account balance.";
+            return new ModelResponseDTO("error\n{$message}", true);
+        }
+
+        if (str_contains($e->getMessage(), 'API Error')) {
+            $message = $errorMessages['api_error'] ?? "Error from OpenAI API: " . $e->getMessage();
+            return new ModelResponseDTO("error\n{$message}", true);
+        }
+
+        $message = $errorMessages['general'] ?? "Error contacting OpenAI: " . $e->getMessage();
+        return new ModelResponseDTO("error\n{$message}", true);
     }
 
     /**
@@ -458,6 +413,11 @@ class OpenAIModel implements AIModelEngineInterface
         if (isset($newConfig['api_key'])) {
             $this->apiKey = $newConfig['api_key'];
         }
+
+        // Update server URL if passed
+        if (isset($newConfig['server_url'])) {
+            $this->serverUrl = $newConfig['server_url'];
+        }
     }
 
     /**
@@ -472,7 +432,21 @@ class OpenAIModel implements AIModelEngineInterface
     }
 
     /**
-     * Build messages array for OpenAI API
+     * Get request headers from config
+     */
+    protected function getRequestHeaders(): array
+    {
+        $baseHeaders = config('ai.engines.openai.request_headers', [
+            'Content-Type' => 'application/json',
+        ]);
+
+        return array_merge($baseHeaders, [
+            'Authorization' => 'Bearer ' . $this->apiKey,
+        ]);
+    }
+
+    /**
+     * Build messages array using global continuation patterns
      */
     protected function buildMessages(
         array $context,
@@ -496,6 +470,7 @@ class OpenAIModel implements AIModelEngineInterface
         ];
 
         $lastRole = null;
+        $continuationMessage = config('ai.global.message_continuation.cycle_continue', '[continue your cycle]');
 
         foreach ($context as $entry) {
             $role = $entry['role'] ?? 'thinking';
@@ -529,7 +504,7 @@ class OpenAIModel implements AIModelEngineInterface
         if ($lastRole === 'assistant') {
             $messages[] = [
                 'role' => 'user',
-                'content' => '[continue your cycle]'
+                'content' => $continuationMessage
             ];
         }
 
@@ -537,29 +512,43 @@ class OpenAIModel implements AIModelEngineInterface
     }
 
     /**
-     * Clean output from OpenAI
+     * Clean output using config patterns
      */
     protected function cleanOutput(?string $output): string
     {
         if (empty($output)) {
-            return "response_from_model\nError: OpenAI did not provide a response.";
+            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: OpenAI did not provide a response.');
+            return "response_from_model\n{$errorMessage}";
         }
 
         $cleanOutput = trim($output);
-        $cleanOutput = preg_replace('/^(Assistant|AI|GPT):\s*/i', '', $cleanOutput);
+
+        // Apply cleanup patterns from config
+        $cleanupPattern = config('ai.engines.openai.cleanup.role_prefixes', '/^(Assistant|AI|GPT):\s*/i');
+        $cleanOutput = preg_replace($cleanupPattern, '', $cleanOutput);
 
         if (empty($cleanOutput)) {
-            return "response_from_model\nError: OpenAI returned an empty response.";
+            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: OpenAI returned an empty response.');
+            return "response_from_model\n{$errorMessage}";
         }
 
         return $cleanOutput;
     }
 
     /**
-     * Set optimized settings for different modes
+     * Set optimized settings for different modes using config
      */
     public function setMode(string $mode): void
     {
+        // Get mode presets from config
+        $modePresets = config('ai.engines.openai.mode_presets', []);
+
+        if (isset($modePresets[$mode])) {
+            $this->config = array_merge($this->config, $modePresets[$mode]);
+            return;
+        }
+
+        // Fallback to hardcoded presets
         switch ($mode) {
             case 'creative':
                 $this->config = array_merge($this->config, [
@@ -595,39 +584,37 @@ class OpenAIModel implements AIModelEngineInterface
     }
 
     /**
-     * Get information about model limits
+     * Get information about model limits from config
      */
     public function getModelLimits(): array
     {
-        $limits = [
-            'gpt-4o' => ['input' => 128000, 'output' => 16384],
-            'gpt-4o-mini' => ['input' => 128000, 'output' => 16384],
-            'gpt-4-turbo' => ['input' => 128000, 'output' => 4096],
-            'gpt-4' => ['input' => 8192, 'output' => 4096],
-            'gpt-3.5-turbo' => ['input' => 16385, 'output' => 4096],
-            'o1-preview' => ['input' => 128000, 'output' => 32768],
-            'o1-mini' => ['input' => 128000, 'output' => 65536]
-        ];
+        $models = config('ai.engines.openai.models', []);
+        $modelInfo = $models[$this->model] ?? [];
 
-        return $limits[$this->model] ?? ['input' => 16385, 'output' => 4096];
+        return [
+            'input' => $modelInfo['input_limit'] ?? 16385,
+            'output' => $modelInfo['output_limit'] ?? 4096
+        ];
     }
 
     /**
-     * Get the cost of using the model (in dollars per 1K tokens)
+     * Get the cost of using the model from config
      */
     public function getModelPricing(): array
     {
-        $pricing = [
-            'gpt-4o' => ['input' => 0.0025, 'output' => 0.01],
-            'gpt-4o-mini' => ['input' => 0.00015, 'output' => 0.0006],
-            'gpt-4-turbo' => ['input' => 0.01, 'output' => 0.03],
-            'gpt-4' => ['input' => 0.03, 'output' => 0.06],
-            'gpt-3.5-turbo' => ['input' => 0.0005, 'output' => 0.0015],
-            'o1-preview' => ['input' => 0.015, 'output' => 0.06],
-            'o1-mini' => ['input' => 0.003, 'output' => 0.012]
-        ];
+        $models = config('ai.engines.openai.models', []);
+        $modelInfo = $models[$this->model] ?? [];
 
-        return $pricing[$this->model] ?? ['input' => 0.001, 'output' => 0.002];
+        return $modelInfo['pricing'] ?? ['input' => 0.001, 'output' => 0.002];
+    }
+
+    /**
+     * Get model information from config
+     */
+    public function getModelInfo(): array
+    {
+        $models = config('ai.engines.openai.models', []);
+        return $models[$this->model] ?? [];
     }
 
     /**
@@ -636,12 +623,15 @@ class OpenAIModel implements AIModelEngineInterface
     public function isModelAvailable(): bool
     {
         try {
+            $modelsEndpoint = config('ai.engines.openai.models_endpoint', 'https://api.openai.com/v1/models');
+            $timeout = config('ai.engines.openai.timeout', 10);
+
             $response = $this->http
                 ->withHeaders([
                     'Authorization' => 'Bearer ' . $this->apiKey,
                 ])
-                ->timeout(10)
-                ->get('https://api.openai.com/v1/models');
+                ->timeout($timeout)
+                ->get($modelsEndpoint);
 
             if ($response->successful()) {
                 $models = $response->json();

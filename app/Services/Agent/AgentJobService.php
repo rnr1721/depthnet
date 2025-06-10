@@ -5,7 +5,6 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
-use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Jobs\ProcessAgentThinking;

@@ -4,16 +4,19 @@
 
 - PHP 8.2
 - Laravel (+ Supervisor)
-- InertiaJS
-- VueJS
+- InertiaJS + VueJs
+- SQLite (default) / MySQL
 
 ## Prerequisites
 
 - PHP (8.2 and above recommended)
 - Composer
 - Node.js and npm
-- MySQL database
-- Laravel Supervisor
+- ***Supervisor*** (required for agent thinking loops)
+- MySQL database (optional, SQLite by default)
+
+⚠️ **Without Supervisor, agents won't be able to "think" autonomously!**
+DepthNet requires Supervisor to run background workers for agent "thinking" loops.
 
 **An experimental AI agent system for creating autonomous digital life**
 
@@ -316,18 +319,111 @@ User:
 - **login:** test@example.com
 - **password:** password
 
-# How to deploy without Docker (Manual install)
+# How to deploy with Composer
 
-### 1. Cloning a repository
-
-#### Option 1: Using Composer (Recommended)
+Fully automated setup - everything configured out of the box! **By** default, the sqlite database will be configured, **and** it would be better to configure it as you need.
 
 ```bash
 composer create-project rnr1721/depthnet my-depthnet-project
 cd my-depthnet-project
+
+# Start development server (optional)
+composer run dev
+# or
+php artisan serve
 ```
 
-#### Option 2: Cloning from repository
+***Required:*** Setup Supervisor
+DepthNet requires Supervisor to run background workers for agent thinking loops.
+
+### Install supervisor
+
+```bash
+sudo apt install supervisor
+sudo systemctl enable supervisor
+sudo systemctl start supervisor
+```
+
+### Configure Supervisor for DepthNet:
+
+```bash
+# Create supervisor config
+sudo tee /etc/supervisor/conf.d/depthnet.conf << 'EOF'
+[program:depthnet-ai-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /path/to/your/depthnet/artisan queue:work --queue=ai --tries=1 --sleep=3 --timeout=0
+directory=/path/to/your/depthnet
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=2
+redirect_stderr=true
+stdout_logfile=/path/to/your/depthnet/storage/logs/worker-ai.log
+
+[program:depthnet-default-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /path/to/your/depthnet/artisan queue:work --queue=default --tries=3 --sleep=3 --timeout=300
+directory=/path/to/your/depthnet
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/path/to/your/depthnet/storage/logs/worker-default.log
+
+[program:depthnet-schedule]
+command=bash -c "while [ true ]; do php /path/to/your/depthnet/artisan schedule:run --verbose --no-interaction; sleep 60; done"
+directory=/path/to/your/depthnet
+autostart=true
+autorestart=true
+user=www-data
+redirect_stderr=true
+stdout_logfile=/path/to/your/depthnet/storage/logs/schedule.log
+stopasgroup=true
+killasgroup=true
+EOF
+
+# Update paths in config
+sudo sed -i "s|/path/to/your/depthnet|$(pwd)|g" /etc/supervisor/conf.d/depthnet.conf
+
+# Start workers
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start depthnet-ai-worker:*
+sudo supervisorctl start depthnet-default-worker:*
+sudo supervisorctl start depthnet-schedule
+```
+
+Verify workers are running:
+
+```bash
+sudo supervisorctl status
+# Expected output:
+# depthnet-ai-worker:depthnet-ai-worker_00    RUNNING   pid 1234, uptime 0:01:23
+# depthnet-ai-worker:depthnet-ai-worker_01    RUNNING   pid 1235, uptime 0:01:23
+# depthnet-default-worker:depthnet-default-worker_00 RUNNING pid 1236, uptime 0:01:23
+# depthnet-schedule                           RUNNING   pid 1237, uptime 0:01:23
+```
+
+Your initial credentials for login:
+
+- **login:** admin@example.com
+- **password:** admin123
+
+If you decide to change the database from sqlite to mysql, then do the following:
+
+```bash
+php artisan migrate
+php artisan db:seed
+```
+
+# How to deploy manually (Advanced)
+
+### 1. Cloning a repository
 
 ```bash
 git clone git@gitlab.com:rnr1721/depthnet.git
@@ -446,7 +542,11 @@ php artisan ziggy:generate
 npm run build
 ```
 
-### 11. Setup models settings in .env file
+### 11. Setup Supervisor (Critical)
+
+Follow the Supervisor configuration from the Composer section above.
+
+### 12. Setup models settings in .env file
 
 After setup - thats ALL!
 Your initial credentials for login:
@@ -455,6 +555,23 @@ Your initial credentials for login:
 - **password:** admin123
 
 By default, one preset with a Mock provider is created, but you can configure your real one in the "presets" section, and switch to it in the "chat" section.
+
+## Troubleshooting
+
+### Agent not thinking in loops?
+
+Check if Supervisor workers are running:
+
+```bash
+sudo supervisorctl status
+```
+
+Restart workers
+
+```bash
+sudo supervisorctl restart depthnet-ai-worker:*
+sudo supervisorctl restart depthnet-default-worker:*
+```
 
 ## Contributing
 

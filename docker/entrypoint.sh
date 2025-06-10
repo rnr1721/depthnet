@@ -17,7 +17,7 @@ if [ ! -f /tmp/.app_initialized ]; then
     
     # Create .env if it doesn't exist
     if [ ! -f /var/www/html/.env ]; then
-        cp /var/www/html/.env.example /var/www/html/.env
+        cp /var/www/html/.env.example.docker /var/www/html/.env
         php artisan key:generate
     fi
     

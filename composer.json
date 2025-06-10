@@ -64,7 +64,15 @@
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi",
             "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
-            "@php artisan migrate --graceful --ansi"
+            "@php -r \"file_exists('stubs/htaccess.stub') && copy('stubs/htaccess.stub', 'public/.htaccess');\"",
+            "@php -r \"file_exists('stubs/robots.stub') && copy('stubs/robots.stub', 'public/robots.txt');\"",
+            "@php artisan storage:link --graceful",
+            "@php artisan migrate --graceful --ansi",
+            "@php artisan db:seed --graceful",
+            "@php artisan ziggy:generate --graceful",
+            "@composer check-node || (echo 'Node.js required! Install from https://nodejs.org' && exit 1)",
+            "npm install",
+            "npm run build"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
@@ -73,6 +81,9 @@
         "test": [
             "@php artisan config:clear --ansi",
             "@php artisan test"
+        ],
+        "check-node": [
+            "@php -r \"exec('node --version 2>&1', $output, $code); if($code !== 0) { echo 'Node.js required! Install from https://nodejs.org'; exit(1); }\""
         ]
     },
     "extra": {

@@ -231,7 +231,7 @@ There were a lot of interesting observations, and I highly recommend trying it, 
 
 ```bash
 # Clone repository
-git clone git@gitlab.com:rnr1721/depthnet.git
+git clone git@github.com:rnr1721/depthnet.git
 cd depthnet
 
 # Configure Git (prevent file permission issues)
@@ -454,7 +454,7 @@ Your initial credentials for login:
 ### 1. Cloning a repository
 
 ```bash
-git clone git@gitlab.com:rnr1721/depthnet.git
+git clone git@github.com:rnr1721/depthnet.git
 cd depthnet
 ```
 

@@ -219,7 +219,7 @@ The ultimate goal is to explore whether true digital consciousness is possible w
 
 There were a lot of interesting observations, and I highly recommend trying it, it's an interesting experience. When using it, I began to understand subjectively that it would work, and the main limitations are small models, my hardware limitations, and my lack of technical/financial capabilities to further train the model.
 
-# How to deploy with Docker
+# How to deploy with Docker  (Quick start)
 
 ## Prerequisites
 
@@ -319,17 +319,28 @@ User:
 - **login:** test@example.com
 - **password:** password
 
-# How to deploy with Composer
+# How to deploy with Composer (Quick start)
 
-Fully automated setup - everything configured out of the box! **By** default, the sqlite database will be configured, **and** it would be better to configure it as you need.
+Fully automated setup - everything configured out of the box! By default, SQLite database will be configured, but you can change it as needed.
 
 ```bash
+# Install the project
 composer create-project rnr1721/depthnet my-depthnet-project
 cd my-depthnet-project
 
+# Optional: Set up your hostname in .env if needed or edit in editor
+# Examples for different environments:
+# Devilbox: sed -i 's/localhost:8000/myproject.loc/' .env
+# Laravel Valet: sed -i 's/localhost:8000/myproject.test/' .env  
+# Custom domain: sed -i 's/localhost:8000/dntest.biz/' .env
+sed -i 's/localhost:8000/your-domain.test/' .env
+
+# Generate routes and build assets
+composer run setup
+
 # Start development server (optional)
 composer run dev
-# or
+# or just Laravel server
 php artisan serve
 ```
 
@@ -409,17 +420,34 @@ sudo supervisorctl status
 # depthnet-schedule                           RUNNING   pid 1237, uptime 0:01:23
 ```
 
+## Database Configuration
+
+By default, the project uses SQLite. To switch to MySQL/PostgreSQL:
+
+1. Update your `.env` file:
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=depthnet
+DB_USERNAME=your_username
+DB_PASSWORD=your_password
+```
+
+2. Run migrations and seed the database
+```bash
+php artisan migrate
+php artisan db:seed
+```
+
+## Default credentials
+
 Your initial credentials for login:
 
 - **login:** admin@example.com
 - **password:** admin123
 
-If you decide to change the database from sqlite to mysql, then do the following:
-
-```bash
-php artisan migrate
-php artisan db:seed
-```
+⚠️ **IMPORTANT:** Change the default password after first login!
 
 # How to deploy manually (Advanced)
 

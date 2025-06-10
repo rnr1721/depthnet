@@ -48,9 +48,7 @@
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi",
-            "@php artisan ide-helper:generate || true",
-            "@php artisan ide-helper:models --nowrite || true",
-            "@php artisan ide-helper:meta || true"
+            "@php artisan ide-helper:generate || true"
         ],
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force",
@@ -70,6 +68,9 @@
             "@php artisan migrate --graceful --ansi",
             "@php artisan db:seed",
             "@php artisan ziggy:generate",
+            "@php artisan ide-helper:generate || true",
+            "@php artisan ide-helper:models --nowrite || true", 
+            "@php artisan ide-helper:meta || true",
             "@composer check-node || (echo 'Node.js required! Install from https://nodejs.org' && exit 1)",
             "npm install",
             "npm run build"
@@ -83,7 +84,7 @@
             "@php artisan test"
         ],
         "check-node": [
-            "@php -r \"exec('node --version 2>&1', $output, $code); if($code !== 0) { echo 'Node.js required! Install from https://nodejs.org'; exit(1); }\""
+            "node --version || (echo 'Node.js required! Install from https://nodejs.org' && exit 1)"
         ]
     },
     "extra": {

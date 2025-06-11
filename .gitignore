@@ -5,6 +5,7 @@
 /public/storage
 /public/.htaccess
 /public/robots.txt
+/storage/app/.docker_initialized
 /storage/*.key
 /storage/pail
 /vendor

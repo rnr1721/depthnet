@@ -243,8 +243,8 @@ make start
 
 ## Access Points
 
-- Application: http://localhost:8080
-- phpMyAdmin: http://localhost:8081 (user: depthnet, pass: secret)
+- Application: http://localhost:8000
+- phpMyAdmin: http://localhost:8001 (user: depthnet, pass: secret)
 
 ## Services
 

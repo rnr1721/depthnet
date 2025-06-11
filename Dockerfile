@@ -3,18 +3,20 @@ FROM php:8.2-fpm
 ARG DOCKER_UID=1000
 ARG DOCKER_GID=1000
 
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+
 # System dependencies
 RUN apt-get update && apt-get install -y \
     mc \
     git \
     curl \
+    libicu-dev \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
     zip \
     unzip \
     nodejs \
-    npm \
     supervisor \
     nginx \
     default-mysql-client \
@@ -28,7 +30,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     iputils-ping \
     dnsutils \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl
 
 # Latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -37,9 +39,17 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 RUN groupadd -g $DOCKER_GID depthnet && \
     useradd -u $DOCKER_UID -g $DOCKER_GID -m depthnet
 
+COPY docker/welcome.sh /usr/local/bin/welcome
+RUN chmod +x /usr/local/bin/welcome
 RUN echo 'export PS1="\[\e[0;33m\]\u@\h \[\e[0;32m\]\w \[\e[0;36m\]\t\[\e[0m\] \$ "' >> /home/depthnet/.bashrc
 RUN echo 'export PS1="\[\e[1;31m\]root@\h \[\e[0;32m\]\w \[\e[0;36m\]\t\[\e[0m\] # "' >> /root/.bashrc
 RUN echo 'source /etc/bash_completion' >> /home/depthnet/.bashrc
+RUN echo '/usr/local/bin/welcome' >> /home/depthnet/.bashrc
+RUN echo '/usr/local/bin/welcome' >> /root/.bashrc
+
+COPY docker/aliases.sh /etc/depthnet_aliases
+RUN echo 'source /etc/depthnet_aliases' >> /home/depthnet/.bashrc && \
+    echo 'source /etc/depthnet_aliases' >> /root/.bashrc
 
 # Working directory
 WORKDIR /var/www/html
@@ -67,7 +77,8 @@ RUN sed -i "s/user www-data;/user depthnet depthnet;/" /etc/nginx/nginx.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # robots.txt
-RUN echo "User-agent: *\nDisallow: /" > /var/www/html/public/robots.txt
+COPY --chown=depthnet:depthnet stubs/robots.stub /var/www/html/public/robots.txt
+RUN chmod 775 /var/www/html/public/robots.txt
 
 # Ensure correct permissions for entire application
 RUN chown -R depthnet:depthnet /var/www/html && \

@@ -6,11 +6,10 @@ services:
         - DOCKER_UID=${DOCKER_UID:-1000}
         - DOCKER_GID=${DOCKER_GID:-1000}
     ports:
-      - "8080:80"
+      - "8000:80"
+      - "5173:5173"
     volumes:
-      # For development - can be commented out for production
       - .:/var/www/html
-      - ./storage:/var/www/html/storage
       - ./docker/logs/nginx:/var/log/nginx
       - ./docker/logs/supervisor:/var/log/supervisor
     environment:
@@ -57,7 +56,7 @@ services:
       PMA_USER: depthnet
       PMA_PASSWORD: secret
     ports:
-      - "8081:80"
+      - "8001:80"
     depends_on:
       - mysql
     networks:

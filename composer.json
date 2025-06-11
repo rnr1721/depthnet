@@ -87,7 +87,7 @@
             "@php -r \"echo '2. Run: composer run setup\\n';\"",
             "@php -r \"echo '3. Start dev server if need: composer run dev\\n\\n';\"",
             "@php -r \"echo '5. Login: admin@example.com, Password: admin123\\n';\"",
-            "@php -r \"echo 'IMPORTANT: Don't forget to configure Laravel Supervisor as described in the documentation\\n';\""
+            "@php -r \"echo 'IMPORTANT: Dont forget to configure Laravel Supervisor as described in the documentation\\n';\""
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",

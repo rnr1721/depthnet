@@ -102,7 +102,16 @@ class CommandParserSmart implements CommandParserInterface
     protected function canMerge(ParsedCommand $first, ParsedCommand $second): bool
     {
         // We glue only commands of the same type and method
-        return $first->plugin === $second->plugin && $first->method === $second->method;
+        if ($first->plugin !== $second->plugin || $first->method !== $second->method) {
+            return false;
+        }
+
+        try {
+            $plugin = $this->pluginRegistry->get($first->plugin);
+            return $plugin && $plugin->canBeMerged();
+        } catch (\Exception $e) {
+            return false;
+        }
     }
 
     /**

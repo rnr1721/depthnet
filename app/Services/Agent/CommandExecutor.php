@@ -3,6 +3,7 @@
 namespace App\Services\Agent;
 
 use App\Contracts\Agent\CommandExecutorInterface;
+use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 use App\Services\Agent\Plugins\DTO\CommandResult;
@@ -13,6 +14,7 @@ class CommandExecutor implements CommandExecutorInterface
 {
     public function __construct(
         protected PluginRegistryInterface $pluginRegistry,
+        protected PluginManagerInterface $pluginManager,
         protected LoggerInterface $logger
     ) {
     }
@@ -40,11 +42,14 @@ class CommandExecutor implements CommandExecutorInterface
     }
 
     /**
+     * Execute single command with proper plugin configuration
+     *
      * @inheritDoc
      */
     protected function executeCommand(ParsedCommand $command): CommandResult
     {
         try {
+            // Check if plugin exists in registry
             if (!$this->pluginRegistry->has($command->plugin)) {
                 return new CommandResult(
                     $command,
@@ -54,8 +59,29 @@ class CommandExecutor implements CommandExecutorInterface
                 );
             }
 
-            $plugin = $this->pluginRegistry->get($command->plugin);
+            // Get plugin with ensured configuration from PluginManager
+            $plugin = $this->pluginManager->getConfiguredPlugin($command->plugin);
 
+            if (!$plugin) {
+                return new CommandResult(
+                    $command,
+                    '',
+                    false,
+                    "Plugin '{$command->plugin}' is not available"
+                );
+            }
+
+            // Check if plugin is enabled
+            if (!$plugin->isEnabled()) {
+                return new CommandResult(
+                    $command,
+                    '',
+                    false,
+                    "Plugin '{$command->plugin}' is disabled"
+                );
+            }
+
+            // Execute command method
             if ($command->method === 'execute') {
                 $result = $plugin->execute($command->content);
             } elseif ($plugin->hasMethod($command->method)) {
@@ -75,7 +101,9 @@ class CommandExecutor implements CommandExecutorInterface
             $this->logger->error("Command execution error", [
                 'plugin' => $command->plugin,
                 'method' => $command->method,
-                'error' => $e->getMessage()
+                'content' => substr($command->content, 0, 100), // Log first 100 chars of content
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return new CommandResult(
@@ -88,30 +116,49 @@ class CommandExecutor implements CommandExecutorInterface
     }
 
     /**
-     * Formats the output message with command results.
+     * Formats the output message with command results
      *
      * @param string $originalOutput
      * @param CommandResult[] $results
      * @return string
      */
-    protected function formatMessage(string $originalOutput, array $results): string
-    {
+    protected function formatMessage(
+        string $originalOutput,
+        array $results
+    ): string {
         $formatted = $originalOutput . "\n\n" . "AGENT COMMAND RESULTS:" . "\n\n";
 
         foreach ($results as $i => $result) {
             $command = $result->command;
-            //$methodDisplay = $command->method === 'execute' ? '' : " {$command->method}";
 
-            //$formatted .= "SUCCESS: Command " . ": {$command->plugin}{$methodDisplay}\n";
+            $plugin = $this->pluginRegistry->get($command->plugin);
+            $customSuccessMessage = $plugin->getCustomSuccessMessage();
+            $customErrorMessage = $plugin->getCustomErrorMessage();
 
-            if (!empty($command->content)) {
-                //$formatted .= "Input:\n" . $command->content . "\n\n";
+            $methodDisplay = $command->method === 'execute' ? '' : $command->method;
+
+            $successMessage = $customSuccessMessage ?: "SUCCESS: {$command->plugin} {$methodDisplay}\n";
+            $errorMessage = $customErrorMessage ?: "ERROR: {$command->plugin} {$methodDisplay}\n";
+
+            $search = ['{method}'];
+            $replace = [$methodDisplay];
+
+            if ($customSuccessMessage) {
+                $customSuccessMessage = str_replace($search, $replace, $customSuccessMessage);
+            }
+
+            if ($customErrorMessage) {
+                $customErrorMessage = str_replace($search, $replace, $customErrorMessage);
             }
 
             if ($result->success) {
-                $formatted .= "Result of command {$command->plugin} {$command->method} \n" . $result->result . "\n\n";
+                $formatted .= $successMessage . "\n";
+                if (!empty($result->result)) {
+                    $formatted .= $result->result . "\n\n";
+                }
             } else {
-                $formatted .= "Error in command: {$command->plugin} {$command->method} \n" . $result->error . "\n\n";
+                $formatted .= $errorMessage . "\n";
+                $formatted .= $result->error . "\n\n";
             }
 
             $formatted .= str_repeat("-", 30) . "\n\n";

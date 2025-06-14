@@ -80,6 +80,14 @@
           ]">
           {{ t('chat_presets') }}
           </Link>
+          <Link v-if="isAdmin" :href="route('admin.plugins.index')" :class="[
+            'inline-block text-sm px-3 py-2 rounded-md transition-colors',
+            isDark
+              ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
+              : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
+          ]">
+          {{ t('plugins') }}
+          </Link>
           <Link v-if="isAdmin" :href="route('admin.users.index')" :class="[
             'inline-block text-sm px-3 py-2 rounded-md transition-colors',
             isDark

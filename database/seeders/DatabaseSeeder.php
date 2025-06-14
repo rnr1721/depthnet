@@ -16,7 +16,8 @@ class DatabaseSeeder extends Seeder
         $this->call([
             UserSeeder::class,
             OptionsSeeder::class,
-            PresetSeeder::class
+            PresetSeeder::class,
+            PluginConfigSeeder::class
         ]);
     }
 }

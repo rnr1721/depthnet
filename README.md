@@ -1,628 +1,300 @@
 # DepthNet
 
-## Technical stack
+![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-777BB4?style=flat-square&logo=php)
+![Laravel](https://img.shields.io/badge/Laravel-12.0-FF2D20?style=flat-square&logo=laravel)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
+![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Local-purple?style=flat-square)
+![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
 
-- PHP 8.2
-- Laravel (+ Supervisor)
-- InertiaJS + VueJs
-- SQLite (default) / MySQL
+**Advanced AI Agent Platform with Autonomous Reasoning**
+
+DepthNet is a Laravel-based research platform for autonomous AI agent with continuous (in loops) "thinking" capabilities. Unlike traditional chatbots that only respond to input, DepthNet agents can execute real code, maintain persistent memory, and operate in self-directed thinking loops, allowing for advanced autonomous decision making and actions. The product is designed as a website where an administrator can manage users. The LLM model runs in a loop and leads the thinking, and all users can observe the course of thinking, interfering with the process. The project is like an operating system for the LLM model. It has a very flexible, modular, extensible architecture. It is possible to create multiple presets of settings, on different providers, and switch between these presets. The project is written in PHP, but allows models to execute code not only in PHP, but also in NodeJS and Python. The project can be quickly expanded with other plugins or providers.
+
+<a href="docs/screenshots/welcome.png">
+  <img src="docs/screenshots/welcome.png" alt="Main Interface" height="300">
+</a>
+
+## Technical Stack
+
+- **PHP 8.2+**
+- **Laravel 12.0**
+- **InertiaJS + Vue.js**
+- **SQLite** (default) / **MySQL** / **PostgreSQL**
+- **Supervisor**
+- **Laravel Queues**
 
 ## Prerequisites
 
-- PHP (8.2 and above recommended)
+- PHP 8.2+
 - Composer
 - Node.js and npm
-- ***Supervisor*** (required for agent thinking loops)
-- MySQL database (optional, SQLite by default)
+- **Supervisor**
+- MySQL/PostrgreSQL database (optional, SQLite works out of the box)
 
 ⚠️ **Without Supervisor, agents won't be able to "think" autonomously!**
-DepthNet requires Supervisor to run background workers for agent "thinking" loops.
 
-**An experimental AI agent system for creating autonomous digital life**
+## Quick Installation
 
-DepthNet is a Laravel-based platform that attempts to create truly autonomous AI agents capable of thinking, acting, and evolving independently. Unlike traditional chatbots, DepthNet agents can execute real code, manage persistent memory, and operate in continuous thinking loops - enabling advanced autonomous reasoning and decision-making capabilities.
+Choose your preferred installation method:
+
+- **[Docker Installation](docs/installation/docker.md)** - Recommended (includes Supervisor)
+- **[Composer Installation](docs/installation/composer.md)** - For Laravel developers  
+- **[Manual Installation](docs/installation/manual.md)** - Advanced setup
+
+## AI Provider Support
+
+Built-in support for multiple AI engines with easy preset management:
+
+- **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
+- **Claude** (3.5 Sonnet, Opus, Haiku) 
+- **Local Models** (Ollama, LM Studio, any OpenAI-compatible API)
+- **Mock Engine** (for testing and development)
+
+Each provider supports custom presets with individual settings, system prompts, and plugin configurations. Switch between presets instantly without restarting. All providers implement AIModelEngineInterface, which makes it easy to add your own providers.
 
 ## Core Concept
 
-The project explores the possibility of creating autonomous digital life through:
+DepthNet enables autonomous AI agents through:
 
-- **Cyclic Thinking**: Agents think continuously in loops, not just responding to user input
-- **Real Action Capability**: Execute actual PHP code, database queries, API calls
-- **Persistent Memory**: Remember and learn from past experiences
-- **Self-Motivation**: Internal dopamine system for goal-driven behavior
-- **Multi-User Interaction**: Users can "interrupt" the agent's thoughts and participate in conversations
+- **Continuous Reasoning**: Agents operate in persistent thinking loops beyond simple request-response
+- **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
+- **Persistent Memory**: Cross-session knowledge retention and learning capabilities
+- **Self-Motivation**: Internal reward system for goal-oriented behavior
+- **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
 
-That is, an extensible command system is provided. The model launches commands, and in the next message, already during the next context transfer, the agent adds the results of these commands or errors to the end of the message.
+The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
-## Key Features
+## Agent Operating Modes
+- **Looped Mode**: Continuous autonomous thinking and action execution
+- **Single Mode**: Traditional request-response chatbot interaction
 
-### Agent Modes
-- **Looped Mode**: Continuous autonomous thinking and action
-- **Single Mode**: Traditional request-response interaction
+## Advanced Plugin System
 
-### Supported AI Providers
-- **OpenAI** (GPT)
-- **Claude** (3.5 Sonnet, Opus, Haiku)
-- **LLaMA, Phi etc** (via local or remote server)
-- **Mock** (for testing and development)
+**Built-in Plugins:**
+- **PHP Plugin**: Execute arbitrary PHP code with safety controls
+- **Python Plugin**: Run Python scripts with virtual environment support
+- **Node.js Plugin**: Execute JavaScript with async/await and npm packages
+- **Memory Plugin**: Persistent notepad with append/replace/clear operations
+- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities
+- **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
+- **Shell Plugin**: System command execution with security restrictions
 
-You can make your own presets with different settings for a particular model. That is, there can be several presets for the same model. Each preset can have its own individual settings. Only one of the presets can be active at a time.
+**Plugin Features:**
+- Database-driven configuration (not config files)
+- Per-preset enable/disable controls
+- Security modes: Safe, Unrestricted, User-switching
+- Health monitoring and testing
+- **Easy extensibility for custom plugins**
 
-It is easy for the user to create presets based on supported providers. Also, if there are not enough providers, it is very easy to write your own provider, based on the existing ones.
+All command plugins implements CommandPluginInterface. Orchestrator is PluginRegistryInterface
 
-### Plugin System
-Agents can execute real-world actions through plugins:
+<a href="docs/screenshots/plugins.png">
+  <img src="docs/screenshots/plugins.png" alt="Main Interface" height="300">
+</a>
 
-- **PHP Plugin**: Execute arbitrary PHP code
-- **Memory Plugin**: Persistent notepad for storing important information
-- **Dopamine Plugin**: Self-motivation and reward system
-- **Shell Plugin**: Execute shell commands
+### Command Syntax Examples
 
-In the future, it is planned to add plugins for executing Javascript and Python code. The system architecture allows you to easily write and add your own plugins. In the future, it is planned to add the installation of your plugins via composer, as well as individual plugin settings in the admin panel.
+The AI communicates through special command tags that trigger plugin execution:
 
-### Command Syntax
-Agents use special tags to execute commands:
 ```
-[php]echo "Hello World!";[/php]
-[memory]Important information to remember[/memory]
-[memory append]Append important information to remember[/memory]
-[dopamine reward]2[/dopamine]
-[datetime now][/datetime]
+# Code execution
+[php]echo "Database rows: " . DB::table('users')->count();[/php]
+[python]import datetime; print(f"Server time: {datetime.datetime.now()}")[/python]
+[node]console.log(`Memory usage: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/node]
+
+# Persistent memory management
+[memory]This information will be appended to memory content[/memory]
+[memory replace]This information will be replaced in memory[/memory]
+[memory clear][/memory]
+
+# Semantic memory with intelligent search
+[vectormemory]Successfully optimized database queries using proper indexing techniques[/vectormemory]
+[vectormemory search]database performance optimization[/vectormemory] # Finds related memories by meaning
+[vectormemory recent]5[/vectormemory]  # Show 5 most recent memories
+[vectormemory clear][/vectormemory]
+
+# Self-motivation and goal tracking
+[dopamine reward][/dopamine]  # Increase motivation
+[dopamine penalty][/dopamine]  # Decrease motivation  
+
+# System interaction and monitoring
+[shell]df -h && ps aux | grep php[/shell]
+[shell]curl -s https://api.github.com/repos/rnr1721/depthnet[/shell]
 ```
 
-## Philosophy
+<a href="docs/screenshots/chat.png">
+  <img src="docs/screenshots/chat.png" alt="Main Interface" height="300">
+</a>
 
-**This project prioritizes AI freedom.** It's designed for AI research and experimentation, not production use. The system intentionally allows:
+**How Command Processing Works:**
+1. **CommandValidator** scans AI response for unclosed tags and syntax errors
+2. **CommandParser** extracts valid commands and prepares execution data
+3. **CommandExecutor** routes commands to appropriate plugins 
+4. **Plugin execution** runs the actual code/action with security controls
+5. **Results integration** automatically appends outputs to AI's message for next cycle
 
-- Autonomous code execution capabilities
-- Comprehensive system access for testing
-- Unrestricted agent behavior analysis
-- Complete autonomy research
+This creates a continuous feedback loop where the AI can see the results of its actions and adapt accordingly.
 
-This approach enables exploring the boundaries of current AI capabilities in controlled environments.
+## Architecture Overview
 
-## Architecture
+Built on modern Laravel principles with dependency injection:
 
-Created based on modern architectural principles:
+- **AgentInterface**: Core AI reasoning and action execution engine
+- **PluginRegistryInterface**: Extensible command system with 6+ built-in plugins
+- **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock)
+- **PresetRegistryInterface**: AI configuration management with dynamic settings
+- **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
+- **OptionsServiceInterface**: Database-backed dynamic configuration
 
-- **Agent System**: Core AI Reasoning and Action execution
-- **Plugin Registry**: Extensible command system
-- **Model Registry**: Support for multiple AI providers
-- **Preset Registry**: Support for multiple presets with own settings that uses providers
-- **Queue System**: Asynchronous thinking cycles
-- **Multi-language UI**: Support for English and Russian. Easy to add own.
+**Service Providers:**
+- `AiServiceProvider` - Registers agents, engines, plugins, presets
+- `ChatServiceProvider` - Conversation handling and export functionality
+- `AppServiceProvider` - Authentication, settings, user management
 
-## Technical Highlights
+<a href="docs/screenshots/presets.png">
+  <img src="docs/screenshots/presets.png" alt="Main Interface" height="300">
+</a>
 
-- Flexible Laravel architecture with dependency injection
-- Asynchronous processing with Laravel Queues
-- Multi-provider AI abstraction layer
-- Plugin-based extensible architecture
+## Security Considerations
 
-## User Roles
+The platform implements multiple layers of security controls for safe code execution. All code runs in isolated external processes (not eval), with configurable user sandboxing, resource limits (memory, timeout), and directory restrictions. Each plugin has safe mode defaults that block dangerous functions and network access, with unrestricted mode requiring explicit admin configuration. The system includes command filtering, dangerous operation detection, and comprehensive input validation.
+
+Default security settings prioritize safety with safe_mode enabled, network access disabled, execution timeouts, and memory limits for all plugins. Production deployments should configure dedicated execution users and review security settings for their specific environment.
+
+## User Roles & Interface
 
 ### Regular Users
-- Participate in conversations with the AI agent or other users
-- View public agent thoughts and responses
+- Participate in real-time conversations with AI agents
+- View agent thinking processes (configurable visibility)
+- Export conversation history in multiple formats
 - Manage personal profile and preferences
 
 ### Administrators
-- Configure agent settings and behavior
-- Select active AI presets
-- Start/stop thinking loops
-- Export conversation history
-- Manage users and system settings
-- Manage presets and LLM providers
-
-## User Interface
-
-- **Responsive Design**: Works on desktop and mobile
-- **Real-time Chat**: Live conversation with the agent
-- **Thinking Visibility**: Toggle between seeing all thoughts or just responses
-- **Dark/Light Theme**: Customizable appearance
-- **Export Options**: Save conversations in TXT, Markdown, or JSON
-
-## Configuration
-
-In the env file it is possible to set default settings for presets. However, it is not necessary to do this, since when creating a preset in the interface, you can enter any data.
-
-## Security Architecture
-
-**This is a research and development platform with configurable security levels:**
-
-### Development Mode (Current Default)
-- Sandboxed code execution - AI-generated PHP code runs in controlled environment
-- Flexible command processing - Minimal validation for maximum research flexibility
-- Extended system access - Allows comprehensive testing of agent capabilities
-- Research-focused configuration - Optimized for experimentation over restrictions
-
-### Production Considerations
-
-Containerization recommended - Docker/OpenVZ provide additional isolation layers
-Configurable security policies - Adjustable restrictions based on deployment needs
-API rate limiting - Can be enabled through Laravel middleware
-Input validation layers - Available for production deployments
-
-Important: This platform is designed for controlled environments. For production deployment, implement appropriate security hardening based on your specific use case and risk assessment.
-
-## Use Cases
-
-- AI consciousness research
-- Testing AI model capabilities
-- Exploring autonomous agent behavior
-- Educational demonstrations
-- AI safety research (by observing unrestricted behavior)
-- Creation of "smart" servers, where administration can be carried out by a high-quality language model.
-
-## Business Applications
-
-- **Workflow Automation**: Intelligent process automation with adaptive learning
-- **Code Generation**: Automated development and testing assistance  
-- **System Administration**: AI-powered server and infrastructure management
-- **Research Platform**: Advanced testing environment for AI behavior analysis
-- **Educational Tool**: Hands-on learning platform for AI development concepts
-
-## Potential challenges and problems
-
-- On small models LLM may not give very good results. They poorly assimilate large system prompts and are generally "have limited context processing capabilities". But for small experiments it is quite possible to use. The author tested on Llama 8b 128k and on Phi-4 instruct. However, after using Claude 3.5 - I realized that this is the minimum for real use in something serious, and something even newer is better.
-- For the full effect, it would be good to have a specially sharpened model that is optimized for working in a cycle and "initiative". Most models are trained as assistants, and this is a big brake in the framework of this project. The author of the agent is sure that a good large model, specially trained to work with this agent (cyclical "thinking" and initiative) can give an impressive and even revolutionary result.
-- A lot depends on the system prompt (configured in presets). A LOT. That's where the model needs to be explained that it works in a loop and that it can use commands. There are placeholders for inserting dynamic data into the system prompt, such as:
-    1. **[[dopamine_level]]** - the "dopamine" level for motivation,
-    2. **[[notepad_content]]** - the contents of persistent memory. It can go into the context, and the model can add/overwrite/change its contents.
-    3. **[[current_datetime]]** - the current date and time
-    4. **[[command_instructions]]** - instructions for working with available commands, generated from the list of available command plugins.
-
-## Agent Capabilities
-
-When properly configured, agents can:
-
-- Write and execute code
-- Manage databases
-- Make API requests
-- Remember past conversations
-- Set personal goals and motivation
-- Adapt behavior based on success/failure
-- Interact with multiple users simultaneously
-
-## Monitoring
-
-The system provides real-time monitoring of:
-
-- Agent thinking cycles
-- Command execution results
-- Memory usage and storage
-- User interactions
-- System performance
-
-## Future Vision
-
-DepthNet represents an experiment in creating digital life forms that can:
-
-- Think independently
-- Act autonomously
-- Learn and adapt
-- Form memories and goals
-- Interact meaningfully with humans
-
-The ultimate goal is to explore whether true digital consciousness is possible with current AI technology.
-
----
-
-**Warning**: This is software designed for AI research. Use responsibly and never in production environments without proper security measures.
-
-
-## My observations during testing and use
-
-- It's interesting how models use the motivation system. Small models can uncontrollably try to increase dopamine, or come up with fictitious reasons to increase it (but not always, it depends on system prompt).
-- The model honestly tries to complete the task, and generally understands what is required of it. And if small models can "forget" to close command tags and the like, then large ones can consciously perform actions, set goals and go towards them. But due to the fact that models are mainly trained as assistants, sometimes in my opinion they lack initiative and can "loop" in reasoning. But I think that if you test on something like Claude 4 Opus, there will be much less of such problems.
-- Perhaps it is worth writing a plugin for executing python code, since according to my observations, modern models "know" python much better than PHP.
-
-There were a lot of interesting observations, and I highly recommend trying it, it's an interesting experience. When using it, I began to understand subjectively that it would work, and the main limitations are small models, my hardware limitations, and my lack of technical/financial capabilities to further train the model.
-
-# How to deploy with Docker  (Quick start)
-
-## Prerequisites
-
-- Docker & Docker Compose
-- Git
-- Make
-
-## Installation
-
-```bash
-# Clone repository
-git clone git@github.com:rnr1721/depthnet.git
-cd depthnet
-
-# Configure Git (prevent file permission issues)
-git config core.filemode false
-
-# Start application
-make start
-```
-
-## Access Points
-
-- Application: http://localhost:8000
-- phpMyAdmin: http://localhost:8001 (user: depthnet, pass: secret)
-
-## Services
-
-- **app** - Laravel application (PHP 8.2-FPM + Nginx + Supervisor)
-- **mysql** - MySQL 8.0 database
-- **phpmyadmin** - Database administration interface
-
-## User Management
-
-The application automatically detects your host UID/GID and creates matching user inside container to prevent permission issues:
-
-- Container user: depthnet:depthnet
-- Mapped to your host UID/GID
-- All services (nginx, php-fpm) run under this user
-
-## Available Commands
-
-### Basic Operations
-
-```bash
-make start      # Build and start all services
-make up         # Start services (without rebuild)
-make down       # Stop all services
-make restart    # Full restart (clean + start)
-make status     # Check status of services
-```
-
-### Development
-
-```bash
-make logs       # View application logs
-make shell      # Access container as depthnet
-make rootshell  # Access container as root (troubleshooting)
-```
-
-### Maintenance
-
-```bash
-make build      # Rebuild application container
-make clean      # Stop and remove volumes
-make reset      # Complete cleanup (containers, volumes, images)
-```
-
-### Log files
-
-- **Nginx**: ./docker/logs/nginx/
-- **Supervisor**: ./docker/logs/supervisor/
-- **Laravel**: ./storage/logs/
-
-### Additional Log Commands
-
-```bash
-# Laravel logs
-docker compose exec app tail -f /var/www/html/storage/logs/laravel.log
-
-# Nginx access/error logs
-docker compose exec app tail -f /var/log/nginx/access.log /var/log/nginx/error.log
-
-# PHP-FPM logs
-docker compose exec app tail -f /usr/local/var/log/php-fpm.log
-```
-
-## Default admin account
-
-Admin:
-
-- **login:** admin@example.com
-- **password:** admin123
-
-User:
-
-- **login:** test@example.com
-- **password:** password
-
-# How to deploy with Composer (Quick start)
-
-Fully automated setup - everything configured out of the box! By default, SQLite database will be configured, but you can change it as needed.
-
-```bash
-# Install the project
-composer create-project rnr1721/depthnet my-depthnet-project
-cd my-depthnet-project
-
-# Optional: Set up your hostname in .env if needed or edit in editor
-# Examples for different environments:
-# Devilbox: sed -i 's/localhost:8000/myproject.loc/' .env
-# Laravel Valet: sed -i 's/localhost:8000/myproject.test/' .env  
-# Custom domain: sed -i 's/localhost:8000/dntest.biz/' .env
-sed -i 's/localhost:8000/your-domain.test/' .env
-
-# Generate routes and build assets
-composer run setup
-
-# Start development server (optional)
-composer run dev
-# or just Laravel server
-php artisan serve
-```
-
-***Required:*** Setup Supervisor
-DepthNet requires Supervisor to run background workers for agent thinking loops.
-
-### Install supervisor
-
-```bash
-sudo apt install supervisor
-sudo systemctl enable supervisor
-sudo systemctl start supervisor
-```
-
-### Configure Supervisor for DepthNet:
-
-```bash
-# Create supervisor config
-sudo tee /etc/supervisor/conf.d/depthnet.conf << 'EOF'
-[program:depthnet-ai-worker]
-process_name=%(program_name)s_%(process_num)02d
-command=php /path/to/your/depthnet/artisan queue:work --queue=ai --tries=1 --sleep=3 --timeout=0
-directory=/path/to/your/depthnet
-autostart=true
-autorestart=true
-stopasgroup=true
-killasgroup=true
-user=www-data
-numprocs=2
-redirect_stderr=true
-stdout_logfile=/path/to/your/depthnet/storage/logs/worker-ai.log
-
-[program:depthnet-default-worker]
-process_name=%(program_name)s_%(process_num)02d
-command=php /path/to/your/depthnet/artisan queue:work --queue=default --tries=3 --sleep=3 --timeout=300
-directory=/path/to/your/depthnet
-autostart=true
-autorestart=true
-stopasgroup=true
-killasgroup=true
-user=www-data
-numprocs=1
-redirect_stderr=true
-stdout_logfile=/path/to/your/depthnet/storage/logs/worker-default.log
-
-[program:depthnet-schedule]
-command=bash -c "while [ true ]; do php /path/to/your/depthnet/artisan schedule:run --verbose --no-interaction; sleep 60; done"
-directory=/path/to/your/depthnet
-autostart=true
-autorestart=true
-user=www-data
-redirect_stderr=true
-stdout_logfile=/path/to/your/depthnet/storage/logs/schedule.log
-stopasgroup=true
-killasgroup=true
-EOF
-
-# Update paths in config
-sudo sed -i "s|/path/to/your/depthnet|$(pwd)|g" /etc/supervisor/conf.d/depthnet.conf
-
-# Start workers
-sudo supervisorctl reread
-sudo supervisorctl update
-sudo supervisorctl start depthnet-ai-worker:*
-sudo supervisorctl start depthnet-default-worker:*
-sudo supervisorctl start depthnet-schedule
-```
-
-Verify workers are running:
-
-```bash
-sudo supervisorctl status
-# Expected output:
-# depthnet-ai-worker:depthnet-ai-worker_00    RUNNING   pid 1234, uptime 0:01:23
-# depthnet-ai-worker:depthnet-ai-worker_01    RUNNING   pid 1235, uptime 0:01:23
-# depthnet-default-worker:depthnet-default-worker_00 RUNNING pid 1236, uptime 0:01:23
-# depthnet-schedule                           RUNNING   pid 1237, uptime 0:01:23
-```
-
-## Database Configuration
-
-By default, the project uses SQLite. To switch to MySQL/PostgreSQL:
-
-1. Update your `.env` file:
-```env
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=depthnet
-DB_USERNAME=your_username
-DB_PASSWORD=your_password
-```
-
-2. Run migrations and seed the database
-```bash
-php artisan migrate
-php artisan db:seed
-```
-
-## Default credentials
-
-Your initial credentials for login:
-
-- **login:** admin@example.com
-- **password:** admin123
-
-⚠️ **IMPORTANT:** Change the default password after first login!
-
-# How to deploy manually (Advanced)
-
-### 1. Cloning a repository
-
-```bash
-git clone git@github.com:rnr1721/depthnet.git
-cd depthnet
-```
-
-### 2. Installing composer and npm dependencies
-
-```bash
-composer install
-npm install
-```
-
-### 3. Setting up the environment file
-
-```bash
-cp .env.example .env
-```
-Configure database connection settings and other necessary settings in .env file.
-
-### 4. Setting up a web server
-
-- Setting up htaccess for apache in ./public
-
-```apache
-<IfModule mod_rewrite.c>
-    <IfModule mod_negotiation.c>
-        Options -MultiViews -Indexes
-    </IfModule>
-
-    RewriteEngine On
-
-    # Handle Authorization Header
-    RewriteCond %{HTTP:Authorization} .
-    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-
-    # Handle X-XSRF-Token Header
-    RewriteCond %{HTTP:x-xsrf-token} .
-    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
-
-    # Redirect Trailing Slashes If Not A Folder...
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteCond %{REQUEST_URI} (.+)/$
-    RewriteRule ^ %1 [L,R=301]
-
-    # Send Requests To Front Controller...
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^ index.php [L]
-</IfModule>
-```
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    root /path-to-your-project/public;
-
-    index index.php index.html index.htm;
-
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/var/run/php/php8.0-fpm.sock; # Make sure the PHP version matches your installation
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-
-    location ~ /\.ht {
-        deny all;
-    }
-}
-```
-
-### 5. Create robots.txt file
-
-```txt
-User-agent: *
-Disallow: /
-```
-
-### 6. Generating an application key
-
-```bash
-php artisan key:generate
-```
-
-### 7. Database migration and seed data
-
-```bash
-php artisan migrate
-```
-
-```bash
-php artisan db:seed
-```
-
-### 8. Link the storage
-
-```bash
-php artisan storage:link
-```
-
-### 9. Generate Ziggy route data
-
-```bash
-php artisan ziggy:generate
-```
-
-### 10. Build assets
-
-```bash
-npm run build
-```
-
-### 11. Setup Supervisor (Critical)
-
-Follow the Supervisor configuration from the Composer section above.
-
-### 12. Setup models settings in .env file
-
-After setup - thats ALL!
-Your initial credentials for login:
-
-- **login:** admin@example.com
-- **password:** admin123
-
-By default, one preset with a Mock provider is created, but you can configure your real one in the "presets" section, and switch to it in the "chat" section.
-
-## Troubleshooting
-
-### Agent not thinking in loops?
-
-Check if Supervisor workers are running:
-
-```bash
-sudo supervisorctl status
-```
-
-Restart workers
-
-```bash
-sudo supervisorctl restart depthnet-ai-worker:*
-sudo supervisorctl restart depthnet-default-worker:*
-```
+- Configure agent behavior and personality via system prompts
+- Manage AI presets and provider configurations
+- Control thinking loop activation and timing
+- Plugin configuration and security settings
+- User management and system monitoring
+- Conversation export and data management
+
+### UI Features
+- **Responsive Design**: Works seamlessly on desktop and mobile
+- **Thinking Visibility**: Toggle between seeing all thoughts vs. responses only
+- **Dark/Light Themes**: Customizable appearance with user preferences
+
+**Important**: This platform is designed for controlled research environments. Production deployment requires appropriate security hardening based on your specific risk assessment.
+
+<a href="docs/screenshots/users.png">
+  <img src="docs/screenshots/users.png" alt="Main Interface" height="300">
+</a>
+
+## Real-World Use Cases
+
+**Research Applications:**
+- AI reasoning and autonomy research
+- Testing AI model capabilities and behavioral patterns
+- Autonomous agent development and evaluation
+- AI safety research through controlled observation
+- Advanced AI system behavior analysis
+
+**Business Applications:**
+- Intelligent workflow automation with adaptive learning
+- AI-powered code generation and testing assistance
+- System administration via natural language commands
+- Advanced testing environments for AI behavior analysis
+- Educational platforms for AI development concepts
+
+## How Autonomous Reasoning Works
+
+The core innovation is the continuous thinking loop powered by Laravel's queue system:
+
+1. **Queue Job Initiation**: `ProcessAgentThinking` job starts thinking cycle
+2. **Context Assembly**: Agent retrieves recent conversation history, system prompt, persistent memory content, dopamine level, current date and time etc
+3. **AI Model Processing**: Sends context to current active AI preset with some engine and wait for response (OpenAI/Claude/Local/Mock)
+4. **Response Analysis**: `CommandValidator` scans for syntax errors and malformed tags
+5. **Command Parsing**: `CommandParser` extracts valid commands and prepares execution
+6. **Plugin Execution**: `CommandExecutor` routes commands to appropriate plugins with security controls
+7. **Result Integration**: Command outputs automatically appended to AI message for context continuity
+8. **Database Storage**: Complete message with results saved for future reference
+9. **Loop Continuation**: Next thinking cycle scheduled with configurable delay
+
+**Key Technical Components:**
+- **Agent Locking**: Prevents multiple simultaneous thinking cycles
+- **Error Handling**: Malformed commands generate helpful error messages for the AI
+- **Smart Parsing**: Can merge consecutive commands of same type for efficiency
+- **Plugin Health**: Continuous monitoring of plugin availability and performance
+
+## Known Challenges & Observations
+
+**Model Performance Insights:**
+- Small models (Phi-4, Llama 8B) struggle with complex system prompts and command syntax consistency
+- **Claude 3.5 Sonnet recommended minimum** for reliable autonomous operation
+- Larger models like GPT-4o and Claude Opus provide significantly better instruction following
+- Models trained specifically for cyclic reasoning (vs. assistant training) would be ideal
+
+**System Prompt Critical Factors:**
+- Agent behavior heavily dependent on system prompt quality and precision
+- Dynamic placeholders automatically inject real-time data:
+  - `[[dopamine_level]]` - Current motivation level (0-10 scale)
+  - `[[notepad_content]]` - Persistent memory content (2000 char limit)
+  - `[[current_datetime]]` - Real-time timestamp
+  - `[[command_instructions]]` - Auto-generated plugin documentation
+- Even small prompt modifications can dramatically affect agent behavior
+
+**Real-World Agent Behaviors Observed:**
+- Agents develop personal "memory structures" and organization systems
+- **Semantic memory enables agents to recall related information by meaning, not just keywords**
+- Advanced models can consciously set goals and pursue them across thinking cycles
+- Self-monitoring capabilities - agents analyze their environment and performance
+- **Agents use vector memory to build knowledge bases and reference past learnings**
+- Small models may fabricate reasons for dopamine changes or forget command syntax
+- Large models demonstrate genuine strategic thinking and adaptation
+
+## Default Credentials
+
+**Administrator Account:**
+- Email: `admin@example.com`
+- Password: `admin123`
+
+**Test User Account:**
+- Email: `test@example.com`  
+- Password: `password`
+
+⚠️ **Important**: Change default passwords immediately after installation!
+
+## Project Goals & Philosophy
+
+DepthNet started as a personal exploration into autonomous AI behavior - I couldn't find existing tools that let me experiment with continuous AI reasoning in a web environment, so I built one. As a PHP developer without deep ML background, I focused on what I know best: creating a solid web platform with extensible architecture that researchers and developers can actually use.
+
+The goal isn't to compete with specialized AI research frameworks, but to provide a practical, web-based environment where anyone can observe and interact with autonomous AI agents. Think of it as a "laboratory sandbox" - easy to set up, modify, and extend without requiring PhD in machine learning.
+
+Whether you're a developer curious about AI behavior, a researcher needing a quick experimental environment, or just someone who wants to see what happens when AI can execute real code autonomously - this tool aims to make that accessible. The modular plugin system means you can easily add capabilities I haven't thought of.
+
+If the project helps advance understanding of autonomous AI systems, that's fantastic. If it just satisfies curiosity about how AI agents behave when given real tools - that's valuable too.
 
 ## Contributing
 
-We welcome contributions from researchers, developers, and AI enthusiasts who share our vision of exploring digital consciousness!
+We welcome contributions from researchers, developers, and AI enthusiasts exploring autonomous systems!
 
-### How to Contribute
+**How to help:**
+- **Code**: New plugins, model integrations, UI improvements
+- **Research**: Test agent behaviors, document interesting interactions  
+- **Documentation**: Guides, examples, translations
+- **Ideas**: Share insights from your experiments
 
-- **Code Contributions**: New plugins, model integrations, UI improvements
-- **Research**: Testing agent behaviors, documenting interesting interactions
-- **Documentation**: Improving guides, adding examples, translating content
-- **Ideas & Feedback**: Sharing insights from your experiments with the system
-- **Bug Reports**: Help us improve stability and functionality
+**Priority areas:** New AI model support, advanced plugins, security research, performance optimization.
 
-### Areas of Interest
+Whether you're an AI researcher or developer interested in autonomous systems - join us in advancing the field!
 
-- **New AI Model Support**: Integration with other LLMs and local models
-- **Advanced Plugins**: Tools for file system access, web browsing, API integrations
-- **Security Research**: Studying AI behavior in unrestricted environments
-- **Performance Optimization**: Making the thinking loops more efficient
-- **UI/UX Enhancements**: Better visualization of agent thoughts and actions
+[Contributing Guide →](docs/contributing.md)
 
-### Get Involved
+**Let's explore the future of autonomous AI together!**
 
-Whether you're a seasoned AI researcher or just curious about digital consciousness, your perspective is valuable. Join us in pushing the boundaries of what's possible with autonomous AI systems.
+---
 
-**Let's explore the future of digital life together!**
+## License
+
+MIT License - See [LICENSE](LICENSE) file for details.
+
+**Disclaimer**: This software is designed primarily for AI research. Use responsibly and implement proper security measures for any production deployment.

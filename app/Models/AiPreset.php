@@ -2,11 +2,16 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AiPreset extends Model
 {
+
+    use HasFactory;
+
     protected $table = "ai_presets";
 
     protected $fillable = [
@@ -65,7 +70,6 @@ class AiPreset extends Model
         });
     }
 
-    // AiPresetInterface implementation
     public function getId(): int
     {
         return $this->id;
@@ -158,5 +162,13 @@ class AiPreset extends Model
     public function scopeByEngine($query, string $engineName)
     {
         return $query->where('engine_name', $engineName);
+    }
+
+    /**
+     * Vector memories associated with this preset
+     */
+    public function vectorMemories(): HasMany
+    {
+        return $this->hasMany(VectorMemory::class, 'preset_id');
     }
 }

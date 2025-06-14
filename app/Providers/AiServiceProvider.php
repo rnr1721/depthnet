@@ -18,7 +18,9 @@ use Illuminate\Database\ConnectionInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\AgentJobService;
 use App\Services\Agent\CommandExecutor;
@@ -31,8 +33,13 @@ use App\Services\Agent\Engines\ClaudeModel;
 use App\Services\Agent\Engines\LocalModel;
 use App\Services\Agent\Engines\MockModel;
 use App\Services\Agent\Engines\OpenAIModel;
+use App\Services\Agent\PluginManager;
 use App\Services\Agent\Plugins\DopaminePlugin;
+use App\Services\Agent\Plugins\NodePlugin;
+use App\Services\Agent\Plugins\PythonPlugin;
+use App\Services\Agent\Plugins\Related\TfIdfService;
 use App\Services\Agent\Plugins\ShellPlugin;
+use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetService;
 use Psr\Log\LoggerInterface;
@@ -61,12 +68,11 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(PluginRegistryInterface::class, function ($app) {
             $registry = new PluginRegistry();
-            $registry->register($app->make(PHPPlugin::class));
-            $registry->register($app->make(MemoryPlugin::class));
-            $registry->register($app->make(DopaminePlugin::class));
-            $registry->register($app->make(ShellPlugin::class));
+            $this->registerPlugins($registry, $app);
             return $registry;
         });
+
+        $this->app->singleton(PluginManagerInterface::class, PluginManager::class);
 
         $this->app->singleton(EngineRegistryInterface::class, function ($app) {
             $httpFactory = $app->make(HttpFactory::class);
@@ -145,7 +151,7 @@ class AiServiceProvider extends ServiceProvider
                 return new LocalModel($httpFactory, $serverUrl, $config);
 
             default:
-                // Log warning about unknown engine
+                // Unknown engine?
                 if ($this->app->bound(LoggerInterface::class)) {
                     $logger = $this->app->make(LoggerInterface::class);
                     $logger->warning("Unknown AI engine: {$engineName}");
@@ -153,4 +159,101 @@ class AiServiceProvider extends ServiceProvider
                 return null;
         }
     }
+
+    /**
+     * Register all plugins with the registry
+     */
+    protected function registerPlugins(PluginRegistryInterface $registry, $app): void
+    {
+
+        $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
+
+        // Get enabled plugins from configuration
+        $enabledPlugins = $this->getEnabledPlugins();
+
+        foreach ($enabledPlugins as $pluginClass) {
+            try {
+                $plugin = $app->make($pluginClass);
+                $registry->register($plugin);
+            } catch (\Throwable $e) {
+                if ($app->bound(LoggerInterface::class)) {
+                    $logger = $app->make(LoggerInterface::class);
+                    $logger->error("Failed to register plugin {$pluginClass}: " . $e->getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Get plugins to register (not necessarily enabled)
+     * Config file now only controls which plugins are available, not enabled
+     *
+     * @return array
+     */
+    protected function getEnabledPlugins(): array
+    {
+        $pluginClasses = [
+            MemoryPlugin::class,
+            DopaminePlugin::class,
+            ShellPlugin::class,
+            PHPPlugin::class,
+            NodePlugin::class,
+            PythonPlugin::class,
+            VectorMemoryPlugin::class
+        ];
+
+        $availablePlugins = [];
+
+        foreach ($pluginClasses as $pluginClass) {
+            $pluginName = strtolower(str_replace(['Plugin', 'App\\Services\\Agent\\Plugins\\'], '', $pluginClass));
+
+            if (config("ai.plugins.{$pluginName}.available", true)) {
+                $availablePlugins[] = $pluginClass;
+            }
+        }
+
+        return $availablePlugins;
+    }
+
+    /**
+     * Initialize plugin configurations
+     *
+     * @return void
+     */
+    protected function initializePluginConfigurations(): void
+    {
+        if (!$this->app->bound(PluginManager::class)) {
+            return;
+        }
+
+        try {
+            $pluginManager = $this->app->make(PluginManager::class);
+
+            // Test all plugins on boot if in debug mode
+            if (config('ai.debug.enabled', false)) {
+                $testResults = $pluginManager->testAllPlugins();
+
+                if ($this->app->bound(LoggerInterface::class)) {
+                    $logger = $this->app->make(LoggerInterface::class);
+                    $logger->debug('Plugin test results on boot', $testResults);
+                }
+            }
+
+            if (config('ai.logging.enabled', true)) {
+                $stats = $pluginManager->getPluginStatistics();
+
+                if ($this->app->bound(LoggerInterface::class)) {
+                    $logger = $this->app->make(LoggerInterface::class);
+                    $logger->info('Plugin system initialized', $stats);
+                }
+            }
+
+        } catch (\Throwable $e) {
+            if ($this->app->bound(LoggerInterface::class)) {
+                $logger = $this->app->make(LoggerInterface::class);
+                $logger->error('Failed to initialize plugin configurations: ' . $e->getMessage());
+            }
+        }
+    }
+
 }

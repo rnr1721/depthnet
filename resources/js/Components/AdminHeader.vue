@@ -94,32 +94,97 @@
             <span>{{ $t('profile') }}</span>
             </Link>
 
-            <Link v-if="isAdmin" :href="route('admin.settings')" :class="[
-              'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
-            ]">
-            <span>{{ $t('settings') }}</span>
-            </Link>
+            <!-- Dropdown Menu -->
+            <div v-if="isAdmin" class="relative" ref="dropdownRef">
+              <button @click="dropdownOpen = !dropdownOpen" :class="[
+                'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
+                isDark
+                  ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
+                  : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
+              ]">
+                <span>{{ $t('admin') }}</span>
+                <svg :class="[
+                  'w-4 h-4 transition-transform duration-200',
+                  dropdownOpen ? 'rotate-180' : ''
+                ]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
 
-            <Link v-if="isAdmin" :href="route('admin.presets.index')" :class="[
-              'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
-            ]">
-            <span>{{ $t('presets') }}</span>
-            </Link>
+              <!-- Dropdown content with Teleport -->
+              <Teleport to="body">
+                <Transition enter-active-class="transition ease-out duration-200"
+                  enter-from-class="transform opacity-0 scale-95" enter-to-class="transform opacity-100 scale-100"
+                  leave-active-class="transition ease-in duration-150"
+                  leave-from-class="transform opacity-100 scale-100" leave-to-class="transform opacity-0 scale-95">
+                  <div v-if="dropdownOpen" :style="dropdownStyle" :class="[
+                    'fixed w-56 rounded-xl shadow-xl border backdrop-blur-sm',
+                    isDark
+                      ? 'bg-gray-800 bg-opacity-95 border-gray-700 shadow-black/50'
+                      : 'bg-white bg-opacity-95 border-gray-200 shadow-gray-500/30'
+                  ]" style="z-index: 9999;">
+                    <div class="py-2">
 
-            <Link v-if="isAdmin" :href="route('admin.users.index')" :class="[
-              'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
-            ]">
-            <span>{{ $t('users') }}</span>
-            </Link>
+                      <Link :href="route('admin.presets.index')" @click="dropdownOpen = false" :class="[
+                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
+                        isDark
+                          ? 'text-gray-200 hover:bg-gray-700'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      ]">
+                      <span class="mr-3"></span>
+                      <span>{{ $t('presets') }}</span>
+                      </Link>
+
+                      <Link :href="route('admin.plugins.index')" @click="dropdownOpen = false" :class="[
+                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
+                        isDark
+                          ? 'text-gray-200 hover:bg-gray-700'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      ]">
+                      <span class="mr-3"></span>
+                      <span>{{ $t('plugins') }}</span>
+                      </Link>
+
+                      <Link :href="route('admin.engines.index')" @click="dropdownOpen = false" :class="[
+                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
+                        isDark
+                          ? 'text-gray-200 hover:bg-gray-700'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      ]">
+                      <span class="mr-3"></span>
+                      <span>{{ $t('engines') }}</span>
+                      </Link>
+
+                      <div :class="[
+                        'border-t my-2',
+                        isDark ? 'border-gray-700' : 'border-gray-200'
+                      ]"></div>
+
+                      <Link :href="route('admin.users.index')" @click="dropdownOpen = false" :class="[
+                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
+                        isDark
+                          ? 'text-gray-200 hover:bg-gray-700'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      ]">
+                      <span class="mr-3"></span>
+                      <span>{{ $t('users') }}</span>
+                      </Link>
+
+                      <Link :href="route('admin.settings')" @click="dropdownOpen = false" :class="[
+                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
+                        isDark
+                          ? 'text-gray-200 hover:bg-gray-700'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      ]">
+                      <span class="mr-3"></span>
+                      <span>{{ $t('settings') }}</span>
+                      </Link>
+
+                    </div>
+                  </div>
+                </Transition>
+              </Teleport>
+            </div>
 
             <Link :href="route('logout')" method="post" as="button" :class="[
               'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
@@ -160,7 +225,7 @@
               <p :class="[
                 'text-sm',
                 isDark ? 'text-gray-400' : 'text-gray-500'
-              ]">{{ isAdmin ? t('admin') : t('user') }}</p>
+              ]">{{ isAdmin ? $t('admin') : $t('user') }}</p>
             </div>
           </div>
 
@@ -172,7 +237,7 @@
                 ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
                 : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
             ]" @click="mobileMenuOpen = false">
-            <span class="text-lg">💬</span>
+            <span class="text-lg"></span>
             <span>{{ $t('chat') }}</span>
             </Link>
 
@@ -182,19 +247,90 @@
                 ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
                 : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
             ]" @click="mobileMenuOpen = false">
-            <span class="text-lg">👤</span>
+            <span class="text-lg"></span>
             <span>{{ $t('profile') }}</span>
             </Link>
 
-            <Link v-if="isAdmin" :href="route('admin.settings')" :class="[
-              'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
-            ]" @click="mobileMenuOpen = false">
-            <span class="text-lg">⚙️</span>
-            <span>{{ $t('settings') }}</span>
-            </Link>
+            <!-- Mobile Admin Section -->
+            <div v-if="isAdmin" class="space-y-2">
+              <button @click="mobileAdminOpen = !mobileAdminOpen" :class="[
+                'flex items-center justify-between w-full p-3 rounded-xl text-sm font-medium transition-all',
+                isDark
+                  ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
+                  : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
+              ]">
+                <div class="flex items-center space-x-3">
+                  <span class="text-lg"></span>
+                  <span>{{ $t('admin') }}</span>
+                </div>
+                <svg :class="[
+                  'w-4 h-4 transition-transform duration-200',
+                  mobileAdminOpen ? 'rotate-180' : ''
+                ]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+
+              <!-- Mobile Admin Submenu -->
+              <Transition enter-active-class="transition ease-out duration-200"
+                enter-from-class="transform opacity-0 scale-95 -translate-y-2"
+                enter-to-class="transform opacity-100 scale-100 translate-y-0"
+                leave-active-class="transition ease-in duration-150"
+                leave-from-class="transform opacity-100 scale-100 translate-y-0"
+                leave-to-class="transform opacity-0 scale-95 -translate-y-2">
+                <div v-if="mobileAdminOpen" class="ml-6 space-y-2">
+                  <Link :href="route('admin.presets.index')" :class="[
+                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+                    isDark
+                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
+                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
+                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                  <span class="text-lg"></span>
+                  <span>{{ $t('presets') }}</span>
+                  </Link>
+
+                  <Link :href="route('admin.plugins.index')" :class="[
+                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+                    isDark
+                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
+                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
+                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                  <span class="text-lg"></span>
+                  <span>{{ $t('plugins') }}</span>
+                  </Link>
+
+                  <Link :href="route('admin.engines.index')" :class="[
+                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+                    isDark
+                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
+                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
+                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                  <span class="text-lg"></span>
+                  <span>{{ $t('engines') }}</span>
+                  </Link>
+
+                  <Link :href="route('admin.users.index')" :class="[
+                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+                    isDark
+                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
+                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
+                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                  <span class="text-lg"></span>
+                  <span>{{ $t('users') }}</span>
+                  </Link>
+
+                  <Link :href="route('admin.settings')" :class="[
+                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+                    isDark
+                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
+                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
+                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                  <span class="text-lg"></span>
+                  <span>{{ $t('settings') }}</span>
+                  </Link>
+                </div>
+              </Transition>
+            </div>
 
             <Link :href="route('logout')" method="post" as="button" :class="[
               'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
@@ -202,7 +338,7 @@
                 ? 'text-red-400 hover:text-red-300 hover:bg-red-900 hover:bg-opacity-20'
                 : 'text-red-600 hover:text-red-800 hover:bg-red-50'
             ]" @click="mobileMenuOpen = false">
-            <span class="text-lg">🚪</span>
+            <span class="text-lg"></span>
             <span>{{ $t('logout') }}</span>
             </Link>
           </div>
@@ -213,7 +349,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 
 const page = usePage();
@@ -230,13 +366,31 @@ const props = defineProps({
 })
 
 const mobileMenuOpen = ref(false)
+const mobileAdminOpen = ref(false)
+const dropdownOpen = ref(false)
+const dropdownRef = ref(null)
 const isDark = ref(false)
 
+/**
+ * Calculate dropdown position for Teleport
+ */
+const dropdownStyle = computed(() => {
+  if (!dropdownRef.value || !dropdownOpen.value) return {}
+
+  const rect = dropdownRef.value.getBoundingClientRect()
+  return {
+    top: `${rect.bottom + 8}px`,
+    right: `${window.innerWidth - rect.right}px`
+  }
+})
+
+/**
+ * Toggle theme between light and dark
+ */
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   localStorage.setItem('chat-theme', isDark.value ? 'dark' : 'light');
 
-  // Update document class for global theme
   if (isDark.value) {
     document.documentElement.classList.add('dark');
   } else {
@@ -247,6 +401,15 @@ const toggleTheme = () => {
   window.dispatchEvent(new CustomEvent('theme-changed', {
     detail: { isDark: isDark.value }
   }));
+};
+
+/**
+ * Close dropdown when clicking outside
+ */
+const handleClickOutside = (event) => {
+  if (dropdownRef.value && !dropdownRef.value.contains(event.target)) {
+    dropdownOpen.value = false;
+  }
 };
 
 onMounted(() => {
@@ -261,6 +424,14 @@ onMounted(() => {
   window.addEventListener('theme-changed', (event) => {
     isDark.value = event.detail.isDark;
   });
+
+  // Add click outside listener for dropdown
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  // Remove click outside listener
+  document.removeEventListener('click', handleClickOutside);
 });
 </script>
 
@@ -319,5 +490,16 @@ onMounted(() => {
 /* Button active states */
 .active\:scale-95:active {
   transform: scale(0.95);
+}
+
+/* Dropdown z-index fix */
+.z-50 {
+  z-index: 50;
+}
+
+/* Dropdown specific styles */
+div[style*="z-index: 9999"] {
+  position: fixed !important;
+  z-index: 9999 !important;
 }
 </style>

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
@@ -43,6 +44,7 @@ Route::middleware('auth')->group(function () {
         Route::get('users', [ChatController::class, 'getUsers'])->name('users');
     });
 
+    // Profile routes
     Route::prefix('profile')->name('profile.')->group(function () {
         Route::get('/', [ProfileController::class, 'show'])->name('show');
         Route::put('/', [ProfileController::class, 'update'])->name('update');
@@ -87,6 +89,21 @@ Route::middleware('auth')->group(function () {
             Route::get('/{engineName}/recommended-presets', [EngineController::class, 'getRecommendedPresets'])->name('recommended-presets');
             Route::post('/{engineName}/test-config', [EngineController::class, 'testWithConfig'])->name('test-config');
             Route::get('/{engineName}/info', [EngineController::class, 'show'])->name('info');
+        });
+
+        // Command Plugin management routes
+        Route::prefix('plugins')->name('plugins.')->group(function () {
+            Route::get('/', [PluginController::class, 'index'])->name('index');
+            Route::get('/health', [PluginController::class, 'health'])->name('health');
+            Route::post('/health-check', [PluginController::class, 'healthCheck'])->name('health-check');
+
+            Route::prefix('{pluginName}')->group(function () {
+                Route::get('/', [PluginController::class, 'show'])->name('show');
+                Route::post('/toggle', [PluginController::class, 'toggle'])->name('toggle');
+                Route::post('/test', [PluginController::class, 'test'])->name('test');
+                Route::post('/update', [PluginController::class, 'update'])->name('update');
+                Route::post('/reset', [PluginController::class, 'reset'])->name('reset');
+            });
         });
 
     });

@@ -29,6 +29,22 @@ interface CommandPluginInterface
     public function getDescription(): string;
 
     /**
+     * Get message for agent when command is executed successfully
+     * You can use {command} placeholder in the message
+     *
+     * @return string Icon URL or path
+     */
+    public function getCustomSuccessMessage(): ?string;
+
+    /**
+     * Get message for agent when command execution fails
+     * You can use {command} placeholder in the message
+     *
+     * @return string Icon URL or path
+     */
+    public function getCustomErrorMessage(): ?string;
+
+    /**
      * Execute command
      *
      * @param string $content Content to execute
@@ -75,4 +91,71 @@ interface CommandPluginInterface
      */
     public function getMergeSeparator(): ?string;
 
+    /**
+     * Check if this plugin command data can be merged with others
+     * Used in smart command parser to group similar commands
+     *
+     * @return bool True if can be merged, false otherwise
+     */
+    public function canBeMerged(): bool;
+
+    /**
+     * Get configuration fields for the plugin
+     * Returns array of field definitions for UI
+     *
+     * @return array Array of field definitions
+     */
+    public function getConfigFields(): array;
+
+    /**
+     * Validate plugin configuration
+     *
+     * @param array $config Configuration to validate
+     * @return array Array of validation errors (empty if valid)
+     */
+    public function validateConfig(array $config): array;
+
+    /**
+     * Update plugin configuration
+     *
+     * @param array $newConfig New configuration values
+     * @return void
+     */
+    public function updateConfig(array $newConfig): void;
+
+    /**
+     * Get current plugin configuration
+     *
+     * @return array Current configuration
+     */
+    public function getConfig(): array;
+
+    /**
+     * Get default configuration for the plugin
+     *
+     * @return array Default configuration values
+     */
+    public function getDefaultConfig(): array;
+
+    /**
+     * Test if plugin is properly configured and working
+     *
+     * @return bool True if plugin is working
+     */
+    public function testConnection(): bool;
+
+    /**
+     * Check if plugin is enabled
+     *
+     * @return bool True if plugin is enabled
+     */
+    public function isEnabled(): bool;
+
+    /**
+     * Enable or disable plugin
+     *
+     * @param bool $enabled True to enable, false to disable
+     * @return void
+     */
+    public function setEnabled(bool $enabled): void;
 }

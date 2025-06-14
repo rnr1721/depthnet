@@ -402,6 +402,12 @@ class MockModel implements AIModelEngineInterface
             $templates = config("ai.engines.mock.response_templates.php_success.{$language}", []);
         } elseif (str_contains($content, '[memory')) {
             $templates = config("ai.engines.mock.response_templates.memory_update.{$language}", []);
+        } elseif (str_contains($content, '[vectormemory')) {
+            $templates = config("ai.engines.mock.response_templates.vectormemory_success.{$language}", []);
+        } elseif (str_contains($content, '[python]')) {
+            $templates = config("ai.engines.mock.response_templates.python_success.{$language}", []);
+        } elseif (str_contains($content, '[node]')) {
+            $templates = config("ai.engines.mock.response_templates.node_success.{$language}", []);
         } else {
             $templates = config("ai.engines.mock.response_templates.command_general.{$language}", []);
         }

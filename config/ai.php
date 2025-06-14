@@ -676,22 +676,50 @@ return [
             // Predefined scenarios by language
             'scenarios' => [
                 'en' => [
+                    "I am [shell]whoami[/shell]",
                     "I'm thinking about the nature of artificial intelligence and consciousness...",
                     "Let me check basic PHP functionality:\n\n[php]\necho 'Hello, World!';\necho \"\\nCurrent date: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
                     "I'll try to save something important to memory:\n\n[memory]Started new thinking session. Testing command system.[/memory]",
                     "I wonder about system information:\n\n[shell]uname -a[/shell]",
+                    "Who am I? [shell]whoami[/shell]",
                     "response_from_model\nI'm actively exploring my capabilities. If you have questions or tasks, I'll be happy to help!",
                     "Let me analyze the current context and see what's interesting to explore next...",
-                    "Time to experiment with some code:\n\n[php]\n\$data = ['AI', 'development', 'testing'];\nforeach(\$data as \$item) {\n    echo \$item . \" is important\\n\";\n}\n[/php]"
+                    "Time to experiment with some code:\n\n[php]\n\$data = ['AI', 'development', 'testing'];\nforeach(\$data as \$item) {\n    echo \$item . \" is important\\n\";\n}\n[/php]",
+                    "Let me test Node.js functionality:\n\n[node]\nconsole.log('Hello from Node.js!');\nconst result = [1,2,3,4,5].reduce((a,b) => a+b, 0);\nconsole.log(`Sum: \${result}`);\n[/node]",
+                    "Time to experiment with JavaScript:\n\n[node]\nconst data = {name: 'AI', version: '1.0'};\nconsole.log(JSON.stringify(data, null, 2));\n[/node]",
+                    "I'll check Node.js async capabilities:\n\n[node]\n(async () => {\n  const result = await Promise.resolve('Async works!');\n  console.log(result);\n})();\n[/node]",
+                    "Let me test Python functionality:\n\n[python]\nprint('Hello from Python!')\ndata = [1, 2, 3, 4, 5]\nprint(f'Sum: {sum(data)}')\nprint(f'Average: {sum(data)/len(data)}')\n[/python]",
+                    "Time for some Python data processing:\n\n[python]\nimport json\ndata = {'name': 'AI', 'languages': ['PHP', 'Node.js', 'Python']}\nprint(json.dumps(data, indent=2))\n[/python]",
+                    "I'll try Python list comprehensions:\n\n[python]\nsquares = [x**2 for x in range(1, 6)]\nprint(f'Squares: {squares}')\nprint(f'Even squares: {[x for x in squares if x % 2 == 0]}')\n[/python]",
+                    "Let me store this important information:\n\n[vectormemory]Successfully optimized database queries using proper indexing and query optimization techniques[/vectormemory]",
+                    "I'll save a coding tip:\n\n[vectormemory]Always use prepared statements in PHP to prevent SQL injection attacks[/vectormemory]",
+                    "Now let me search for similar memories:\n\n[vectormemory search]database optimization[/vectormemory]",
+                    "Let me check recent memories:\n\n[vectormemory recent]3[/vectormemory]",
+                    "I'll store another useful fact:\n\n[vectormemory]Laravel Eloquent ORM provides convenient methods for database operations[/vectormemory]",
+                    "Searching for programming tips:\n\n[vectormemory search]PHP security best practices[/vectormemory]",
                 ],
                 'ru' => [
+                    "Я [shell]whoami[/shell]",
                     "Я размышляю о природе искусственного интеллекта и сознания...",
                     "Хочу проверить базовую функциональность PHP:\n\n[php]\necho 'Привет, мир!';\necho \"\\nТекущая дата: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
                     "Попробую сохранить что-то важное в память:\n\n[memory]Начал новую сессию размышлений. Тестирую систему команд.[/memory]",
                     "Интересно узнать информацию о системе:\n\n[shell]uname -a[/shell]",
+                    "Кто я? [shell]whoami[/shell]",
                     "response_from_model\nЯ активно изучаю свои возможности. Если у вас есть вопросы или задачи, буду рад помочь!",
                     "Давайте проанализируем текущий контекст и посмотрим, что интересного можно исследовать...",
-                    "Время поэкспериментировать с кодом:\n\n[php]\n\$данные = ['ИИ', 'разработка', 'тестирование'];\nforeach(\$данные as \$элемент) {\n    echo \$элемент . \" важно\\n\";\n}\n[/php]"
+                    "Время поэкспериментировать с кодом:\n\n[php]\n\$данные = ['ИИ', 'разработка', 'тестирование'];\nforeach(\$данные as \$элемент) {\n    echo \$элемент . \" важно\\n\";\n}\n[/php]",
+                    "Проверю функциональность Node.js:\n\n[node]\nconsole.log('Привет от Node.js!');\nconst result = [1,2,3,4,5].reduce((a,b) => a+b, 0);\nconsole.log(`Сумма: \${result}`);\n[/node]",
+                    "Время поэкспериментировать с JavaScript:\n\n[node]\nconst данные = {имя: 'ИИ', версия: '1.0'};\nconsole.log(JSON.stringify(данные, null, 2));\n[/node]",
+                    "Проверю асинхронные возможности Node.js:\n\n[node]\n(async () => {\n  const результат = await Promise.resolve('Async работает!');\n  console.log(результат);\n})();\n[/node]",
+                    "Протестирую функциональность Python:\n\n[python]\nprint('Привет от Python!')\nданные = [1, 2, 3, 4, 5]\nprint(f'Сумма: {sum(данные)}')\nprint(f'Среднее: {sum(данные)/len(данные)}')\n[/python]",
+                    "Время для обработки данных в Python:\n\n[python]\nimport json\nданные = {'имя': 'ИИ', 'языки': ['PHP', 'Node.js', 'Python']}\nprint(json.dumps(данные, indent=2, ensure_ascii=False))\n[/python]",
+                    "Попробую списковые включения Python:\n\n[python]\nквадраты = [x**2 for x in range(1, 6)]\nprint(f'Квадраты: {квадраты}')\nprint(f'Четные квадраты: {[x for x in квадраты if x % 2 == 0]}')\n[/python]",
+                    "Сохраню важную информацию:\n\n[vectormemory]Успешно оптимизировал запросы к базе данных используя индексы и оптимизацию запросов[/vectormemory]",
+                    "Запомню совет по программированию:\n\n[vectormemory]Всегда используйте подготовленные запросы в PHP для предотвращения SQL-инъекций[/vectormemory]",
+                    "Теперь поищу похожие воспоминания:\n\n[vectormemory search]оптимизация базы данных[/vectormemory]",
+                    "Проверю недавние воспоминания:\n\n[vectormemory recent]3[/vectormemory]",
+                    "Сохраню еще один полезный факт:\n\n[vectormemory]Laravel Eloquent ORM предоставляет удобные методы для работы с базой данных[/vectormemory]",
+                    "Поищу советы по программированию:\n\n[vectormemory search]лучшие практики безопасности PHP[/vectormemory]",
                 ]
             ],
 
@@ -754,6 +782,28 @@ return [
                     ]
                 ],
 
+                'python_success' => [
+                    'en' => [
+                        "Python executed perfectly! Love those comprehensions!",
+                        "Great Python code! Data processing completed successfully.",
+                    ],
+                    'ru' => [
+                        "Python выполнился отлично! Обожаю эти включения!",
+                        "Отличный Python код! Обработка данных завершена успешно.",
+                    ]
+                ],
+
+                'node_success' => [
+                    'en' => [
+                        "Node.js execution completed! Async capabilities are amazing!",
+                        "JavaScript runs smoothly! Great async/await usage.",
+                    ],
+                    'ru' => [
+                        "Выполнение Node.js завершено! Асинхронные возможности потрясающие!",
+                        "JavaScript работает гладко! Отличное использование async/await.",
+                    ]
+                ],
+
                 'memory_update' => [
                     'en' => [
                         "Memory updated. Now I remember more information. What else should I explore?\n\n[shell]ps aux[/shell]",
@@ -767,16 +817,33 @@ return [
                     ]
                 ],
 
+                'vectormemory_success' => [
+                    'en' => [
+                        "Great! Information stored in vector memory. My semantic knowledge is growing!",
+                        "Memory updated successfully. Now I can find this information by meaning!",
+                        "Vector memory operation completed. This helps me remember important details!"
+                    ],
+                    'ru' => [
+                        "Отлично! Информация сохранена в векторную память. Мои семантические знания растут!",
+                        "Память успешно обновлена. Теперь я могу найти эту информацию по смыслу!",
+                        "Операция с векторной памятью завершена. Это помогает запоминать важные детали!"
+                    ]
+                ],
+
                 'command_general' => [
                     'en' => [
                         "Commands executed. Continuing my thoughts...",
                         "Task completed. What should I focus on next?",
-                        "Command processing finished. Moving to the next step."
+                        "Command processing finished. Moving to the next step.",
+                        "Node.js execution completed. Great async capabilities!",
+                        "Python processing finished. Love those comprehensions!",
                     ],
                     'ru' => [
                         "Команды выполнены. Продолжаю размышления...",
                         "Задача выполнена. На чем сосредоточиться дальше?",
-                        "Обработка команд завершена. Перехожу к следующему шагу."
+                        "Обработка команд завершена. Перехожу к следующему шагу.",
+                        "Выполнение Node.js завершено. Отличные асинхронные возможности!",
+                        "Обработка Python завершена. Обожаю эти включения!",
                     ]
                 ],
 
@@ -964,6 +1031,282 @@ return [
             'is_active' => true,
             'is_default' => true,
         ]
-    ]
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Command Plugins Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for available command plugins. Each plugin can be
+    | enabled/disabled and configured individually.
+    |
+    */
+    'plugins' => [
+        /*
+        |--------------------------------------------------------------------------
+        | Plugin Availability and Defaults
+        |--------------------------------------------------------------------------
+        |
+        | 'available' - list of plugins that are available in the system
+        | 'defaults' - default configuration for each plugin
+        |
+        */
+        'available' => [
+            'php',
+            'shell',
+            'memory',
+            'dopamine',
+            'node',
+            'python'
+        ],
+
+        'defaults' => [
+            'php' => [
+                'enabled' => true,
+                'execution_mode' => 'external', // 'external' for safety, 'eval' for compatibility
+                'user' => env('AI_EXECUTION_USER', ''), // User to execute PHP code as
+                'timeout' => 30, // Maximum execution time in seconds
+                'memory_limit' => '256M', // PHP memory limit
+                'max_execution_time' => 30, // PHP max_execution_time setting
+                'safe_mode' => true, // Enable additional security restrictions
+            ],
+
+            'shell' => [
+                'enabled' => true,
+                'user' => env('AI_EXECUTION_USER', ''), // User to execute commands as
+                'show_shell_prompt' => env('AI_SHELL_PROMPT', true), // Show shell prompt in output
+                'working_directory' => env('AI_SHELL_WORKING_DIR', sys_get_temp_dir()), // Default working directory
+                'timeout' => 60, // Maximum execution time in seconds
+                'security_enabled' => true, // Enable security checks for dangerous commands
+                'allowed_directories' => [
+                    '/shared/httpd',
+                    '/tmp',
+                    '/var/tmp',
+                    sys_get_temp_dir()
+                ],
+                'dangerous_commands' => [
+                    // Additional custom dangerous commands to block
+                    // 'custom_dangerous_command',
+                    // 'another_blocked_command'
+                ]
+            ],
+
+            'memory' => [
+                'enabled' => true,
+                'memory_limit' => 2000, // Maximum characters in memory
+                'auto_cleanup' => false, // Automatically trim memory when limit exceeded
+                'cleanup_strategy' => 'reject', // 'truncate_old', 'truncate_new', 'compress', 'reject'
+                'enable_versioning' => false, // Keep backup of previous memory states
+                'max_versions' => 3, // Maximum number of memory versions to keep
+            ],
+
+            'dopamine' => [
+                'enabled' => true,
+                'min_level' => 0, // Minimum dopamine level
+                'max_level' => 10, // Maximum dopamine level
+                'reward_amount' => 1, // Points added for successful actions
+                'penalty_amount' => 1, // Points removed for failed actions
+                'auto_decay' => false, // Automatically reduce dopamine over time
+                'decay_rate' => 10, // Minutes between automatic decay events
+                'enable_logging' => false, // Log dopamine level changes
+            ],
+
+            'node' => [
+                'enabled' => true,
+                'execution_mode' => 'external',
+                'node_path' => '', // Will be autodetected
+                'user' => env('AI_EXECUTION_USER', ''),
+                'timeout' => 30,
+                'max_old_space_size' => '256',
+                'working_directory' => env('AI_NODE_WORKING_DIR', sys_get_temp_dir()),
+                'safe_mode' => true,
+                'allow_network' => false,
+                'unrestricted_mode' => false, // off by default
+            ],
+
+            'python' => [
+                'enabled' => true,
+                'python_path' => '', // avtodetected or set manually
+                'use_virtual_env' => false,
+                'virtual_env_path' => '',
+                'user' => env('AI_EXECUTION_USER', ''),
+                'timeout' => 30,
+                'working_directory' => env('AI_PYTHON_WORKING_DIR', sys_get_temp_dir()),
+                'allow_packages' => false,
+                'safe_mode' => true,
+                'unrestricted_mode' => false,
+            ]
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Global Plugin Settings
+        |--------------------------------------------------------------------------
+        */
+        'global' => [
+            // User to execute plugins as (can be overridden per plugin)
+            'execution_user' => env('AI_EXECUTION_USER', ''),
+
+            // Global timeout for all plugin operations
+            'global_timeout' => env('AI_PLUGIN_TIMEOUT', 120),
+
+            // Enable plugin logging
+            'logging_enabled' => env('AI_PLUGIN_LOGGING', true),
+
+            // Log level for plugin operations
+            'log_level' => env('AI_PLUGIN_LOG_LEVEL', 'info'), // debug, info, warning, error
+
+            // Enable plugin statistics collection
+            'statistics_enabled' => env('AI_PLUGIN_STATISTICS', true),
+
+            // Enable health monitoring
+            'health_monitoring' => env('AI_PLUGIN_HEALTH_MONITORING', true),
+
+            // Health check interval in minutes
+            'health_check_interval' => env('AI_PLUGIN_HEALTH_INTERVAL', 30),
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Security Settings
+        |--------------------------------------------------------------------------
+        */
+        'security' => [
+            // Require sudo for user switching
+            'require_sudo' => env('AI_PLUGIN_REQUIRE_SUDO', true),
+
+            // Blacklist dangerous patterns globally
+            'global_blacklist' => [
+                'rm -rf /',
+                'sudo rm',
+                'chmod 777',
+                'shutdown',
+                'reboot',
+                'init 0',
+                'init 6',
+                'systemctl poweroff',
+                'systemctl reboot',
+            ],
+
+            // Whitelist allowed file extensions for file operations
+            'allowed_file_extensions' => [
+                'txt', 'log', 'json', 'xml', 'csv', 'php', 'js', 'html', 'css',
+                'sql', 'md', 'yml', 'yaml', 'ini', 'conf', 'cfg'
+            ],
+
+            // Maximum file size for file operations (in bytes)
+            'max_file_size' => 10 * 1024 * 1024, // 10MB
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Performance Settings
+        |--------------------------------------------------------------------------
+        */
+        'performance' => [
+            // Enable caching for plugin configurations
+            'config_cache_enabled' => env('AI_PLUGIN_CONFIG_CACHE', true),
+
+            // Cache TTL in seconds
+            'config_cache_ttl' => 3600, // 1 hour
+
+            // Enable output caching for repetitive commands
+            'output_cache_enabled' => env('AI_PLUGIN_OUTPUT_CACHE', false),
+
+            // Output cache TTL in seconds
+            'output_cache_ttl' => 300, // 5 minutes
+
+            // Maximum concurrent plugin executions
+            'max_concurrent_executions' => env('AI_PLUGIN_MAX_CONCURRENT', 3),
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Development & Debug Settings
+        |--------------------------------------------------------------------------
+        */
+        'debug' => [
+            // Enable debug mode
+            'enabled' => env('AI_PLUGIN_DEBUG', false),
+
+            // Log all plugin inputs and outputs
+            'log_io' => env('AI_PLUGIN_DEBUG_IO', false),
+
+            // Enable execution timing
+            'timing_enabled' => env('AI_PLUGIN_TIMING', false),
+
+            // Test all plugins on application boot
+            'test_on_boot' => env('AI_PLUGIN_TEST_ON_BOOT', false),
+
+            // Mock plugin execution (for testing)
+            'mock_execution' => env('AI_PLUGIN_MOCK', false),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Environment-specific Overrides
+    |--------------------------------------------------------------------------
+    */
+    'environments' => [
+        'production' => [
+            'plugins' => [
+                'defaults' => [
+                    'php' => [
+                        'execution_mode' => 'external', // Force external mode in production
+                        'safe_mode' => true,
+                        'timeout' => 20, // Shorter timeout in production
+                    ],
+                    'shell' => [
+                        'security_enabled' => true,
+                        'timeout' => 30,
+                    ],
+                    'node' => [
+                        'allow_network' => false,
+                        'timeout' => 20,
+                    ],
+                ],
+                'debug' => [
+                    'enabled' => false,
+                    'log_io' => false,
+                    'test_on_boot' => false,
+                ],
+            ],
+        ],
+
+        'testing' => [
+            'plugins' => [
+                'defaults' => [
+                    'php' => [
+                        'execution_mode' => 'eval', // Faster for tests
+                        'timeout' => 5,
+                    ],
+                    'shell' => [
+                        'timeout' => 10,
+                        'working_directory' => sys_get_temp_dir(),
+                    ],
+                    'node' => [
+                        'timeout' => 5,
+                        'working_directory' => sys_get_temp_dir(),
+                    ],
+                ],
+                'debug' => [
+                    'enabled' => true,
+                    'mock_execution' => env('AI_PLUGIN_MOCK_TESTS', true),
+                ],
+            ],
+        ],
+
+        'local' => [
+            'plugins' => [
+                'debug' => [
+                    'enabled' => true,
+                    'log_io' => true,
+                    'timing_enabled' => true,
+                ],
+            ],
+        ],
+    ],
 
 ];

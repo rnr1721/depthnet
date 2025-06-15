@@ -182,7 +182,7 @@ class MemoryPlugin implements CommandPluginInterface
 
         try {
             // Test basic memory operations
-            $originalContent = $this->preset->notes;
+            $originalContent = $this->preset->notes ?? '';
             $testContent = 'Memory test - ' . time();
 
             // Test append
@@ -190,7 +190,7 @@ class MemoryPlugin implements CommandPluginInterface
             $this->preset->save();
 
             // Test read
-            $savedContent = $this->preset->fresh()->notes;
+            $savedContent = $this->preset->fresh()->notes ?? '';
 
             // Restore original content
             $this->preset->notes = $originalContent;
@@ -259,7 +259,7 @@ class MemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $currentContent = $this->preset->notes;
+            $currentContent = $this->preset->notes ?? '';
             $memoryItems = $this->parseMemoryItems($currentContent);
 
             // Add new item
@@ -301,7 +301,7 @@ class MemoryPlugin implements CommandPluginInterface
                 return "Error: Invalid item number. Must be a positive integer.";
             }
 
-            $currentContent = $this->preset->notes;
+            $currentContent = $this->preset->notes ?? '';
             $memoryItems = $this->parseMemoryItems($currentContent);
 
             if ($itemNumber > count($memoryItems)) {
@@ -370,7 +370,7 @@ class MemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $currentContent = $this->preset->notes;
+            $currentContent = $this->preset->notes ?? '';
             if (empty($currentContent)) {
                 return "Memory is empty.";
             }
@@ -390,12 +390,13 @@ class MemoryPlugin implements CommandPluginInterface
      * Parse memory content into array of items
      * Handles both old format (plain text) and new format (numbered list)
      *
-     * @param string $content
+     * @param string|null $content
      * @return array
      */
-    private function parseMemoryItems(string $content): array
+    private function parseMemoryItems(?string $content): array
     {
-        if (empty(trim($content))) {
+
+        if ($content === null || empty(trim($content))) {
             return [];
         }
 
@@ -470,7 +471,7 @@ class MemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $currentContent = $this->preset->notes;
+            $currentContent = $this->preset->notes ?? '';
             $memoryItems = $this->parseMemoryItems($currentContent);
 
             switch ($strategy) {

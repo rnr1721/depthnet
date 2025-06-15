@@ -1056,6 +1056,7 @@ return [
             'php',
             'shell',
             'memory',
+            'vectormemory',
             'dopamine',
             'node',
             'python'

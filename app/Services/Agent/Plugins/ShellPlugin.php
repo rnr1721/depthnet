@@ -101,6 +101,16 @@ class ShellPlugin implements CommandPluginInterface
 
             $result = implode("\n", $output);
 
+            // Extract current directory and save it
+            if (preg_match('/<<<CURRENT_DIR>>>(.+?)$/m', $result, $matches)) {
+                $currentDir = trim($matches[1]);
+                $this->saveCurrentDirectory($currentDir);
+                $result = preg_replace('/<<<CURRENT_DIR>>>.+$/m', '', $result);
+                $result = rtrim($result);
+            } else {
+                $currentDir = $this->getCurrentWorkingDirectory();
+            }
+
             if ($returnCode !== 0) {
                 return "Command failed with exit code {$returnCode}:\n{$result}";
             }
@@ -113,23 +123,56 @@ class ShellPlugin implements CommandPluginInterface
     }
 
     /**
-     * Build shell-like prompt
+     * Get current working directory for command execution
      *
-     * @param string|null $cwd Current working directory
      * @return string
      */
-    private function buildPrompt(?string $cwd = null): string
+    private function getCurrentWorkingDirectory(): string
     {
-        if (!$this->config['show_shell_prompt'] ?? false) {
+        // If we have a saved current directory from previous commands, use it
+        if (!empty($this->config['current_directory'])) {
+            return $this->config['current_directory'];
+        }
+
+        // Otherwise use configured working directory or default
+        return $this->config['working_directory'] ?? getcwd();
+    }
+
+    /**
+     * Save current directory state
+     *
+     * @param string $directory
+     */
+    private function saveCurrentDirectory(string $directory): void
+    {
+        $this->config['current_directory'] = $directory;
+    }
+
+    /**
+     * Reset current directory to working directory
+     */
+    public function resetCurrentDirectory(): void
+    {
+        $this->config['current_directory'] = null;
+    }
+
+    /**
+     * Build shell-like prompt
+     *
+     * @return string
+     */
+    private function buildPrompt(): string
+    {
+        if (!($this->config['show_shell_prompt'] ?? false)) {
             return '';
         }
-        $cwd = $cwd ?? ($this->config['current_directory'] ?? ($this->config['working_directory'] ?? '/'));
+        $realcwd = $this->getCurrentWorkingDirectory();
         $user = $this->config['user'] ?: trim(shell_exec('whoami'));
         $host = trim(shell_exec('hostname'));
 
         $symbol = ($user === 'root') ? '#' : '$';
 
-        return "{$user}@{$host}:{$cwd} {$symbol} ";
+        return "{$user}@{$host}:{$realcwd} {$symbol} ";
     }
 
     /**
@@ -243,6 +286,7 @@ class ShellPlugin implements CommandPluginInterface
             'user' => config('ai.plugins.execution_user', ''),
             'show_shell_prompt' => true,
             'working_directory' => config('ai.plugins.shell.working_directory', '/shared/httpd'),
+            'current_directory' => null,
             'timeout' => 60,
             'security_enabled' => true,
             'allowed_directories' => [
@@ -280,11 +324,16 @@ class ShellPlugin implements CommandPluginInterface
     private function buildCommand(string $baseCommand): string
     {
         $user = $this->config['user'] ?? '';
-        $workingDir = $this->config['working_directory'] ?? '/shared/httpd';
+        $currentDir = $this->getCurrentWorkingDirectory();
         $timeout = $this->config['timeout'] ?? 60;
 
-        // Base commands
-        $command = "cd $workingDir && timeout $timeout $baseCommand";
+        // Build combined command with directory tracking inside the same shell session
+        $combinedCommand = $baseCommand . '; echo "<<<CURRENT_DIR>>>$(pwd)"';
+        $escapedCombinedCommand = escapeshellarg($combinedCommand);
+        $escapedCurrentDir = escapeshellarg($currentDir);
+
+        // Build the command with proper escaping
+        $command = "cd {$escapedCurrentDir} && timeout {$timeout} bash -c {$escapedCombinedCommand}";
 
         // If user is specified and it's not the current user
         if (!empty($user) && $user !== trim(shell_exec('whoami'))) {
@@ -294,11 +343,11 @@ class ShellPlugin implements CommandPluginInterface
 
             // Choose the best method to switch users
             if (!empty(shell_exec('command -v runuser 2>/dev/null'))) {
-                $command = "runuser -u $user -- bash -c " . escapeshellarg($command);
+                $command = "runuser -u " . escapeshellarg($user) . " -- bash -c " . escapeshellarg($command);
             } elseif (!empty(shell_exec('command -v su 2>/dev/null'))) {
-                $command = "su $user -c " . escapeshellarg($command);
+                $command = "su " . escapeshellarg($user) . " -c " . escapeshellarg($command);
             } else {
-                $command = "sudo -u $user bash -c " . escapeshellarg($command);
+                $command = "sudo -u " . escapeshellarg($user) . " bash -c " . escapeshellarg($command);
             }
         }
 

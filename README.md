@@ -105,7 +105,7 @@ The AI communicates through special command tags that trigger plugin execution:
 
 # Persistent memory management
 [memory]This information will be appended to memory content[/memory]
-[memory replace]This information will be replaced in memory[/memory]
+[memory delete]3[/memory] # this will delete item memory with 3 index
 [memory clear][/memory]
 
 # Semantic memory with intelligent search

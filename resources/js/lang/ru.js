@@ -316,6 +316,8 @@ export default {
   p_modal_plugins_disabled: "Отключённые плагины",
   p_modal_disabled_plugins_desc: "Укажите плагины, которые вы хотите отключить для этого пресета, через запятую. Это могут быть php, memory, dopamine. Агент не сможет использовать эти плагины, и они не будут включены в инструкцию по использованию плагинов, которую можно вставить в системную подсказку с помощью плейсхолдера [[command_instructions]].",
   p_modal_disabled_plugins_ph: "Пример: php,datetime,memory",
+  p_modal_config_errors: "Ошибки конфигурации",
+  p_modal_checking: "Проверка...",
   plugins_page_title: 'Плагины',
   plugins_management: 'Управление плагинами',
   plugins_manage_plugins: 'Управление плагинами',

@@ -39,9 +39,9 @@ return [
 
             // Default config values
             'model' => env('OPENAI_MODEL', 'gpt-4o'),
-            'max_tokens' => env('OPENAI_MAX_TOKENS', 4096),
-            'temperature' => env('OPENAI_TEMPERATURE', 0.8),
-            'top_p' => env('OPENAI_TOP_P', 0.9),
+            'max_tokens' => (int) env('OPENAI_MAX_TOKENS', 4096),
+            'temperature' => (float) env('OPENAI_TEMPERATURE', 0.8),
+            'top_p' => (float) env('OPENAI_TOP_P', 0.9),
             'frequency_penalty' => env('OPENAI_FREQUENCY_PENALTY', 0.0),
             'presence_penalty' => env('OPENAI_PRESENCE_PENALTY', 0.0),
             'system_prompt' => env('OPENAI_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
@@ -247,9 +247,9 @@ return [
 
             // Default config values
             'model' => env('CLAUDE_MODEL', 'claude-3-5-sonnet-20241022'),
-            'max_tokens' => env('CLAUDE_MAX_TOKENS', 4096),
-            'temperature' => env('CLAUDE_TEMPERATURE', 0.8),
-            'top_p' => env('CLAUDE_TOP_P', 0.9),
+            'max_tokens' => (int) env('CLAUDE_MAX_TOKENS', 4096),
+            'temperature' => (float) env('CLAUDE_TEMPERATURE', 0.8),
+            'top_p' => (float) env('CLAUDE_TOP_P', 0.9),
             'system_prompt' => env('CLAUDE_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
 
             // Supported models
@@ -383,16 +383,16 @@ return [
             // Server settings
             'server_url' => env('AI_LOCAL_SERVER_URL', 'http://localhost:11434'),
             'server_type' => env('AI_LOCAL_SERVER_TYPE', 'ollama'),
-            'timeout' => env('AI_LOCAL_TIMEOUT', 60),
+            'timeout' => (int) env('AI_LOCAL_TIMEOUT', 60),
 
             // Default config values
             'model' => env('AI_LOCAL_MODEL', 'llama3'),
             'model_family' => env('AI_LOCAL_MODEL_FAMILY', 'llama'),
-            'temperature' => env('AI_LOCAL_TEMPERATURE', 0.8),
-            'max_tokens' => env('AI_LOCAL_MAX_TOKENS', 2048),
-            'top_p' => env('AI_LOCAL_TOP_P', 0.9),
-            'top_k' => env('AI_LOCAL_TOP_K', 40),
-            'repeat_penalty' => env('AI_LOCAL_REPEAT_PENALTY', 1.1),
+            'temperature' => (float) env('AI_LOCAL_TEMPERATURE', 0.8),
+            'max_tokens' => (int) env('AI_LOCAL_MAX_TOKENS', 2048),
+            'top_p' => (float) env('AI_LOCAL_TOP_P', 0.9),
+            'top_k' => (int) env('AI_LOCAL_TOP_K', 40),
+            'repeat_penalty' => (float) env('AI_LOCAL_REPEAT_PENALTY', 1.1),
             'cleanup_enabled' => env('AI_LOCAL_CLEANUP', true),
             'system_prompt' => env('AI_LOCAL_SYSTEM_PROMPT', 'You are useful AI assistant.'),
             // Supported server types and their endpoints
@@ -1072,6 +1072,32 @@ return [
                 'safe_mode' => true, // Enable additional security restrictions
             ],
 
+            'node' => [
+                'enabled' => true,
+                'execution_mode' => 'external',
+                'node_path' => '', // Will be autodetected
+                'user' => env('AI_EXECUTION_USER', ''),
+                'timeout' => 30,
+                'max_old_space_size' => '256',
+                'working_directory' => env('AI_NODE_WORKING_DIR', sys_get_temp_dir()),
+                'safe_mode' => true,
+                'allow_network' => false,
+                'unrestricted_mode' => false, // off by default
+            ],
+
+            'python' => [
+                'enabled' => true,
+                'python_path' => '', // avtodetected or set manually
+                'use_virtual_env' => false,
+                'virtual_env_path' => '',
+                'user' => env('AI_EXECUTION_USER', ''),
+                'timeout' => 30,
+                'working_directory' => env('AI_PYTHON_WORKING_DIR', sys_get_temp_dir()),
+                'allow_packages' => false,
+                'safe_mode' => true,
+                'unrestricted_mode' => false,
+            ],
+
             'shell' => [
                 'enabled' => true,
                 'user' => env('AI_EXECUTION_USER', ''), // User to execute commands as
@@ -1101,6 +1127,21 @@ return [
                 'max_versions' => 3, // Maximum number of memory versions to keep
             ],
 
+            'vectormemory' => [
+                'enabled' => true,
+                'max_entries' => 1000,
+                'similarity_threshold' => 0.1,
+                'search_limit' => 5,
+                'auto_cleanup' => true,
+                'boost_recent' => true,
+                'integrate_with_memory' => true,
+                'memory_link_format' => 'descriptive', //short, descriptive, timestamped
+                'max_link_keywords' => 4, // Max keywords in memory link
+                'language_mode' => 'auto',
+                'custom_stop_words_ru' => '',
+                'custom_stop_words_en' => ''
+            ],
+
             'dopamine' => [
                 'enabled' => true,
                 'min_level' => 0, // Minimum dopamine level
@@ -1110,32 +1151,6 @@ return [
                 'auto_decay' => false, // Automatically reduce dopamine over time
                 'decay_rate' => 10, // Minutes between automatic decay events
                 'enable_logging' => false, // Log dopamine level changes
-            ],
-
-            'node' => [
-                'enabled' => true,
-                'execution_mode' => 'external',
-                'node_path' => '', // Will be autodetected
-                'user' => env('AI_EXECUTION_USER', ''),
-                'timeout' => 30,
-                'max_old_space_size' => '256',
-                'working_directory' => env('AI_NODE_WORKING_DIR', sys_get_temp_dir()),
-                'safe_mode' => true,
-                'allow_network' => false,
-                'unrestricted_mode' => false, // off by default
-            ],
-
-            'python' => [
-                'enabled' => true,
-                'python_path' => '', // avtodetected or set manually
-                'use_virtual_env' => false,
-                'virtual_env_path' => '',
-                'user' => env('AI_EXECUTION_USER', ''),
-                'timeout' => 30,
-                'working_directory' => env('AI_PYTHON_WORKING_DIR', sys_get_temp_dir()),
-                'allow_packages' => false,
-                'safe_mode' => true,
-                'unrestricted_mode' => false,
             ]
         ],
 

@@ -316,6 +316,8 @@ export default {
   p_modal_plugins_disabled: "Disabled plugins",
   p_modal_disabled_plugins_desc: "Specify the plugins you want to disable for this preset, separated by commas. These can be php, memory, dopamine plugins. The agent will not be able to execute these plugins, and they will not be included in the plugin usage instructions, which can be inserted into the system prompt using the [[command_instructions]] placeholder.",
   p_modal_disabled_plugins_ph: "example: php,memory",
+  p_modal_config_errors: "Configuration errors",
+  p_modal_checking: "Checking...",
   plugins_page_title: 'Plugins',
   plugins_management: 'Plugins management',
   plugins_manage_plugins: 'Manage plugins',

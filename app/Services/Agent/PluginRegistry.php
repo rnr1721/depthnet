@@ -29,7 +29,9 @@ class PluginRegistry implements PluginRegistryInterface
      */
     public function has(string $name): bool
     {
-        return isset($this->plugins[$name]) && !in_array($name, $this->disabledForNow);
+        return isset($this->plugins[$name])
+            && !in_array($name, $this->disabledForNow)
+            && $this->plugins[$name]->isEnabled();
     }
 
     /**
@@ -45,13 +47,17 @@ class PluginRegistry implements PluginRegistryInterface
      */
     public function all(): array
     {
-        return empty($this->disabledForNow)
+        $availablePlugins = empty($this->disabledForNow)
             ? $this->plugins
             : array_filter(
                 $this->plugins,
                 fn ($name) => !in_array($name, $this->disabledForNow),
                 ARRAY_FILTER_USE_KEY
             );
+        return array_filter(
+            $availablePlugins,
+            fn ($plugin) => $plugin->isEnabled()
+        );
     }
 
     /**
@@ -75,7 +81,7 @@ class PluginRegistry implements PluginRegistryInterface
      */
     public function setCurrentPreset(AiPreset $preset): void
     {
-        $allPlugins = $this->all();
+        $allPlugins = $this->allRegistered();
         foreach ($allPlugins as $plugin) {
             $plugin->setCurrentPreset($preset);
         }

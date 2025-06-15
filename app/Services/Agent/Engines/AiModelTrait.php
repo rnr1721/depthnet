@@ -10,7 +10,7 @@ trait AiModelTrait
         int $currentDophamineLevel = 5,
         string $commandInstructions = ''
     ): string {
-        $memoryContent = empty($notepadContent) ? 'Now your memory is empty' : $notepadContent;
+        $memoryContent = empty($notepadContent) ? 'Your memory is currently empty (no items stored)' : $notepadContent;
         $currentDateTime = date('Y-m-d H:i:s');
         $initialMessage = str_replace('[[dopamine_level]]', $currentDophamineLevel, $initialMessage);
         $initialMessage = str_replace('[[notepad_content]]', $memoryContent, $initialMessage);

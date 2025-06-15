@@ -12,6 +12,7 @@ use Psr\Log\LoggerInterface;
  *
  * VectorMemoryPlugin provides semantic search capabilities using TF-IDF vectorization.
  * It allows storing and searching memories by meaning, not just exact keywords.
+ * Can optionally integrate with regular memory plugin for better discoverability.
  */
 class VectorMemoryPlugin implements CommandPluginInterface
 {
@@ -127,6 +128,34 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'value' => true,
                 'required' => false
             ],
+            'integrate_with_memory' => [
+                'type' => 'checkbox',
+                'label' => 'Integrate with Memory Plugin',
+                'description' => 'Add reference links to regular memory when storing vector memories',
+                'value' => false,
+                'required' => false
+            ],
+            'memory_link_format' => [
+                'type' => 'select',
+                'label' => 'Memory Link Format',
+                'description' => 'How to format memory links in regular memory',
+                'options' => [
+                    'short' => 'Short: "Vector: keyword1, keyword2"',
+                    'descriptive' => 'Descriptive: "Vector memory about: brief description"',
+                    'timestamped' => 'Timestamped: "[MM-DD HH:mm] Vector: keywords"'
+                ],
+                'value' => 'descriptive',
+                'required' => false
+            ],
+            'max_link_keywords' => [
+                'type' => 'number',
+                'label' => 'Max Keywords in Link',
+                'description' => 'Maximum number of keywords to show in memory link',
+                'min' => 2,
+                'max' => 10,
+                'value' => 4,
+                'required' => false
+            ],
             'language_mode' => [
                 'type' => 'select',
                 'label' => 'Language Processing',
@@ -185,6 +214,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
             }
         }
 
+        if (isset($config['max_link_keywords'])) {
+            $keywords = (int) $config['max_link_keywords'];
+            if ($keywords < 2 || $keywords > 10) {
+                $errors['max_link_keywords'] = 'Max keywords in link must be between 2 and 10';
+            }
+        }
+
         return $errors;
     }
 
@@ -200,6 +236,9 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'search_limit' => 5,
             'auto_cleanup' => true,
             'boost_recent' => true,
+            'integrate_with_memory' => true,
+            'memory_link_format' => 'descriptive', //short, descriptive, timestamped
+            'max_link_keywords' => 4, // Max keywords in memory link
             'language_mode' => 'auto',
             'custom_stop_words_ru' => '',
             'custom_stop_words_en' => ''
@@ -269,7 +308,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $keywords = $this->extractKeywords($content, $language);
 
             // Store in database
-            $this->vectorMemoryModel->create([
+            $vectorMemory = $this->vectorMemoryModel->create([
                 'preset_id' => $this->preset->id,
                 'content' => $content,
                 'tfidf_vector' => $vector,
@@ -277,7 +316,17 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'importance' => 1.0
             ]);
 
-            return "Content stored in vector memory successfully. Generated " . count($vector) . " features (language: {$language}).";
+            $result = "Content stored in vector memory successfully. Generated " . count($vector) . " features (language: {$language}).";
+
+            // Add to regular memory if integration is enabled
+            if ($this->config['integrate_with_memory'] ?? false) {
+                $memoryLinkResult = $this->addToRegularMemory($vectorMemory, $keywords);
+                if ($memoryLinkResult) {
+                    $result .= " " . $memoryLinkResult;
+                }
+            }
+
+            return $result;
 
         } catch (\Throwable $e) {
             $this->logger->error("VectorMemoryPlugin::store error: " . $e->getMessage());
@@ -354,7 +403,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $limit = $limitStr !== '' ? max(1, min((int) $limitStr, 20)) : 5; // Clamp between 1 and 20
+            $limit = $limitStr !== '' ? max(1, min((int) $limitStr, 20)) : 5;
 
             $memories = $this->vectorMemoryModel->where('preset_id', $this->preset->id)
                 ->orderBy('created_at', 'desc')
@@ -408,6 +457,63 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
+     * Add reference to regular memory plugin
+     *
+     * @param VectorMemory $vectorMemory
+     * @param array $keywords
+     * @return string|null
+     */
+    private function addToRegularMemory(VectorMemory $vectorMemory, array $keywords): ?string
+    {
+        try {
+            // Get memory plugin instance
+            $memoryPlugin = app('App\Services\Agent\PluginManager')->getPlugin('memory');
+
+            if (!$memoryPlugin || !$memoryPlugin->isEnabled()) {
+                return null;
+            }
+
+            $format = $this->config['memory_link_format'] ?? 'descriptive';
+            $maxKeywords = $this->config['max_link_keywords'] ?? 4;
+
+            // Limit keywords
+            $limitedKeywords = array_slice($keywords, 0, $maxKeywords);
+
+            $link = $this->formatMemoryLink($vectorMemory, $limitedKeywords, $format);
+
+            // Add to memory using the memory plugin
+            $result = $memoryPlugin->append($link);
+
+            return "Added reference to regular memory.";
+
+        } catch (\Throwable $e) {
+            $this->logger->warning("Failed to add vector memory reference to regular memory: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Format memory link based on selected format
+     *
+     * @param VectorMemory $vectorMemory
+     * @param array $keywords
+     * @param string $format
+     * @return string
+     */
+    private function formatMemoryLink(VectorMemory $vectorMemory, array $keywords, string $format): string
+    {
+        $keywordsStr = implode(', ', $keywords);
+        $shortContent = $this->truncateContent($vectorMemory->content, 50);
+
+        return match($format) {
+            'short' => "Vector: {$keywordsStr}",
+            'timestamped' => "[{$vectorMemory->created_at->format('m-d H:i')}] Vector: {$keywordsStr}",
+            'descriptive' => "Vector memory about: {$shortContent} (search: [vectormemory search]{$keywordsStr}[/vectormemory])",
+            default => "Vector: {$keywordsStr}"
+        };
+    }
+
+    /**
      * Configure TF-IDF service with custom language settings
      *
      * @return void
@@ -453,7 +559,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'ru' => 'ru',
             'en' => 'en',
             'auto' => $this->tfIdfService->detectLanguage($content),
-            'multilingual' => 'auto', // Handle mixed content
+            'multilingual' => 'auto',
             default => 'auto'
         };
     }

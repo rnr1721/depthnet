@@ -76,7 +76,7 @@ The platform provides an extensible command system where agents use special tags
 - **Python Plugin**: Run Python scripts with virtual environment support
 - **Node.js Plugin**: Execute JavaScript with async/await and npm packages
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations
-- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities
+- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions
 
@@ -85,6 +85,7 @@ The platform provides an extensible command system where agents use special tags
 - Per-preset enable/disable controls
 - Security modes: Safe, Unrestricted, User-switching
 - Health monitoring and testing
+- Cross-plugin integration capabilities (vector <-> regular memory)
 - **Easy extensibility for custom plugins**
 
 All command plugins implements CommandPluginInterface. Orchestrator is PluginRegistryInterface
@@ -105,14 +106,17 @@ The AI communicates through special command tags that trigger plugin execution:
 
 # Persistent memory management
 [memory]This information will be appended to memory content[/memory]
-[memory replace]This information will be replaced in memory[/memory]
+[memory delete]3[/memory] # this will delete item memory with 3 index
 [memory clear][/memory]
 
-# Semantic memory with intelligent search
+# Semantic memory with intelligent search  
 [vectormemory]Successfully optimized database queries using proper indexing techniques[/vectormemory]
 [vectormemory search]database performance optimization[/vectormemory] # Finds related memories by meaning
 [vectormemory recent]5[/vectormemory]  # Show 5 most recent memories
 [vectormemory clear][/vectormemory]
+
+# Memory integration: When enabled, vector memories automatically add reference links 
+# to regular memory, creating a bridge between semantic and persistent memory systems
 
 # Self-motivation and goal tracking
 [dopamine reward][/dopamine]  # Increase motivation
@@ -250,6 +254,7 @@ The core innovation is the continuous thinking loop powered by Laravel's queue s
 - **Agents use vector memory to build knowledge bases and reference past learnings**
 - Small models may fabricate reasons for dopamine changes or forget command syntax
 - Large models demonstrate genuine strategic thinking and adaptation
+- **Memory integration creates powerful knowledge discovery**: Agents can see semantic memory references in their constant context, leading to better information retrieval and learning patterns
 
 ## Default Credentials
 

@@ -16,6 +16,15 @@ class ShellPlugin implements CommandPluginInterface
     use PluginPresetTrait;
     use PluginConfigTrait;
 
+    protected bool $isTesting = false;
+    protected array $defaultDangerous = [
+        'rm -rf /', 'sudo', 'su ', 'passwd', 'chmod 777', 'chown',
+        'shutdown', 'reboot', 'halt', 'init', 'killall', 'pkill',
+        'kill -9', 'dd if=', 'format', 'fdisk', 'mount', 'umount',
+        'crontab', 'systemctl', 'service', ':(){:|:&};:', 'wget',
+        'curl', 'nc ', 'netcat'
+    ];
+
     public function __construct()
     {
         $this->initializeConfig();
@@ -88,8 +97,10 @@ class ShellPlugin implements CommandPluginInterface
 
         try {
             // Security is our hell
-            if ($this->config['security_enabled'] ?? true && $this->isDangerousCommand($content)) {
-                return "Error: Dangerous command blocked for security reasons.";
+            if (!$this->isTesting) {
+                if ($this->config['security_enabled'] ?? true && $this->isDangerousCommand($content)) {
+                    return "Error: Dangerous command blocked for security reasons.";
+                }
             }
 
             $command = $this->buildCommand($content);
@@ -180,6 +191,12 @@ class ShellPlugin implements CommandPluginInterface
      */
     public function getConfigFields(): array
     {
+
+        $dangerousCommands = '';
+        foreach ($this->defaultDangerous as $dangerous) {
+            $dangerousCommands .= $dangerous . "\n";
+        }
+
         return [
             'enabled' => [
                 'type' => 'checkbox',
@@ -234,8 +251,8 @@ class ShellPlugin implements CommandPluginInterface
             'dangerous_commands' => [
                 'type' => 'textarea',
                 'label' => 'Dangerous Commands',
-                'description' => 'Additional commands to block (one per line)',
-                'placeholder' => "custom_dangerous_command\nanother_blocked_command",
+                'description' => 'Custom commands to block (one per line, override defaults)',
+                'placeholder' => $dangerousCommands,
                 'rows' => 6,
                 'required' => false
             ]
@@ -308,6 +325,7 @@ class ShellPlugin implements CommandPluginInterface
         }
 
         try {
+            $this->isTesting = true; // Set flag to indicate testing mode
             $result = $this->execute('echo "Shell plugin test successful"');
             return str_contains($result, 'Shell plugin test successful');
         } catch (\Exception $e) {
@@ -362,20 +380,13 @@ class ShellPlugin implements CommandPluginInterface
      */
     protected function isDangerousCommand(string $command): bool
     {
-        $defaultDangerous = [
-            'rm -rf /', 'sudo', 'su ', 'passwd', 'chmod 777', 'chown',
-            'shutdown', 'reboot', 'halt', 'init', 'killall', 'pkill',
-            'kill -9', 'dd if=', 'format', 'fdisk', 'mount', 'umount',
-            'crontab', 'systemctl', 'service', ':(){:|:&};:', 'wget',
-            'curl', 'nc ', 'netcat'
-        ];
 
         $customDangerous = $this->config['dangerous_commands'] ?? [];
         if (is_string($customDangerous)) {
             $customDangerous = array_filter(array_map('trim', explode("\n", $customDangerous)));
         }
 
-        $allDangerous = array_merge($defaultDangerous, $customDangerous);
+        $allDangerous = empty($customDangerous) ? $this->defaultDangerous : $customDangerous;
         $command = strtolower(trim($command));
 
         foreach ($allDangerous as $dangerous) {

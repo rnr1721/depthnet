@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Agent\Plugins;
 
+use App\Contracts\Agent\PluginRegistryInterface;
 use Tests\TestCase;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
@@ -75,11 +76,14 @@ class VectorMemoryPluginTest extends TestCase
         $presetProperty->setAccessible(true);
         $presetProperty->setValue($this->plugin, $this->preset);
 
+        $defaultConfig = $this->plugin->getDefaultConfig();
+        $defaultConfig['integrate_with_memory'] = false;
+
         // Initialize config
         $reflection = new \ReflectionClass($this->plugin);
         $configProperty = $reflection->getProperty('config');
         $configProperty->setAccessible(true);
-        $configProperty->setValue($this->plugin, $this->plugin->getDefaultConfig());
+        $configProperty->setValue($this->plugin, $defaultConfig);
     }
 
     protected function tearDown(): void
@@ -251,11 +255,11 @@ class VectorMemoryPluginTest extends TestCase
         $this->enableMemoryIntegration();
 
         // Mock plugin manager to return null (memory plugin not available)
-        $pluginManager = Mockery::mock('App\Services\Agent\PluginManager');
-        $pluginManager->shouldReceive('getPlugin')
+        $pluginRegistry = Mockery::mock(PluginRegistryInterface::class);
+        $pluginRegistry->shouldReceive('get')
             ->with('memory')
             ->andReturn(null);
-        $this->app->instance('App\Services\Agent\PluginManager', $pluginManager);
+        $this->app->instance(PluginRegistryInterface::class, $pluginRegistry);
 
         $content = 'Test content with unavailable memory plugin';
         $result = $this->plugin->store($content);
@@ -279,13 +283,14 @@ class VectorMemoryPluginTest extends TestCase
 
         // Mock plugin manager to return disabled memory plugin
         $disabledMemoryPlugin = Mockery::mock(MemoryPlugin::class);
+        $disabledMemoryPlugin->shouldReceive('setCurrentPreset')->andReturn(null);
         $disabledMemoryPlugin->shouldReceive('isEnabled')->andReturn(false);
 
-        $pluginManager = Mockery::mock('App\Services\Agent\PluginManager');
-        $pluginManager->shouldReceive('getPlugin')
+        $pluginRegistry = Mockery::mock(PluginRegistryInterface::class);
+        $pluginRegistry->shouldReceive('get')
             ->with('memory')
             ->andReturn($disabledMemoryPlugin);
-        $this->app->instance('App\Services\Agent\PluginManager', $pluginManager);
+        $this->app->instance(PluginRegistryInterface::class, $pluginRegistry);
 
         $content = 'Test content with disabled memory plugin';
         $result = $this->plugin->store($content);
@@ -591,14 +596,15 @@ class VectorMemoryPluginTest extends TestCase
     private function mockPluginManager(): void
     {
         $memoryPlugin = Mockery::mock(MemoryPlugin::class);
+        $memoryPlugin->shouldReceive('setCurrentPreset')->andReturn(null);
         $memoryPlugin->shouldReceive('isEnabled')->andReturn(true);
         $memoryPlugin->shouldReceive('append')->andReturn('Memory item added successfully.');
 
-        $pluginManager = Mockery::mock('App\Services\Agent\PluginManager');
-        $pluginManager->shouldReceive('getPlugin')
+        $pluginRegistry = Mockery::mock(PluginRegistryInterface::class);
+        $pluginRegistry->shouldReceive('get')
             ->with('memory')
             ->andReturn($memoryPlugin);
 
-        $this->app->instance('App\Services\Agent\PluginManager', $pluginManager);
+        $this->app->instance(PluginRegistryInterface::class, $pluginRegistry);
     }
 }

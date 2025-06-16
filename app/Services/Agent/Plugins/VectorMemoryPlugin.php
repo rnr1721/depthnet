@@ -3,9 +3,11 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Models\VectorMemory;
 use Psr\Log\LoggerInterface;
+use App\Services\Agent\Plugins\MemoryPlugin;
 
 /**
  * VectorMemoryPlugin class
@@ -236,7 +238,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'search_limit' => 5,
             'auto_cleanup' => true,
             'boost_recent' => true,
-            'integrate_with_memory' => true,
+            'integrate_with_memory' => false, // Add reference to regular memory
             'memory_link_format' => 'descriptive', //short, descriptive, timestamped
             'max_link_keywords' => 4, // Max keywords in memory link
             'language_mode' => 'auto',
@@ -467,9 +469,10 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         try {
             // Get memory plugin instance
-            $memoryPlugin = app('App\Services\Agent\PluginManager')->getPlugin('memory');
+            $memoryPlugin = $this->getMemoryPlugin();
 
-            if (!$memoryPlugin || !$memoryPlugin->isEnabled()) {
+            if (!$memoryPlugin) {
+                $this->logger->warning("Memory plugin not found. Cannot add vector memory reference.");
                 return null;
             }
 
@@ -482,6 +485,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $link = $this->formatMemoryLink($vectorMemory, $limitedKeywords, $format);
 
             // Add to memory using the memory plugin
+            /* @var MemoryPlugin $memoryPlugin */
             $result = $memoryPlugin->append($link);
 
             return "Added reference to regular memory.";
@@ -490,6 +494,19 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $this->logger->warning("Failed to add vector memory reference to regular memory: " . $e->getMessage());
             return null;
         }
+    }
+
+    /**
+     * Get memory plugin instance
+     *
+     * @return MemoryPlugin|null
+     */
+    private function getMemoryPlugin(): ?MemoryPlugin
+    {
+        /* @var MemoryPlugin $memoryPlugin */
+        $memoryPlugin = app(PluginRegistryInterface::class)->get('memory');
+        $memoryPlugin?->setCurrentPreset($this->preset);
+        return $memoryPlugin;
     }
 
     /**

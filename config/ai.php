@@ -1135,7 +1135,7 @@ return [
                 'search_limit' => 5,
                 'auto_cleanup' => true,
                 'boost_recent' => true,
-                'integrate_with_memory' => true,
+                'integrate_with_memory' => false, // Integrate with regular memory
                 'memory_link_format' => 'descriptive', //short, descriptive, timestamped
                 'max_link_keywords' => 4, // Max keywords in memory link
                 'language_mode' => 'auto',

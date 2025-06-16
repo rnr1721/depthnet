@@ -132,7 +132,7 @@ class Agent implements AgentInterface
                 'content' => "Error in thinking process: " . $e->getMessage(),
                 'from_user_id' => null,
                 'is_visible_to_user' => true,
-                'metadata' => $response->getMetadata()
+                'metadata' => []
             ]);
         }
     }

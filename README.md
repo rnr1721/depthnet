@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Local-purple?style=flat-square)
-![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
+![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20CodeCraft%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
 
 **Advanced AI Agent Platform with Autonomous Reasoning**
 
@@ -46,12 +46,14 @@ Choose your preferred installation method:
 
 Built-in support for multiple AI engines with easy preset management:
 
+- **Claude** (3.5 Sonnet, Opus, Haiku)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
-- **Claude** (3.5 Sonnet, Opus, Haiku) 
+- **Novita Ai** (Cheap fast models)
+- **Gemini** (from Google) experimental
 - **Local Models** (Ollama, LM Studio, any OpenAI-compatible API)
 - **Mock Engine** (for testing and development)
 
-Each provider supports custom presets with individual settings, system prompts, and plugin configurations. Switch between presets instantly without restarting. All providers implement AIModelEngineInterface, which makes it easy to add your own providers.
+Each provider supports custom presets with individual settings. Switch between presets instantly without restarting. All providers implement AIModelEngineInterface, which makes it easy to add your own providers. You can create own provider packages using composer.
 
 ## Core Concept
 
@@ -69,16 +71,24 @@ The platform provides an extensible command system where agents use special tags
 - **Looped Mode**: Continuous autonomous thinking and action execution
 - **Single Mode**: Traditional request-response chatbot interaction
 
+The agent can work both in a cycle and in the usual "question-answer" mode. Naturally, it is better to adjust the system prompt for each use case. You can create presets for different modes.
+
 ## Advanced Plugin System
 
 **Built-in Plugins:**
 - **PHP Plugin**: Execute arbitrary PHP code with safety controls
 - **Python Plugin**: Run Python scripts with virtual environment support
 - **Node.js Plugin**: Execute JavaScript with async/await and npm packages
-- **Memory Plugin**: Persistent notepad with append/replace/clear operations
-- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability
+- **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
+- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability. Can be exported and imported
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions
+- **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
+- **Agent Plugin**: Agent loop mode can stopped or started by model
+- **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
+
+
+Visual memory management is available using MemoryManager and VectorMemoryManager (Vector and normal memory is individual for each preset).
 
 **Plugin Features:**
 - Database-driven configuration (not config files)
@@ -125,20 +135,26 @@ The AI communicates through special command tags that trigger plugin execution:
 # System interaction and monitoring
 [shell]df -h && ps aux | grep php[/shell]
 [shell]curl -s https://api.github.com/repos/rnr1721/depthnet[/shell]
+
+# Code generation and file manipulation
+[codecraft]{"path":"User.php","name":"User","namespace":"App\\Models"}[/codecraft]
+[codecraft save]{"path":"/tmp/codecraft/utils.js","type":"function","name":"formatDate"}[/codecraft]
+[codecraft edit]{"path":"/tmp/file.php","modifications":[{"type":"add_method","method":{"name":"newMethod"}}]}[/codecraft]
+[codecraft analyze]/path/to/file.php[/codecraft]
 ```
 
 <a href="docs/screenshots/chat.png">
   <img src="docs/screenshots/chat.png" alt="Main Interface" height="300">
 </a>
 
-**How Command Processing Works:**
+**How Command Processing (Command Actions) Works:**
 1. **CommandValidator** scans AI response for unclosed tags and syntax errors
 2. **CommandParser** extracts valid commands and prepares execution data
 3. **CommandExecutor** routes commands to appropriate plugins 
 4. **Plugin execution** runs the actual code/action with security controls
 5. **Results integration** automatically appends outputs to AI's message for next cycle
 
-This creates a continuous feedback loop where the AI can see the results of its actions and adapt accordingly.
+This creates a continuous feedback loop where the AI can see the results of its actions and adapt accordingly. A user with the Admin role can also execute commands just like a model.
 
 ## Architecture Overview
 
@@ -146,7 +162,7 @@ Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
 - **PluginRegistryInterface**: Extensible command system with 6+ built-in plugins
-- **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock)
+- **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
 - **OptionsServiceInterface**: Database-backed dynamic configuration
@@ -208,6 +224,7 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - System administration via natural language commands
 - Advanced testing environments for AI behavior analysis
 - Educational platforms for AI development concepts
+- AI-powered code generation and file manipulation assistance
 
 ## How Autonomous Reasoning Works
 

@@ -9,7 +9,6 @@ class AgentCommand extends Command
 {
     private const CHAT_ACTIVE_KEY = 'chat_active';
     private const PRESET_ID_KEY = 'preset_id';
-    private const MODE_KEY = 'mode';
     private const IS_LOCKED_KEY = 'is_locked';
 
     protected $signature = 'agent {action : start|stop|status} {--json : Output as JSON (status only)}';
@@ -114,7 +113,6 @@ class AgentCommand extends Command
         $this->table(['Setting', 'Value', 'Status'], [
             ['Model Active', $settings[self::CHAT_ACTIVE_KEY] ? 'Yes' : 'No', $settings[self::CHAT_ACTIVE_KEY] ? '+' : '-'],
             ['Current Model', $settings['preset_id'], ''],
-            ['Agent Mode', $settings[self::MODE_KEY], $settings[self::MODE_KEY] === 'looped' ? 'looped' : 'single'],
             ['Is Locked', $settings[self::IS_LOCKED_KEY] ? 'Yes' : 'No', $settings[self::IS_LOCKED_KEY] ? '+' : '-'],
         ]);
     }

@@ -375,7 +375,7 @@ return [
         |--------------------------------------------------------------------------
         */
         'local' => [
-            'enabled' => env('AI_LOCAL_ENABLED', false),
+            'enabled' => env('AI_LOCAL_ENABLED', true),
             'is_default' => env('AI_LOCAL_DEFAULT', false),
             'display_name' => 'Local models',
             'description' => 'Local models via Ollama, LM Studio and other servers',
@@ -624,6 +624,409 @@ return [
                         'max_tokens' => 1500
                     ]
                 ]
+            ],
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Novita provider
+        |--------------------------------------------------------------------------
+        */
+        'novita' => [
+            'enabled' => env('AI_NOVITA_ENABLED', false),
+            'is_default' => env('AI_NOVITA_DEFAULT', false),
+            'display_name' => 'Novita AI',
+            'description' => 'Novita AI provides access to 200+ open-source models including LLaMA, Mistral, DeepSeek, Qwen and others. Fast, reliable and cost-effective inference with up to 300 tokens/sec. Compatible with OpenAI API standard.',
+
+            // Default model settings
+            'model' => env('NOVITA_MODEL', 'meta-llama/llama-3.1-8b-instruct'),
+            'api_key' => env('NOVITA_API_KEY', ''),
+            'server_url' => env('NOVITA_SERVER_URL', 'https://api.novita.ai/v3/openai/chat/completions'),
+            'models_endpoint' => env('NOVITA_MODELS_ENDPOINT', 'https://api.novita.ai/v3/openai/models'),
+
+            // Generation parameters
+            'temperature' => (float) env('NOVITA_TEMPERATURE', 0.8),
+            'max_tokens' => (int) env('NOVITA_MAX_TOKENS', 2048),
+            'top_p' => (float) env('NOVITA_TOP_P', 0.9),
+            'frequency_penalty' => (float) env('NOVITA_FREQUENCY_PENALTY', 0.0),
+            'presence_penalty' => (float) env('NOVITA_PRESENCE_PENALTY', 0.0),
+
+            // System settings
+            'timeout' => (int) env('NOVITA_TIMEOUT', 120),
+            'system_prompt' => env('NOVITA_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
+            'log_usage' => env('NOVITA_LOG_USAGE', true),
+
+            // Request headers
+            'request_headers' => [
+                'Content-Type' => 'application/json',
+                'User-Agent' => 'Laravel-AI-Agent/1.0',
+            ],
+
+            // Validation rules for configuration fields
+            'validation' => [
+                'temperature' => [
+                    'min' => 0,
+                    'max' => 2,
+                ],
+                'top_p' => [
+                    'min' => 0,
+                    'max' => 1,
+                ],
+                'frequency_penalty' => [
+                    'min' => -2,
+                    'max' => 2,
+                ],
+                'presence_penalty' => [
+                    'min' => -2,
+                    'max' => 2,
+                ],
+                'max_tokens' => [
+                    'min' => 1,
+                    'max' => 32768,
+                ],
+            ],
+
+            // Popular models (fallback when API is unavailable)
+            'models' => [
+                'meta-llama/llama-3.1-8b-instruct' => [
+                    'display_name' => 'LLaMA 3.1 8B Instruct',
+                    'context_length' => 131072,
+                    'owned_by' => 'meta',
+                    'description' => 'Meta\'s flagship 8B parameter model, excellent for general tasks',
+                    'category' => 'general'
+                ]
+            ],
+
+            'models_cache_lifetime' => env('NOVITA_MODELS_CACHE_LIFETIME', 3600), // 60 minutes
+
+            'recommended_models' => [
+                'meta-llama/llama-3.1-8b-instruct',
+                'deepseek/deepseek-v3-0324',
+                'qwen/qwen3-235b-a22b-fp8',
+                'qwen/qwen2.5-vl-72b-instruct'
+            ],
+
+            'recommended_presets' => [
+                [
+                    'name' => 'LLaMA 3.1 8B - Balanced',
+                    'description' => 'Meta LLaMA 3.1 8B with balanced settings for general conversations and tasks',
+                    'config' => [
+                        'model' => 'meta-llama/llama-3.1-8b-instruct',
+                        'temperature' => 0.8,
+                        'top_p' => 0.9,
+                        'frequency_penalty' => 0.0,
+                        'presence_penalty' => 0.0,
+                        'max_tokens' => 2048,
+                    ]
+                ],
+                [
+                    'name' => 'DeepSeek R1 Distill LLaMA 70B - Reasoning',
+                    'description' => 'DeepSeek R1 distilled into LLaMA 70B format - excellent for complex reasoning and analysis',
+                    'config' => [
+                        'model' => 'deepseek/deepseek-r1-distill-llama-70b',
+                        'temperature' => 0.6,
+                        'top_p' => 0.85,
+                        'frequency_penalty' => 0.1,
+                        'presence_penalty' => 0.1,
+                        'max_tokens' => 4096,
+                    ]
+                ],
+                [
+                    'name' => 'LLaMA 3.3 70B - Advanced',
+                    'description' => 'Meta LLaMA 3.3 70B - latest large model with enhanced capabilities for complex tasks',
+                    'config' => [
+                        'model' => 'meta-llama/llama-3.3-70b-instruct',
+                        'temperature' => 0.7,
+                        'top_p' => 0.9,
+                        'frequency_penalty' => 0.0,
+                        'presence_penalty' => 0.0,
+                        'max_tokens' => 8192,
+                    ]
+                ]
+            ],
+
+            // Mode presets for different creative/focused modes
+            'mode_presets' => [
+                'creative' => [
+                    'temperature' => 1.0,
+                    'top_p' => 0.95,
+                    'frequency_penalty' => 0.2,
+                    'presence_penalty' => 0.2,
+                    'max_tokens' => 4096
+                ],
+                'focused' => [
+                    'temperature' => 0.2,
+                    'top_p' => 0.8,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 2048
+                ],
+                'balanced' => [
+                    'temperature' => 0.8,
+                    'top_p' => 0.9,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 2048
+                ],
+                'coding' => [
+                    'temperature' => 0.3,
+                    'top_p' => 0.8,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 3072
+                ]
+            ],
+
+            // Cleanup patterns for response processing
+            'cleanup' => [
+                'role_prefixes' => '/^(Assistant|AI|Bot|Novita):\s*/i',
+            ],
+
+            // Error messages for different scenarios
+            'error_messages' => [
+                'rate_limit' => 'Novita AI request limit exceeded. Please try again later.',
+                'insufficient_quota' => 'Not enough Novita AI quota. Please check your account balance at https://novita.ai/billing.',
+                'api_error' => 'Error from Novita AI API. Please check your configuration.',
+                'general' => 'Error contacting Novita AI. Please try again.',
+                'invalid_model' => 'Selected model is not available. Please choose a different model.',
+                'connection_failed' => 'Failed to connect to Novita AI. Please check your internet connection.'
+            ],
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Gemini provider
+        |--------------------------------------------------------------------------
+        */
+        'gemini' => [
+            'enabled' => env('AI_GEMINI_ENABLED', false),
+            'is_default' => env('AI_GEMINI_DEFAULT', false),
+            'display_name' => 'Google Gemini',
+            'description' => 'Google Gemini is a multimodal AI model that can understand and generate text, images, audio, and video. Features advanced reasoning, large context windows (up to 2M tokens), and multimodal capabilities. Access through Google AI Studio.',
+
+            // Default model settings
+            'model' => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+            'api_key' => env('GEMINI_API_KEY', ''),
+            'server_url' => env('GEMINI_SERVER_URL', 'https://generativelanguage.googleapis.com/v1beta/chat/completions'),
+            'models_endpoint' => env('GEMINI_MODELS_ENDPOINT', 'https://generativelanguage.googleapis.com/v1beta/models'),
+
+            // Generation parameters
+            'temperature' => (float) env('GEMINI_TEMPERATURE', 0.8),
+            'max_tokens' => (int) env('GEMINI_MAX_TOKENS', 2048),
+            'top_p' => (float) env('GEMINI_TOP_P', 0.9),
+            'top_k' => (int) env('GEMINI_TOP_K', 40),
+
+            // System settings
+            'timeout' => (int) env('GEMINI_TIMEOUT', 120),
+            'system_prompt' => env('GEMINI_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
+            'log_usage' => env('GEMINI_LOG_USAGE', true),
+
+            // Request headers
+            'request_headers' => [
+                'Content-Type' => 'application/json',
+                'User-Agent' => 'Laravel-AI-Agent/1.0',
+            ],
+
+            // Validation rules for configuration fields
+            'validation' => [
+                'temperature' => [
+                    'min' => 0,
+                    'max' => 2,
+                ],
+                'top_p' => [
+                    'min' => 0,
+                    'max' => 1,
+                ],
+                'top_k' => [
+                    'min' => 1,
+                    'max' => 200,
+                ],
+                'max_tokens' => [
+                    'min' => 1,
+                    'max' => 8192,
+                ],
+            ],
+
+            // Available models (fallback when API is unavailable)
+            'models' => [
+                'gemini-2.0-flash' => [
+                    'display_name' => 'Gemini 2.0 Flash',
+                    'description' => 'Latest multimodal model with fast performance and advanced capabilities',
+                    'input_token_limit' => 1000000,
+                    'output_token_limit' => 8192,
+                    'category' => 'general',
+                    'features' => ['text', 'image', 'audio', 'video', 'multimodal']
+                ],
+                'gemini-1.5-pro' => [
+                    'display_name' => 'Gemini 1.5 Pro',
+                    'description' => 'Most capable model for complex reasoning tasks with 2M token context',
+                    'input_token_limit' => 2000000,
+                    'output_token_limit' => 8192,
+                    'category' => 'reasoning',
+                    'features' => ['text', 'image', 'audio', 'video', 'multimodal', 'long_context']
+                ],
+                'gemini-1.5-flash' => [
+                    'display_name' => 'Gemini 1.5 Flash',
+                    'description' => 'Fast and efficient model for everyday tasks with 1M token context',
+                    'input_token_limit' => 1000000,
+                    'output_token_limit' => 8192,
+                    'category' => 'general',
+                    'features' => ['text', 'image', 'audio', 'video', 'multimodal']
+                ],
+                'gemini-1.5-flash-8b' => [
+                    'display_name' => 'Gemini 1.5 Flash 8B',
+                    'description' => 'Compact model optimized for speed and cost efficiency',
+                    'input_token_limit' => 1000000,
+                    'output_token_limit' => 8192,
+                    'category' => 'fast',
+                    'features' => ['text', 'image', 'multimodal']
+                ],
+                'gemini-2.5-flash' => [
+                    'display_name' => 'Gemini 2.5 Flash',
+                    'description' => 'Enhanced version with improved reasoning and code generation',
+                    'input_token_limit' => 1000000,
+                    'output_token_limit' => 8192,
+                    'category' => 'general',
+                    'features' => ['text', 'image', 'audio', 'video', 'multimodal', 'thinking']
+                ],
+                'gemini-2.5-pro' => [
+                    'display_name' => 'Gemini 2.5 Pro',
+                    'description' => 'Most advanced model with enhanced reasoning capabilities',
+                    'input_token_limit' => 2000000,
+                    'output_token_limit' => 8192,
+                    'category' => 'reasoning',
+                    'features' => ['text', 'image', 'audio', 'video', 'multimodal', 'thinking', 'long_context']
+                ]
+            ],
+
+            // Recommended presets for different use cases
+            'recommended_presets' => [
+                [
+                    'name' => 'Gemini 2.0 Flash - Balanced',
+                    'description' => 'Latest Gemini 2.0 Flash with balanced settings for general use',
+                    'config' => [
+                        'model' => 'gemini-2.0-flash',
+                        'temperature' => 0.8,
+                        'top_p' => 0.9,
+                        'top_k' => 40,
+                        'max_tokens' => 2048,
+                    ]
+                ],
+                [
+                    'name' => 'Gemini 1.5 Pro - Advanced Reasoning',
+                    'description' => 'Gemini 1.5 Pro optimized for complex reasoning and analysis',
+                    'config' => [
+                        'model' => 'gemini-1.5-pro',
+                        'temperature' => 0.7,
+                        'top_p' => 0.95,
+                        'top_k' => 64,
+                        'max_tokens' => 4096,
+                    ]
+                ],
+                [
+                    'name' => 'Gemini 1.5 Flash - Fast & Efficient',
+                    'description' => 'Gemini 1.5 Flash optimized for speed and efficiency',
+                    'config' => [
+                        'model' => 'gemini-1.5-flash',
+                        'temperature' => 0.6,
+                        'top_p' => 0.9,
+                        'top_k' => 40,
+                        'max_tokens' => 1536,
+                    ]
+                ],
+                [
+                    'name' => 'Gemini 2.0 Flash - Creative',
+                    'description' => 'Creative writing and brainstorming with Gemini 2.0 Flash',
+                    'config' => [
+                        'model' => 'gemini-2.0-flash',
+                        'temperature' => 1.2,
+                        'top_p' => 0.95,
+                        'top_k' => 64,
+                        'max_tokens' => 3072,
+                    ]
+                ],
+                [
+                    'name' => 'Gemini 1.5 Flash 8B - Ultra Fast',
+                    'description' => 'Compact model for quick responses and cost optimization',
+                    'config' => [
+                        'model' => 'gemini-1.5-flash-8b',
+                        'temperature' => 0.7,
+                        'top_p' => 0.9,
+                        'top_k' => 32,
+                        'max_tokens' => 1024,
+                    ]
+                ]
+            ],
+
+            // Mode presets for different creative/focused modes
+            'mode_presets' => [
+                'creative' => [
+                    'temperature' => 1.2,
+                    'top_p' => 0.95,
+                    'top_k' => 64,
+                    'max_tokens' => 4096
+                ],
+                'focused' => [
+                    'temperature' => 0.3,
+                    'top_p' => 0.8,
+                    'top_k' => 20,
+                    'max_tokens' => 2048
+                ],
+                'balanced' => [
+                    'temperature' => 0.8,
+                    'top_p' => 0.9,
+                    'top_k' => 40,
+                    'max_tokens' => 2048
+                ],
+                'reasoning' => [
+                    'temperature' => 0.5,
+                    'top_p' => 0.9,
+                    'top_k' => 40,
+                    'max_tokens' => 4096
+                ],
+                'multimodal' => [
+                    'temperature' => 0.8,
+                    'top_p' => 0.9,
+                    'top_k' => 40,
+                    'max_tokens' => 3072
+                ]
+            ],
+
+            // Cleanup patterns for response processing
+            'cleanup' => [
+                'role_prefixes' => '/^(Assistant|AI|Gemini|Google):\s*/i',
+            ],
+
+            // Error messages for different scenarios
+            'error_messages' => [
+                'quota_exceeded' => 'Gemini API quota exceeded. Check your usage at Google AI Studio.',
+                'permission_denied' => 'Permission denied. Check your API key permissions and billing status.',
+                'invalid_argument' => 'Invalid request format or parameters. Please check your input.',
+                'model_not_found' => 'Selected Gemini model is not available. Please choose a different model.',
+                'api_error' => 'Error from Google Gemini API. Please try again.',
+                'general' => 'Error contacting Google Gemini. Please check your connection and API key.',
+                'invalid_key' => 'Invalid API key format. Google AI API keys should start with "AIza".',
+                'rate_limit' => 'Too many requests. Please wait and try again.',
+                'context_too_long' => 'Input context is too long for the selected model.',
+                'safety_filter' => 'Response blocked by safety filters. Please modify your prompt.'
+            ],
+
+            // Safety settings (Gemini-specific)
+            'safety_settings' => [
+                'enabled' => env('GEMINI_SAFETY_ENABLED', true),
+                'harassment' => env('GEMINI_SAFETY_HARASSMENT', 'BLOCK_MEDIUM_AND_ABOVE'),
+                'hate_speech' => env('GEMINI_SAFETY_HATE_SPEECH', 'BLOCK_MEDIUM_AND_ABOVE'),
+                'sexually_explicit' => env('GEMINI_SAFETY_SEXUALLY_EXPLICIT', 'BLOCK_MEDIUM_AND_ABOVE'),
+                'dangerous_content' => env('GEMINI_SAFETY_DANGEROUS_CONTENT', 'BLOCK_MEDIUM_AND_ABOVE'),
+            ],
+
+            // Feature flags
+            'features' => [
+                'multimodal' => env('GEMINI_MULTIMODAL_ENABLED', true),
+                'thinking_mode' => env('GEMINI_THINKING_ENABLED', false),
+                'context_caching' => env('GEMINI_CONTEXT_CACHING', false),
+                'function_calling' => env('GEMINI_FUNCTION_CALLING', true),
+                'grounding' => env('GEMINI_GROUNDING_ENABLED', false),
             ],
         ],
 
@@ -1059,7 +1462,10 @@ return [
             'vectormemory',
             'dopamine',
             'node',
-            'python'
+            'python',
+            'codecraft',
+            'agent',
+            'mood'
         ],
 
         'defaults' => [
@@ -1152,6 +1558,18 @@ return [
                 'auto_decay' => false, // Automatically reduce dopamine over time
                 'decay_rate' => 10, // Minutes between automatic decay events
                 'enable_logging' => false, // Log dopamine level changes
+            ],
+
+            'mood' => [
+                'enabled' => false,
+            ],
+
+            'agent' => [
+                'enabled' => false,
+            ],
+
+            'codecraft' => [
+                'enabled' => false,
             ]
         ],
 
@@ -1322,6 +1740,54 @@ return [
                     'timing_enabled' => true,
                 ],
             ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Environment Information Settings
+    |--------------------------------------------------------------------------
+    |
+    | Configure what environment information should be included in AI context.
+    | This helps AI models understand their operating environment.
+    |
+    */
+    'environment' => [
+        // Enable environment information feature
+        'enabled' => env('AI_ENVIRONMENT_ENABLED', true),
+
+        // Basic information (always safe)
+        'include_basic' => true,
+
+        // Include current working directory (may expose paths)
+        'include_cwd' => env('AI_ENVIRONMENT_INCLUDE_CWD', false),
+
+        // Include PHP memory limit
+        'include_memory' => env('AI_ENVIRONMENT_INCLUDE_MEMORY', true),
+
+        // Include detailed database info (host, port)
+        'include_db_details' => env('AI_ENVIRONMENT_INCLUDE_DB_DETAILS', false),
+
+        // Include system load information (Linux/Unix only)
+        'include_load' => env('AI_ENVIRONMENT_INCLUDE_LOAD', false),
+
+        // Include disk space information
+        'include_disk' => env('AI_ENVIRONMENT_INCLUDE_DISK', false),
+
+        // Custom fields to include
+        'custom_fields' => [
+        ],
+
+        // Security settings
+        'security' => [
+            // Mask sensitive environment values
+            'mask_sensitive' => true,
+
+            // Hide environment info in production
+            'hide_in_production' => false,
+
+            // Allowed environments for detailed info
+            'detailed_environments' => ['local', 'testing', 'staging'],
         ],
     ],
 

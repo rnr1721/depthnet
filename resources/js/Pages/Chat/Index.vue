@@ -88,6 +88,22 @@
           ]">
           {{ t('plugins') }}
           </Link>
+          <Link v-if="isAdmin" :href="route('admin.memory.index')" :class="[
+            'inline-block text-sm px-3 py-2 rounded-md transition-colors',
+            isDark
+              ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
+              : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
+          ]">
+          {{ t('memory') }}
+          </Link>
+          <Link v-if="isAdmin" :href="route('admin.vector-memory.index')" :class="[
+            'inline-block text-sm px-3 py-2 rounded-md transition-colors',
+            isDark
+              ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
+              : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
+          ]">
+          {{ t('vm_vector_memory') }}
+          </Link>
           <Link v-if="isAdmin" :href="route('admin.users.index')" :class="[
             'inline-block text-sm px-3 py-2 rounded-md transition-colors',
             isDark
@@ -158,7 +174,7 @@
         </div>
 
         <!-- Model active toggle -->
-        <div v-if="isAdmin && !isSingleMode" :class="[
+        <div v-if="isAdmin" :class="[
           'p-4 rounded-xl border transition-colors',
           isDark ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'
         ]">
@@ -215,14 +231,13 @@
           isDark ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'
         ]">
           <label :class="[
-            'flex items-center justify-between',
-            isSingleMode ? 'cursor-not-allowed' : 'cursor-pointer'
+            'flex items-center justify-between', 'cursor-pointer'
           ]">
             <span :class="[
               'text-sm font-medium',
               isDark ? 'text-gray-200' : 'text-gray-700'
             ]">{{ t('chat_show_thiking') }}</span>
-            <input type="checkbox" :disabled="isSingleMode" v-model="showThinking" class="sr-only">
+            <input type="checkbox" v-model="showThinking" class="sr-only">
             <div :class="[
               'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
               showThinking ? 'bg-indigo-600' : (isDark ? 'bg-gray-600' : 'bg-gray-300')
@@ -473,8 +488,8 @@
       <UsersList :users="localUsers" :isDark="isDark" @mentionUser="mentionUser" />
     </div>
 
-    <PresetModal v-if="showEditPresetModal" :preset="editingPreset" :engines="engines" @close="closeEditModal"
-      @save="saveCurrentPreset" />
+    <PresetModal v-if="showEditPresetModal" :placeholders="placeholders" :preset="editingPreset" :engines="engines"
+      @close="closeEditModal" @save="saveCurrentPreset" />
 
   </div>
 </template>
@@ -484,7 +499,7 @@ import { Link, useForm, router, usePage } from '@inertiajs/vue3';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import PageTitle from '@/Components/PageTitle.vue';
-import PresetModal from '@/Components/Admin/PresetModal.vue';
+import PresetModal from '@/Components/Admin/Presets/PresetModal.vue';
 import UsersList from '@/Components/Chat/UsersList.vue';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -505,7 +520,8 @@ const props = defineProps({
   mode: String,
   engines: Object,
   users: Array,
-  toLabel: String
+  toLabel: String,
+  placeholders: Object
 });
 
 // Theme management
@@ -529,10 +545,6 @@ const mobileUsersOpen = ref(false);
 
 const isAdmin = computed(() => {
   return props.user && props.user.is_admin;
-});
-
-const isSingleMode = computed(() => {
-  return props.mode === 'single';
 });
 
 const messagesContainer = ref(null);
@@ -878,7 +890,7 @@ function updatePresetSettings() {
 
   router.post(route('chat.preset-settings'), {
     preset_id: selectedPresetId.value,
-    chat_active: isSingleMode.value ? true : isChatActive.value
+    chat_active: isChatActive.value
   }, {
     preserveScroll: true,
     onSuccess: () => {

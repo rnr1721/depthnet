@@ -5,11 +5,12 @@ namespace App\Http\Controllers;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
-use App\Contracts\Settings\OptionsServiceInterface;
 use App\Contracts\Users\UserServiceInterface;
 use App\Exceptions\PresetException;
 use App\Http\Requests\Admin\Preset\UpdatePresetRequest;
@@ -24,13 +25,7 @@ class ChatController extends Controller
 {
     public function __construct(
         protected ChatServiceInterface $chatService,
-        protected ChatStatusServiceInterface $chatStatusService,
-        protected OptionsServiceInterface $optionsService,
         protected PresetServiceInterface $presetService,
-        protected ChatExporterServiceInterface $chatExporterService,
-        protected EngineRegistryInterface $engineRegistry,
-        protected UserServiceInterface $userService,
-        protected AuthServiceInterface $authService,
     ) {
     }
 
@@ -39,29 +34,40 @@ class ChatController extends Controller
      *
      * @return \Inertia\Response
      */
-    public function index(AgentJobServiceInterface $agentJobService)
-    {
+    public function index(
+        ChatExporterServiceInterface $chatExporterService,
+        EngineRegistryInterface $engineRegistry,
+        AuthServiceInterface $authService,
+        ChatStatusServiceInterface $chatStatusService,
+        UserServiceInterface $userService,
+        PluginRegistryInterface $pluginRegistry,
+        ShortcodeManagerServiceInterface $shortcodeManager
+    ) {
         $messages = $this->chatService->getAllMessages();
-        $user = $this->authService->getCurrentUser();
-        $mode = $this->optionsService->get('model_agent_mode', 'looped');
-        $users = $this->userService->getAllUsers();
+        $user = $authService->getCurrentUser();
+        $users = $userService->getAllUsers();
         $toLabel = __('To');
 
         $data = [
             'messages' => $messages,
-            'user' => $user,
-            'mode' => $mode
+            'user' => $user
         ];
 
         if ($user && $user->isAdmin()) {
-            $chatActive = $this->chatStatusService->getChatStatus();
+            $chatActive = $chatStatusService->getChatStatus();
 
             // Get available presets (only active ones for regular use)
             $availablePresets = $this->presetService->getActivePresets();
 
             $defaultPreset = $this->presetService->getDefaultPreset();
 
-            $engines = $this->engineRegistry->getAvailableEngines();
+            $pluginRegistry->setCurrentPreset($defaultPreset);
+
+            $shortcodeManager->setDefaultShortcodes();
+
+            $placeholders = $shortcodeManager->getRegisteredShortcodes();
+
+            $engines = $engineRegistry->getAvailableEngines();
 
             $data = array_merge($data, [
                 'availablePresets' => $availablePresets->map(fn ($preset) => [
@@ -82,8 +88,9 @@ class ChatController extends Controller
                     'model' => $defaultPreset->engine_config['model'] ?? null,
                 ] : null,
                 'chatActive' => $chatActive,
-                'exportFormats' => $this->chatExporterService->getAvailableFormats(),
-                'engines' => $engines
+                'exportFormats' => $chatExporterService->getAvailableFormats(),
+                'engines' => $engines,
+                'placeholders' => $placeholders
             ]);
         }
 
@@ -105,9 +112,11 @@ class ChatController extends Controller
      * @param SendMessageRequest $request
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function sendMessage(SendMessageRequest $request)
-    {
-        $user = $this->authService->getCurrentUser();
+    public function sendMessage(
+        SendMessageRequest $request,
+        AuthServiceInterface $authService
+    ) {
+        $user = $authService->getCurrentUser();
 
         $this->chatService->sendUserMessage(
             $user,
@@ -252,7 +261,7 @@ class ChatController extends Controller
      * @param ChatExportRequest $request
      * @return \Symfony\Component\HttpFoundation\Response
      */
-    public function exportChat(ChatExportRequest $request)
+    public function exportChat(ChatExportRequest $request, ChatExporterServiceInterface $chatExporterService)
     {
         $params = $request->validated();
 
@@ -260,13 +269,13 @@ class ChatController extends Controller
             'include_thinking' => $params['include_thinking']
         ];
 
-        return $this->chatExporterService->export($request['format'], $options);
+        return $chatExporterService->export($request['format'], $options);
     }
 
-    public function getUsers(): JsonResponse
+    public function getUsers(UserServiceInterface $userService): JsonResponse
     {
         try {
-            $users = $this->userService->getAllUsers();
+            $users = $userService->getAllUsers();
             return response()->json($users);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch users'], 500);

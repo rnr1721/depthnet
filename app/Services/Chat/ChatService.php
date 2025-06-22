@@ -2,11 +2,15 @@
 
 namespace App\Services\Chat;
 
+use App\Contracts\Agent\AgentActionsInterface;
+use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\Models\PresetRegistryInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Chat\ChatServiceInterface;
+use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
 use App\Models\User;
-use Exception;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -21,6 +25,11 @@ class ChatService implements ChatServiceInterface
 {
     public function __construct(
         protected OptionsServiceInterface $optionsService,
+        protected AgentActionsInterface $agentActions,
+        protected AgentJobServiceInterface $agentJobService,
+        protected PresetRegistryInterface $presetRegistry,
+        protected PluginRegistryInterface $pluginRegistry,
+        protected ChatStatusServiceInterface $chatStatusService,
         protected Message $messageModel,
     ) {
     }
@@ -55,12 +64,34 @@ class ChatService implements ChatServiceInterface
         $messageFromUserLabel = $this->optionsService->get('model_message_from_user', 'message_from_user');
         $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
 
-        return $this->messageModel->create([
+        $finalContent = $user->is_admin ? $this->runCommands($formattedContent) : $formattedContent;
+
+        $message = $this->messageModel->create([
             'role' => 'user',
-            'content' => $formattedContent,
+            'content' => $finalContent,
             'from_user_id' => $user->id,
             'is_visible_to_user' => true
         ]);
+
+        if (!$this->chatStatusService->getChatStatus()) {
+            $this->agentJobService->start();
+        }
+
+        return $message;
+    }
+
+    /**
+     * Run commands from messages
+     *
+     * @param string $formattedContent
+     * @return void
+     */
+    protected function runCommands(string $formattedContent)
+    {
+        $currentPreset = $this->presetRegistry->getDefaultPreset();
+        $this->pluginRegistry->setCurrentPreset($currentPreset);
+        $finalMessage = $this->agentActions->runActions($formattedContent, true);
+        return $finalMessage->getResult();
     }
 
     /**

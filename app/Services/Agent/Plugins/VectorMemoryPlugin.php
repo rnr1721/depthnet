@@ -3,11 +3,14 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
-use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
-use App\Models\VectorMemory;
+use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use Psr\Log\LoggerInterface;
 use App\Services\Agent\Plugins\MemoryPlugin;
+use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
+use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
 /**
  * VectorMemoryPlugin class
@@ -24,8 +27,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
     public function __construct(
         protected LoggerInterface $logger,
-        protected TfIdfServiceInterface $tfIdfService,
-        protected VectorMemory $vectorMemoryModel
+        protected VectorMemoryServiceInterface $vectorMemoryService,
+        protected MemoryServiceInterface $memoryService
     ) {
         $this->initializeConfig();
     }
@@ -238,9 +241,9 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'search_limit' => 5,
             'auto_cleanup' => true,
             'boost_recent' => true,
-            'integrate_with_memory' => false, // Add reference to regular memory
-            'memory_link_format' => 'descriptive', //short, descriptive, timestamped
-            'max_link_keywords' => 4, // Max keywords in memory link
+            'integrate_with_memory' => false,
+            'memory_link_format' => 'descriptive',
+            'max_link_keywords' => 4,
             'language_mode' => 'auto',
             'custom_stop_words_ru' => '',
             'custom_stop_words_en' => ''
@@ -257,11 +260,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            // Test database connection and TF-IDF service
-            $testContent = 'Vector memory test - ' . time();
-            $vector = $this->tfIdfService->vectorize($testContent);
-
-            return is_array($vector) && !empty($vector);
+            $result = $this->vectorMemoryService->testConnection($this->preset);
+            return $result['success'];
         } catch (\Exception $e) {
             $this->logger->error("VectorMemoryPlugin::testConnection error: " . $e->getMessage());
             return false;
@@ -293,42 +293,23 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $content = trim($content);
-            if (empty($content)) {
-                return "Error: Cannot store empty content.";
+            $result = $this->vectorMemoryService->storeVectorMemory($this->preset, $content, $this->config);
+
+            if (!$result['success']) {
+                return $result['message'];
             }
 
-            // Check if we need to cleanup old entries
-            $this->cleanupIfNeeded();
-
-            // Configure TF-IDF service with custom language settings
-            $this->configureTfIdfService();
-
-            // Generate TF-IDF vector
-            $language = $this->determineLanguage($content);
-            $vector = $this->tfIdfService->vectorize($content);
-            $keywords = $this->extractKeywords($content, $language);
-
-            // Store in database
-            $vectorMemory = $this->vectorMemoryModel->create([
-                'preset_id' => $this->preset->id,
-                'content' => $content,
-                'tfidf_vector' => $vector,
-                'keywords' => $keywords,
-                'importance' => 1.0
-            ]);
-
-            $result = "Content stored in vector memory successfully. Generated " . count($vector) . " features (language: {$language}).";
+            $message = $result['message'];
 
             // Add to regular memory if integration is enabled
             if ($this->config['integrate_with_memory'] ?? false) {
-                $memoryLinkResult = $this->addToRegularMemory($vectorMemory, $keywords);
+                $memoryLinkResult = $this->addToRegularMemory($result['memory']);
                 if ($memoryLinkResult) {
-                    $result .= " " . $memoryLinkResult;
+                    $message .= " " . $memoryLinkResult;
                 }
             }
 
-            return $result;
+            return $message;
 
         } catch (\Throwable $e) {
             $this->logger->error("VectorMemoryPlugin::store error: " . $e->getMessage());
@@ -349,37 +330,22 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $query = trim($query);
-            if (empty($query)) {
-                return "Error: Search query cannot be empty.";
+            $result = $this->vectorMemoryService->searchVectorMemories($this->preset, $query, $this->config);
+
+            if (!$result['success']) {
+                return $result['message'];
             }
 
-            $memories = $this->vectorMemoryModel->where('preset_id', $this->preset->id)
-                ->orderBy('created_at', 'desc')
-                ->get();
-
-            if ($memories->isEmpty()) {
-                return "No memories found. Store some content first using [vectormemory]content[/vectormemory].";
-            }
-
-            $results = $this->tfIdfService->findSimilar(
-                $query,
-                $memories,
-                $this->config['search_limit'] ?? 5,
-                $this->config['similarity_threshold'] ?? 0.1,
-                $this->config['boost_recent'] ?? true
-            );
-
-            if (empty($results)) {
+            if (empty($result['results'])) {
                 return "No similar memories found for query: '{$query}'. Try broader search terms.";
             }
 
-            $output = "Found " . count($results) . " similar memories for '{$query}':\n\n";
+            $output = "Found " . count($result['results']) . " similar memories for '{$query}':\n\n";
 
-            foreach ($results as $result) {
-                $similarity = round($result['similarity'] * 100, 1);
-                $date = $result['memory']->created_at->format('M j, H:i');
-                $content = $this->truncateContent($result['memory']->content, 200);
+            foreach ($result['results'] as $searchResult) {
+                $similarity = round($searchResult['similarity'] * 100, 1);
+                $date = $searchResult['memory']->created_at->format('M j, H:i');
+                $content = $this->truncateContent($searchResult['memory']->content, 200);
 
                 $output .= "• [{$similarity}% match, {$date}] {$content}\n";
             }
@@ -406,11 +372,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
         try {
             $limit = $limitStr !== '' ? max(1, min((int) $limitStr, 20)) : 5;
+            $result = $this->vectorMemoryService->getRecentVectorMemories($this->preset, $limit);
 
-            $memories = $this->vectorMemoryModel->where('preset_id', $this->preset->id)
-                ->orderBy('created_at', 'desc')
-                ->limit($limit)
-                ->get();
+            if (!$result['success']) {
+                return $result['message'];
+            }
+
+            $memories = $result['memories'];
 
             if ($memories->isEmpty()) {
                 return "No memories stored yet.";
@@ -447,10 +415,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $count = $this->vectorMemoryModel->where('preset_id', $this->preset->id)->count();
-            $this->vectorMemoryModel->where('preset_id', $this->preset->id)->delete();
-
-            return "Cleared {$count} vector memories successfully.";
+            $result = $this->vectorMemoryService->clearVectorMemories($this->preset);
+            return $result['message'];
 
         } catch (\Throwable $e) {
             $this->logger->error("VectorMemoryPlugin::clear error: " . $e->getMessage());
@@ -459,13 +425,22 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
+     * Get vector memory service instance for external use
+     *
+     * @return VectorMemoryServiceInterface
+     */
+    public function getVectorMemoryService(): VectorMemoryServiceInterface
+    {
+        return $this->vectorMemoryService;
+    }
+
+    /**
      * Add reference to regular memory plugin
      *
-     * @param VectorMemory $vectorMemory
-     * @param array $keywords
+     * @param \App\Models\VectorMemory $vectorMemory
      * @return string|null
      */
-    private function addToRegularMemory(VectorMemory $vectorMemory, array $keywords): ?string
+    private function addToRegularMemory($vectorMemory): ?string
     {
         try {
             // Get memory plugin instance
@@ -480,13 +455,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $maxKeywords = $this->config['max_link_keywords'] ?? 4;
 
             // Limit keywords
-            $limitedKeywords = array_slice($keywords, 0, $maxKeywords);
+            $limitedKeywords = array_slice($vectorMemory->keywords ?? [], 0, $maxKeywords);
 
             $link = $this->formatMemoryLink($vectorMemory, $limitedKeywords, $format);
 
-            // Add to memory using the memory plugin
-            /* @var MemoryPlugin $memoryPlugin */
-            $result = $memoryPlugin->append($link);
+            // Add to memory using the memory service
+            $result = $this->memoryService->addMemoryItem($this->preset, $link);
 
             return "Added reference to regular memory.";
 
@@ -512,12 +486,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
     /**
      * Format memory link based on selected format
      *
-     * @param VectorMemory $vectorMemory
+     * @param \App\Models\VectorMemory $vectorMemory
      * @param array $keywords
      * @param string $format
      * @return string
      */
-    private function formatMemoryLink(VectorMemory $vectorMemory, array $keywords, string $format): string
+    private function formatMemoryLink($vectorMemory, array $keywords, string $format): string
     {
         $keywordsStr = implode(', ', $keywords);
         $shortContent = $this->truncateContent($vectorMemory->content, 50);
@@ -528,100 +502,6 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'descriptive' => "Vector memory about: {$shortContent} (search: [vectormemory search]{$keywordsStr}[/vectormemory])",
             default => "Vector: {$keywordsStr}"
         };
-    }
-
-    /**
-     * Configure TF-IDF service with custom language settings
-     *
-     * @return void
-     */
-    private function configureTfIdfService(): void
-    {
-        $languageConfig = [];
-
-        // Add custom Russian stop words
-        if (!empty($this->config['custom_stop_words_ru'])) {
-            $customRu = array_map('trim', explode(',', $this->config['custom_stop_words_ru']));
-            $languageConfig['ru']['stop_words'] = array_merge(
-                $languageConfig['ru']['stop_words'] ?? [],
-                $customRu
-            );
-        }
-
-        // Add custom English stop words
-        if (!empty($this->config['custom_stop_words_en'])) {
-            $customEn = array_map('trim', explode(',', $this->config['custom_stop_words_en']));
-            $languageConfig['en']['stop_words'] = array_merge(
-                $languageConfig['en']['stop_words'] ?? [],
-                $customEn
-            );
-        }
-
-        if (!empty($languageConfig)) {
-            $this->tfIdfService->setLanguageConfig(['languages' => $languageConfig]);
-        }
-    }
-
-    /**
-     * Determine language for content based on config
-     *
-     * @param string $content
-     * @return string
-     */
-    private function determineLanguage(string $content): string
-    {
-        $mode = $this->config['language_mode'] ?? 'auto';
-
-        return match($mode) {
-            'ru' => 'ru',
-            'en' => 'en',
-            'auto' => $this->tfIdfService->detectLanguage($content),
-            'multilingual' => 'auto',
-            default => 'auto'
-        };
-    }
-
-    /**
-     * Extract keywords from content
-     *
-     * @param string $content
-     * @param string $language
-     * @return array
-     */
-    private function extractKeywords(string $content, string $language = 'auto'): array
-    {
-        $words = $this->tfIdfService->tokenize($content, $language);
-
-        // Filter out very short words and get unique keywords
-        $keywords = array_filter($words, function ($word) {
-            return strlen($word) > 2;
-        });
-
-        return array_values(array_unique($keywords));
-    }
-
-    /**
-     * Cleanup old entries if limit is reached
-     *
-     * @return void
-     */
-    private function cleanupIfNeeded(): void
-    {
-        if (!($this->config['auto_cleanup'] ?? true)) {
-            return;
-        }
-
-        $maxEntries = $this->config['max_entries'] ?? 1000;
-        $currentCount = $this->vectorMemoryModel->where('preset_id', $this->preset->id)->count();
-
-        if ($currentCount >= $maxEntries) {
-            $deleteCount = $currentCount - $maxEntries + 1;
-
-            $this->vectorMemoryModel->where('preset_id', $this->preset->id)
-                ->orderBy('created_at', 'asc')
-                ->limit($deleteCount)
-                ->delete();
-        }
     }
 
     /**

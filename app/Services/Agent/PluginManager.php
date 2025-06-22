@@ -30,15 +30,17 @@ class PluginManager implements PluginManagerInterface
 
     /**
      * Initialize all plugins with their configurations from database
+     *
+     * @return void
      */
     protected function initializePlugins(): void
     {
-        $currentPreset = $this->presetRegistry->getDefaultPreset();
+        $preset = $this->presetRegistry->getDefaultPreset();
+        $this->registry->setCurrentPreset($preset);
+
         $plugins = $this->registry->allRegistered();
 
         foreach ($plugins as $plugin) {
-            $this->registry->setCurrentPreset($currentPreset);
-
             // Initialize plugin config in database if not exists
             $this->initializePluginConfig($plugin);
 
@@ -49,6 +51,9 @@ class PluginManager implements PluginManagerInterface
 
     /**
      * Initialize plugin configuration in database
+     *
+     * @param CommandPluginInterface $plugin
+     * @return void
      */
     protected function initializePluginConfig(CommandPluginInterface $plugin): void
     {
@@ -60,6 +65,9 @@ class PluginManager implements PluginManagerInterface
 
     /**
      * Apply database configuration to plugin instance
+     *
+     * @param CommandPluginInterface $plugin
+     * @return void
      */
     protected function applyDatabaseConfigToPlugin(CommandPluginInterface $plugin): void
     {
@@ -77,6 +85,9 @@ class PluginManager implements PluginManagerInterface
 
     /**
      * Ensure plugin has latest configuration from database
+     *
+     * @param CommandPluginInterface $plugin
+     * @return void
      */
     protected function ensurePluginConfigured(CommandPluginInterface $plugin): void
     {
@@ -200,6 +211,11 @@ class PluginManager implements PluginManagerInterface
 
     /**
      * Apply configuration to all instances of a plugin
+     *
+     * @param string $pluginName
+     * @param array $config
+     * @param boolean $enabled
+     * @return void
      */
     protected function applyConfigToAllPluginInstances(string $pluginName, array $config, bool $enabled): void
     {
@@ -438,6 +454,9 @@ class PluginManager implements PluginManagerInterface
     /**
      * Get plugin instance with ensured configuration
      * This method should be used by command executors
+     *
+     * @param string $pluginName
+     * @return CommandPluginInterface|null
      */
     public function getConfiguredPlugin(string $pluginName): ?CommandPluginInterface
     {

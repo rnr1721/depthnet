@@ -2,9 +2,13 @@
 
 namespace App\Providers;
 
+use Illuminate\Contracts\Auth\PasswordBroker as PasswordBrokerContract;
+use App\Services\Auth\AuthService;
+use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\User;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Password;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -14,6 +18,11 @@ class AuthServiceProvider extends ServiceProvider
     public function register(): void
     {
 
+        $this->app->bind(PasswordBrokerContract::class, function ($app) {
+            return Password::broker('users');
+        });
+
+        $this->app->bind(AuthServiceInterface::class, AuthService::class);
     }
 
     /**

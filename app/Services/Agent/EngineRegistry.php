@@ -5,7 +5,9 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Exceptions\EngineRegistryException;
+use Illuminate\Cache\CacheManager;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Psr\Log\LoggerInterface;
 
 /**
  * Registry for AI model engines with dynamic configuration
@@ -27,6 +29,8 @@ class EngineRegistry implements EngineRegistryInterface
 
     public function __construct(
         protected HttpFactory $http,
+        protected LoggerInterface $logger,
+        protected CacheManager $cache,
         protected array $configEngines = []
     ) {
     }
@@ -398,14 +402,12 @@ class EngineRegistry implements EngineRegistryInterface
         $defaultConfig = $this->getEngineDefaults($engineName);
         $mergedConfig = array_merge($defaultConfig, $config);
 
-        // Get server URL
-        $engineConfig = $this->configEngines[$engineName] ?? [];
-        $serverUrl = $config['server_url'] ??
-                    $engineConfig['server_url'] ??
-                    $defaultConfig['server_url'] ??
-                    '';
-
-        $instance = new $engineClass($this->http, $serverUrl, $mergedConfig);
+        $instance = new $engineClass(
+            $this->http,
+            $this->logger,
+            $this->cache,
+            $mergedConfig
+        );
         return $instance;
     }
 

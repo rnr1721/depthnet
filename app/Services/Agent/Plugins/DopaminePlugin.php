@@ -3,6 +3,10 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
+use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -17,8 +21,10 @@ class DopaminePlugin implements CommandPluginInterface
     use PluginPresetTrait;
     use PluginConfigTrait;
 
-    public function __construct(protected LoggerInterface $logger)
-    {
+    public function __construct(
+        protected LoggerInterface $logger,
+        protected PlaceholderServiceInterface $placeholderService
+    ) {
         $this->initializeConfig();
     }
 
@@ -348,7 +354,7 @@ class DopaminePlugin implements CommandPluginInterface
 
         try {
             $currentLevel = $this->preset->getDopamineLevel();
-            $minLevel = $this->config['min_level'] ?? 0;
+            // $minLevel = $this->config['min_level'] ?? 0;
             $maxLevel = $this->config['max_level'] ?? 10;
 
             $percentage = round(($currentLevel / $maxLevel) * 100);
@@ -402,4 +408,11 @@ class DopaminePlugin implements CommandPluginInterface
         return true;
     }
 
+    public function pluginReady(): void
+    {
+        $this->placeholderService->registerDynamic('dopamine_level', 'Level of model dopamine', function () {
+            return $this->preset->getDopamineLevel();
+        });
+
+    }
 }

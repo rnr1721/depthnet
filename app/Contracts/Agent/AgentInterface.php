@@ -19,5 +19,4 @@ interface AgentInterface
      */
     public function think(): ?Message;
 
-    public function getAvailablePresets(): array;
 }

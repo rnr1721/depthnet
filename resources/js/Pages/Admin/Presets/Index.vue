@@ -247,7 +247,7 @@
         </main>
 
         <!-- Create/Edit Modal -->
-        <PresetModal v-if="showCreateModal || editingPreset" :preset="editingPreset" :engines="engines"
+        <PresetModal v-if="showCreateModal || editingPreset" :placeholders="placeholders" :preset="editingPreset" :engines="engines"
             @close="closeModal" @save="savePreset" />
     </div>
 </template>
@@ -258,7 +258,7 @@ import { useI18n } from 'vue-i18n';
 import { Link, router } from '@inertiajs/vue3';
 import AdminHeader from '@/Components/AdminHeader.vue';
 import PageTitle from '@/Components/PageTitle.vue';
-import PresetModal from '@/Components/Admin/PresetModal.vue';
+import PresetModal from '@/Components/Admin/Presets/PresetModal.vue';
 
 const { t } = useI18n();
 
@@ -268,7 +268,8 @@ const editingPreset = ref(null);
 
 const props = defineProps({
     presets: Array,
-    engines: Object
+    engines: Object,
+    placeholders: Object
 });
 
 // Engine colors mapping based on engines data

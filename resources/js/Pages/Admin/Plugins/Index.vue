@@ -225,8 +225,8 @@ import { Link, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import PageTitle from '@/Components/PageTitle.vue';
 import AdminHeader from '@/Components/AdminHeader.vue';
-import PluginStats from '@/Components/Admin/PluginStats.vue';
-import PluginCard from '@/Components/Admin/PluginCard.vue';
+import PluginStats from '@/Components/Admin/Plugins/PluginStats.vue';
+import PluginCard from '@/Components/Admin/Plugins/PluginCard.vue';
 
 const { t } = useI18n();
 

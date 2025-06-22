@@ -81,20 +81,6 @@ return [
             'max' => 1000,
         ],
 
-        'model_agent_mode' => [
-            'type' => 'select',
-            'label' => 'settings_agent_mode',
-            'description' => 'settings_agent_mode_desc',
-            'default' => 'en',
-            'validation' => 'required|string|in:looped,single',
-            'group' => 'agent_settings',
-            'order' => 8,
-            'options' => [
-                'looped' => 'Looped (Iterative Thinking)',
-                'single' => 'Single Response (Static)'
-            ],
-        ],
-
         'chat_max_chat_history' => [
             'type' => 'input',
             'input_type' => 'number',

@@ -414,29 +414,19 @@ class ClaudeModel implements AIModelEngineInterface
 
     /**
      * Build messages array for Claude API
+     *
+     * @param AiModelRequestInterface $request
+     * @return array
      */
-    protected function buildMessages(
-        AiModelRequestInterface $request
-    ): array {
+    protected function buildMessages(AiModelRequestInterface $request): array
+    {
         $systemMessage = $this->prepareMessage($request);
-
         $messages = [];
 
-        // Get system message config
-        $systemConfig = config('ai.engines.claude.system_message', []);
-        $prefix = $systemConfig['prefix'] ?? 'SYSTEM INSTRUCTIONS:';
-        $suffix = $systemConfig['suffix'] ?? '[Start your first cycle]';
-        $continuation = $systemConfig['continuation'] ?? '[continue your cycle]';
-
-        // Add system as first user message (Claude API feature)
-        $messages[] = [
-            'role' => 'user',
-            'content' => "{$prefix}\n{$systemMessage}\n\n{$suffix}"
-        ];
-
+        $context = $request->getContext();
         $assistantContent = [];
 
-        $context = $request->getContext();
+        // Process context
         foreach ($context as $entry) {
             $role = $entry['role'] ?? 'thinking';
             $content = $entry['content'] ?? '';
@@ -445,6 +435,7 @@ class ClaudeModel implements AIModelEngineInterface
                 continue;
             }
 
+            // Regular message processing
             switch ($role) {
                 case 'user':
                 case 'command':
@@ -456,17 +447,17 @@ class ClaudeModel implements AIModelEngineInterface
             }
         }
 
+        // Add system as first user message
+        $messages[] = [
+            'role' => 'user',
+            'content' => $systemMessage
+        ];
+
+        // Add assistant messages if any
         if (!empty($assistantContent)) {
             $messages[] = [
                 'role' => 'assistant',
                 'content' => implode("\n\n", $assistantContent)
-            ];
-        }
-
-        if (end($messages)['role'] === 'assistant') {
-            $messages[] = [
-                'role' => 'user',
-                'content' => $continuation
             ];
         }
 

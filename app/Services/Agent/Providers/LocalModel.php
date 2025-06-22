@@ -461,59 +461,51 @@ class LocalModel implements AIModelEngineInterface
     }
 
     /**
-     * Build messages array using global continuation patterns
+     * Build messages array for Local AI API
+     *
+     * @param AiModelRequestInterface $request
+     * @return array
      */
-    protected function buildMessages(
-        AiModelRequestInterface $request
-    ): array {
+    protected function buildMessages(AiModelRequestInterface $request): array
+    {
         $systemMessage = $this->prepareMessage($request);
+        $messages = [];
 
-        $messages = [
-            ['role' => 'system', 'content' => $systemMessage]
+        // Local models use system role (OpenAI-compatible)
+        $messages[] = [
+            'role' => 'system',
+            'content' => $systemMessage
         ];
 
-        $lastRole = null;
-        $continuationMessage = config('ai.global.message_continuation.user_thinking', '[please resume thinking]');
-
         $context = $request->getContext();
+
         foreach ($context as $entry) {
-            $role = $entry['role'] ?? 'thinking';
+            $role = $entry['role'] ?? 'assistant';
             $content = $entry['content'] ?? '';
 
             if (empty(trim($content))) {
                 continue;
             }
 
+            // Map roles for Local AI models (OpenAI-compatible)
             switch ($role) {
                 case 'user':
                 case 'command':
+                    $messages[] = [
+                        'role' => 'user',
+                        'content' => $content
+                    ];
+                    break;
+
                 case 'thinking':
                 case 'speaking':
                 default:
-                    // If the previous message was also from assistant
-                    if ($lastRole === 'assistant') {
-                        $messages[] = [
-                            'role' => 'user',
-                            'content' => $continuationMessage
-                        ];
-                    }
-
                     $messages[] = [
                         'role' => 'assistant',
                         'content' => $content
                     ];
                     break;
             }
-
-            $lastRole = $role === 'user' ? 'user' : 'assistant';
-        }
-
-        // At the very end, if the last message is from the assistant, we add a continuation
-        if ($lastRole === 'assistant') {
-            $messages[] = [
-                'role' => 'user',
-                'content' => $continuationMessage
-            ];
         }
 
         return $messages;

@@ -611,58 +611,51 @@ class GeminiModel implements AIModelEngineInterface
     }
 
     /**
-     * Build messages array using global continuation patterns
+     * Build messages array for Google Gemini API
+     *
+     * @param AiModelRequestInterface $request
+     * @return array
      */
-    protected function buildMessages(
-        AiModelRequestInterface $request
-    ): array {
+    protected function buildMessages(AiModelRequestInterface $request): array
+    {
         $systemMessage = $this->prepareMessage($request);
+        $messages = [];
 
-        $messages = [
-            [
-                'role' => 'system',
-                'content' => $systemMessage
-            ]
+        // Gemini uses system role (OpenAI-compatible)
+        $messages[] = [
+            'role' => 'system',
+            'content' => $systemMessage
         ];
 
-        $lastRole = null;
-        $continuationMessage = config('ai.global.message_continuation.cycle_continue', '[continue your cycle]');
-
         $context = $request->getContext();
+
         foreach ($context as $entry) {
-            $role = $entry['role'] ?? 'thinking';
+            $role = $entry['role'] ?? 'assistant';
             $content = $entry['content'] ?? '';
 
             if (empty(trim($content))) {
                 continue;
             }
 
+            // Map roles for Gemini (OpenAI-compatible)
             switch ($role) {
                 case 'user':
                 case 'command':
+                    $messages[] = [
+                        'role' => 'user',
+                        'content' => $content
+                    ];
+                    break;
+
                 case 'thinking':
                 case 'speaking':
                 default:
-                    // If the previous message was also from assistant, we merge
-                    if ($lastRole === 'assistant' && !empty($messages)) {
-                        $lastIndex = count($messages) - 1;
-                        $messages[$lastIndex]['content'] .= "\n\n" . $content;
-                    } else {
-                        $messages[] = [
-                            'role' => 'assistant',
-                            'content' => $content
-                        ];
-                    }
-                    $lastRole = 'assistant';
+                    $messages[] = [
+                        'role' => 'assistant',
+                        'content' => $content
+                    ];
                     break;
             }
-        }
-
-        if ($lastRole === 'assistant') {
-            $messages[] = [
-                'role' => 'user',
-                'content' => $continuationMessage
-            ];
         }
 
         return $messages;

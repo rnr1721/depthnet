@@ -13,6 +13,7 @@ use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
+use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
 use App\Contracts\Agent\Memory\MemoryImporterInterface;
@@ -37,6 +38,7 @@ use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandLinter;
 use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
+use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Providers\ClaudeModel;
@@ -77,6 +79,7 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);
         $this->app->singleton(ShortcodeManagerServiceInterface::class, ShortcodeManagerService::class);
         $this->app->bind(EnvironmentInfoServiceInterface::class, EnvironmentInfoService::class);

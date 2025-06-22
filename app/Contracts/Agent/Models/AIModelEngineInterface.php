@@ -2,6 +2,7 @@
 
 namespace App\Contracts\Agent\Models;
 
+use App\Contracts\Agent\AiModelRequestInterface;
 use App\Contracts\Agent\AiModelResponseInterface;
 
 /**
@@ -12,19 +13,11 @@ interface AIModelEngineInterface
     /**
      * Generate a response based on the context
      *
-     * @param array $context Array of messages [['role' => '...', 'content' => '...'], ...]
-     * @param string $initialMessage Initial message to be sent to the model
-     * @param string $notepadContent Notepad content
-     * @param int $currentDophamineLevel Current dopamine level
-     * @param string $commandInstructions
+     * @param AiModelRequestInterface $request Model request parameters
      * @return AiModelResponseInterface
      */
     public function generate(
-        array $context,
-        string $initialMessage,
-        string $notepadContent = '',
-        int $currentDophamineLevel = 5,
-        string $commandInstructions = ''
+        AiModelRequestInterface $request
     ): AiModelResponseInterface;
 
     /**

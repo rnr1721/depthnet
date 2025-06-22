@@ -1,10 +1,12 @@
 <?php
 
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\VectorMemoryController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ProfileController;
@@ -104,6 +106,32 @@ Route::middleware('auth')->group(function () {
                 Route::post('/update', [PluginController::class, 'update'])->name('update');
                 Route::post('/reset', [PluginController::class, 'reset'])->name('reset');
             });
+        });
+
+        // Memory Management routes
+        Route::prefix('memory')->name('memory.')->group(function () {
+            Route::get('/', [MemoryController::class, 'index'])->name('index');
+            Route::post('/', [MemoryController::class, 'store'])->name('store');
+            Route::put('/{itemId}', [MemoryController::class, 'update'])->name('update');
+            Route::delete('/{itemNumber}', [MemoryController::class, 'destroy'])->name('destroy');
+            Route::post('/clear', [MemoryController::class, 'clear'])->name('clear');
+            Route::post('/search', [MemoryController::class, 'search'])->name('search');
+            Route::get('/export', [MemoryController::class, 'export'])->name('export');
+            Route::post('/import', [MemoryController::class, 'import'])->name('import');
+            Route::get('/stats', [MemoryController::class, 'stats'])->name('stats');
+        });
+
+        // Vector Memory Management routes
+        Route::prefix('vector-memory')->name('vector-memory.')->group(function () {
+            Route::get('/', [VectorMemoryController::class, 'index'])->name('index');
+            Route::post('/', [VectorMemoryController::class, 'store'])->name('store');
+            Route::put('/{memoryId}/importance', [VectorMemoryController::class, 'updateImportance'])->name('update-importance');
+            Route::delete('/{memoryId}', [VectorMemoryController::class, 'destroy'])->name('destroy');
+            Route::post('/clear', [VectorMemoryController::class, 'clear'])->name('clear');
+            Route::post('/search', [VectorMemoryController::class, 'search'])->name('search');
+            Route::get('/export', [VectorMemoryController::class, 'export'])->name('export');
+            Route::post('/import', [VectorMemoryController::class, 'import'])->name('import');
+            Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
         });
 
     });

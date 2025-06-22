@@ -91,11 +91,54 @@ class VectorMemory extends Model
      */
     public function getTruncatedContentAttribute(): string
     {
-        if (strlen($this->content) <= 100) {
-            return $this->content;
+        if (empty($this->content)) {
+            return '';
         }
 
-        return substr($this->content, 0, 100) . '...';
+        $content = $this->ensureValidUtf8($this->content);
+
+        $maxLength = 100;
+
+        if (mb_strlen($content, 'UTF-8') <= $maxLength) {
+            return $content;
+        }
+
+        $truncated = mb_substr($content, 0, $maxLength, 'UTF-8');
+
+        $lastSpace = mb_strrpos($truncated, ' ', 0, 'UTF-8');
+        if ($lastSpace !== false && $lastSpace > $maxLength * 0.8) {
+            $truncated = mb_substr($truncated, 0, $lastSpace, 'UTF-8');
+        }
+
+        return trim($truncated) . '...';
+    }
+
+    /**
+     * Ensure content is valid UTF-8
+     *
+     * @param string $text
+     * @return string
+     */
+    protected function ensureValidUtf8(string $text): string
+    {
+        if (empty($text)) {
+            return '';
+        }
+
+        if (mb_check_encoding($text, 'UTF-8')) {
+            return $text;
+        }
+
+        $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $detected = mb_detect_encoding($text, ['UTF-8', 'Windows-1251', 'ISO-8859-1'], true);
+            if ($detected) {
+                $text = mb_convert_encoding($text, 'UTF-8', $detected);
+            }
+        }
+
+        return $text;
     }
 
     /**

@@ -13,8 +13,21 @@ use Psr\Log\LoggerInterface;
 
 class AgentJobService implements AgentJobServiceInterface
 {
+    /**
+     * Queue name
+     *
+     * @var string
+     */
     private string $queue = 'ai';
+
+    /**
+     * Lock ket in database options
+     */
     private const LOCK_KEY = 'task_lock';
+
+    /**
+     * Timeout between requests key in database options
+     */
     private const TIMEOUT_KEY = 'model_timeout_between_requests';
 
     public function __construct(
@@ -39,7 +52,10 @@ class AgentJobService implements AgentJobServiceInterface
     */
     public function canStart(): bool
     {
-        return $this->isActive() && $this->chatStatusService->isLoopedMode() && !$this->isLocked();
+        if (!$this->isActive()) {
+            return true;
+        }
+        return $this->isActive() && !$this->isLocked();
     }
 
     /**
@@ -95,11 +111,6 @@ class AgentJobService implements AgentJobServiceInterface
     */
     public function processThinkingCycle(): void
     {
-
-        if (!$this->isActive() || $this->chatStatusService->isSingleMode()) {
-            $this->unlock();
-            return;
-        }
 
         if ($this->isLocked()) {
             $this->logger->info("AgentJobService: Skipped due to active lock");
@@ -165,13 +176,17 @@ class AgentJobService implements AgentJobServiceInterface
         return [
             'preset_id' => $this->presetService->getDefaultPreset()->getId(),
             'chat_active' => $isActive,
-            'mode' => $this->chatStatusService->getChatMode(),
             'is_locked' => $this->isLocked(),
             'can_start' => $this->canStart(),
             'can_stop' => $this->canStop()
         ];
     }
 
+    /**
+     * Execute thinking cycle
+     *
+     * @return void
+     */
     private function executeThinkingCycle(): void
     {
         $this->lock();
@@ -197,22 +212,46 @@ class AgentJobService implements AgentJobServiceInterface
         }
     }
 
+    /**
+     * Schedule next cycle
+     *
+     * @return void
+     */
     private function scheduleNextCycle(): void
     {
+        if (!$this->chatStatusService->getChatStatus()) {
+            $this->logger->info("AgentJobService: Not scheduling next cycle - chat inactive");
+            return;
+        }
         $thinkingDelay = $this->options->get(self::TIMEOUT_KEY, 15);
         ProcessAgentThinking::dispatch()->onQueue($this->queue)->delay($thinkingDelay);
     }
 
+    /**
+     * Lock the ability to think, if think process running
+     *
+     * @return void
+     */
     private function lock(): void
     {
         $this->options->set(self::LOCK_KEY, true);
     }
 
+    /**
+     * Unlock after finish thinking operation
+     *
+     * @return void
+     */
     private function unlock(): void
     {
         $this->options->set(self::LOCK_KEY, false);
     }
 
+    /**
+     * Restart Laravel Queue as in artisan queue:restart
+     *
+     * @return void
+     */
     private function restartQueue(): void
     {
         try {

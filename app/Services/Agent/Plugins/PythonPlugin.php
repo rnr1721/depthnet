@@ -3,6 +3,9 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
+use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
 /**
  * PythonPlugin class

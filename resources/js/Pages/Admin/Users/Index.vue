@@ -431,9 +431,9 @@ import { router } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 import PageTitle from '@/Components/PageTitle.vue';
 import AdminHeader from '@/Components/AdminHeader.vue';
-import CreateUserModal from '@/Components/Admin/CreateUserModal.vue';
-import EditUserModal from '@/Components/Admin/EditUserModal.vue';
-import DeleteUserModal from '@/Components/Admin/DeleteUserModal.vue';
+import CreateUserModal from '@/Components/Admin/Users/CreateUserModal.vue';
+import EditUserModal from '@/Components/Admin/Users/EditUserModal.vue';
+import DeleteUserModal from '@/Components/Admin/Users/DeleteUserModal.vue';
 
 const { t } = useI18n();
 

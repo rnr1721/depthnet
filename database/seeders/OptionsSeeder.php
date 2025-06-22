@@ -71,13 +71,6 @@ class OptionsSeeder extends Seeder
                 'description' => 'Maximum context limit for AI model',
                 'is_system' => true,
             ],
-            [
-                'key' => 'model_agent_mode',
-                'value' => 'looped',
-                'type' => 'string',
-                'description' => 'Agent mode: looped or single',
-                'is_system' => true,
-            ],
 
             // Chat Settings
             [

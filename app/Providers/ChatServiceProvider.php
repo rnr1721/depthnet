@@ -6,11 +6,9 @@ use App\Contracts\Chat\ChatExporterRegistryInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
-use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Chat\ChatExporterRegistry;
 use App\Services\Chat\ChatExporterService;
 use App\Services\Chat\ChatService;
-use App\Services\Chat\ChatStaticService;
 use App\Services\Chat\ChatStatusService;
 use App\Services\Chat\Exporters\JsonChatExporter;
 use App\Services\Chat\Exporters\MarkdownChatExporter;
@@ -24,7 +22,7 @@ class ChatServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(ChatStatusServiceInterface::class, ChatStatusService::class);
+        $this->app->singleton(ChatStatusServiceInterface::class, ChatStatusService::class);
         $this->app->bind(ChatExporterRegistryInterface::class, function ($app) {
             $chatExporterRegistry = new ChatExporterRegistry();
             $chatExporterRegistry->register(new TxtChatExporter());
@@ -34,15 +32,7 @@ class ChatServiceProvider extends ServiceProvider
         });
         $this->app->bind(ChatExporterServiceInterface::class, ChatExporterService::class);
 
-        $this->app->bind(ChatServiceInterface::class, function ($app) {
-            $optionsService = $app->get(OptionsServiceInterface::class);
-            $currentMode = $optionsService->get('model_agent_mode', 'single');
-            if ($currentMode === 'single') {
-                return $app->make(ChatStaticService::class);
-            } elseif ($currentMode === 'looped') {
-                return $app->make(ChatService::class);
-            }
-        });
+        $this->app->singleton(ChatServiceInterface::class, ChatService::class);
     }
 
     /**

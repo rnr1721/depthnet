@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Contracts\Agent\PluginManagerInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Plugin\UpdatePluginConfigRequest;
-use App\Services\Agent\PluginManager;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -20,7 +20,7 @@ use Inertia\Response;
 class PluginController extends Controller
 {
     public function __construct(
-        protected PluginManager $pluginManager
+        protected PluginManagerInterface $pluginManager
     ) {
     }
 

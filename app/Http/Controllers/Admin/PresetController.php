@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Preset\{CreatePresetRequest, UpdatePresetRequest, ValidatePresetConfigRequest, ImportRecommendedPresetRequest};
 use App\Http\Resources\Admin\{PresetResource, PresetDetailResource};
@@ -20,7 +22,9 @@ class PresetController extends Controller
 {
     public function __construct(
         protected PresetServiceInterface $presetService,
-        protected EngineRegistryInterface $engineRegistry
+        protected EngineRegistryInterface $engineRegistry,
+        protected PluginRegistryInterface $pluginRegistry,
+        protected ShortcodeManagerServiceInterface $shortcodeManager
     ) {
     }
 
@@ -32,9 +36,15 @@ class PresetController extends Controller
         $presets = $this->presetService->getAllPresets();
         $engines = $this->engineRegistry->getAvailableEngines();
 
+        $defaultPreset = $this->presetService->getDefaultPreset();
+        $this->pluginRegistry->setCurrentPreset($defaultPreset);
+        $this->shortcodeManager->setDefaultShortcodes();
+        $placeholders = $this->shortcodeManager->getRegisteredShortcodes();
+
         return Inertia::render('Admin/Presets/Index', [
             'presets' => PresetResource::collection($presets)->toArray(request()),
-            'engines' => $engines
+            'engines' => $engines,
+            'placeholders' => $placeholders
         ]);
     }
 

@@ -3,14 +3,20 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\Memory\MemoryServiceInterface;
+use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
+use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
  * MemoryPlugin class
  *
  * MemoryPlugin provides persistent memory storage with append, clear, and replace
- * operations. It allows remembering important information between conversations with
- * configurable limits and strategies. Memory is stored as a numbered markdown list.
+ * operations using database storage via MemoryService. It allows remembering
+ * important information between conversations with configurable limits and strategies.
+ * Memory is stored as numbered markdown list format.
  */
 class MemoryPlugin implements CommandPluginInterface
 {
@@ -18,8 +24,11 @@ class MemoryPlugin implements CommandPluginInterface
     use PluginPresetTrait;
     use PluginConfigTrait;
 
-    public function __construct(protected LoggerInterface $logger)
-    {
+    public function __construct(
+        protected MemoryServiceInterface $memoryService,
+        protected PlaceholderServiceInterface $placeholderService,
+        protected LoggerInterface $logger
+    ) {
         $this->initializeConfig();
     }
 
@@ -50,7 +59,9 @@ class MemoryPlugin implements CommandPluginInterface
             'Delete specific memory item: [memory delete]3[/memory]',
             'Replace entire memory content: [memory replace]User prefers PHP over Python. Database credentials saved.[/memory]',
             'Clear all memory: [memory clear][/memory]',
-            'Show current memory: [memory show][/memory]'
+            'Show current memory: [memory show][/memory]',
+            'Search memory: [memory search]database[/memory]',
+            'Get memory stats: [memory stats][/memory]'
         ];
     }
 
@@ -181,23 +192,25 @@ class MemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            // Test basic memory operations
-            $originalContent = $this->preset->notes ?? '';
+            // Test basic memory operations using the service
             $testContent = 'Memory test - ' . time();
 
-            // Test append
-            $this->preset->notes = $testContent;
-            $this->preset->save();
+            // Test add
+            $result = $this->memoryService->addMemoryItem($this->preset, $testContent, $this->config);
+            if (!$result['success']) {
+                return false;
+            }
 
             // Test read
-            $savedContent = $this->preset->fresh()->notes ?? '';
+            $formatted = $this->memoryService->getFormattedMemory($this->preset);
 
-            // Restore original content
-            $this->preset->notes = $originalContent;
-            $this->preset->save();
+            // Test delete (clean up test data)
+            $deleteResult = $this->memoryService->deleteMemoryItem($this->preset, 1, $this->config);
 
-            return $savedContent === $testContent;
+            return $result['success'] && $deleteResult['success'] && str_contains($formatted, $testContent);
+
         } catch (\Exception $e) {
+            $this->logger->error("MemoryPlugin::testConnection error: " . $e->getMessage());
             return false;
         }
     }
@@ -216,9 +229,6 @@ class MemoryPlugin implements CommandPluginInterface
 
     /**
      * Replace memory content entirely
-     *
-     * @param string $content
-     * @return string
      */
     public function replace(string $content): string
     {
@@ -226,31 +236,12 @@ class MemoryPlugin implements CommandPluginInterface
             return "Error: Memory plugin is disabled.";
         }
 
-        try {
-            if (!$this->checkMemoryLimit($content)) {
-                return $this->handleMemoryOverflow($content, 'replace');
-            }
-
-            // Save version if enabled
-            if ($this->config['enable_versioning'] ?? false) {
-                $this->saveVersion();
-            }
-
-            $this->preset->notes = $content;
-            $this->preset->save();
-
-            return "Memory replaced successfully. New content stored.";
-        } catch (\Throwable $e) {
-            $this->logger->error("MemoryPlugin::replace error: " . $e->getMessage());
-            return "Error replacing memory: " . $e->getMessage();
-        }
+        $result = $this->memoryService->replaceMemory($this->preset, $content, $this->config);
+        return $result['message'];
     }
 
     /**
      * Add new item to memory as numbered list item
-     *
-     * @param string $content
-     * @return string
      */
     public function append(string $content): string
     {
@@ -258,36 +249,12 @@ class MemoryPlugin implements CommandPluginInterface
             return "Error: Memory plugin is disabled.";
         }
 
-        try {
-            $currentContent = $this->preset->notes ?? '';
-            $memoryItems = $this->parseMemoryItems($currentContent);
-
-            // Add new item
-            $nextNumber = count($memoryItems) + 1;
-            $memoryItems[] = trim($content);
-
-            $newContent = $this->formatMemoryItems($memoryItems);
-
-            // Check memory limit
-            if (!$this->checkMemoryLimit($newContent)) {
-                return $this->handleMemoryOverflow($content, 'append');
-            }
-
-            $this->preset->notes = $newContent;
-            $this->preset->save();
-
-            return "Memory item #{$nextNumber} added successfully.";
-        } catch (\Throwable $e) {
-            $this->logger->error("MemoryPlugin::append error: " . $e->getMessage());
-            return "Error adding to memory: " . $e->getMessage();
-        }
+        $result = $this->memoryService->addMemoryItem($this->preset, $content, $this->config);
+        return $result['message'];
     }
 
     /**
      * Delete specific memory item by number
-     *
-     * @param string $content
-     * @return string
      */
     public function delete(string $content): string
     {
@@ -295,46 +262,13 @@ class MemoryPlugin implements CommandPluginInterface
             return "Error: Memory plugin is disabled.";
         }
 
-        try {
-            $itemNumber = (int) trim($content);
-            if ($itemNumber < 1) {
-                return "Error: Invalid item number. Must be a positive integer.";
-            }
-
-            $currentContent = $this->preset->notes ?? '';
-            $memoryItems = $this->parseMemoryItems($currentContent);
-
-            if ($itemNumber > count($memoryItems)) {
-                return "Error: Item #{$itemNumber} does not exist. Memory has " . count($memoryItems) . " items.";
-            }
-
-            // Save version if enabled
-            if ($this->config['enable_versioning'] ?? false) {
-                $this->saveVersion();
-            }
-
-            // Remove item (array is 0-indexed, but we display 1-indexed)
-            array_splice($memoryItems, $itemNumber - 1, 1);
-
-            $newContent = $this->formatMemoryItems($memoryItems);
-            $this->preset->notes = $newContent;
-            $this->preset->save();
-
-            return empty($memoryItems)
-                ? "Memory item #{$itemNumber} deleted. Memory is now empty."
-                : "Memory item #{$itemNumber} deleted successfully.";
-
-        } catch (\Throwable $e) {
-            $this->logger->error("MemoryPlugin::delete error: " . $e->getMessage());
-            return "Error deleting memory item: " . $e->getMessage();
-        }
+        $itemNumber = (int) trim($content);
+        $result = $this->memoryService->deleteMemoryItem($this->preset, $itemNumber, $this->config);
+        return $result['message'];
     }
 
     /**
      * Clear memory content
-     *
-     * @param string $content
-     * @return string
      */
     public function clear(string $content): string
     {
@@ -342,26 +276,12 @@ class MemoryPlugin implements CommandPluginInterface
             return "Error: Memory plugin is disabled.";
         }
 
-        try {
-            if ($this->config['enable_versioning'] ?? false) {
-                $this->saveVersion();
-            }
-
-            $this->preset->notes = '';
-            $this->preset->save();
-
-            return "Memory cleared successfully.";
-        } catch (\Throwable $e) {
-            $this->logger->error("MemoryPlugin::clear error: " . $e->getMessage());
-            return "Error clearing memory: " . $e->getMessage();
-        }
+        $result = $this->memoryService->clearMemory($this->preset, $this->config);
+        return $result['message'];
     }
 
     /**
      * Get current memory content
-     *
-     * @param string $content
-     * @return string
      */
     public function show(string $content): string
     {
@@ -370,16 +290,16 @@ class MemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $currentContent = $this->preset->notes ?? '';
-            if (empty($currentContent)) {
+            $formatted = $this->memoryService->getFormattedMemory($this->preset);
+
+            if (empty($formatted)) {
                 return "Memory is empty.";
             }
 
-            $memoryItems = $this->parseMemoryItems($currentContent);
-            $length = strlen($currentContent);
-            $limit = $this->config['memory_limit'] ?? 2000;
+            $stats = $this->memoryService->getMemoryStats($this->preset, $this->config);
 
-            return "Current memory content (" . count($memoryItems) . " items, {$length}/{$limit} chars):\n" . $currentContent;
+            return "Current memory content ({$stats['total_items']} items, {$stats['total_length']}/{$stats['limit']} chars):\n" . $formatted;
+
         } catch (\Throwable $e) {
             $this->logger->error("MemoryPlugin::show error: " . $e->getMessage());
             return "Error reading memory: " . $e->getMessage();
@@ -387,176 +307,90 @@ class MemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Parse memory content into array of items
-     * Handles both old format (plain text) and new format (numbered list)
-     *
-     * @param string|null $content
-     * @return array
+     * Search memory items by content
      */
-    private function parseMemoryItems(?string $content): array
+    public function search(string $content): string
     {
-
-        if ($content === null || empty(trim($content))) {
-            return [];
-        }
-
-        // Check if content is already in numbered list format
-        if (preg_match('/^\d+\.\s/', trim($content))) {
-            // Parse numbered list
-            $lines = explode("\n", $content);
-            $items = [];
-
-            foreach ($lines as $line) {
-                $line = trim($line);
-                if (preg_match('/^\d+\.\s(.+)$/', $line, $matches)) {
-                    $items[] = $matches[1];
-                }
-            }
-
-            return $items;
-        } else {
-            // Old format - migrate to new format
-            // Treat entire content as single item for now
-            return [trim($content)];
-        }
-    }
-
-    /**
-     * Format memory items as numbered markdown list
-     *
-     * @param array $items
-     * @return string
-     */
-    private function formatMemoryItems(array $items): string
-    {
-        if (empty($items)) {
-            return '';
-        }
-
-        $formatted = [];
-        foreach ($items as $index => $item) {
-            $number = $index + 1;
-            $formatted[] = "{$number}. {$item}";
-        }
-
-        return implode("\n", $formatted);
-    }
-
-    /**
-     * Check if content fits within memory limit
-     *
-     * @param string $content
-     * @return bool
-     */
-    private function checkMemoryLimit(string $content): bool
-    {
-        $limit = $this->config['memory_limit'] ?? 2000;
-        return strlen($content) <= $limit;
-    }
-
-    /**
-     * Handle memory overflow based on strategy
-     *
-     * @param string $newContent
-     * @param string $operation
-     * @return string
-     */
-    private function handleMemoryOverflow(string $newContent, string $operation): string
-    {
-        $strategy = $this->config['cleanup_strategy'] ?? 'truncate_old';
-        $limit = $this->config['memory_limit'] ?? 2000;
-
-        if (!($this->config['auto_cleanup'] ?? true)) {
-            return "Error: Memory limit ({$limit} chars) exceeded. Auto cleanup is disabled.";
+        if (!$this->isEnabled()) {
+            return "Error: Memory plugin is disabled.";
         }
 
         try {
-            $currentContent = $this->preset->notes ?? '';
-            $memoryItems = $this->parseMemoryItems($currentContent);
-
-            switch ($strategy) {
-                case 'truncate_old':
-                    if ($operation === 'append') {
-                        // Add new item and remove old ones until we fit
-                        $memoryItems[] = trim($newContent);
-
-                        while (count($memoryItems) > 0) {
-                            $testContent = $this->formatMemoryItems($memoryItems);
-                            if (strlen($testContent) <= $limit) {
-                                break;
-                            }
-                            array_shift($memoryItems); // Remove oldest item
-                        }
-                    } else {
-                        // For replace, just truncate the content
-                        $newContent = substr($newContent, 0, $limit);
-                        $memoryItems = [$newContent];
-                    }
-                    break;
-
-                case 'truncate_new':
-                    if ($operation === 'append') {
-                        // Truncate new content to fit
-                        $currentLength = strlen($this->formatMemoryItems($memoryItems));
-                        $availableSpace = $limit - $currentLength - 10; // Leave some space for formatting
-                        if ($availableSpace > 0) {
-                            $truncatedNew = substr($newContent, 0, $availableSpace);
-                            $memoryItems[] = $truncatedNew;
-                        }
-                    } else {
-                        $memoryItems = [substr($newContent, 0, $limit)];
-                    }
-                    break;
-
-                case 'reject':
-                    return "Error: Memory limit ({$limit} chars) exceeded. New content rejected.";
-
-                case 'compress':
-                    // Compression: remove extra whitespace
-                    if ($operation === 'append') {
-                        $memoryItems[] = trim($newContent);
-                    } else {
-                        $memoryItems = [trim($newContent)];
-                    }
-
-                    // Compress all items
-                    $memoryItems = array_map(function ($item) {
-                        return preg_replace('/\s+/', ' ', trim($item));
-                    }, $memoryItems);
-
-                    // If still too long, truncate
-                    $testContent = $this->formatMemoryItems($memoryItems);
-                    if (strlen($testContent) > $limit) {
-                        while (count($memoryItems) > 0) {
-                            $testContent = $this->formatMemoryItems($memoryItems);
-                            if (strlen($testContent) <= $limit) {
-                                break;
-                            }
-                            array_shift($memoryItems);
-                        }
-                    }
-                    break;
+            $query = trim($content);
+            if (empty($query)) {
+                return "Error: Search query cannot be empty.";
             }
 
-            $finalContent = $this->formatMemoryItems($memoryItems);
-            $this->preset->notes = $finalContent;
-            $this->preset->save();
+            $results = $this->memoryService->searchMemory($this->preset, $query);
 
-            return "Memory updated with overflow handling ({$strategy}). Content may have been modified to fit limit.";
+            if ($results->isEmpty()) {
+                return "No memory items found matching '{$query}'.";
+            }
+
+            $formatted = [];
+            foreach ($results as $index => $item) {
+                $position = $item->position;
+                $formatted[] = "{$position}. {$item->content}";
+            }
+
+            $count = $results->count();
+            return "Found {$count} memory item(s) matching '{$query}':\n" . implode("\n", $formatted);
 
         } catch (\Throwable $e) {
-            return "Error handling memory overflow: " . $e->getMessage();
+            $this->logger->error("MemoryPlugin::search error: " . $e->getMessage());
+            return "Error searching memory: " . $e->getMessage();
         }
     }
 
     /**
-     * Save current memory state as version
-     *
-     * @return void
+     * Get memory statistics
      */
-    private function saveVersion(): void
+    public function stats(string $content): string
     {
-        // TODO: Implement versioning logic
+        if (!$this->isEnabled()) {
+            return "Error: Memory plugin is disabled.";
+        }
+
+        try {
+            $stats = $this->memoryService->getMemoryStats($this->preset, $this->config);
+
+            $status = 'Normal';
+            if ($stats['is_over_limit']) {
+                $status = 'Over Limit';
+            } elseif ($stats['is_near_limit']) {
+                $status = 'Near Limit';
+            }
+
+            return "Memory Statistics:\n" .
+                   "- Total items: {$stats['total_items']}\n" .
+                   "- Total length: {$stats['total_length']}/{$stats['limit']} characters\n" .
+                   "- Usage: {$stats['usage_percentage']}%\n" .
+                   "- Status: {$status}";
+
+        } catch (\Throwable $e) {
+            $this->logger->error("MemoryPlugin::stats error: " . $e->getMessage());
+            return "Error getting memory stats: " . $e->getMessage();
+        }
+    }
+
+    /**
+     * Get memory content for AI context (public method for external use)
+     */
+    public function getMemoryForContext(?int $maxLength = null): string
+    {
+        if (!$this->isEnabled()) {
+            return '';
+        }
+
+        return $this->memoryService->getMemoryForContext($this->preset, $maxLength);
+    }
+
+    /**
+     * Get memory service instance for external use
+     */
+    public function getMemoryService(): MemoryServiceInterface
+    {
+        return $this->memoryService;
     }
 
     /**
@@ -564,7 +398,7 @@ class MemoryPlugin implements CommandPluginInterface
      */
     public function getMergeSeparator(): ?string
     {
-        return "\n";
+        return null;
     }
 
     /**
@@ -572,6 +406,15 @@ class MemoryPlugin implements CommandPluginInterface
      */
     public function canBeMerged(): bool
     {
-        return true;
+        return false;
     }
+
+    public function pluginReady(): void
+    {
+        $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () {
+            return $this->memoryService->getFormattedMemory($this->preset);
+        });
+
+    }
+
 }

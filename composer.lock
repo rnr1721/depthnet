@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d99528e7ef76fc38415498bdd7732159",
+    "content-hash": "fb67dcdf9347eb45fe87fe7f979b9103",
     "packages": [
         {
             "name": "brick/math",
@@ -1056,16 +1056,16 @@
         },
         {
             "name": "inertiajs/inertia-laravel",
-            "version": "v2.0.2",
+            "version": "v2.0.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/inertiajs/inertia-laravel.git",
-                "reference": "248e815cf8d41307cbfb735efaa514c118e2f3b4"
+                "reference": "b732a5cc33423b2c2366fea38b17dc637d2a0b4f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/inertiajs/inertia-laravel/zipball/248e815cf8d41307cbfb735efaa514c118e2f3b4",
-                "reference": "248e815cf8d41307cbfb735efaa514c118e2f3b4",
+                "url": "https://api.github.com/repos/inertiajs/inertia-laravel/zipball/b732a5cc33423b2c2366fea38b17dc637d2a0b4f",
+                "reference": "b732a5cc33423b2c2366fea38b17dc637d2a0b4f",
                 "shasum": ""
             },
             "require": {
@@ -1118,9 +1118,9 @@
             ],
             "support": {
                 "issues": "https://github.com/inertiajs/inertia-laravel/issues",
-                "source": "https://github.com/inertiajs/inertia-laravel/tree/v2.0.2"
+                "source": "https://github.com/inertiajs/inertia-laravel/tree/v2.0.3"
             },
-            "time": "2025-04-10T15:08:36+00:00"
+            "time": "2025-06-20T07:38:21+00:00"
         },
         {
             "name": "laravel/framework",
@@ -2243,16 +2243,16 @@
         },
         {
             "name": "nesbot/carbon",
-            "version": "3.10.0",
+            "version": "3.10.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/CarbonPHP/carbon.git",
-                "reference": "c1397390dd0a7e0f11660f0ae20f753d88c1f3d9"
+                "reference": "1fd1935b2d90aef2f093c5e35f7ae1257c448d00"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/CarbonPHP/carbon/zipball/c1397390dd0a7e0f11660f0ae20f753d88c1f3d9",
-                "reference": "c1397390dd0a7e0f11660f0ae20f753d88c1f3d9",
+                "url": "https://api.github.com/repos/CarbonPHP/carbon/zipball/1fd1935b2d90aef2f093c5e35f7ae1257c448d00",
+                "reference": "1fd1935b2d90aef2f093c5e35f7ae1257c448d00",
                 "shasum": ""
             },
             "require": {
@@ -2344,7 +2344,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2025-06-12T10:24:28+00:00"
+            "time": "2025-06-21T15:19:35+00:00"
         },
         {
             "name": "nette/schema",
@@ -3406,11 +3406,17 @@
         },
         {
             "name": "rnr1721/codecraft",
-            "version": "dev-dev",
+            "version": "0.0.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/rnr1721/codecraft.git",
+                "reference": "a0a61b0984d32d53b048c96aa67cedff6aba453f"
+            },
             "dist": {
-                "type": "path",
-                "url": "./ai/codecraft",
-                "reference": "dd7572b52b98e80647c2e32b4646ff412ebbe52d"
+                "type": "zip",
+                "url": "https://api.github.com/repos/rnr1721/codecraft/zipball/a0a61b0984d32d53b048c96aa67cedff6aba453f",
+                "reference": "a0a61b0984d32d53b048c96aa67cedff6aba453f",
+                "shasum": ""
             },
             "require": {
                 "nikic/php-parser": "^5.0",
@@ -3431,12 +3437,12 @@
             "type": "library",
             "extra": {
                 "laravel": {
-                    "providers": [
-                        "rnr1721\\CodeCraft\\Laravel\\CodeCraftServiceProvider"
-                    ],
                     "aliases": {
                         "CodeCraft": "rnr1721\\CodeCraft\\Laravel\\Facades\\CodeCraft"
-                    }
+                    },
+                    "providers": [
+                        "rnr1721\\CodeCraft\\Laravel\\CodeCraftServiceProvider"
+                    ]
                 }
             },
             "autoload": {
@@ -3444,33 +3450,7 @@
                     "rnr1721\\CodeCraft\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "rnr1721\\CodeCraft\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "phpunit"
-                ],
-                "test-laravel": [
-                    "phpunit --testsuite=Laravel"
-                ],
-                "analyze": [
-                    "phpstan analyse src --level=8"
-                ],
-                "cs-fix": [
-                    "phpcbf src"
-                ],
-                "cs-check": [
-                    "phpcs src"
-                ],
-                "test-all": [
-                    "@test",
-                    "@analyze",
-                    "@cs-check"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -3501,20 +3481,17 @@
                 "templates"
             ],
             "support": {
+                "docs": "https://github.com/rnr1721/codecraft/wiki",
                 "issues": "https://github.com/rnr1721/codecraft/issues",
-                "source": "https://github.com/rnr1721/codecraft",
-                "docs": "https://github.com/rnr1721/codecraft/wiki"
+                "source": "https://github.com/rnr1721/codecraft"
             },
             "funding": [
                 {
-                    "type": "github",
-                    "url": "https://github.com/sponsors/rnr1721"
+                    "url": "https://github.com/sponsors/rnr1721",
+                    "type": "github"
                 }
             ],
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
+            "time": "2025-06-21T18:48:16+00:00"
         },
         {
             "name": "symfony/clock",
@@ -7482,16 +7459,16 @@
         },
         {
             "name": "phpunit/phpunit",
-            "version": "11.5.23",
+            "version": "11.5.24",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sebastianbergmann/phpunit.git",
-                "reference": "86ebcd8a3dbcd1857d88505109b2a2b376501cde"
+                "reference": "6b07ab1047155cf38f82dd691787a277782271dd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/86ebcd8a3dbcd1857d88505109b2a2b376501cde",
-                "reference": "86ebcd8a3dbcd1857d88505109b2a2b376501cde",
+                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/6b07ab1047155cf38f82dd691787a277782271dd",
+                "reference": "6b07ab1047155cf38f82dd691787a277782271dd",
                 "shasum": ""
             },
             "require": {
@@ -7505,7 +7482,7 @@
                 "phar-io/manifest": "^2.0.4",
                 "phar-io/version": "^3.2.1",
                 "php": ">=8.2",
-                "phpunit/php-code-coverage": "^11.0.9",
+                "phpunit/php-code-coverage": "^11.0.10",
                 "phpunit/php-file-iterator": "^5.1.0",
                 "phpunit/php-invoker": "^5.0.1",
                 "phpunit/php-text-template": "^4.0.1",
@@ -7563,7 +7540,7 @@
             "support": {
                 "issues": "https://github.com/sebastianbergmann/phpunit/issues",
                 "security": "https://github.com/sebastianbergmann/phpunit/security/policy",
-                "source": "https://github.com/sebastianbergmann/phpunit/tree/11.5.23"
+                "source": "https://github.com/sebastianbergmann/phpunit/tree/11.5.24"
             },
             "funding": [
                 {
@@ -7587,7 +7564,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2025-06-13T05:47:49+00:00"
+            "time": "2025-06-20T11:31:02+00:00"
         },
         {
             "name": "sebastian/cli-parser",
@@ -8704,9 +8681,7 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "rnr1721/codecraft": 20
-    },
+    "stability-flags": [],
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

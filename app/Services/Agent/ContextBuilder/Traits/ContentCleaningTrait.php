@@ -73,14 +73,4 @@ trait ContentCleaningTrait
         return $context;
     }
 
-    /**
-     * Clean instruction text (for cycle instructions)
-     *
-     * @param string $instruction
-     * @return string
-     */
-    protected function cleanInstruction(string $instruction): string
-    {
-        return trim($instruction);
-    }
 }

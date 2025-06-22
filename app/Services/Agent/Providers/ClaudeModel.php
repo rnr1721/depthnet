@@ -414,6 +414,7 @@ class ClaudeModel implements AIModelEngineInterface
 
     /**
      * Build messages array for Claude API
+     * Note: ContextBuilders already ensure conversation ends with user message
      *
      * @param AiModelRequestInterface $request
      * @return array
@@ -423,10 +424,14 @@ class ClaudeModel implements AIModelEngineInterface
         $systemMessage = $this->prepareMessage($request);
         $messages = [];
 
-        $context = $request->getContext();
-        $assistantContent = [];
+        // Add system as first user message (Claude API feature)
+        $messages[] = [
+            'role' => 'user',
+            'content' => $systemMessage
+        ];
 
-        // Process context
+        $context = $request->getContext();
+
         foreach ($context as $entry) {
             $role = $entry['role'] ?? 'thinking';
             $content = $entry['content'] ?? '';
@@ -435,30 +440,27 @@ class ClaudeModel implements AIModelEngineInterface
                 continue;
             }
 
-            // Regular message processing
+            // Map internal agent roles to Claude API roles
             switch ($role) {
                 case 'user':
+                    // Real user messages
+                    $messages[] = [
+                        'role' => 'user',
+                        'content' => $content
+                    ];
+                    break;
+
                 case 'command':
                 case 'thinking':
                 case 'speaking':
                 default:
-                    $assistantContent[] = $content;
+                    // Agent messages (thinking, commands, responses)
+                    $messages[] = [
+                        'role' => 'assistant',
+                        'content' => $content
+                    ];
                     break;
             }
-        }
-
-        // Add system as first user message
-        $messages[] = [
-            'role' => 'user',
-            'content' => $systemMessage
-        ];
-
-        // Add assistant messages if any
-        if (!empty($assistantContent)) {
-            $messages[] = [
-                'role' => 'assistant',
-                'content' => implode("\n\n", $assistantContent)
-            ];
         }
 
         return $messages;

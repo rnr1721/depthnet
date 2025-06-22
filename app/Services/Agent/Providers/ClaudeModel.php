@@ -414,29 +414,24 @@ class ClaudeModel implements AIModelEngineInterface
 
     /**
      * Build messages array for Claude API
+     * Note: ContextBuilders already ensure conversation ends with user message
+     *
+     * @param AiModelRequestInterface $request
+     * @return array
      */
-    protected function buildMessages(
-        AiModelRequestInterface $request
-    ): array {
+    protected function buildMessages(AiModelRequestInterface $request): array
+    {
         $systemMessage = $this->prepareMessage($request);
-
         $messages = [];
-
-        // Get system message config
-        $systemConfig = config('ai.engines.claude.system_message', []);
-        $prefix = $systemConfig['prefix'] ?? 'SYSTEM INSTRUCTIONS:';
-        $suffix = $systemConfig['suffix'] ?? '[Start your first cycle]';
-        $continuation = $systemConfig['continuation'] ?? '[continue your cycle]';
 
         // Add system as first user message (Claude API feature)
         $messages[] = [
             'role' => 'user',
-            'content' => "{$prefix}\n{$systemMessage}\n\n{$suffix}"
+            'content' => $systemMessage
         ];
 
-        $assistantContent = [];
-
         $context = $request->getContext();
+
         foreach ($context as $entry) {
             $role = $entry['role'] ?? 'thinking';
             $content = $entry['content'] ?? '';
@@ -445,29 +440,27 @@ class ClaudeModel implements AIModelEngineInterface
                 continue;
             }
 
+            // Map internal agent roles to Claude API roles
             switch ($role) {
                 case 'user':
+                    // Real user messages
+                    $messages[] = [
+                        'role' => 'user',
+                        'content' => $content
+                    ];
+                    break;
+
                 case 'command':
                 case 'thinking':
                 case 'speaking':
                 default:
-                    $assistantContent[] = $content;
+                    // Agent messages (thinking, commands, responses)
+                    $messages[] = [
+                        'role' => 'assistant',
+                        'content' => $content
+                    ];
                     break;
             }
-        }
-
-        if (!empty($assistantContent)) {
-            $messages[] = [
-                'role' => 'assistant',
-                'content' => implode("\n\n", $assistantContent)
-            ];
-        }
-
-        if (end($messages)['role'] === 'assistant') {
-            $messages[] = [
-                'role' => 'user',
-                'content' => $continuation
-            ];
         }
 
         return $messages;

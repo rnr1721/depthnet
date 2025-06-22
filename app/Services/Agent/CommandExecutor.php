@@ -132,6 +132,10 @@ class CommandExecutor implements CommandExecutorInterface
             $command = $result->command;
 
             $plugin = $this->pluginRegistry->get($command->plugin);
+            if (!$plugin) {
+                $formatted .= 'AGENT COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
+                continue;
+            }
             $customSuccessMessage = $plugin->getCustomSuccessMessage();
             $customErrorMessage = $plugin->getCustomErrorMessage();
 

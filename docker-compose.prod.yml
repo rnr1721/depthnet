@@ -7,30 +7,25 @@ services:
         - DOCKER_GID=${DOCKER_GID:-1000}
     ports:
       - "${APP_PORT:-8000}:80"
-      - "${VITE_HMR_PORT:-5173}:5173"
     volumes:
-      - .:/var/www/html
       - ./docker/logs/nginx:/var/log/nginx
       - ./docker/logs/supervisor:/var/log/supervisor
     environment:
       - DOCKER_UID=${DOCKER_UID:-1000}
       - DOCKER_GID=${DOCKER_GID:-1000}
-      - APP_ENV=${APP_ENV:-local}
-      - APP_DEBUG=${APP_DEBUG:-true}
+      - APP_ENV=${APP_ENV:-production}
+      - APP_DEBUG=${APP_DEBUG:-false}
       - APP_URL=${APP_URL:-http://localhost:8000}
       - DB_CONNECTION=mysql
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_DATABASE=${DB_DATABASE:-depthnet}
       - DB_USERNAME=${DB_USERNAME:-depthnet}
-      - DB_PASSWORD=${DB_PASSWORD:-secret}
-      - DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-greatsecret}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
       - QUEUE_CONNECTION=database
-      - VITE_DOCKER_ENV=true
-      - VITE_HMR_HOST=${VITE_HMR_HOST:-localhost}
-      - VITE_HMR_PORT=${VITE_HMR_PORT:-5173}
-      - VITE_CORS_ORIGIN=${VITE_CORS_ORIGIN:-}
-      - VITE_POLLING_INTERVAL=${VITE_POLLING_INTERVAL:-1000}
+      - VITE_DOCKER_ENV=false
+      - NODE_ENV=production
       - CORS_MAX_AGE=${CORS_MAX_AGE:-0}
     hostname: depthnet
     depends_on:
@@ -42,14 +37,14 @@ services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_DATABASE: ${DB_DATABASE:-depthnet}
-      MYSQL_USER: ${DB_USERNAME:-depthnet}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-greatsecret}
+      MYSQL_DATABASE: depthnet
+      MYSQL_USER: depthnet
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-greatsecret}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
       timeout: 20s
       retries: 10
       interval: 5s
@@ -62,13 +57,16 @@ services:
     environment:
       PMA_HOST: mysql
       PMA_USER: ${DB_USERNAME:-depthnet}
-      PMA_PASSWORD: ${DB_PASSWORD:-secret}
+      PMA_PASSWORD: ${DB_PASSWORD}
+      PMA_ARBITRARY: 1 
     ports:
-      - "8001:80"
+      - "${PMA_PORT:-8001}:80"
     depends_on:
       - mysql
     networks:
       - depthnet
+    profiles:
+      - admin 
 
 volumes:
   mysql_data:

@@ -107,9 +107,12 @@
             "@php artisan view:clear",
             "@php artisan ziggy:generate",
             "npm run build",
+            "@php -r \"echo '\\nDepthNet setup complete!\\n\\n';\""
+        ],
+        "prod-cache": [
             "@php artisan config:cache",
             "@php artisan route:cache",
-            "@php -r \"echo '\\nDepthNet setup complete!\\n\\n';\""
+            "@php artisan view:cache"
         ]
     },
     "extra": {

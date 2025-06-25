@@ -1,55 +1,78 @@
-# Auto-detect current user UID/GID for proper file permissions in Docker
-DOCKER_UID := $(shell id -u)
-DOCKER_GID := $(shell id -g)
+.PHONY: help setup-dev setup-prod start stop restart up status logs shell rootshell artisan composer urls ports clean reset fix-permissions
 
-# Define all phony targets (targets that don't create files)
-.PHONY: up down build logs shell clean reset restart start
+# All functionality is delegated to docker/manager.sh script
+MANAGER := ./docker/manager.sh
 
-# Start all services in background mode
-up:
-	@echo "Using UID: $(DOCKER_UID), GID: $(DOCKER_GID)"
-	DOCKER_UID=$(DOCKER_UID) DOCKER_GID=$(DOCKER_GID) docker compose up -d
+# Ensure manager script is executable
+check-scripts:
+	@if [ ! -x "$(MANAGER)" ]; then \
+		echo "Fixing script permissions..."; \
+		chmod +x $(MANAGER); \
+	fi
 
-# Stop all services
-down:
-	docker compose down
+help: ## Show help
+	@$(MANAGER) help
 
-# Build the application container from scratch
-build:
-	DOCKER_UID=$(DOCKER_UID) DOCKER_GID=$(DOCKER_GID) docker compose build --no-cache app
+setup-dev: ## Setup development environment
+	@$(MANAGER) setup-dev
 
-# Full startup: build and run services
-start: build up
+setup-prod: ## Setup production environment
+	@$(MANAGER) setup-prod
 
-# Follow application logs in real-time
-logs:
-	docker compose logs -f app
+start: check-scripts ## Start containers (build if needed)
+	@$(MANAGER) start
 
-# Access container shell as regular user
-shell:
-	docker compose exec --user depthnet app bash
+stop: check-scripts ## Stop containers
+	@$(MANAGER) stop
 
-# Access container shell as root user
-rootshell:
-	docker compose exec app bash
+restart: check-scripts ## Restart containers
+	@$(MANAGER) restart
 
-# Clean up containers and reset initialization state
-clean:
-	@echo "Cleaning up containers and removing initialization file..."
-	rm -f ./storage/app/.docker_initialized 2>/dev/null || true
-	docker compose down -v
-	docker network prune -f
+up: check-scripts ## Start containers in foreground
+	@$(MANAGER) up
 
-# Full reset: remove all generated files and containers
-reset:
-	@echo "Full reset: removing all files and containers..."
-	rm -rf ./node_modules 2>/dev/null || true
-	rm -rf ./vendor 2>/dev/null || true
-	rm -f ./.env 2>/dev/null || true
-	rm -f ./storage/app/.docker_initialized 2>/dev/null || true
-	docker compose down -v --rmi all
-	docker network prune -f
-	docker system prune -f
+status: ## Show container status
+	@$(MANAGER) status
 
-# Restart application: clean environment and start fresh
-restart: clean start
+logs: ## Show application logs
+	@$(MANAGER) logs
+
+logs-all: ## Show all container logs
+	@$(MANAGER) logs all
+
+shell: ## Open shell as depthnet user
+	@$(MANAGER) shell
+
+rootshell: ## Open shell as root user
+	@$(MANAGER) rootshell
+
+artisan: ## Run artisan command (use: make artisan cmd="migrate")
+	@$(MANAGER) artisan "$(cmd)"
+
+composer: ## Run composer command (use: make composer cmd="install")
+	@$(MANAGER) composer "$(cmd)"
+
+urls: ## Show application URLs
+	@$(MANAGER) urls
+
+ports: ## Show port resolution info
+	@$(MANAGER) ports
+
+clean: ## Clean up containers
+	@$(MANAGER) clean
+
+reset: ## Complete reset (containers, volumes, images)
+	@$(MANAGER) reset
+
+fix-permissions: ## Fix file permissions after sudo usage
+	@$(MANAGER) fix-permissions
+
+# Database shortcuts
+migrate: ## Run database migrations
+	@$(MANAGER) artisan "migrate"
+
+migrate-fresh: ## Fresh migration with seeding
+	@$(MANAGER) artisan "migrate:fresh --seed"
+
+seed: ## Run database seeders
+	@$(MANAGER) artisan "db:seed"

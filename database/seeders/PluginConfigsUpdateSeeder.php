@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
  * This seeder is useful when you want to update existing plugin configurations
  * with new default values or add new plugins without affecting existing custom settings.
  */
-class PluginConfigUpdateSeeder extends Seeder
+class PluginConfigsUpdateSeeder extends Seeder
 {
     /**
      * Run the database seeds.

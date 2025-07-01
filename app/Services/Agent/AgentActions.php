@@ -15,7 +15,6 @@ class AgentActions implements AgentActionsInterface
 {
     private const ROLE_USER = 'user';
     private const ROLE_THINKING = 'thinking';
-    private const ROLE_SPEAKING = 'speaking';
     private const ROLE_COMMAND = 'command';
 
     public function __construct(
@@ -40,22 +39,19 @@ class AgentActions implements AgentActionsInterface
 
         // If the command is not called by the user and if we work in a loop
         if (!$isUser) {
-            $replyFromModelLabel = $this->optionsService->get('model_reply_from_model', 'reply_from_model');
             $thinkingPhrase = $this->optionsService->get('model_message_thinking_phrase', 'Thinking:');
-            if (str_contains($responseString, $replyFromModelLabel)) {
-                $visibleToUser = true;
-                $role = self::ROLE_SPEAKING;
-            } else {
-                if (!str_starts_with($responseString, $thinkingPhrase)) {
-                    $responseString = $thinkingPhrase . ' ' . $responseString;
-                }
+            if (!str_starts_with($responseString, $thinkingPhrase)) {
+                $responseString = $thinkingPhrase . ' ' . $responseString;
             }
         }
 
         $executionResult = $this->executeCommands($commands, $responseString);
         if ($executionResult) {
             $role = self::ROLE_COMMAND;
-            $responseString = $executionResult;
+            $responseString = $executionResult['result'];
+            if (!$isUser && isset($executionResult['meta']['speak'])) {
+                $visibleToUser = true;
+            }
         }
 
         $lintResults = $this->lintResults($responseString);
@@ -98,16 +94,19 @@ class AgentActions implements AgentActionsInterface
      *
      * @param array $commands
      * @param string $responseString
-     * @return string|null
+     * @return array|null
      */
-    private function executeCommands(array $commands, string $responseString): ?string
+    private function executeCommands(array $commands, string $responseString): ?array
     {
         if (empty($commands)) {
             return null;
         }
 
         $executionResult = $this->commandExecutor->executeCommands($commands, $responseString);
-        return $executionResult->formattedMessage;
+        return [
+            'result' => $executionResult->formattedMessage,
+            'meta' => $executionResult->pluginExecutionMeta
+        ];
     }
 
 }

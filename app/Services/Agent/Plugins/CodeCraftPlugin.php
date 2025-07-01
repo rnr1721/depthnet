@@ -6,6 +6,7 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use rnr1721\CodeCraft\Interfaces\CodeCraftInterface;
@@ -22,6 +23,7 @@ class CodeCraftPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginPresetTrait;
     use PluginConfigTrait;
+    use PluginExecutionMetaTrait;
 
     public function __construct(
         protected CodeCraftInterface $codeCraft,
@@ -813,4 +815,13 @@ class CodeCraftPlugin implements CommandPluginInterface
     {
         return false;
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function pluginReady(): void
+    {
+        // Nothing to do here
+    }
+
 }

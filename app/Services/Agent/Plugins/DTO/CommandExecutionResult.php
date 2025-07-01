@@ -7,7 +7,8 @@ class CommandExecutionResult
     public function __construct(
         public readonly array $results,
         public readonly string $formattedMessage,
-        public readonly bool $hasErrors
+        public readonly bool $hasErrors,
+        public readonly array $pluginExecutionMeta = []
     ) {
     }
 }

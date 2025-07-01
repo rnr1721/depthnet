@@ -4,7 +4,8 @@
         'min-h-screen transition-colors duration-300',
         isDark ? 'bg-gray-900' : 'bg-gray-50'
     ]">
-        <AdminHeader :title="t('profile_profile_settings')" :isAdmin="isAdmin" />
+        <AdminHeader :title="t('profile_profile_settings')" :isAdmin="isAdmin"
+            :sandbox-enabled="$page.props.sandboxEnabled" />
 
         <!-- Main content -->
         <main class="relative">
@@ -59,7 +60,7 @@
                             <div
                                 class="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center">
                                 <span class="text-white text-2xl font-bold">{{ user.name.charAt(0).toUpperCase()
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div>
                                 <h2 :class="[
@@ -441,7 +442,7 @@ const { t } = useI18n();
 const isDark = ref(false);
 
 const props = defineProps({
-    user: Object,
+    user: Object
 });
 
 const isAdmin = computed(() => {

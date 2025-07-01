@@ -5,6 +5,7 @@ services:
       args:
         - DOCKER_UID=${DOCKER_UID:-1000}
         - DOCKER_GID=${DOCKER_GID:-1000}
+        - DOCKER_SOCKET_GID=${DOCKER_SOCKET_GID:-999}
     ports:
       - "${APP_PORT:-8000}:80"
       - "${VITE_HMR_PORT:-5173}:5173"
@@ -12,6 +13,8 @@ services:
       - .:/var/www/html
       - ./docker/logs/nginx:/var/log/nginx
       - ./docker/logs/supervisor:/var/log/supervisor
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./shared:/shared
     environment:
       - DOCKER_UID=${DOCKER_UID:-1000}
       - DOCKER_GID=${DOCKER_GID:-1000}
@@ -70,8 +73,46 @@ services:
     networks:
       - depthnet
 
+  sandbox-manager:
+    profiles: ["sandbox", "full"]
+    build:
+      context: ./sandboxes
+      dockerfile: Dockerfile
+      args:
+        - DOCKER_GID=${DOCKER_SOCKET_GID:-999}
+        - HOST_UID=${DOCKER_UID:-1000}
+        - HOST_GID=${DOCKER_GID:-1000} 
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Access to Docker daemon
+      - sandbox_shared:/shared   
+      - ./shared:/host_shared:rw                   # Shared data between sandboxes
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - SANDBOX_NETWORK=depthnet_depthnet          # Sandboxes in similar network
+      - SANDBOX_PREFIX=depthnet-sandbox            # Container prefixes
+      - CLEANUP_TTL=3600                           # One-hour autodelete
+      - HOST_SHARED_PATH=${PWD}/shared
+      - HOST_UID=${DOCKER_UID:-1000}
+      - HOST_GID=${DOCKER_GID:-1000}
+      - SANDBOX_MEMORY=${SANDBOX_MEMORY:-512m}
+      - SANDBOX_CPUS=${SANDBOX_CPUS:-1.0}
+      - SANDBOX_TMPFS_SIZE=${SANDBOX_TMPFS_SIZE:-100m}
+      - SANDBOX_SECURITY_MODE=${SANDBOX_SECURITY_MODE:-permissive}
+      - SANDBOX_DROP_CAPS=${SANDBOX_DROP_CAPS:-false}
+      - SANDBOX_DEFAULT_TIMEOUT=${SANDBOX_DEFAULT_TIMEOUT:-30}
+      - SANDBOX_DEFAULT_USER=${SANDBOX_DEFAULT_USER:-sandbox-user}
+      - SANDBOX_DEFAULT_SHELL=${SANDBOX_DEFAULT_SHELL:-bash}
+      - SANDBOX_READONLY_ROOT=${SANDBOX_READONLY_ROOT:-false}
+      - SANDBOX_ENABLE_PRIVILEGED=${SANDBOX_ENABLE_PRIVILEGED:-false}
+      - SANDBOX_ENABLE_SYS_ADMIN=${SANDBOX_ENABLE_SYS_ADMIN:-false}
+    networks:
+      - depthnet
+    privileged: true                               # We need to control Docker
+    restart: unless-stopped
+
 volumes:
   mysql_data:
+  sandbox_shared:
 
 networks:
   depthnet:

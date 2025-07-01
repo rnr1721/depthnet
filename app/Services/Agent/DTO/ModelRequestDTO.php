@@ -5,6 +5,7 @@ namespace App\Services\Agent\DTO;
 use App\Contracts\Agent\AiModelRequestInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Models\AiPreset;
 use Illuminate\Support\Collection;
@@ -27,6 +28,7 @@ class ModelRequestDTO implements AiModelRequestInterface
      * @param MemoryServiceInterface $memoryService Memory service for retrieving memory data
      * @param CommandInstructionBuilderInterface $commandInstructionBuilder Command instruction builder
      * @param ShortcodeManagerServiceInterface $shortcodeManager
+     * @param PluginMetadataServiceInterface $pluginMetadataService
      * @param array $context Chat context/history
      * @param array $additionalParams Additional parameters for future extensions
      */
@@ -35,6 +37,7 @@ class ModelRequestDTO implements AiModelRequestInterface
         public readonly MemoryServiceInterface $memoryService,
         public readonly CommandInstructionBuilderInterface $commandInstructionBuilder,
         public readonly ShortcodeManagerServiceInterface $shortcodeManager,
+        public readonly PluginMetadataServiceInterface $pluginMetadataService,
         public readonly array $context,
         public readonly array $additionalParams = []
     ) {
@@ -147,7 +150,7 @@ class ModelRequestDTO implements AiModelRequestInterface
      */
     public function getDopamineLevel(): int
     {
-        return $this->preset->getDopamineLevel();
+        return $this->pluginMetadataService->get($this->preset, 'dopamine', 'current_level', 5);
     }
 
     /**

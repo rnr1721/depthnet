@@ -9,9 +9,11 @@ use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
+use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use Psr\Log\LoggerInterface;
@@ -31,6 +33,7 @@ class Agent implements AgentInterface
         protected PluginRegistryInterface $pluginRegistry,
         protected ContextBuilderFactoryInterface $contextBuilderFactory,
         protected ChatStatusServiceInterface $chatStatusService,
+        protected PluginMetadataServiceInterface $pluginMetadataService,
         protected Message $messageModel,
         protected LoggerInterface $logger
     ) {
@@ -42,17 +45,23 @@ class Agent implements AgentInterface
     public function think(): Message
     {
         try {
+
+            // Get and setup preset
+            $defaultPreset = $this->presetRegistry->getDefaultPreset();
+            $presetId = $defaultPreset->getId();
+            $this->setupPresetEnvironment($defaultPreset);
+
             // 1. Build context
-            $context = $this->buildContext();
+            $context = $this->buildContext($defaultPreset);
 
             // 2. Setup and generate response
-            $response = $this->generateResponse($context);
+            $response = $this->generateResponse($context, $defaultPreset);
 
             // 3. Handle response
-            return $this->handleResponse($response);
+            return $this->handleResponse($response, $presetId);
 
         } catch (\Exception $e) {
-            return $this->handleError($e);
+            return $this->handleError($e, $presetId);
         }
     }
 
@@ -61,12 +70,12 @@ class Agent implements AgentInterface
      *
      * @return array
      */
-    protected function buildContext(): array
+    protected function buildContext(AiPreset $preset): array
     {
         $mode = $this->chatStatusService->getChatStatus() ? self::MODE_CYCLE : self::MODE_SINGLE;
         $contextBuilder = $this->contextBuilderFactory->getContextBuilder($mode);
 
-        return $contextBuilder->build();
+        return $contextBuilder->build($preset);
     }
 
     /**
@@ -75,21 +84,17 @@ class Agent implements AgentInterface
      * @param array $context
      * @return mixed
      */
-    protected function generateResponse(array $context)
+    protected function generateResponse(array $context, AiPreset $preset)
     {
-        // Get and setup preset
-        $defaultPreset = $this->presetRegistry->getDefaultPreset();
-        $this->setupPresetEnvironment($defaultPreset);
-
-        // Create engine and generate response
-        $currentEngine = $this->presetRegistry->createInstance($defaultPreset->getId());
+        $currentEngine = $this->presetRegistry->createInstance($preset->getId());
 
         return $currentEngine->generate(
             new ModelRequestDTO(
-                $defaultPreset,
+                $preset,
                 $this->memoryService,
                 $this->commandInstructionBuilder,
                 $this->shortcodeManagerService,
+                $this->pluginMetadataService,
                 $context
             )
         );
@@ -98,10 +103,10 @@ class Agent implements AgentInterface
     /**
      * Setup preset environment (plugins, shortcodes)
      *
-     * @param mixed $preset
+     * @param AiPreset $preset
      * @return void
      */
-    protected function setupPresetEnvironment($preset): void
+    protected function setupPresetEnvironment(AiPreset $preset): void
     {
         $this->pluginRegistry->setCurrentPreset($preset);
         $this->shortcodeManagerService->setDefaultShortcodes();
@@ -111,27 +116,30 @@ class Agent implements AgentInterface
      * Handle successful or error response
      *
      * @param mixed $response
+     * @param int $presetId
      * @return Message
      */
-    protected function handleResponse($response): Message
+    protected function handleResponse($response, int $presetId): Message
     {
         if ($response->isError()) {
             return $this->createSystemMessage(
                 $response->getResponse(),
+                $presetId,
                 $response->getMetadata()
             );
         }
 
-        return $this->processSuccessfulResponse($response);
+        return $this->processSuccessfulResponse($response, $presetId);
     }
 
     /**
      * Process successful AI response through actions
      *
      * @param mixed $response
+     * @param int $presetId
      * @return Message
      */
-    protected function processSuccessfulResponse($response): Message
+    protected function processSuccessfulResponse($response, int $presetId): Message
     {
         $output = $response->getResponse();
         $actionsResult = $this->agentActions->runActions($output);
@@ -140,6 +148,7 @@ class Agent implements AgentInterface
             'role' => $actionsResult->getRole(),
             'content' => $actionsResult->getResult(),
             'from_user_id' => null,
+            'preset_id' => $presetId,
             'is_visible_to_user' => $actionsResult->isVisibleForUser(),
             'metadata' => $response->getMetadata()
         ]);
@@ -149,15 +158,17 @@ class Agent implements AgentInterface
      * Create system message
      *
      * @param string $content
+     * @param int $presetId
      * @param array $metadata
      * @return Message
      */
-    protected function createSystemMessage(string $content, array $metadata = []): Message
+    protected function createSystemMessage(string $content, int $presetId, array $metadata = []): Message
     {
         return $this->messageModel->create([
             'role' => 'system',
             'content' => $content,
             'from_user_id' => null,
+            'preset_id' => $presetId,
             'is_visible_to_user' => true,
             'metadata' => $metadata
         ]);
@@ -167,9 +178,10 @@ class Agent implements AgentInterface
      * Handle errors during thinking process
      *
      * @param \Exception $e
+     * @param int $presetId
      * @return Message
      */
-    protected function handleError(\Exception $e): Message
+    protected function handleError(\Exception $e, int $presetId): Message
     {
         $this->logger->error("Agent: Error in think method", [
             'error_message' => $e->getMessage(),
@@ -179,6 +191,9 @@ class Agent implements AgentInterface
             'trace' => $e->getTraceAsString()
         ]);
 
-        return $this->createSystemMessage("Error in thinking process: " . $e->getMessage());
+        return $this->createSystemMessage(
+            "Error in thinking process: " . $e->getMessage(),
+            $presetId
+        );
     }
 }

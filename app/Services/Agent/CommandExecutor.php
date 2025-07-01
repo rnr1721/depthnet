@@ -27,9 +27,11 @@ class CommandExecutor implements CommandExecutorInterface
         $results = [];
         $hasErrors = false;
 
+        $pluginExecutionMeta = [];
         foreach ($commands as $command) {
             $result = $this->executeCommand($command);
             $results[] = $result;
+            $pluginExecutionMeta = array_merge($pluginExecutionMeta, $result->executionMeta);
 
             if (!$result->success) {
                 $hasErrors = true;
@@ -38,7 +40,7 @@ class CommandExecutor implements CommandExecutorInterface
 
         $formattedMessage = $this->formatMessage($originalOutput, $results);
 
-        return new CommandExecutionResult($results, $formattedMessage, $hasErrors);
+        return new CommandExecutionResult($results, $formattedMessage, $hasErrors, $pluginExecutionMeta);
     }
 
     /**
@@ -81,21 +83,24 @@ class CommandExecutor implements CommandExecutorInterface
                 );
             }
 
+            $pluginExecutionMeta = [];
             // Execute command method
             if ($command->method === 'execute') {
                 $result = $plugin->execute($command->content);
+                $pluginExecutionMeta = $plugin->getPluginExecutionMeta();
             } elseif ($plugin->hasMethod($command->method)) {
                 $result = $plugin->callMethod($command->method, $command->content);
+                $pluginExecutionMeta = $plugin->getPluginExecutionMeta();
             } else {
                 return new CommandResult(
                     $command,
                     '',
                     false,
-                    "Method '{$command->method}' not found in plugin '{$command->plugin}'"
+                    "Method '{$command->method}' not found in command plugin '{$command->plugin}'"
                 );
             }
 
-            return new CommandResult($command, $result, true);
+            return new CommandResult($command, $result, true, null, $pluginExecutionMeta);
 
         } catch (\Exception $e) {
             $this->logger->error("Command execution error", [
@@ -126,14 +131,15 @@ class CommandExecutor implements CommandExecutorInterface
         string $originalOutput,
         array $results
     ): string {
-        $formatted = $originalOutput . "\n\n" . "AGENT COMMAND RESULTS:" . "\n\n";
+        //$formatted = $originalOutput . "\n\n" . "AGENT COMMAND RESULTS:" . "\n\n";
+        $formatted = $originalOutput . "\n\n" . "<agent_output_results>" . "\n\n";
 
         foreach ($results as $i => $result) {
             $command = $result->command;
 
             $plugin = $this->pluginRegistry->get($command->plugin);
             if (!$plugin) {
-                $formatted .= 'AGENT COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
+                $formatted .= '💀 AGENT COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
                 continue;
             }
             $customSuccessMessage = $plugin->getCustomSuccessMessage();
@@ -141,8 +147,8 @@ class CommandExecutor implements CommandExecutorInterface
 
             $methodDisplay = $command->method === 'execute' ? '' : $command->method;
 
-            $successMessage = $customSuccessMessage ?: "SUCCESS: {$command->plugin} {$methodDisplay}\n";
-            $errorMessage = $customErrorMessage ?: "ERROR: {$command->plugin} {$methodDisplay}\n";
+            $successMessage = $customSuccessMessage ?: "⚡ SUCCESS: {$command->plugin} {$methodDisplay}\n";
+            $errorMessage = $customErrorMessage ?: "⚠️ ERROR: {$command->plugin} {$methodDisplay}\n";
 
             $search = ['{method}'];
             $replace = [$methodDisplay];

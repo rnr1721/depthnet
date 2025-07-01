@@ -24,7 +24,10 @@ use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\PresetMetadataServiceInterface;
+use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
@@ -50,6 +53,7 @@ use App\Services\Agent\Memory\TextMemoryImporter;
 use App\Services\Agent\Memory\MemoryService;
 use App\Services\Agent\PlaceholderService;
 use App\Services\Agent\PluginManager;
+use App\Services\Agent\PluginMetadataService;
 use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\CodeCraftPlugin;
@@ -60,9 +64,12 @@ use App\Services\Agent\Plugins\NodePlugin;
 use App\Services\Agent\Plugins\PHPPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
+use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
+use App\Services\Agent\PresetMetadataService;
 use App\Services\Agent\PresetRegistry;
+use App\Services\Agent\PresetSandboxService;
 use App\Services\Agent\PresetService;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
@@ -79,6 +86,7 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);
         $this->app->singleton(ShortcodeManagerServiceInterface::class, ShortcodeManagerService::class);
@@ -104,6 +112,9 @@ class AiServiceProvider extends ServiceProvider
 
             return $registry;
         });
+
+        $this->app->bind(PresetMetadataServiceInterface::class, PresetMetadataService::class);
+        $this->app->bind(PluginMetadataServiceInterface::class, PluginMetadataService::class);
 
         $this->app->singleton(PluginManagerInterface::class, PluginManager::class);
 
@@ -186,16 +197,17 @@ class AiServiceProvider extends ServiceProvider
     protected function getBuiltInPlugins(): array
     {
         return [
+            AgentPlugin::class,
             MemoryPlugin::class,
-            DopaminePlugin::class,
+            VectorMemoryPlugin::class,
+            SandboxPlugin::class,
             ShellPlugin::class,
             PHPPlugin::class,
             NodePlugin::class,
             PythonPlugin::class,
-            VectorMemoryPlugin::class,
-            CodeCraftPlugin::class,
+            DopaminePlugin::class,
             MoodPlugin::class,
-            AgentPlugin::class
+            CodeCraftPlugin::class,
         ];
     }
 

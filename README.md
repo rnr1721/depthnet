@@ -23,6 +23,7 @@ DepthNet is a Laravel-based research platform for autonomous AI agent with conti
 - **SQLite** (default) / **MySQL** / **PostgreSQL**
 - **Supervisor**
 - **Laravel Queues**
+- **Docker Sandbox Manager** - Isolated code execution environments
 
 ## Prerequisites
 
@@ -38,8 +39,10 @@ DepthNet is a Laravel-based research platform for autonomous AI agent with conti
 
 Choose your preferred installation method:
 
+⚠️ **For sandbox code execution, use Docker installation method**
+
 - **[Docker Installation](docs/installation/docker.md)** - Recommended (includes Supervisor)
-- **[Composer Installation](docs/installation/composer.md)** - For Laravel developers  
+- **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
 ## AI Provider Support
@@ -64,6 +67,7 @@ DepthNet enables autonomous AI agents through:
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Self-Motivation**: Internal reward system for goal-oriented behavior
 - **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
+- **Sandbox Isolation**: Code execution in isolated Docker containers for enhanced security
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
@@ -76,13 +80,14 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 ## Advanced Plugin System
 
 **Built-in Plugins:**
-- **PHP Plugin**: Execute arbitrary PHP code with safety controls
-- **Python Plugin**: Run Python scripts with virtual environment support
-- **Node.js Plugin**: Execute JavaScript with async/await and npm packages
+- **Run Plugin**: Universal sandbox execution - replaces separate PHP/Python/Node/Shell plugins with unified `[run lang]code[/run]` or `[run shell]command[/run]` syntax. Executes code in isolated Docker containers with preset-assigned sandboxes. You can make sandbox in hypervisor, attach sandbox to preset and user it. Need Docker.
+- **PHP Plugin**: Execute arbitrary PHP code with safety controls in local instance
+- **Python Plugin**: Run Python scripts with virtual environment support in local instance
+- **Node.js Plugin**: Execute JavaScript with async/await and npm packages in local instance
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
 - **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability. Can be exported and imported
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
-- **Shell Plugin**: System command execution with security restrictions
+- **Shell Plugin**: System command execution with security restrictions (use local instance)
 - **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
 - **Agent Plugin**: Agent loop mode can stopped or started by model
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
@@ -110,6 +115,14 @@ The AI communicates through special command tags that trigger plugin execution:
 
 ```
 # Code execution
+
+# Sandbox isolated code execution (new unified syntax)
+[run shell]ls -la && ps aux[/run]
+[run php]echo "Database users: " . DB::table('users')->count();[/run] 
+[run python]import datetime; print(f"Server time: {datetime.now()}")[/run]
+[run node]console.log(`Memory: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/run]
+
+# Execute code in local instance without Docker
 [php]echo "Database rows: " . DB::table('users')->count();[/php]
 [python]import datetime; print(f"Server time: {datetime.datetime.now()}")[/python]
 [node]console.log(`Memory usage: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/node]
@@ -166,6 +179,7 @@ Built on modern Laravel principles with dependency injection:
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
 - **OptionsServiceInterface**: Database-backed dynamic configuration
+- **SandboxManagerInterface**: Docker-based isolated execution environments
 
 **Service Providers:**
 - `AiServiceProvider` - Registers agents, engines, plugins, presets
@@ -178,7 +192,9 @@ Built on modern Laravel principles with dependency injection:
 
 ## Security Considerations
 
-The platform implements multiple layers of security controls for safe code execution. All code runs in isolated external processes (not eval), with configurable user sandboxing, resource limits (memory, timeout), and directory restrictions. Each plugin has safe mode defaults that block dangerous functions and network access, with unrestricted mode requiring explicit admin configuration. The system includes command filtering, dangerous operation detection, and comprehensive input validation.
+**Sandbox Isolation**: All `[run]` commands execute in isolated Docker containers, providing additional security layer beyond process isolation.
+
+The platform implements multiple layers of security controls for safe code execution. All code runs in isolated external processes (not eval) or in isolated docker sandboxes, with configurable user sandboxing, resource limits (memory, timeout), and directory restrictions. Each plugin has safe mode defaults that block dangerous functions and network access, with unrestricted mode requiring explicit admin configuration. The system includes command filtering, dangerous operation detection, and comprehensive input validation.
 
 Default security settings prioritize safety with safe_mode enabled, network access disabled, execution timeouts, and memory limits for all plugins. Production deployments should configure dedicated execution users and review security settings for their specific environment.
 
@@ -197,6 +213,7 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - Plugin configuration and security settings
 - User management and system monitoring
 - Conversation export and data management
+- Create or delete sandboxes from templates for isolated code execution
 
 ### UI Features
 - **Responsive Design**: Works seamlessly on desktop and mobile

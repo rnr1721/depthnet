@@ -11,6 +11,7 @@ use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Contracts\Users\UserServiceInterface;
 use App\Exceptions\PresetException;
 use App\Http\Requests\Admin\Preset\UpdatePresetRequest;
@@ -41,16 +42,21 @@ class ChatController extends Controller
         ChatStatusServiceInterface $chatStatusService,
         UserServiceInterface $userService,
         PluginRegistryInterface $pluginRegistry,
-        ShortcodeManagerServiceInterface $shortcodeManager
+        ShortcodeManagerServiceInterface $shortcodeManager,
+        OptionsServiceInterface $optionsService
     ) {
-        $messages = $this->chatService->getAllMessages();
+        $defaultPreset = $this->presetService->getDefaultPreset();
+        $messages = $this->chatService->getAllMessages($defaultPreset->getId());
         $user = $authService->getCurrentUser();
         $users = $userService->getAllUsers();
         $toLabel = __('To');
 
         $data = [
             'messages' => $messages,
-            'user' => $user
+            'user' => $user,
+            'presetMetadata' => $defaultPreset->metadata ?? [],
+            'showAgentResults' => $optionsService->get('agent_show_results', true),
+            'showCommandResults' => $optionsService->get('agent_show_commands', true)
         ];
 
         if ($user && $user->isAdmin()) {
@@ -59,14 +65,9 @@ class ChatController extends Controller
             // Get available presets (only active ones for regular use)
             $availablePresets = $this->presetService->getActivePresets();
 
-            $defaultPreset = $this->presetService->getDefaultPreset();
-
             $pluginRegistry->setCurrentPreset($defaultPreset);
-
             $shortcodeManager->setDefaultShortcodes();
-
             $placeholders = $shortcodeManager->getRegisteredShortcodes();
-
             $engines = $engineRegistry->getAvailableEngines();
 
             $data = array_merge($data, [
@@ -78,6 +79,7 @@ class ChatController extends Controller
                     'engine_display_name' => $preset->engine_display_name ?? $preset->engine_name,
                     'is_default' => $preset->is_default,
                     'model' => $preset->engine_config['model'] ?? null,
+                    'metadata' => $preset->metadata ?? [],
                 ])->toArray(),
                 'currentPresetId' => $defaultPreset->getId(),
                 'currentPreset' => $defaultPreset ? [
@@ -86,9 +88,10 @@ class ChatController extends Controller
                     'engine_name' => $defaultPreset->engine_name,
                     'engine_display_name' => $defaultPreset->engine_display_name ?? $defaultPreset->engine_name,
                     'model' => $defaultPreset->engine_config['model'] ?? null,
+                    'metadata' => $defaultPreset->metadata ?? [],
                 ] : null,
                 'chatActive' => $chatActive,
-                'exportFormats' => $chatExporterService->getAvailableFormats(),
+                'exportFormats' => array_values($chatExporterService->getAvailableFormats()),
                 'engines' => $engines,
                 'placeholders' => $placeholders
             ]);
@@ -118,8 +121,10 @@ class ChatController extends Controller
     ) {
         $user = $authService->getCurrentUser();
 
+        $currentPreset = $this->presetService->getDefaultPreset();
         $this->chatService->sendUserMessage(
             $user,
+            $currentPreset->getId(),
             $request->validated()['content']
         );
 
@@ -133,7 +138,8 @@ class ChatController extends Controller
      */
     public function clearHistory()
     {
-        $this->chatService->clearHistory();
+        $currentPreset = $this->presetService->getDefaultPreset();
+        $this->chatService->clearHistory($currentPreset->getId());
 
         return back();
     }
@@ -147,9 +153,22 @@ class ChatController extends Controller
      */
     public function getNewMessages(Request $request, $lastId = 0)
     {
-        $messages = $this->chatService->getNewMessages($lastId);
+        $currentPreset = $this->presetService->getDefaultPreset();
+        $messages = $this->chatService->getNewMessages(
+            $currentPreset->getId(),
+            $lastId
+        );
 
-        return response()->json($messages);
+        $response = [
+            'messages' => $messages,
+        ];
+
+        if (count($messages) > 0) {
+            $currentPreset->refresh();
+            $response['presetMetadata'] = $currentPreset->metadata ?? [];
+        }
+
+        return response()->json($response);
     }
 
     /**
@@ -269,7 +288,8 @@ class ChatController extends Controller
             'include_thinking' => $params['include_thinking']
         ];
 
-        return $chatExporterService->export($request['format'], $options);
+        $currentPreset = $this->presetService->getDefaultPreset();
+        return $chatExporterService->export($request['format'], $currentPreset->getId(), $options);
     }
 
     public function getUsers(UserServiceInterface $userService): JsonResponse

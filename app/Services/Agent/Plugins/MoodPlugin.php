@@ -4,7 +4,9 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Carbon\Carbon;
@@ -24,6 +26,7 @@ class MoodPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginPresetTrait;
     use PluginConfigTrait;
+    use PluginExecutionMetaTrait;
 
     /**
      * Available moods with tone description
@@ -91,8 +94,11 @@ class MoodPlugin implements CommandPluginInterface
         ]
     ];
 
+    public const PLUGIN_NAME = 'mood';
+
     public function __construct(
-        protected PlaceholderServiceInterface $placeholderService
+        protected PlaceholderServiceInterface $placeholderService,
+        protected PluginMetadataServiceInterface $pluginMetadataService
     ) {
         $this->initializeConfig();
     }
@@ -102,7 +108,7 @@ class MoodPlugin implements CommandPluginInterface
      */
     public function getName(): string
     {
-        return 'mood';
+        return self::PLUGIN_NAME;
     }
 
     /**
@@ -272,7 +278,7 @@ class MoodPlugin implements CommandPluginInterface
 
         try {
             // Test basic functionality
-            $currentMood = $this->preset->getPluginMetadata('mood', 'current', 'neutral');
+            $currentMood = $this->getMeta('current', 'neutral');
             return isset(self::MOODS[$currentMood]);
         } catch (\Exception $e) {
             return false;
@@ -301,11 +307,11 @@ class MoodPlugin implements CommandPluginInterface
             return "Unknown mood: '{$mood}'. Available moods:\n" . $this->formatMoodList();
         }
 
-        $previousMood = $this->preset->getPluginMetadata('mood', 'current', 'neutral');
+        $previousMood = $this->getMeta('current', 'neutral');
         $now = Carbon::now();
 
         // Maintaining the new mood
-        $this->preset->updatePluginMetadata('mood', [
+        $this->updateMeta([
             'current' => $mood,
             'changed_at' => $now->toISOString(),
             'previous' => $previousMood
@@ -328,8 +334,8 @@ class MoodPlugin implements CommandPluginInterface
      */
     public function get(string $content): string
     {
-        $currentMood = $this->preset->getPluginMetadata('mood', 'current', 'neutral');
-        $changedAt = $this->preset->getPluginMetadata('mood', 'changed_at');
+        $currentMood = $this->getMeta('current', 'neutral');
+        $changedAt = $this->getMeta('changed_at');
 
         $moodData = self::MOODS[$currentMood];
 
@@ -353,7 +359,7 @@ class MoodPlugin implements CommandPluginInterface
      */
     public function list(string $content): string
     {
-        $currentMood = $this->preset->getPluginMetadata('mood', 'current', 'neutral');
+        $currentMood = $this->getMeta('current', 'neutral');
 
         $response = "🎭 **Available Moods:**\n\n";
 
@@ -375,14 +381,14 @@ class MoodPlugin implements CommandPluginInterface
      */
     public function reset(string $content): string
     {
-        $previousMood = $this->preset->getPluginMetadata('mood', 'current', 'neutral');
+        $previousMood = $this->getMeta('current', 'neutral');
         $now = Carbon::now();
 
         if ($previousMood === 'neutral') {
             return "🎭 Mood is already neutral " . self::MOODS['neutral']['emoji'];
         }
 
-        $this->preset->updatePluginMetadata('mood', [
+        $this->updateMeta([
             'current' => 'neutral',
             'changed_at' => $now->toISOString(),
             'previous' => $previousMood
@@ -402,7 +408,7 @@ class MoodPlugin implements CommandPluginInterface
      */
     public function history(string $content): string
     {
-        $history = $this->preset->getPluginMetadata('mood', 'history', []);
+        $history = $this->getMeta('history', []);
 
         if (empty($history)) {
             return "🎭 No mood history available";
@@ -433,9 +439,9 @@ class MoodPlugin implements CommandPluginInterface
      */
     public function stats(string $content): string
     {
-        $currentMood = $this->preset->getPluginMetadata('mood', 'current', 'neutral');
-        $changedAt = $this->preset->getPluginMetadata('mood', 'changed_at');
-        $history = $this->preset->getPluginMetadata('mood', 'history', []);
+        $currentMood = $this->getMeta('current', 'neutral');
+        //$changedAt = $this->getMeta('changed_at');
+        $history = $this->getMeta('history', []);
 
         // Counting sentiment usage
         $moodUsage = [];
@@ -474,8 +480,7 @@ class MoodPlugin implements CommandPluginInterface
             return '';
         }
 
-        $preset = $this->preset;
-        $currentMood = $preset->getPluginMetadata('mood', 'current', 'neutral');
+        $currentMood = $this->getMeta('current', 'neutral');
         $moodData = self::MOODS[$currentMood];
 
         return "CONVERSATION TONE: Adopt a {$moodData['tone']} tone in all responses. " .
@@ -488,8 +493,7 @@ class MoodPlugin implements CommandPluginInterface
      */
     protected function addToHistory(string $toMood, string $fromMood, Carbon $timestamp): void
     {
-        $preset = $this->preset;
-        $history = $preset->getPluginMetadata('mood', 'history', []);
+        $history = $this->getMeta('history', []);
 
         $history[] = [
             'from' => $fromMood,
@@ -503,7 +507,7 @@ class MoodPlugin implements CommandPluginInterface
             $history = array_slice($history, -$limit);
         }
 
-        $preset->setPluginMetadata('mood', 'history', $history);
+        $this->setMeta('history', $history);
     }
 
     /**
@@ -521,9 +525,37 @@ class MoodPlugin implements CommandPluginInterface
     public function pluginReady(): void
     {
         $this->placeholderService->registerDynamic('mood', 'Mood state', function () {
-            return $this->preset->getPluginMetadata('mood', 'current', 'neutral');
+            return $this->getMeta('current', 'neutral');
         });
 
+    }
+
+    private function updateMeta(array $data): void
+    {
+        $this->pluginMetadataService->update(
+            $this->preset,
+            self::PLUGIN_NAME,
+            $data
+        );
+    }
+
+    private function setMeta(string $key, mixed $value): void
+    {
+        $this->pluginMetadataService->set(
+            $this->preset,
+            self::PLUGIN_NAME,
+            $key,
+            $value
+        );
+    }
+
+    private function getMeta(string $key, mixed $default = null)
+    {
+        return $this->pluginMetadataService->get(
+            $this->preset,
+            self::PLUGIN_NAME,
+            $key
+        );
     }
 
 }

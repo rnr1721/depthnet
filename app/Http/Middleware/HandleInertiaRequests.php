@@ -52,8 +52,9 @@ class HandleInertiaRequests extends Middleware
             ],
             'app_name' => config('app.name'),
             'users_count' => $userService->getUserCount(),
-            'messages_count' => $chatService->getMessagesCount(),
+            'messages_count' => $chatService->getTotalMessagesCount(),
             'locale' => app()->getLocale(),
+            'sandboxEnabled' => config('sandbox.enabled', false),
         ]);
     }
 }

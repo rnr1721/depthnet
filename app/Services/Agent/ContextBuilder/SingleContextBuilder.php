@@ -4,6 +4,7 @@ namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
+use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 
@@ -25,10 +26,12 @@ class SingleContextBuilder implements ContextBuilderInterface
      *
      * @return array
      */
-    public function build(): array
+    public function build(AiPreset $preset): array
     {
-        $maxContextLimit = $this->optionsService->get('model_max_context_limit', 8);
-        $messages = $this->messageModel->where('role', '!=', 'system')
+        $maxContextLimit = $preset->getMaxContextLimit();
+        $messages = $this->messageModel
+            ->forPreset($preset->getId())
+            ->where('role', '!=', 'system')
             ->orderBy('created_at', 'desc')
             ->limit($maxContextLimit)
             ->get()

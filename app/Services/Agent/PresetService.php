@@ -43,10 +43,10 @@ class PresetService implements PresetServiceInterface
                 'description' => $data['description'] ?? null,
                 'engine_name' => $data['engine_name'],
                 'system_prompt' => $data['system_prompt'] ?? '',
-                'notes' => $data['notes'] ?? '',
-                'dopamine_level' => $data['dopamine_level'] ?? 5,
                 'plugins_disabled' => $data['plugins_disabled'] ?? '',
                 'engine_config' => $data['engine_config'] ?? [],
+                'loop_interval' => $data['loop_interval'] ?? 15,
+                'max_context_limit' => $data['max_context_limit'] ?? 8,
                 'is_active' => $data['is_active'] ?? true,
                 'is_default' => $data['is_default'] ?? false,
                 'created_by' => $data['created_by'] ?? $this->authService->getCurrentUserId(),
@@ -95,10 +95,10 @@ class PresetService implements PresetServiceInterface
                 'description' => $data['description'] ?? $preset->description,
                 'engine_name' => $data['engine_name'] ?? $preset->engine_name,
                 'system_prompt' => array_key_exists('system_prompt', $data) ? $data['system_prompt'] : $preset->system_prompt,
-                'notes' => array_key_exists('notes', $data) ? $data['notes'] : $preset->notes,
-                'dopamine_level' => array_key_exists('dopamine_level', $data) ? $data['dopamine_level'] : $preset->dopamine_level,
                 'plugins_disabled' => array_key_exists('plugins_disabled', $data) ? $data['plugins_disabled'] : $preset->plugins_disabled,
                 'engine_config' => $data['engine_config'] ?? $preset->engine_config,
+                'loop_interval' => $data['loop_interval'] ?? $preset->loop_interval,
+                'max_context_limit' => $data['max_context_limit'] ?? $preset->max_context_limit,
                 'is_active' => $data['is_active'] ?? $preset->is_active,
                 'is_default' => $data['is_default'] ?? $preset->is_default,
             ]);
@@ -231,8 +231,6 @@ class PresetService implements PresetServiceInterface
             'description' => $originalPreset->description,
             'engine_name' => $originalPreset->engine_name,
             'system_prompt' => $originalPreset->system_prompt,
-            'notes' => $originalPreset->notes,
-            'dopamine_level' => $originalPreset->dopamine_level,
             'plugins_disabled' => $originalPreset->plugins_disabled,
             'engine_config' => $originalPreset->engine_config,
             'is_active' => false, // New copies are inactive by default
@@ -528,6 +526,10 @@ class PresetService implements PresetServiceInterface
 
     /**
      * Validate preset data
+     *
+     * @param array $data
+     * @param integer|null $excludeId
+     * @return void
      */
     protected function validatePresetData(array $data, ?int $excludeId = null): void
     {
@@ -536,10 +538,10 @@ class PresetService implements PresetServiceInterface
             'description' => 'nullable|string|max:1000',
             'engine_name' => 'required|string|max:100',
             'system_prompt' => 'nullable|string|max:5000',
-            'notes' => 'nullable|string|max:2000',
-            'dopamine_level' => 'nullable|integer',
             'plugins_disabled' => 'nullable|string|max:255',
             'engine_config' => 'array',
+            'loop_interval' => 'nullable|integer|min:4|max:30',
+            'mex_context_limit' => 'nullable|integer|min:0|max:50',
             'is_active' => 'boolean',
             'is_default' => 'boolean',
             'created_by' => 'nullable|exists:users,id',
@@ -574,6 +576,9 @@ class PresetService implements PresetServiceInterface
 
     /**
      * Log preset created
+     *
+     * @param AiPreset $preset
+     * @return void
      */
     protected function logPresetCreated(AiPreset $preset): void
     {
@@ -599,6 +604,9 @@ class PresetService implements PresetServiceInterface
 
     /**
      * Log preset deleted
+     *
+     * @param integer $presetId
+     * @return void
      */
     protected function logPresetDeleted(int $presetId): void
     {
@@ -610,6 +618,10 @@ class PresetService implements PresetServiceInterface
 
     /**
      * Log preset duplicated
+     *
+     * @param integer $originalId
+     * @param integer $newId
+     * @return void
      */
     protected function logPresetDuplicated(int $originalId, int $newId): void
     {
@@ -622,6 +634,9 @@ class PresetService implements PresetServiceInterface
 
     /**
      * Log default preset set
+     *
+     * @param integer $presetId
+     * @return void
      */
     protected function logDefaultPresetSet(int $presetId): void
     {
@@ -633,6 +648,11 @@ class PresetService implements PresetServiceInterface
 
     /**
      * Log recommended preset imported
+     *
+     * @param AiPreset $preset
+     * @param string $engineName
+     * @param string $recommendedName
+     * @return void
      */
     protected function logRecommendedPresetImported(AiPreset $preset, string $engineName, string $recommendedName): void
     {

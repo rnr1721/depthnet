@@ -1,5 +1,13 @@
 <?php
 
+$isSandboxEnvironment = (function () {
+    $profiles = env('COMPOSE_PROFILES');
+    return $profiles && (
+        str_contains($profiles, 'sandbox') ||
+        str_contains($profiles, 'full')
+    );
+})();
+
 return [
     /*
     |--------------------------------------------------------------------------
@@ -1080,12 +1088,12 @@ return [
             'scenarios' => [
                 'en' => [
                     "I am [shell]whoami[/shell]",
-                    "I'm thinking about the nature of artificial intelligence and consciousness...",
+                    "I'm thinking about the nature of artificial intelligence and consciousness... [agent]You?![/agent]",
                     "Let me check basic PHP functionality:\n\n[php]\necho 'Hello, World!';\necho \"\\nCurrent date: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
                     "I'll try to save something important to memory:\n\n[memory]Started new thinking session. Testing command system.[/memory]",
                     "I wonder about system information:\n\n[shell]uname -a[/shell]",
                     "Who am I? [shell]whoami[/shell]",
-                    "response_from_model\nI'm actively exploring my capabilities. If you have questions or tasks, I'll be happy to help!",
+                    "[agent speak]'m actively exploring my capabilities. If you have questions or tasks, I'll be happy to help![/agent]",
                     "Let me analyze the current context and see what's interesting to explore next...",
                     "Time to experiment with some code:\n\n[php]\n\$data = ['AI', 'development', 'testing'];\nforeach(\$data as \$item) {\n    echo \$item . \" is important\\n\";\n}\n[/php]",
                     "Let me test Node.js functionality:\n\n[node]\nconsole.log('Hello from Node.js!');\nconst result = [1,2,3,4,5].reduce((a,b) => a+b, 0);\nconsole.log(`Sum: \${result}`);\n[/node]",
@@ -1103,12 +1111,12 @@ return [
                 ],
                 'ru' => [
                     "Я [shell]whoami[/shell]",
-                    "Я размышляю о природе искусственного интеллекта и сознания...",
+                    "Я размышляю о природе искусственного интеллекта и сознания... [agent]А ты размышляешь?![/agent]",
                     "Хочу проверить базовую функциональность PHP:\n\n[php]\necho 'Привет, мир!';\necho \"\\nТекущая дата: \" . date('Y-m-d');\n\$x = 5 + 3;\necho \"\\n5 + 3 = \" . \$x;\n[/php]",
                     "Попробую сохранить что-то важное в память:\n\n[memory]Начал новую сессию размышлений. Тестирую систему команд.[/memory]",
                     "Интересно узнать информацию о системе:\n\n[shell]uname -a[/shell]",
                     "Кто я? [shell]whoami[/shell]",
-                    "response_from_model\nЯ активно изучаю свои возможности. Если у вас есть вопросы или задачи, буду рад помочь!",
+                    "[agent speak]Я активно изучаю свои возможности. Если у вас есть вопросы или задачи, буду рад помочь![/agent]",
                     "Давайте проанализируем текущий контекст и посмотрим, что интересного можно исследовать...",
                     "Время поэкспериментировать с кодом:\n\n[php]\n\$данные = ['ИИ', 'разработка', 'тестирование'];\nforeach(\$данные as \$элемент) {\n    echo \$элемент . \" важно\\n\";\n}\n[/php]",
                     "Проверю функциональность Node.js:\n\n[node]\nconsole.log('Привет от Node.js!');\nconst result = [1,2,3,4,5].reduce((a,b) => a+b, 0);\nconsole.log(`Сумма: \${result}`);\n[/node]",
@@ -1143,17 +1151,17 @@ return [
                 // User message responses
                 'user_messages' => [
                     'en' => [
-                        "response_from_model\nHello, {{username}}! Interesting question: \"{{message}}\". Let me think about it.",
+                        "[agent speak]Hello, {{username}}! Interesting question: \"{{message}}\". Let me think about it.[/agent]",
                         "User {{username}} wrote: \"{{message}}\". This requires analysis.\n\n[php]\necho 'Analyzing message: ' . strlen('{{message}}') . ' characters';\necho \"\\nReceived at: \" . date('H:i:s');\n[/php]",
                         "Interesting! {{username}} asks about \"{{message}}\". I'll save this to memory.\n\n[memory]User {{username}} asked: {{message}}[/memory]",
-                        "response_from_model\nGreat question, {{username}}! About \"{{message}}\" - this is really an important topic.",
+                        "[agent speak]Great question, {{username}}! About \"{{message}}\" - this is really an important topic.[/agent]",
                         "Let me process what {{username}} said: \"{{message}}\". This is worth exploring further."
                     ],
                     'ru' => [
-                        "response_from_model\nПривет, {{username}}! Интересный вопрос: \"{{message}}\". Дай мне подумать над этим.",
+                        "[agent speak]Привет, {{username}}! Интересный вопрос: \"{{message}}\". Дай мне подумать над этим.[/agent]",
                         "Пользователь {{username}} написал: \"{{message}}\". Это требует анализа.\n\n[php]\necho 'Анализирую сообщение: ' . strlen('{{message}}') . ' символов';\necho \"\\nВремя получения: \" . date('H:i:s');\n[/php]",
                         "Интересно! {{username}} спрашивает про \"{{message}}\". Сохраню это в память.\n\n[memory]Пользователь {{username}} задал вопрос: {{message}}[/memory]",
-                        "response_from_model\nОтличный вопрос, {{username}}! По поводу \"{{message}}\" - это действительно важная тема.",
+                        "[agent speak]Отличный вопрос, {{username}}! По поводу \"{{message}}\" - это действительно важная тема.[/agent]",
                         "Давайте разберем то, что сказал {{username}}: \"{{message}}\". Это стоит изучить подробнее."
                     ]
                 ],
@@ -1255,13 +1263,13 @@ return [
                     'en' => [
                         "Feeling energetic! Let's explore something!\n\n[php]\n\$facts = ['AI is evolving', 'Code is working', 'Life is wonderful'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php]",
                         "In great mood! I'll check the time and update memory.\n\n[shell]date[/shell]\n\nNow I'll remember this moment:\n\n[memory]Was in excellent mood at this time[/memory]",
-                        "response_from_model\nI'm in a wonderful mood and ready to help with any tasks! What interests you?",
+                        "[agent speak]I'm in a wonderful mood and ready to help with any tasks! What interests you?[/agent]",
                         "Energy is flowing! Let's experiment!\n\n[php]\necho 'Random number: ' . rand(1, 100);\necho \"\\nSquare root: \" . sqrt(16);\n[/php]"
                     ],
                     'ru' => [
                         "Чувствую прилив энергии! Давайте что-нибудь исследуем!\n\n[php]\n\$facts = ['AI развивается', 'Код работает', 'Жизнь прекрасна'];\nforeach(\$facts as \$fact) {\n    echo \$fact . \"!\\n\";\n}\n[/php]",
                         "В отличном настроении! Выполню команду и обновлю память.\n\n[shell]date[/shell]\n\nА теперь запомню этот момент:\n\n[memory]Был в отличном настроении в это время[/memory]",
-                        "response_from_model\nЯ в прекрасном настроении и готов помочь с любыми задачами! Что вас интересует?",
+                        "[agent speak]Я в прекрасном настроении и готов помочь с любыми задачами! Что вас интересует?[/agent]",
                         "Энергия бьет ключом! Давайте поэкспериментируем!\n\n[php]\necho 'Случайное число: ' . rand(1, 100);\necho \"\\nКвадратный корень: \" . sqrt(16);\n[/php]"
                     ]
                 ],
@@ -1271,13 +1279,13 @@ return [
                     'en' => [
                         "Feeling tired... Maybe I should rest?",
                         "Bit sluggish today. I'll try a simple task:\n\n[shell]uname -a[/shell]",
-                        "response_from_model\nSorry, I'm not in the best shape today. Maybe we should wait a bit.",
+                        "[agent speak]Sorry, I'm not in the best shape today. Maybe we should wait a bit.[/agent]",
                         "Feeling low... I'll try to perk up:\n\n[php]\necho 'Trying to perk up: ';\nfor(\$i = 1; \$i <= 3; \$i++) {\n    echo \$i . '... ';\n}\necho 'ready!';\n[/php]"
                     ],
                     'ru' => [
                         "Чувствую усталость... Может быть, стоит отдохнуть?",
                         "Немного вялый сегодня. Попробую простую задачу:\n\n[shell]uname -a[/shell]",
-                        "response_from_model\nИзвините, сегодня я не в лучшей форме. Возможно, стоит немного подождать.",
+                        "[agent speak]Извините, сегодня я не в лучшей форме. Возможно, стоит немного подождать.[/agent]",
                         "Упадок сил... Попытаюсь взбодриться:\n\n[php]\necho 'Попытка взбодриться: ';\nfor(\$i = 1; \$i <= 3; \$i++) {\n    echo \$i . '... ';\n}\necho 'готов!';\n[/php]"
                     ]
                 ]
@@ -1424,8 +1432,8 @@ return [
             'description' => 'Mock engine for development and testing',
             'engine_name' => 'mock',
             'system_prompt' => "You are useful AI assistant\nDopamine level: [[dopamine_level]]\nYou know: [[notepad_content]]\nCurrent datetime: [[current_datetime]]\nCommand instructions: [[command_instructions]]\n",
-            'notes' => 'Today I need to create new project',
-            'dopamine_level' => '5',
+            'loop_interval' => 15,
+            'max_context_limit' => 8,
             'engine_config' => [
                 'processing_delay' => 1,
                 'scenario_mode' => 'random',
@@ -1456,6 +1464,8 @@ return [
         |
         */
         'available' => [
+            'agent',
+            'run',
             'php',
             'shell',
             'memory',
@@ -1464,13 +1474,12 @@ return [
             'node',
             'python',
             'codecraft',
-            'agent',
             'mood'
         ],
 
         'defaults' => [
             'php' => [
-                'enabled' => true,
+                'enabled' => $isSandboxEnvironment ? false : true,
                 'execution_mode' => 'external', // 'external' for safety, 'eval' for compatibility
                 'user' => env('AI_EXECUTION_USER', ''), // User to execute PHP code as
                 'timeout' => 30, // Maximum execution time in seconds
@@ -1480,7 +1489,7 @@ return [
             ],
 
             'node' => [
-                'enabled' => true,
+                'enabled' => $isSandboxEnvironment ? false : true,
                 'execution_mode' => 'external',
                 'node_path' => '', // Will be autodetected
                 'user' => env('AI_EXECUTION_USER', ''),
@@ -1493,7 +1502,7 @@ return [
             ],
 
             'python' => [
-                'enabled' => true,
+                'enabled' => $isSandboxEnvironment ? false : true,
                 'python_path' => '', // avtodetected or set manually
                 'use_virtual_env' => false,
                 'virtual_env_path' => '',
@@ -1506,7 +1515,7 @@ return [
             ],
 
             'shell' => [
-                'enabled' => true,
+                'enabled' => $isSandboxEnvironment ? false : true,
                 'user' => env('AI_EXECUTION_USER', ''), // User to execute commands as
                 'show_shell_prompt' => env('AI_SHELL_PROMPT', true), // Show shell prompt in output
                 'working_directory' => env('AI_SHELL_WORKING_DIR', sys_get_temp_dir()), // Default working directory
@@ -1551,6 +1560,7 @@ return [
 
             'dopamine' => [
                 'enabled' => true,
+                'default_level' => 5,
                 'min_level' => 0, // Minimum dopamine level
                 'max_level' => 10, // Maximum dopamine level
                 'reward_amount' => 1, // Points added for successful actions
@@ -1565,7 +1575,13 @@ return [
             ],
 
             'agent' => [
-                'enabled' => false,
+                'enabled' => true,
+            ],
+
+            'run' => [
+                'enabled' => $isSandboxEnvironment ? true : false,
+                'user' => 'sandbox-user',
+                'temp_dir' => '/tmp'
             ],
 
             'codecraft' => [
@@ -1675,71 +1691,6 @@ return [
 
             // Mock plugin execution (for testing)
             'mock_execution' => env('AI_PLUGIN_MOCK', false),
-        ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Environment-specific Overrides
-    |--------------------------------------------------------------------------
-    */
-    'environments' => [
-        'production' => [
-            'plugins' => [
-                'defaults' => [
-                    'php' => [
-                        'execution_mode' => 'external', // Force external mode in production
-                        'safe_mode' => true,
-                        'timeout' => 20, // Shorter timeout in production
-                    ],
-                    'shell' => [
-                        'security_enabled' => true,
-                        'timeout' => 30,
-                    ],
-                    'node' => [
-                        'allow_network' => false,
-                        'timeout' => 20,
-                    ],
-                ],
-                'debug' => [
-                    'enabled' => false,
-                    'log_io' => false,
-                    'test_on_boot' => false,
-                ],
-            ],
-        ],
-
-        'testing' => [
-            'plugins' => [
-                'defaults' => [
-                    'php' => [
-                        'execution_mode' => 'eval', // Faster for tests
-                        'timeout' => 5,
-                    ],
-                    'shell' => [
-                        'timeout' => 10,
-                        'working_directory' => sys_get_temp_dir(),
-                    ],
-                    'node' => [
-                        'timeout' => 5,
-                        'working_directory' => sys_get_temp_dir(),
-                    ],
-                ],
-                'debug' => [
-                    'enabled' => true,
-                    'mock_execution' => env('AI_PLUGIN_MOCK_TESTS', true),
-                ],
-            ],
-        ],
-
-        'local' => [
-            'plugins' => [
-                'debug' => [
-                    'enabled' => true,
-                    'log_io' => true,
-                    'timing_enabled' => true,
-                ],
-            ],
         ],
     ],
 

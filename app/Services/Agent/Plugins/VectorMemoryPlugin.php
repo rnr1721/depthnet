@@ -9,6 +9,7 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use Psr\Log\LoggerInterface;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
@@ -24,6 +25,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginPresetTrait;
     use PluginConfigTrait;
+    use PluginExecutionMetaTrait;
 
     public function __construct(
         protected LoggerInterface $logger,
@@ -534,5 +536,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
     public function canBeMerged(): bool
     {
         return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function pluginReady(): void
+    {
+        // Nothing to do here
     }
 }

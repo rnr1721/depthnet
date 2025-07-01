@@ -57,3 +57,4 @@ _ide_helper_models.php
 # Docker
 /docker/logs
 *.log
+/shared

@@ -4,7 +4,9 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
@@ -20,10 +22,15 @@ class DopaminePlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginPresetTrait;
     use PluginConfigTrait;
+    use PluginExecutionMetaTrait;
+
+    public const PLUGIN_NAME = 'dopamine';
+    public const CURRENT_LEVEL = 'current_level';
 
     public function __construct(
         protected LoggerInterface $logger,
-        protected PlaceholderServiceInterface $placeholderService
+        protected PlaceholderServiceInterface $placeholderService,
+        protected PluginMetadataServiceInterface $pluginMetadata
     ) {
         $this->initializeConfig();
     }
@@ -33,7 +40,7 @@ class DopaminePlugin implements CommandPluginInterface
      */
     public function getName(): string
     {
-        return 'dopamine';
+        return self::PLUGIN_NAME;
     }
 
     /**
@@ -52,10 +59,10 @@ class DopaminePlugin implements CommandPluginInterface
     public function getInstructions(): array
     {
         return [
-            'Get dopamine reward for success: [dopamine reward][/dopamine]',
-            'Apply dopamine penalty for failure: [dopamine penalty][/dopamine]',
-            'Set specific dopamine level: [dopamine set]5[/dopamine]',
-            'Show current dopamine level: [dopamine show][/dopamine]'
+            "Get dopamine reward for success: [dopamine reward][/dopamine]",
+            "Apply dopamine penalty for failure: [dopamine penalty][/dopamine]",
+            "Set specific dopamine level: [dopamine set]5[/dopamine]",
+            "Show current dopamine level: [dopamine show][/dopamine]"
         ];
     }
 
@@ -86,6 +93,15 @@ class DopaminePlugin implements CommandPluginInterface
                 'label' => 'Enable Dopamine Plugin',
                 'description' => 'Allow dopamine level management',
                 'required' => false
+            ],
+            'default_level' => [
+                'type' => 'number',
+                'label' => 'Default Level',
+                'description' => 'Default dopamine level',
+                'min' => 0,
+                'max' => 20,
+                'value' => 5,
+                'required' => true
             ],
             'min_level' => [
                 'type' => 'number',
@@ -197,6 +213,7 @@ class DopaminePlugin implements CommandPluginInterface
     {
         return [
             'enabled' => true,
+            'default_level' => 5,
             'min_level' => 0,
             'max_level' => 10,
             'reward_amount' => 1,
@@ -218,20 +235,18 @@ class DopaminePlugin implements CommandPluginInterface
 
         try {
             // Test basic dopamine operations
-            $originalLevel = $this->preset->getDopamineLevel();
+            $originalLevel = $this->getCurrentLevel();
 
             // Test setting level
-            $this->preset->dopamine_level = 5;
-            $this->preset->save();
+            $this->setCurrentLevel($this->config['default_level']);
 
             // Test reading level
-            $testLevel = $this->preset->fresh()->getDopamineLevel();
+            $testLevel = $this->getCurrentLevel(true);
 
             // Restore original level
-            $this->preset->dopamine_level = $originalLevel;
-            $this->preset->save();
+            $this->setCurrentLevel($originalLevel);
 
-            return $testLevel === 5;
+            return $testLevel === $this->config['default_level'];
         } catch (\Exception $e) {
             return false;
         }
@@ -262,13 +277,12 @@ class DopaminePlugin implements CommandPluginInterface
         }
 
         try {
-            $currentLevel = $this->preset->getDopamineLevel();
+            $currentLevel = $this->getCurrentLevel();
             $rewardAmount = $this->config['reward_amount'] ?? 1;
             $maxLevel = $this->config['max_level'] ?? 10;
 
             $newLevel = min($maxLevel, $currentLevel + $rewardAmount);
-            $this->preset->dopamine_level = $newLevel;
-            $this->preset->save();
+            $this->setCurrentLevel($newLevel);
 
             $this->logChange('reward', $currentLevel, $newLevel, $rewardAmount);
 
@@ -292,13 +306,12 @@ class DopaminePlugin implements CommandPluginInterface
         }
 
         try {
-            $currentLevel = $this->preset->getDopamineLevel();
+            $currentLevel = $this->getCurrentLevel();
             $penaltyAmount = $this->config['penalty_amount'] ?? 1;
             $minLevel = $this->config['min_level'] ?? 0;
 
             $newLevel = max($minLevel, $currentLevel - $penaltyAmount);
-            $this->preset->dopamine_level = $newLevel;
-            $this->preset->save();
+            $this->setCurrentLevel($newLevel);
 
             $this->logChange('penalty', $currentLevel, $newLevel, $penaltyAmount);
 
@@ -327,9 +340,8 @@ class DopaminePlugin implements CommandPluginInterface
                 return "Error: Dopamine level must be between {$minLevel} and {$maxLevel}";
             }
 
-            $currentLevel = $this->preset->getDopamineLevel();
-            $this->preset->dopamine_level = $targetLevel;
-            $this->preset->save();
+            $currentLevel = $this->getCurrentLevel();
+            $this->setCurrentLevel($targetLevel);
 
             $this->logChange('set', $currentLevel, $targetLevel, abs($targetLevel - $currentLevel));
 
@@ -353,7 +365,7 @@ class DopaminePlugin implements CommandPluginInterface
         }
 
         try {
-            $currentLevel = $this->preset->getDopamineLevel();
+            $currentLevel = $this->getCurrentLevel();
             // $minLevel = $this->config['min_level'] ?? 0;
             $maxLevel = $this->config['max_level'] ?? 10;
 
@@ -411,8 +423,27 @@ class DopaminePlugin implements CommandPluginInterface
     public function pluginReady(): void
     {
         $this->placeholderService->registerDynamic('dopamine_level', 'Level of model dopamine', function () {
-            return $this->preset->getDopamineLevel();
+            return $this->getCurrentLevel();
         });
 
+    }
+
+    private function setCurrentLevel(int $newLevel): void
+    {
+        $this->pluginMetadata->set(
+            $this->preset,
+            self::PLUGIN_NAME,
+            'current_level',
+            $newLevel
+        );
+    }
+    private function getCurrentLevel(bool $fresh = false): int
+    {
+        return $this->pluginMetadata->get(
+            $fresh ? $this->preset->fresh() : $this->preset,
+            self::PLUGIN_NAME,
+            self::CURRENT_LEVEL,
+            $this->config['default_level']
+        );
     }
 }

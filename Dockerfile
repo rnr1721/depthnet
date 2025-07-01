@@ -2,6 +2,7 @@ FROM php:8.2-fpm
 
 ARG DOCKER_UID=1000
 ARG DOCKER_GID=1000
+ARG DOCKER_SOCKET_GID=999
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 
@@ -30,14 +31,29 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     iputils-ping \
     dnsutils \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI (client only, not the daemon)
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
 
 # Latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Create app user and group
+
 RUN groupadd -g $DOCKER_GID depthnet && \
     useradd -u $DOCKER_UID -g $DOCKER_GID -m depthnet
+
+# Add Docker group and add depthnet user to it
+RUN groupadd -g $DOCKER_SOCKET_GID docker || groupmod -g $DOCKER_SOCKET_GID docker \
+    && usermod -aG docker depthnet
 
 COPY docker/welcome.sh /usr/local/bin/welcome
 RUN chmod +x /usr/local/bin/welcome

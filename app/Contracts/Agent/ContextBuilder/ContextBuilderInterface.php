@@ -2,15 +2,15 @@
 
 namespace App\Contracts\Agent\ContextBuilder;
 
-use App\Contracts\Settings\OptionsServiceInterface;
-use App\Models\Message;
+use App\Models\AiPreset;
 
 interface ContextBuilderInterface
 {
     /**
      * Build context array from messages
      *
+     * @param AiPreset $preset
      * @return array
      */
-    public function build(): array;
+    public function build(AiPreset $preset): array;
 }

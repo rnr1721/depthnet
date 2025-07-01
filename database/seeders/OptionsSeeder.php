@@ -16,6 +16,20 @@ class OptionsSeeder extends Seeder
         $options = [
             // Agent Settings
             [
+                'key' => 'agent_show_commands',
+                'value' => '1',
+                'type' => 'boolean',
+                'description' => 'Enable user registration',
+                'is_system' => true,
+            ],
+            [
+                'key' => 'agent_show_results',
+                'value' => '1',
+                'type' => 'boolean',
+                'description' => 'Enable user registration',
+                'is_system' => true,
+            ],
+            [
                 'key' => 'agent_command_parser_mode',
                 'value' => 'smart',
                 'type' => 'string',
@@ -37,15 +51,8 @@ class OptionsSeeder extends Seeder
                 'is_system' => true,
             ],
             [
-                'key' => 'model_reply_from_model',
-                'value' => 'reply_from_model',
-                'type' => 'string',
-                'description' => 'Reply from model text',
-                'is_system' => true,
-            ],
-            [
                 'key' => 'model_message_from_user',
-                'value' => 'message_from_user',
+                'value' => 'User says:',
                 'type' => 'string',
                 'description' => 'Message from user text',
                 'is_system' => true,
@@ -55,20 +62,6 @@ class OptionsSeeder extends Seeder
                 'value' => 'Thinking: ',
                 'type' => 'string',
                 'description' => 'Thinking phrase for AI agent',
-                'is_system' => true,
-            ],
-            [
-                'key' => 'model_timeout_between_requests',
-                'value' => '15',
-                'type' => 'integer',
-                'description' => 'Timeout between requests in seconds',
-                'is_system' => true,
-            ],
-            [
-                'key' => 'model_max_context_limit',
-                'value' => '8',
-                'type' => 'integer',
-                'description' => 'Maximum context limit for AI model',
                 'is_system' => true,
             ],
 

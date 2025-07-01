@@ -3,6 +3,26 @@
 return [
     'fields' => [
 
+        'agent_show_commands' => [
+            'type' => 'checkbox',
+            'label' => 'settings_show_agent_commands',
+            'description' => 'settings_show_agent_commands_desc',
+            'default' => false,
+            'validation' => 'boolean',
+            'group' => 'agent_settings',
+            'order' => 1,
+        ],
+
+        'agent_show_results' => [
+            'type' => 'checkbox',
+            'label' => 'settings_show_agent_results',
+            'description' => 'settings_show_agent_results_desc',
+            'default' => false,
+            'validation' => 'boolean',
+            'group' => 'agent_settings',
+            'order' => 1,
+        ],
+
         'agent_command_parser_mode' => [
             'type' => 'select',
             'label' => 'settings_command_parser_mode',
@@ -15,18 +35,6 @@ return [
                 'simple' => 'Separate commands',
                 'smart' => 'Glue similar commands'
             ],
-        ],
-
-        'model_reply_from_model' => [
-            'type' => 'input',
-            'input_type' => 'text',
-            'label' => 'settings_reply_from_model',
-            'description' => 'settings_reply_from_model_desc',
-            'placeholder' => 'reply_from_model',
-            'default' => 'reply_from_model',
-            'validation' => 'string|max:255',
-            'group' => 'agent_settings',
-            'order' => 3,
         ],
 
         'model_message_from_user' => [
@@ -51,34 +59,6 @@ return [
             'validation' => 'string|max:255',
             'group' => 'agent_settings',
             'order' => 5,
-        ],
-
-        'model_timeout_between_requests' => [
-            'type' => 'input',
-            'input_type' => 'number',
-            'label' => 'settings_timeout_between_requests',
-            'description' => 'settings_timeout_between_requests_desc',
-            'placeholder' => '15',
-            'default' => 15,
-            'validation' => 'required|integer|min:1|max:1000',
-            'group' => 'agent_settings',
-            'order' => 6,
-            'min' => 1,
-            'max' => 1000,
-        ],
-
-        'model_max_context_limit' => [
-            'type' => 'input',
-            'input_type' => 'number',
-            'label' => 'settings_max_context_limit',
-            'description' => 'settings_max_context_limit_desc',
-            'placeholder' => '8',
-            'default' => 8,
-            'validation' => 'required|integer|min:1|max:1000',
-            'group' => 'agent_settings',
-            'order' => 7,
-            'min' => 1,
-            'max' => 1000,
         ],
 
         'chat_max_chat_history' => [

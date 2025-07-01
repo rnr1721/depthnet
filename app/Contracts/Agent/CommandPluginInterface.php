@@ -158,4 +158,20 @@ interface CommandPluginInterface
      * @return void
      */
     public function setEnabled(bool $enabled): void;
+
+    /**
+     * Here it is possible to return some data that may affect the agent's work.
+     * This is system things
+     *
+     * @return array
+     */
+    public function getPluginExecutionMeta(): array;
+
+    /**
+     * This method can be used for make placeholders for plugin or some things,
+     * that need to do, when plugin will initialized
+     *
+     * @return void
+     */
+    public function pluginReady(): void;
 }

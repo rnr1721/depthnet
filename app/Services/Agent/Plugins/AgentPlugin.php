@@ -6,6 +6,7 @@ use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
@@ -22,6 +23,7 @@ class AgentPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginPresetTrait;
     use PluginConfigTrait;
+    use PluginExecutionMetaTrait;
 
     /** @var AgentJobServiceInterface|null Lazy-loaded service */
     private ?AgentJobServiceInterface $agentJobService = null;
@@ -64,7 +66,7 @@ class AgentPlugin implements CommandPluginInterface
      */
     public function getDescription(): string
     {
-        return 'Control agent lifecycle: pause/resume thinking cycles, check status. Enables self-management.';
+        return 'Control agent lifecycle: pause/resume thinking cycles, check status. Speaking with user. Enables self-management.';
     }
 
     /**
@@ -83,7 +85,8 @@ class AgentPlugin implements CommandPluginInterface
         }
 
         $instructions[] = 'Check agent status: [agent status][/agent]';
-
+        $instructions[] = 'Write message to user [agent speak]I have a question. How..[/agent]:';
+        $instructions[] = 'Write message to user [agent speak]I need to tell you...[/agent]:';
         return $instructions;
     }
 
@@ -343,6 +346,12 @@ class AgentPlugin implements CommandPluginInterface
             $this->logger->error("AgentPlugin::status error: " . $e->getMessage());
             return "Error getting agent status: " . $e->getMessage();
         }
+    }
+
+    public function speak(string $content)
+    {
+        $this->setPluginExecutionMeta('speak', $content);
+        return 'The user will see your message.';
     }
 
     /**

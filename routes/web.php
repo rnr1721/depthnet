@@ -4,6 +4,8 @@ use App\Http\Controllers\Admin\EngineController;
 use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetController;
+use App\Http\Controllers\Admin\PresetSandboxController;
+use App\Http\Controllers\Admin\SandboxController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
@@ -79,6 +81,17 @@ Route::middleware('auth')->group(function () {
             Route::delete('/{id}', [PresetController::class, 'destroy'])->name('destroy');
             Route::post('/{id}/set-default', [PresetController::class, 'setDefault'])->name('set-default');
             Route::get('/{id}/duplicate', [PresetController::class, 'duplicate'])->name('duplicate');
+
+            if (config('sandbox.enabled', false)) {
+                Route::prefix('{presetId}/sandbox')->name('sandbox.')->group(function () {
+                    Route::get('/', [PresetSandboxController::class, 'getAssignedSandbox'])->name('get');
+                    Route::post('/assign', [PresetSandboxController::class, 'assignSandbox'])->name('assign');
+                    Route::post('/create', [PresetSandboxController::class, 'createAndAssignSandbox'])->name('create');
+                    Route::delete('/', [PresetSandboxController::class, 'unassignSandbox'])->name('unassign');
+                    Route::get('/check', [PresetSandboxController::class, 'hasAssignedSandbox'])->name('check');
+                });
+            }
+
         });
 
         // AI Engines management routes
@@ -134,6 +147,36 @@ Route::middleware('auth')->group(function () {
             Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
         });
 
+        if (config('sandbox.enabled', false)) {
+            // Sandbox Management routes
+            Route::prefix('sandboxes')->name('sandboxes.')->group(function () {
+                Route::get('/', [SandboxController::class, 'index'])->name('index');
+                Route::get('/list', [SandboxController::class, 'list'])->name('list');
+                Route::get('/config', [SandboxController::class, 'getConfig'])->name('config');
+                Route::post('/', [SandboxController::class, 'store'])->name('store');
+                Route::get('/{sandboxId}', [SandboxController::class, 'show'])->name('show');
+                Route::post('/{sandboxId}/start', [SandboxController::class, 'start'])->name('start');
+                Route::post('/{sandboxId}/stop', [SandboxController::class, 'stop'])->name('stop');
+                Route::delete('/{sandboxId}', [SandboxController::class, 'destroy'])->name('destroy');
+                Route::post('/{sandboxId}/reset', [SandboxController::class, 'reset'])->name('reset');
+                Route::post('/{sandboxId}/execute-command', [SandboxController::class, 'executeCommand'])->name('execute-command');
+                Route::post('/{sandboxId}/execute-code', [SandboxController::class, 'executeCode'])->name('execute-code');
+                Route::post('/{sandboxId}/install-packages', [SandboxController::class, 'installPackages'])->name('install-packages');
+                Route::post('/cleanup', [SandboxController::class, 'cleanup'])->name('cleanup');
+                Route::get('/operation/{operationId}/status', [SandboxController::class, 'getOperationStatus'])->name('operation-status');
+                Route::get('/supported-options', [SandboxController::class, 'getSupportedOptions'])->name('supported-options');
+                Route::get('/operations/recent', [SandboxController::class, 'getRecentOperations'])->name('operations.recent');
+                Route::post('/operations/clear', [SandboxController::class, 'clearOperations'])->name('operations.clear');
+                Route::get('/operation/{operationId}/status', [SandboxController::class, 'getOperationStatus'])->name('operation-status');
+
+                // Relations to presets
+                Route::get('/{sandboxId}/presets', [PresetSandboxController::class, 'getPresetsForSandbox'])->name('presets');
+                Route::delete('/{sandboxId}/cleanup-assignments', [PresetSandboxController::class, 'cleanupSandboxAssignments'])->name('cleanup-assignments');
+                Route::post('/validate-assignments', [PresetSandboxController::class, 'validateAndCleanupAll'])->name('validate-assignments');
+                Route::get('/assignment-stats', [PresetSandboxController::class, 'getStats'])->name('assignment-stats');
+
+            });
+        }
     });
 
 });

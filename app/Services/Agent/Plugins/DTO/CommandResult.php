@@ -8,7 +8,8 @@ class CommandResult
         public readonly ParsedCommand $command,
         public readonly string $result,
         public readonly bool $success,
-        public readonly ?string $error = null
+        public readonly ?string $error = null,
+        public readonly array $executionMeta = []
     ) {
     }
 }

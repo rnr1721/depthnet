@@ -4,7 +4,8 @@
         'min-h-screen transition-colors duration-300',
         isDark ? 'bg-gray-900' : 'bg-gray-50'
     ]">
-        <AdminHeader :title="t('vector_memory_manager')" :isAdmin="true" />
+        <AdminHeader :title="t('vector_memory_manager')" :isAdmin="true"
+            :sandbox-enabled="$page.props.sandboxEnabled" />
 
         <!-- Main content -->
         <main class="relative">
@@ -258,7 +259,7 @@
                     <div :class="['px-6 py-4 border-b', isDark ? 'border-gray-700' : 'border-gray-200']">
                         <h3 :class="['text-lg font-semibold', isDark ? 'text-white' : 'text-gray-900']">
                             {{ searchResults.length > 0 ? t('vm_all_memories') : t('vm_vector_memories') }} ({{
-                            displayMemories.length }})
+                                displayMemories.length }})
                         </h3>
                     </div>
                     <div class="divide-y" :class="isDark ? 'divide-gray-700' : 'divide-gray-200'">
@@ -384,7 +385,7 @@ const props = defineProps({
     searchResults: Array,
     memoryStats: Object,
     config: Object,
-    searchQuery: String,
+    searchQuery: String
 });
 
 const isDark = ref(false);

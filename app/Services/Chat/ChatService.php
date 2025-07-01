@@ -37,21 +37,23 @@ class ChatService implements ChatServiceInterface
     /**
      * @inheritDoc
      */
-    public function getAllMessages(int $limit = 100): Collection
+    public function getAllMessages(int $presetId, int $limit = 100): Collection
     {
-        $result = $this->messageModel->orderBy('created_at', 'asc')
+        return $this->messageModel
+        ->forPreset($presetId)
+        ->orderBy('created_at', 'asc')
         ->limit($limit)
         ->get();
-
-        return $result;
     }
 
     /**
      * @inheritDoc
      */
-    public function getNewMessages(int $lastId = 0): Collection
+    public function getNewMessages(int $presetId, int $lastId = 0): Collection
     {
-        return $this->messageModel->where('id', '>', $lastId)
+        return $this->messageModel
+            ->forPreset($presetId)
+            ->where('id', '>', $lastId)
             ->orderBy('created_at', 'asc')
             ->get();
     }
@@ -59,17 +61,18 @@ class ChatService implements ChatServiceInterface
     /**
      * @inheritDoc
      */
-    public function sendUserMessage(User $user, string $content): Message
+    public function sendUserMessage(User $user, int $presetId, string $content): Message
     {
         $messageFromUserLabel = $this->optionsService->get('model_message_from_user', 'message_from_user');
         $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
 
-        $finalContent = $user->is_admin ? $this->runCommands($formattedContent) : $formattedContent;
+        $finalContent = $user->is_admin ? $this->runCommands($formattedContent, $presetId) : $formattedContent;
 
         $message = $this->messageModel->create([
             'role' => 'user',
             'content' => $finalContent,
             'from_user_id' => $user->id,
+            'preset_id' => $presetId,
             'is_visible_to_user' => true
         ]);
 
@@ -84,11 +87,12 @@ class ChatService implements ChatServiceInterface
      * Run commands from messages
      *
      * @param string $formattedContent
+     * @param int $presetId
      * @return void
      */
-    protected function runCommands(string $formattedContent)
+    protected function runCommands(string $formattedContent, int $presetId)
     {
-        $currentPreset = $this->presetRegistry->getDefaultPreset();
+        $currentPreset = $this->presetRegistry->getPreset($presetId);
         $this->pluginRegistry->setCurrentPreset($currentPreset);
         $finalMessage = $this->agentActions->runActions($formattedContent, true);
         return $finalMessage->getResult();
@@ -97,15 +101,23 @@ class ChatService implements ChatServiceInterface
     /**
      * @inheritDoc
      */
-    public function clearHistory(): void
+    public function clearHistory(int $presetId): void
     {
-        $this->messageModel->truncate();
+        $this->messageModel->forPreset($presetId)->delete();
     }
 
     /**
      * @inheritDoc
      */
-    public function getMessagesCount(): int
+    public function getMessagesCount(int $presetId): int
+    {
+        return $this->messageModel->forPreset($presetId)->count();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getTotalMessagesCount(): int
     {
         return $this->messageModel->count();
     }
@@ -122,6 +134,25 @@ class ChatService implements ChatServiceInterface
         }
 
         return $message->delete();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getAllMessagesGlobal(int $limit = 100): Collection
+    {
+        return $this->messageModel
+            ->orderBy('created_at', 'asc')
+            ->limit($limit)
+            ->get();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function clearAllHistory(): void
+    {
+        $this->messageModel->truncate();
     }
 
 }

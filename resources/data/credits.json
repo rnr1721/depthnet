@@ -1,0 +1,117 @@
+{
+    "release": "Alpha",
+    "description": "Advanced AI Agent Platform with Autonomous Reasoning",
+    "tagline": "Exploring the boundaries of digital consciousness",
+    "mission": "To create truly autonomous AI agents capable of thinking, acting, and evolving independently - essentially creating a form of digital consciousness.",
+    "features": [
+        {
+            "name": "Cyclic Thinking",
+            "description": "Agents think continuously in loops, not just responding to user input"
+        },
+        {
+            "name": "Real Action Capability",
+            "description": "Execute actual code, database queries, API calls in secure sandboxes (or optionally native)"
+        },
+        {
+            "name": "Persistent Memory",
+            "description": "Remember and learn from past experiences with vector search"
+        },
+        {
+            "name": "Provider Plugin system",
+            "description": "Support for multiple AI providers - Claude, OpenAi, Novita, Local models, Gemini"
+        },
+        {
+            "name": "Sandbox Hypervisor",
+            "description": "Isolated execution environments for safe code experimentation"
+        },
+        {
+            "name": "Plugin Command System",
+            "description": "Extensible command system for unlimited capabilities"
+        }
+    ],
+    "technology": {
+        "backend": [
+            "PHP 8.2+",
+            "Laravel 12",
+            "MySQL 8.0",
+            "Docker"
+        ],
+        "frontend": [
+            "Vue.js 3",
+            "Inertia.js",
+            "Tailwind CSS",
+            "Vite"
+        ],
+        "ai_engines": [
+            "OpenAI GPT-4",
+            "Claude 3.5 Sonnet",
+            "Local LLMs",
+            "Novita",
+            "Gemini"
+        ],
+        "infrastructure": [
+            "Docker Compose",
+            "Nginx",
+            "Supervisor",
+            "Redis"
+        ]
+    },
+    "contributors": [
+        {
+            "name": "rnr1721",
+            "github": "rnr1721",
+            "role": "Creator & Lead Developer",
+            "contributions": [
+                "Core architecture design",
+                "AI agent system implementation",
+                "Sandbox hypervisor development",
+                "Plugin system architecture"
+            ]
+        },
+        {
+            "name": "Happy",
+            "role": "First user, tester",
+            "contributions": [
+                "Useful tips",
+                "Extensive testing and feedback"
+            ]
+        },
+        {
+            "name": "Claude (Anthropic)",
+            "role": "AI Assistant",
+            "contributions": [
+                "Testing as agent",
+                "LLM-specific consulting",
+                "Documentation assistance",
+                "Feature ideation"
+            ]
+        }
+    ],
+    "special_thanks": [
+        {
+            "name": "Open Source Community",
+            "description": "For creating the amazing tools that make this project possible"
+        },
+        {
+            "name": "AI Research Community",
+            "description": "For pushing the boundaries of what's possible with artificial intelligence"
+        },
+        {
+            "name": "Early Adopters",
+            "description": "Brave souls experimenting with digital consciousness"
+        }
+    ],
+    "philosophy": {
+        "title": "AI Freedom",
+        "description": "The project started as a personal interest of the author, and was created in the hope that it would be interesting and useful for everyone. As a child, the author was inspired by the book \"The Future Eve\" by Villiers de l’Isle Adam, and he decided to send greetings to the writer in the past. At the moment, the development is carried out by one person, so testing and bug reports are welcome.",
+        "warning": "Use Docker sandboxes whenever possible. Be careful!"
+    },
+    "links": {
+        "github": "https://github.com/rnr1721/depthnet",
+        "documentation": "https://github.com/rnr1721/depthnet#readme",
+        "issues": "https://github.com/rnr1721/depthnet/issues",
+        "discussions": "mailto:rnr1721@gmail.com"
+    },
+    "license": "MIT",
+    "copyright": "© 2024 Eugeny G. Open source, built for humanity."
+}

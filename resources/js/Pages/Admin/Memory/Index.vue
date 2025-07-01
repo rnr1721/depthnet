@@ -4,7 +4,7 @@
         'min-h-screen transition-colors duration-300',
         isDark ? 'bg-gray-900' : 'bg-gray-50'
     ]">
-        <AdminHeader :title="t('memory_manager')" :isAdmin="true" />
+        <AdminHeader :title="t('memory_manager')" :isAdmin="true" :sandbox-enabled="$page.props.sandboxEnabled" />
 
         <!-- Main content -->
         <main class="relative">
@@ -199,7 +199,7 @@
                             <div v-if="props.searchQuery" class="flex items-center space-x-3">
                                 <span :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-600']">
                                     {{ t('mm_searching_for') }}: "<span class="font-medium">{{ props.searchQuery
-                                    }}</span>"
+                                        }}</span>"
                                 </span>
                                 <button @click="clearSearch" :class="[
                                     'text-sm px-3 py-1 rounded-lg transition-colors hover:bg-opacity-80',
@@ -352,7 +352,7 @@ const props = defineProps({
     memoryStats: Object,
     config: Object,
     searchQuery: String,
-    isSearching: Boolean,
+    isSearching: Boolean
 });
 
 const isDark = ref(false);

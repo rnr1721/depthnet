@@ -18,11 +18,11 @@ class AiPreset extends Model
         'description',
         'engine_name',
         'system_prompt',
-        'notes',
-        'dopamine_level',
         'plugins_disabled',
         'engine_config',
         'metadata',
+        'loop_interval',
+        'max_context_limit',
         'is_active',
         'is_default',
         'created_by',
@@ -31,11 +31,12 @@ class AiPreset extends Model
     protected $casts = [
         'engine_config' => 'array',
         'metadata' => 'array',
+        'loop_interval' => 'integer',
+        'max_context_limit' => 'integer',
         'is_active' => 'boolean',
         'is_default' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
-        'dopamine_level' => 'integer'
     ];
 
     protected $attributes = [
@@ -44,8 +45,6 @@ class AiPreset extends Model
         'engine_config' => '{}',
         'metadata' => '{}',
         'system_prompt' => '',
-        //'notes' => '',
-        'dopamine_level' => 5,
         'plugins_disabled' => ''
     ];
 
@@ -55,6 +54,14 @@ class AiPreset extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Messages associated with this preset
+     */
+    public function messages(): HasMany
+    {
+        return $this->hasMany(Message::class, 'preset_id')->orderBy('created_at', 'asc');
     }
 
     /**
@@ -92,16 +99,6 @@ class AiPreset extends Model
         return $this->system_prompt ?? '';
     }
 
-    public function getNotes(): string
-    {
-        return $this->notes ?? '';
-    }
-
-    public function getDopamineLevel(): int
-    {
-        return $this->dopamine_level;
-    }
-
     public function getPluginsDisabled(): string
     {
         return $this->plugins_disabled ?? '';
@@ -115,6 +112,16 @@ class AiPreset extends Model
     public function getEngineConfig(): array
     {
         return $this->engine_config ?? [];
+    }
+
+    public function getLoopInterval(): int
+    {
+        return $this->loop_interval;
+    }
+
+    public function getMaxContextLimit(): int
+    {
+        return $this->max_context_limit;
     }
 
     public function isActive(): bool
@@ -140,141 +147,6 @@ class AiPreset extends Model
     public function getUpdatedAt(): ?\DateTime
     {
         return $this->updated_at;
-    }
-
-    /**
-     * Get metadata value by key or all metadata
-     */
-    public function getMetadata(?string $key = null, $default = null)
-    {
-        $metadata = $this->metadata ?? [];
-
-        if ($key === null) {
-            return $metadata;
-        }
-
-        // Support dot notation for nested keys
-        if (strpos($key, '.') !== false) {
-            return data_get($metadata, $key, $default);
-        }
-
-        return $metadata[$key] ?? $default;
-    }
-
-    /**
-     * Set metadata value by key
-     */
-    public function setMetadata(string $key, $value): void
-    {
-        $metadata = $this->metadata ?? [];
-
-        // Support dot notation for nested keys
-        if (strpos($key, '.') !== false) {
-            data_set($metadata, $key, $value);
-        } else {
-            $metadata[$key] = $value;
-        }
-
-        $this->metadata = $metadata;
-        $this->save();
-    }
-
-    /**
-     * Update multiple metadata values at once
-     */
-    public function updateMetadata(array $data): void
-    {
-        $metadata = $this->metadata ?? [];
-
-        foreach ($data as $key => $value) {
-            if (strpos($key, '.') !== false) {
-                data_set($metadata, $key, $value);
-            } else {
-                $metadata[$key] = $value;
-            }
-        }
-
-        $this->metadata = $metadata;
-        $this->save();
-    }
-
-    /**
-     * Remove metadata key
-     */
-    public function removeMetadata(string $key): void
-    {
-        $metadata = $this->metadata ?? [];
-
-        if (strpos($key, '.') !== false) {
-            data_forget($metadata, $key);
-        } else {
-            unset($metadata[$key]);
-        }
-
-        $this->metadata = $metadata;
-        $this->save();
-    }
-
-    /**
-     * Check if metadata key exists
-     */
-    public function hasMetadata(string $key): bool
-    {
-        $metadata = $this->metadata ?? [];
-
-        if (strpos($key, '.') !== false) {
-            return data_get($metadata, $key) !== null;
-        }
-
-        return isset($metadata[$key]);
-    }
-
-    /**
-     * Clear all metadata or specific namespace
-     */
-    public function clearMetadata(?string $namespace = null): void
-    {
-        if ($namespace === null) {
-            $this->metadata = [];
-        } else {
-            $metadata = $this->metadata ?? [];
-            unset($metadata[$namespace]);
-            $this->metadata = $metadata;
-        }
-
-        $this->save();
-    }
-
-    /**
-     * Get metadata for specific plugin/namespace
-     */
-    public function getPluginMetadata(string $pluginName, ?string $key = null, $default = null)
-    {
-        $pluginData = $this->getMetadata($pluginName, []);
-
-        if ($key === null) {
-            return $pluginData;
-        }
-
-        return $pluginData[$key] ?? $default;
-    }
-
-    /**
-     * Set metadata for specific plugin/namespace
-     */
-    public function setPluginMetadata(string $pluginName, string $key, $value): void
-    {
-        $this->setMetadata("{$pluginName}.{$key}", $value);
-    }
-
-    /**
-     * Update multiple values for specific plugin
-     */
-    public function updatePluginMetadata(string $pluginName, array $data): void
-    {
-        $pluginData = $this->getMetadata($pluginName, []);
-        $pluginData = array_merge($pluginData, $data);
-        $this->setMetadata($pluginName, $pluginData);
     }
 
     /**
@@ -317,44 +189,4 @@ class AiPreset extends Model
         return $this->hasMany(VectorMemory::class, 'preset_id');
     }
 
-    /**
-     * Get formatted memory content as numbered list
-     * This method provides backward compatibility with the old notes-based approach
-     */
-    public function getFormattedMemory(): string
-    {
-        $memoryItems = $this->memoryItems;
-
-        if ($memoryItems->isEmpty()) {
-            return $this->notes ?? '';
-        }
-
-        $formatted = [];
-        foreach ($memoryItems as $index => $item) {
-            $number = $index + 1;
-            $formatted[] = "{$number}. {$item->content}";
-        }
-
-        return implode("\n", $formatted);
-    }
-
-    /**
-     * Get total memory length in characters
-     */
-    public function getMemoryLength(): int
-    {
-        if ($this->memoryItems->isEmpty()) {
-            return strlen($this->notes ?? '');
-        }
-
-        return $this->memoryItems->sum('content_length');
-    }
-
-    /**
-     * Check if preset has any memory content (either new format or legacy notes)
-     */
-    public function hasMemory(): bool
-    {
-        return $this->memoryItems->isNotEmpty() || !empty($this->notes);
-    }
 }

@@ -25,11 +25,6 @@ class AgentJobService implements AgentJobServiceInterface
      */
     private const LOCK_KEY = 'task_lock';
 
-    /**
-     * Timeout between requests key in database options
-     */
-    private const TIMEOUT_KEY = 'model_timeout_between_requests';
-
     public function __construct(
         private OptionsServiceInterface $options,
         private ChatStatusServiceInterface $chatStatusService,
@@ -223,7 +218,8 @@ class AgentJobService implements AgentJobServiceInterface
             $this->logger->info("AgentJobService: Not scheduling next cycle - chat inactive");
             return;
         }
-        $thinkingDelay = $this->options->get(self::TIMEOUT_KEY, 15);
+        $defaultPreset = $this->presetService->getDefaultPreset();
+        $thinkingDelay = $defaultPreset->getLoopInterval();
         ProcessAgentThinking::dispatch()->onQueue($this->queue)->delay($thinkingDelay);
     }
 

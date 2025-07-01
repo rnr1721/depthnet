@@ -4,6 +4,7 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
+use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
@@ -19,6 +20,7 @@ class PythonPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginPresetTrait;
     use PluginConfigTrait;
+    use PluginExecutionMetaTrait;
 
     public function __construct()
     {
@@ -494,5 +496,13 @@ class PythonPlugin implements CommandPluginInterface
     public function canBeMerged(): bool
     {
         return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function pluginReady(): void
+    {
+        // Nothing to do here
     }
 }

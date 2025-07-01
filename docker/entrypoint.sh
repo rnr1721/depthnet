@@ -45,6 +45,10 @@ fi
 # Setup frontend dependencies
 setup_frontend() {
     echo "Installing Node.js dependencies..."
+    if is_production; then
+        rm -f public/hot
+    fi
+
     if ! npm install --include=dev; then
         echo "Failed to install npm dependencies"
         return 1

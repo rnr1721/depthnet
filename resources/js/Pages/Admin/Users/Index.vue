@@ -4,7 +4,7 @@
         'min-h-screen transition-colors duration-300',
         isDark ? 'bg-gray-900' : 'bg-gray-50'
     ]">
-        <AdminHeader :title="t('users')" :isAdmin="true" />
+        <AdminHeader :title="t('users')" :isAdmin="true" :sandbox-enabled="$page.props.sandboxEnabled" />
 
         <!-- Main content -->
         <main class="relative">

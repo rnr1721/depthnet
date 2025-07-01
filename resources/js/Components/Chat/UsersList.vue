@@ -25,7 +25,7 @@
         </div>
 
         <!-- Users list -->
-        <div class="flex-1 overflow-y-auto p-3 space-y-2">
+        <div class="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
             <button v-for="user in users" :key="user.id" @click="$emit('mentionUser', user.name)" :class="[
                 'w-full text-left p-3 rounded-lg transition-all duration-200 group',
                 'hover:scale-105 transform',
@@ -44,12 +44,6 @@
                         ]">
                             {{ user.name.charAt(0).toUpperCase() }}
                         </div>
-                        <!-- Online indicator -->
-                        <!--
-              <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-current rounded-full" 
-                   :class="isDark ? 'border-gray-800' : 'border-white'">
-              </div>
-                -->
                     </div>
 
                     <!-- User info -->
@@ -68,12 +62,6 @@
                                 {{ t('chat_admin') }}
                             </span>
                         </div>
-                        <!-- Optional: Last seen or status -->
-                        <div :class="[
-                            'text-xs mt-0.5 opacity-75',
-                            isDark ? 'text-gray-400' : 'text-gray-500'
-                        ]">
-                        </div>
                     </div>
 
                     <!-- Hover indicator -->
@@ -91,20 +79,30 @@
             </button>
         </div>
 
+        <!-- Preset Metadata -->
+        <div class="flex-shrink-0 p-3 border-t" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+            <PresetMetadata :metadata="presetMetadata" :isDark="isDark" />
+        </div>
+
         <!-- Footer -->
         <div :class="[
-            'p-4 text-center',
-            isDark ? 'text-gray-400' : 'text-gray-500'
+            'p-7 text-center flex-shrink-0 border-t',
+            isDark ? 'text-gray-400 border-gray-600' : 'text-gray-500 border-gray-200'
         ]">
-            <div class="text-2xl mb-2"></div>
-            <p class="text-sm"><a target="_blank" href="https://github.com/rnr1721/depthnet">{{ t('project_home') }}</a>
-            </p>
+            <button @click="$emit('showAbout')" :class="[
+                'transition-colors hover:underline focus:outline-none cursor-pointer',
+                isDark ? 'hover:text-gray-300' : 'hover:text-gray-700'
+            ]">
+                {{ t('project_home') }}
+            </button>
         </div>
+
     </div>
 </template>
 
 <script setup>
 import { useI18n } from 'vue-i18n';
+import PresetMetadata from './PresetMetadata.vue';
 
 const { t } = useI18n();
 
@@ -116,10 +114,14 @@ defineProps({
     isDark: {
         type: Boolean,
         required: true
+    },
+    presetMetadata: {
+        type: Object,
+        default: () => ({})
     }
 });
 
-defineEmits(['mentionUser']);
+defineEmits(['mentionUser', 'showAbout']);
 </script>
 
 <style scoped>

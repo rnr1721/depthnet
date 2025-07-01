@@ -4,7 +4,7 @@
         'min-h-screen transition-colors duration-300',
         isDark ? 'bg-gray-900' : 'bg-gray-50'
     ]">
-        <AdminHeader :title="t('presets_ai_presets')" :isAdmin="true" />
+        <AdminHeader :title="t('presets_ai_presets')" :isAdmin="true" :sandbox-enabled="$page.props.sandboxEnabled" />
 
         <!-- Main content -->
         <main class="relative">
@@ -247,8 +247,8 @@
         </main>
 
         <!-- Create/Edit Modal -->
-        <PresetModal v-if="showCreateModal || editingPreset" :placeholders="placeholders" :preset="editingPreset" :engines="engines"
-            @close="closeModal" @save="savePreset" />
+        <PresetModal v-if="showCreateModal || editingPreset" :placeholders="placeholders" :preset="editingPreset"
+            :engines="engines" @close="closeModal" @save="savePreset" />
     </div>
 </template>
 

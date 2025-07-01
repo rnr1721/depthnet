@@ -176,6 +176,17 @@
                       <span>{{ $t('engines') }}</span>
                       </Link>
 
+                      <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')"
+                        @click="dropdownOpen = false" :class="[
+                          'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
+                          isDark
+                            ? 'text-gray-200 hover:bg-gray-700'
+                            : 'text-gray-700 hover:bg-gray-100'
+                        ]">
+                      <span class="mr-3"></span>
+                      <span>{{ $t('hypervisor') }}</span>
+                      </Link>
+
                       <div :class="[
                         'border-t my-2',
                         isDark ? 'border-gray-700' : 'border-gray-200'
@@ -348,6 +359,16 @@
                   ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
                   <span class="text-lg"></span>
                   <span>{{ $t('engines') }}</span>
+                  </Link>
+
+                  <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')" :class="[
+                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+                    isDark
+                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
+                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
+                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                  <span class="text-lg"></span>
+                  <span>{{ $t('hypervisor') }}</span>
                   </Link>
 
                   <Link :href="route('admin.users.index')" :class="[

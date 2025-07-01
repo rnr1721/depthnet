@@ -18,13 +18,13 @@ class ChatExporterService implements ChatExporterServiceInterface
     /**
      * @inheritDoc
      */
-    public function export(string $format, array $options = []): Response
+    public function export(string $format, int $presetId, array $options = []): Response
     {
         $exporter = $this->exporterRegistry->get($format);
-        $messages = $this->chatService->getAllMessages();
+        $messages = $this->chatService->getAllMessages($presetId);
 
         $content = $exporter->export($messages, $options);
-        $filename = 'chat_export_' . date('Y-m-d_H-i-s') . '.' . $exporter->getExtension();
+        $filename = 'chat_export_preset_' . $presetId . '_' . date('Y-m-d_H-i-s') . '.' . $exporter->getExtension();
 
         return response($content)
             ->header('Content-Type', $exporter->getMimeType())

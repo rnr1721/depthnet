@@ -132,14 +132,14 @@ class CommandExecutor implements CommandExecutorInterface
         array $results
     ): string {
         //$formatted = $originalOutput . "\n\n" . "AGENT COMMAND RESULTS:" . "\n\n";
-        $formatted = $originalOutput . "\n\n" . "<agent_output_results>" . "\n\n";
+        $formatted = $originalOutput . "\n\n" . "<system_output_results>" . "\n\n";
 
         foreach ($results as $i => $result) {
             $command = $result->command;
 
             $plugin = $this->pluginRegistry->get($command->plugin);
             if (!$plugin) {
-                $formatted .= '💀 AGENT COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
+                $formatted .= '💀 SYSTEM COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
                 continue;
             }
             $customSuccessMessage = $plugin->getCustomSuccessMessage();

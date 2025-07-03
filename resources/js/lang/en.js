@@ -638,5 +638,8 @@ export default {
   hv_sandbox_ports: "Sandbox ports",
   hv_sandbox_ports_placeholder: "Example: 3000,4000,5000",
   hv_sandbox_ports_help: "Ports that will be forwarded from the outside and through which it is possible to access the sandbox",
-  hv_name: "Name"
+  hv_name: "Name",
+  hv_open_port: "Open port {port}",
+  hv_ports: "Ports",
+  hv_no_ports: "No ports",
 }

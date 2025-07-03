@@ -30,6 +30,7 @@ class SandboxInstance
             'image' => $this->image,
             'created_at' => $this->createdAt->format('c'),
             'metadata' => $this->metadata,
+            'ports' => $this->metadata['ports'] ?? []
         ];
     }
 }

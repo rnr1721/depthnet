@@ -636,5 +636,8 @@ export default {
   hv_sandbox_ports: "Порты песочницы",
   hv_sandbox_ports_placeholder: "Пример: 3000,4000,5000",
   hv_sandbox_ports_help: "Порты, которые будут проброшены извне, и по которым возможно получать доступ к песочнице",
-  hv_name: "Название"
+  hv_name: "Название",
+  hv_open_port: "Открыть порт {port}",
+  hv_ports: "Порты",
+  hv_no_ports: "Нет портов",
 }

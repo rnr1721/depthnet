@@ -577,7 +577,7 @@ class DockerSandboxManager implements SandboxManagerInterface
     }
 
     /**
-     * Parse sandbox list output from manager script
+     * Parse sandbox list output from manager script (fixed for 4-column format)
      *
      * @param string $output
      * @return array
@@ -600,50 +600,109 @@ class DockerSandboxManager implements SandboxManagerInterface
                 continue;
             }
 
-            // Parse container line using regex to handle complex statuses
-            // Expected format: "container-name   status (can have spaces)   image-name"
-            if (preg_match('/^(\S+)\s+(.+?)\s+(\S+)$/', $line, $matches)) {
+            // Parse container line - try new 4-column format first
+            // New format: "container-name   status   image-name   ports"
+            if (preg_match('/^(\S+)\s+(\S+)\s+(\S+)\s+(.*)$/', $line, $matches)) {
                 $containerName = trim($matches[1]);
                 $status = trim($matches[2]);
                 $image = trim($matches[3]);
+                $ports = trim($matches[4]);
 
-                // Extract sandbox ID from container name
-                if (str_starts_with($containerName, $sandboxPrefix . '-')) {
-                    $sandboxId = substr($containerName, strlen($sandboxPrefix . '-'));
+                $this->log('Parsing new 4-column format', [
+                    'line' => $line,
+                    'container' => $containerName,
+                    'status' => $status,
+                    'image' => $image,
+                    'ports' => $ports
+                ], 'debug');
 
-                    // Determine sandbox type from image
-                    $type = str_replace('sandbox-', '', $image);
-                    if ($type === $image) {
-                        // Fallback if image doesn't start with 'sandbox-'
-                        $type = 'unknown';
-                    }
+            } elseif (preg_match('/^(\S+)\s+(.+?)\s+(\S+)$/', $line, $matches)) {
+                // Fallback to old 3-column format: "container-name   status (can have spaces)   image-name"
+                $containerName = trim($matches[1]);
+                $status = trim($matches[2]);
+                $image = trim($matches[3]);
+                $ports = 'none'; // No ports in old format
 
-                    $sandboxes[] = new SandboxInstance(
-                        id: $sandboxId,
-                        name: $containerName,
-                        type: $type,
-                        status: $this->normalizeStatus($status),
-                        image: $image,
-                        createdAt: new \DateTimeImmutable(), // We don't have exact creation time
-                        metadata: ['container_name' => $containerName]
-                    );
+                $this->log('Parsing old 3-column format', [
+                    'line' => $line,
+                    'container' => $containerName,
+                    'status' => $status,
+                    'image' => $image
+                ], 'debug');
 
-                    $this->log('Parsed sandbox', [
-                        'id' => $sandboxId,
-                        'name' => $containerName,
-                        'status' => $status,
-                        'normalized_status' => $this->normalizeStatus($status),
-                        'type' => $type
-                    ], 'debug');
-                }
             } else {
                 $this->log('Could not parse sandbox line', ['line' => $line], 'debug');
+                continue;
+            }
+
+            // Extract sandbox ID from container name
+            if (str_starts_with($containerName, $sandboxPrefix . '-')) {
+                $sandboxId = substr($containerName, strlen($sandboxPrefix . '-'));
+
+                // Determine sandbox type from image
+                $type = str_replace('sandbox-', '', $image);
+                if ($type === $image) {
+                    // Fallback if image doesn't start with 'sandbox-'
+                    $type = 'unknown';
+                }
+
+                // Parse ports
+                $parsedPorts = $this->parsePorts($ports);
+
+                $sandboxes[] = new SandboxInstance(
+                    id: $sandboxId,
+                    name: $containerName,
+                    type: $type,
+                    status: $this->normalizeStatus($status),
+                    image: $image,
+                    createdAt: new \DateTimeImmutable(),
+                    metadata: [
+                        'container_name' => $containerName,
+                        'ports' => $parsedPorts
+                    ]
+                );
+
+                $this->log('Parsed sandbox', [
+                    'id' => $sandboxId,
+                    'name' => $containerName,
+                    'status' => $status,
+                    'normalized_status' => $this->normalizeStatus($status),
+                    'type' => $type,
+                    'ports' => $parsedPorts
+                ], 'debug');
             }
         }
 
         $this->log('Parsed sandboxes total', ['count' => count($sandboxes)], 'debug');
 
         return $sandboxes;
+    }
+
+    /**
+     * Parse ports string into array
+     *
+     * @param string $portsString
+     * @return array
+     */
+    private function parsePorts(string $portsString): array
+    {
+        $portsString = trim($portsString);
+
+        if (empty($portsString) || $portsString === 'none') {
+            return [];
+        }
+
+        $ports = [];
+        $portNumbers = explode(',', $portsString);
+
+        foreach ($portNumbers as $port) {
+            $port = trim($port);
+            if (is_numeric($port) && $port > 0 && $port <= 65535) {
+                $ports[] = (int) $port;
+            }
+        }
+
+        return $ports;
     }
 
     /**
@@ -656,6 +715,24 @@ class DockerSandboxManager implements SandboxManagerInterface
     {
         $dockerStatus = trim($dockerStatus);
 
+        // Handle direct status values
+        if (in_array($dockerStatus, ['running', 'stopped', 'exited', 'created', 'paused', 'restarting'])) {
+            switch ($dockerStatus) {
+                case 'running':
+                case 'restarting':
+                    return 'running';
+                case 'stopped':
+                case 'exited':
+                case 'created':
+                case 'paused':
+                    return 'stopped';
+                default:
+                    return $dockerStatus;
+            }
+        }
+
+        // Handle Docker-style status messages (on legacy)
+
         // Check for running status (starts with "Up")
         if (str_starts_with($dockerStatus, 'Up')) {
             return 'running';
@@ -667,7 +744,7 @@ class DockerSandboxManager implements SandboxManagerInterface
             return 'stopped';
         }
 
-        // Other statuses
+        // Other Docker statuses
         if (str_starts_with($dockerStatus, 'Created')) {
             return 'stopped';
         }
@@ -680,8 +757,12 @@ class DockerSandboxManager implements SandboxManagerInterface
             return 'stopped';
         }
 
-        // fallback
-        $this->log('Unknown Docker status', ['status' => $dockerStatus], 'debug');
+        // Log unknown status for debugging
+        $this->log('Unknown Docker status', [
+            'status' => $dockerStatus,
+            'original' => $dockerStatus
+        ], 'warning');
+
         return 'unknown';
     }
 

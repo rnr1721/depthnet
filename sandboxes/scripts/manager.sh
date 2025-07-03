@@ -416,7 +416,7 @@ dive_sandbox() {
             return 1
         fi
     fi
-    
+
     # Check if shell exists in container
     if ! docker exec "$container_name" which "$shell" >/dev/null 2>&1; then
         log_warning "Shell '$shell' not found, falling back to 'sh'"
@@ -437,25 +437,188 @@ dive_sandbox() {
     return $exit_code
 }
 
+# Extract container configuration before reset
+extract_container_config() {
+    local container_name="$1"
+    local config_file="/tmp/${container_name}_config.txt"
+
+    # Extract port mappings
+    local ports=$(docker port "$container_name" 2>/dev/null | awk -F':' '{print $2}' | awk -F'->' '{print $1}' | sort -u | tr '\n' ',' | sed 's/,$//')
+
+    # Extract image name to determine type
+    local image=$(docker inspect "$container_name" --format '{{.Config.Image}}' 2>/dev/null)
+    local type=$(echo "$image" | sed 's/sandbox-//')
+
+    # Save config to temp file
+    echo "TYPE=$type" > "$config_file"
+    echo "PORTS=$ports" >> "$config_file"
+
+    echo "$config_file"
+}
+
 # Reset sandbox to start state
 reset_sandbox() {
     local sandbox_name="$1"
-    local type="${2:-ubuntu-full}"
+    local type_override="$2"
 
     if [ -z "$sandbox_name" ]; then
-        log_error "Usage: reset_sandbox <sandbox_name> [type]"
+        log_error "Usage: reset_sandbox <sandbox_name> [type_override]"
+        return 1
+    fi
+
+    local container_name="${SANDBOX_PREFIX}-${sandbox_name}"
+
+    # Check if container exists
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        log_error "Sandbox $container_name not found"
         return 1
     fi
 
     log_info "Resetting sandbox: $sandbox_name"
 
+    # Extract current configuration before destroying
+    log_info "Extracting current container configuration..."
+    local config_file=$(extract_container_config "$container_name")
+
+    if [ ! -f "$config_file" ]; then
+        log_error "Failed to extract container configuration"
+        return 1
+    fi
+
+    # Load configuration
+    source "$config_file"
+
+    # Use override type if provided, otherwise use extracted type
+    local final_type="${type_override:-$TYPE}"
+    local final_ports="$PORTS"
+
+    # Clean up ports string - remove any empty elements
+    if [ -n "$final_ports" ]; then
+        final_ports=$(echo "$final_ports" | sed 's/^,//;s/,$//;s/,,/,/g' | sed '/^$/d')
+    fi
+
+    log_info "Container config: type=$final_type, ports=${final_ports:-none}"
+
     # Remove old container
     destroy_sandbox "$sandbox_name"
 
-    # Create new with same name
-    create_sandbox "$type" "$sandbox_name" >/dev/null
+    # Create new with same configuration
+    if [ -n "$final_ports" ] && [ "$final_ports" != "" ]; then
+        # Validate ports format
+        if [[ "$final_ports" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+            log_info "Recreating sandbox with ports: $final_ports"
+            create_sandbox "$final_type" "$sandbox_name" "$final_ports" >/dev/null
+        else
+            log_warning "Invalid ports format: '$final_ports', creating without ports"
+            create_sandbox "$final_type" "$sandbox_name" >/dev/null
+        fi
+    else
+        log_info "Recreating sandbox without port mapping"
+        create_sandbox "$final_type" "$sandbox_name" >/dev/null
+    fi
 
-    log_success "Sandbox $sandbox_name reset successfully"
+    # Clean up temp config file
+    rm -f "$config_file"
+
+    if [ $? -eq 0 ]; then
+        log_success "Sandbox $sandbox_name reset successfully with original configuration"
+        log_info "Type: $final_type"
+        if [ -n "$final_ports" ]; then
+            log_info "Ports: $final_ports"
+        fi
+    else
+        log_error "Failed to reset sandbox $sandbox_name"
+        return 1
+    fi
+}
+
+# Debug function to test port extraction
+debug_port_extraction() {
+    local sandbox_name="$1"
+
+    if [ -z "$sandbox_name" ]; then
+        log_error "Usage: debug_port_extraction <sandbox_name>"
+        return 1
+    fi
+
+    local container_name="${SANDBOX_PREFIX}-${sandbox_name}"
+
+    echo "=== Debug Port Extraction for $container_name ==="
+    echo ""
+
+    echo "Raw docker port output:"
+    docker port "$container_name" 2>/dev/null || echo "No ports or container not found"
+    echo ""
+
+    echo "Port mappings extraction steps:"
+    local port_mappings=$(docker port "$container_name" 2>/dev/null)
+    echo "1. Raw port mappings: '$port_mappings'"
+
+    if [ -n "$port_mappings" ]; then
+        local step2=$(echo "$port_mappings" | grep -oE '0\.0\.0\.0:([0-9]+)')
+        echo "2. After grep 0.0.0.0: '$step2'"
+
+        local step3=$(echo "$step2" | cut -d':' -f2)
+        echo "3. After cut: '$step3'"
+
+        local step4=$(echo "$step3" | sort -nu)
+        echo "4. After sort: '$step4'"
+
+        local step5=$(echo "$step4" | tr '\n' ',')
+        echo "5. After tr: '$step5'"
+
+        local final_ports=$(echo "$step5" | sed 's/,$//')
+        echo "6. Final result: '$final_ports'"
+    fi
+}
+
+# Show detailed sandbox information
+show_sandbox_info() {
+    local sandbox_name="$1"
+
+    if [ -z "$sandbox_name" ]; then
+        log_error "Usage: show_sandbox_info <sandbox_name>"
+        return 1
+    fi
+
+    local container_name="${SANDBOX_PREFIX}-${sandbox_name}"
+
+    # Check if container exists
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        log_error "Sandbox $container_name not found"
+        return 1
+    fi
+
+    log_info "Sandbox Information: $sandbox_name"
+    echo ""
+
+    # Basic info
+    echo "=== Basic Info ==="
+    docker inspect "$container_name" --format '
+Status: {{.State.Status}}
+Created: {{.Created}}
+Image: {{.Config.Image}}
+Network: {{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' 2>/dev/null
+
+    echo ""
+    echo "=== Port Mappings ==="
+    local ports=$(docker port "$container_name" 2>/dev/null)
+    if [ -n "$ports" ]; then
+        echo "$ports"
+    else
+        echo "No ports mapped"
+    fi
+
+    echo ""
+    echo "=== Resource Limits ==="
+    docker inspect "$container_name" --format '
+Memory: {{.HostConfig.Memory}}
+CPUs: {{.HostConfig.NanoCpus}}
+PidsLimit: {{.HostConfig.PidsLimit}}' 2>/dev/null
+
+    echo ""
+    echo "=== Volumes ==="
+    docker inspect "$container_name" --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}' 2>/dev/null
 }
 
 # Rebuild sandbox image
@@ -708,11 +871,45 @@ list_sandboxes() {
 
     if [ "$show_all" = "all" ] || [ "$show_all" = "-a" ]; then
         log_info "All sandboxes (running and stopped):"
-        docker ps -a --filter "name=${SANDBOX_PREFIX}-" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+        
+        # Get all containers with sandbox prefix
+        local containers=$(docker ps -a --filter "name=${SANDBOX_PREFIX}-" --format "{{.Names}}" 2>/dev/null)
     else
         log_info "Active sandboxes:"
-        docker ps --filter "name=${SANDBOX_PREFIX}-" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+        
+        # Get only running containers with sandbox prefix
+        local containers=$(docker ps --filter "name=${SANDBOX_PREFIX}-" --format "{{.Names}}" 2>/dev/null)
     fi
+
+    if [ -z "$containers" ]; then
+        return 0
+    fi
+
+    # Process each container and output in consistent format
+    echo "$containers" | while read -r container_name; do
+        if [ -z "$container_name" ]; then
+            continue
+        fi
+
+        # Get container details
+        local status=$(docker inspect "$container_name" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        local image=$(docker inspect "$container_name" --format '{{.Config.Image}}' 2>/dev/null || echo "unknown")
+
+        # Get ports in clean format
+        local ports="none"
+        if [ "$status" = "running" ]; then
+            local port_mappings=$(docker port "$container_name" 2>/dev/null)
+            if [ -n "$port_mappings" ]; then
+                ports=$(echo "$port_mappings" | grep -oE '0\.0\.0\.0:([0-9]+)' | cut -d':' -f2 | sort -nu | tr '\n' ',' | sed 's/,$//')
+                if [ -z "$ports" ]; then
+                    ports="none"
+                fi
+            fi
+        fi
+
+        # Output in consistent format: NAME STATUS IMAGE PORTS
+        printf "%-30s %-15s %-25s %s\n" "$container_name" "$status" "$image" "$ports"
+    done
 }
 
 # Clear all sandboxes (except protected ones) with cleanup
@@ -764,7 +961,7 @@ cleanup_all() {
             log_error "Failed to remove sandbox: $container_name"
         fi
     done
-    
+
     # Post-cleanup network verification
     log_info "Verifying network connectivity..."
     if docker network inspect "$SANDBOX_NETWORK" >/dev/null 2>&1; then
@@ -902,6 +1099,9 @@ main() {
         "list")
             list_sandboxes "$2"
             ;;
+        "info")
+            show_sandbox_info "$2"
+            ;;
         "shared")
             show_shared_dirs
             ;;
@@ -913,6 +1113,9 @@ main() {
             ;;
         "diagnose")
             diagnose_system
+            ;;
+        "debug-ports")
+            debug_port_extraction "$2"
             ;;
         "config")
             show_config
@@ -937,10 +1140,12 @@ main() {
             echo "  rebuild [type] [force]         - Rebuild sandbox image"
             echo "  destroy <name>                 - Remove sandbox completely"
             echo "  list [all]                     - List sandboxes (add 'all' for stopped too)"
+            echo "  info <name>                    - Show detailed sandbox information"
             echo "  shared                         - Show shared directories"
             echo "  cleanup                        - Remove all sandboxes"
             echo "  current                        - Show current container name"
             echo "  diagnose                       - Run system diagnostics"
+            echo "  debug-ports <name>             - Debug port extraction for sandbox"
             echo "  config                         - Show current configuration"
             echo "  templates                      - Show available templates"
             echo "  rmi <type> [force]             - Remove sandbox image"

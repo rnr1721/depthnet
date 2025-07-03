@@ -144,6 +144,13 @@ class Agent implements AgentInterface
         $output = $response->getResponse();
         $actionsResult = $this->agentActions->runActions($output);
 
+        if ($actionsResult->getSystemMessage()) {
+            $this->createSystemMessage(
+                $actionsResult->getSystemMessage(),
+                $presetId
+            );
+        }
+
         return $this->messageModel->create([
             'role' => $actionsResult->getRole(),
             'content' => $actionsResult->getResult(),

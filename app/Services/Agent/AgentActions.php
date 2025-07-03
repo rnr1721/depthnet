@@ -10,6 +10,7 @@ use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\DTO\ActionsResponseDTO;
+use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 
 class AgentActions implements AgentActionsInterface
 {
@@ -34,6 +35,7 @@ class AgentActions implements AgentActionsInterface
     {
         $commands = $this->commandParser->parse($responseString);
 
+        $systemMessage = null;
         $visibleToUser = false;
         $role = $isUser ? self::ROLE_USER : self::ROLE_THINKING;
 
@@ -48,8 +50,9 @@ class AgentActions implements AgentActionsInterface
         $executionResult = $this->executeCommands($commands, $responseString);
         if ($executionResult) {
             $role = self::ROLE_COMMAND;
-            $responseString = $executionResult['result'];
-            if (!$isUser && isset($executionResult['meta']['speak'])) {
+            $responseString = $executionResult->formattedMessage;
+            if (isset($executionResult->pluginExecutionMeta['speak'])) {
+                $systemMessage = $executionResult->pluginExecutionMeta['speak'];
                 $visibleToUser = true;
             }
         }
@@ -62,7 +65,8 @@ class AgentActions implements AgentActionsInterface
         return new ActionsResponseDTO(
             $responseString,
             $role,
-            $visibleToUser
+            $visibleToUser,
+            $systemMessage
         );
 
     }
@@ -94,19 +98,15 @@ class AgentActions implements AgentActionsInterface
      *
      * @param array $commands
      * @param string $responseString
-     * @return array|null
+     * @return CommandExecutionResult|null
      */
-    private function executeCommands(array $commands, string $responseString): ?array
+    private function executeCommands(array $commands, string $responseString): ?CommandExecutionResult
     {
         if (empty($commands)) {
             return null;
         }
 
-        $executionResult = $this->commandExecutor->executeCommands($commands, $responseString);
-        return [
-            'result' => $executionResult->formattedMessage,
-            'meta' => $executionResult->pluginExecutionMeta
-        ];
+        return $this->commandExecutor->executeCommands($commands, $responseString);
     }
 
 }

@@ -13,6 +13,7 @@ class ActionsResponseDTO implements AiActionsResponseInterface
         private string $result = '',
         private string $role = '',
         private bool $isVisibleForUser = false,
+        private ?string $systemMessage = null
     ) {
     }
 
@@ -38,6 +39,14 @@ class ActionsResponseDTO implements AiActionsResponseInterface
     public function isVisibleForUser(): bool
     {
         return $this->isVisibleForUser;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getSystemMessage(): ?string
+    {
+        return $this->systemMessage;
     }
 
 }

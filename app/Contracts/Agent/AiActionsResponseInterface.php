@@ -25,4 +25,11 @@ interface AiActionsResponseInterface
      * @return boolean
      */
     public function isVisibleForUser(): bool;
+
+    /**
+     * Additional system message
+     *
+     * @return string|null
+     */
+    public function getSystemMessage(): ?string;
 }

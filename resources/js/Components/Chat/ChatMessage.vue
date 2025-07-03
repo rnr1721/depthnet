@@ -43,7 +43,7 @@
         </div>
         <div :class="[
           'overflow-hidden transition-all duration-500 ease-in-out',
-          commandStates[command.id] ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+          commandStates[command.id] ? 'opacity-100' : 'max-h-0 opacity-0'
         ]">
           <div class="px-3 pb-3 transform transition-transform duration-300"
             :class="commandStates[command.id] ? 'translate-y-0' : '-translate-y-2'">
@@ -68,7 +68,7 @@
       <!-- Animated container for results -->
       <div v-if="hasCommandResults" :class="[
         'overflow-hidden transition-all duration-300 ease-out',
-        isResultsExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+        isResultsExpanded ? 'opacity-100' : 'max-h-0 opacity-0'
       ]">
         <div v-if="commandResults" v-html="resultsHtml"></div>
       </div>
@@ -116,8 +116,11 @@ const commandResults = computed(() => {
   const marker = '<agent_output_results>';
   if (!props.message.content.includes(marker)) return '';
 
-  const parts = props.message.content.split(marker);
-  return parts.slice(1).join(marker).trim();
+  const lastIndex = props.message.content.lastIndexOf(marker);
+  if (lastIndex !== -1) {
+    return props.message.content.substring(lastIndex + marker.length).trim();
+  }
+  return '';
 });
 
 const resultsHtml = computed(() => {
@@ -191,12 +194,15 @@ const extractedCommands = computed(() => {
   let commandCounter = 0;
   const content = props.message.content;
 
-  // Remove command results
+  // Remove command results - cut by LAST occurrence of marker
   const commandResultsMarker = '<agent_output_results>';
   let userContent = content;
+
   if (content.includes(commandResultsMarker)) {
-    const parts = content.split(commandResultsMarker);
-    userContent = parts[0].trim();
+    const lastIndex = content.lastIndexOf(commandResultsMarker);
+    if (lastIndex !== -1) {
+      userContent = content.substring(0, lastIndex).trim();
+    }
   }
 
   // Extract commands
@@ -226,20 +232,38 @@ const extractedCommands = computed(() => {
 
 const formattedContent = computed(() => {
   let content = props.message.content;
-
   const commandResultsMarker = '<agent_output_results>';
   let userContent = content;
 
-  // Remove command results from main content
+  // Remove command results from main content - last marker!
   if (content.includes(commandResultsMarker)) {
-    const parts = content.split(commandResultsMarker);
-    userContent = parts[0].trim();
+    const lastIndex = content.lastIndexOf(commandResultsMarker);
+    if (lastIndex !== -1) {
+      userContent = content.substring(0, lastIndex).trim();
+    }
   }
 
   // Remove commands from content (they are now displayed separately)
   userContent = userContent.replace(
     /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1\]/gs,
     ''
+  );
+
+  // FIRST: Replace fake agent markers with placeholder
+  userContent = userContent.replace(
+    /<agent_output_results>/g,
+    '___FAKE_AGENT_MARKER___'
+  );
+
+  // THEN: Escape HTML tags so they don't render as HTML (except markdown)
+  userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // FINALLY: Replace placeholder with styled HTML
+  userContent = userContent.replace(
+    /___FAKE_AGENT_MARKER___/g,
+    `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
+      <span class="mr-1">⚠️</span>&lt;agent_output_results&gt;
+    </span>`
   );
 
   // Process unclosed commands (leave as is)
@@ -255,7 +279,13 @@ const formattedContent = computed(() => {
     }
   );
 
-  userContent = userContent.replace('<agent_output_results>', t('chat_agent_output_results'));
+  // Highlight all remaining <agent_output_results> tags in red (these are fake ones from the model)
+  userContent = userContent.replace(
+    /<agent_output_results>/g,
+    `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
+      <span class="mr-1">⚠️</span>&lt;agent_output_results&gt;
+    </span>`
+  );
 
   const userHtml = marked.parse(userContent, {
     breaks: true,

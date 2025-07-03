@@ -468,22 +468,22 @@ class OpenAIModel implements AIModelEngineInterface
             // Map roles for OpenAI
             switch ($role) {
                 case 'user':
-                case 'command':
                     $messages[] = [
                         'role' => 'user',
                         'content' => $content
                     ];
-                    $lastRole = 'user';
                     break;
-
-                case 'thinking':
-                case 'speaking':
+                case 'result':
+                    $messages[] = [
+                        'role' => 'system',
+                        'content' => $content
+                    ];
+                    break;
                 default:
                     $messages[] = [
                         'role' => 'assistant',
                         'content' => $content
                     ];
-                    $lastRole = 'assistant';
                     break;
             }
         }

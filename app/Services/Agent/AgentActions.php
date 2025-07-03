@@ -35,22 +35,16 @@ class AgentActions implements AgentActionsInterface
     {
         $commands = $this->commandParser->parse($responseString);
 
+        $output = '';
+
         $systemMessage = null;
         $visibleToUser = false;
         $role = $isUser ? self::ROLE_USER : self::ROLE_THINKING;
 
-        // If the command is not called by the user and if we work in a loop
-        if (!$isUser) {
-            $thinkingPhrase = $this->optionsService->get('model_message_thinking_phrase', 'Thinking:');
-            if (!str_starts_with($responseString, $thinkingPhrase)) {
-                $responseString = $thinkingPhrase . ' ' . $responseString;
-            }
-        }
-
-        $executionResult = $this->executeCommands($commands, $responseString);
+        $executionResult = $this->executeCommands($commands);
         if ($executionResult) {
             $role = self::ROLE_COMMAND;
-            $responseString = $executionResult->formattedMessage;
+            $output .= $executionResult->formattedMessage;
             if (isset($executionResult->pluginExecutionMeta['speak'])) {
                 $systemMessage = $executionResult->pluginExecutionMeta['speak'];
                 $visibleToUser = true;
@@ -59,11 +53,11 @@ class AgentActions implements AgentActionsInterface
 
         $lintResults = $this->lintResults($responseString);
         if ($lintResults) {
-            $responseString .= $lintResults;
+            $output .= $lintResults;
         }
 
         return new ActionsResponseDTO(
-            $responseString,
+            $output,
             $role,
             $visibleToUser,
             $systemMessage
@@ -100,13 +94,13 @@ class AgentActions implements AgentActionsInterface
      * @param string $responseString
      * @return CommandExecutionResult|null
      */
-    private function executeCommands(array $commands, string $responseString): ?CommandExecutionResult
+    private function executeCommands(array $commands): ?CommandExecutionResult
     {
         if (empty($commands)) {
             return null;
         }
 
-        return $this->commandExecutor->executeCommands($commands, $responseString);
+        return $this->commandExecutor->executeCommands($commands);
     }
 
 }

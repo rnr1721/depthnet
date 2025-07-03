@@ -24,6 +24,7 @@ class UpdatePresetRequest extends FormRequest
             'engine_config' => ['array'],
             'loop_interval' => ['required','integer','min:4','max:30'],
             'max_context_limit' => ['required','integer','min:0','max:50'],
+            'agent_result_mode' => ['required','string'],
             'is_active' => ['boolean'],
             'is_default' => ['boolean'],
         ];

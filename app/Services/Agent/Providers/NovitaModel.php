@@ -735,9 +735,12 @@ class NovitaModel implements AIModelEngineInterface
                         'content' => $content
                     ];
                     break;
-
-                case 'thinking':
-                case 'speaking':
+                case 'result':
+                    $messages[] = [
+                        'role' => 'system',
+                        'content' => $content
+                    ];
+                    break;
                 default:
                     $messages[] = [
                         'role' => 'assistant',

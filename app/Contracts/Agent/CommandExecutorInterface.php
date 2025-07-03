@@ -11,8 +11,7 @@ interface CommandExecutorInterface
      * Execute multiple commands
      *
      * @param ParsedCommand[] $commands
-     * @param string $originalOutput
      * @return CommandExecutionResult
      */
-    public function executeCommands(array $commands, string $originalOutput): CommandExecutionResult;
+    public function executeCommands(array $commands): CommandExecutionResult;
 }

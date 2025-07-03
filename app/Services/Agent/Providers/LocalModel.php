@@ -490,15 +490,17 @@ class LocalModel implements AIModelEngineInterface
             // Map roles for Local AI models (OpenAI-compatible)
             switch ($role) {
                 case 'user':
-                case 'command':
                     $messages[] = [
                         'role' => 'user',
                         'content' => $content
                     ];
                     break;
-
-                case 'thinking':
-                case 'speaking':
+                case 'result':
+                    $messages[] = [
+                        'role' => 'system',
+                        'content' => $content
+                    ];
+                    break;
                 default:
                     $messages[] = [
                         'role' => 'assistant',

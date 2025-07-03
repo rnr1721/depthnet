@@ -1434,6 +1434,7 @@ return [
             'system_prompt' => "You are useful AI assistant\nDopamine level: [[dopamine_level]]\nYou know: [[notepad_content]]\nCurrent datetime: [[current_datetime]]\nCommand instructions: [[command_instructions]]\n",
             'loop_interval' => 15,
             'max_context_limit' => 8,
+            'agent_result_mode' => 'separate',
             'engine_config' => [
                 'processing_delay' => 1,
                 'scenario_mode' => 'random',

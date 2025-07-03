@@ -141,6 +141,7 @@ const form = ref({
     engine_config: props.preset?.engine_config || {},
     loop_interval: props.preset?.loop_interval || 15,
     max_context_limit: props.preset?.max_context_limit || 8,
+    agent_result_mode: props.preset?.agent_result_mode || 'separate',
     is_active: props.preset?.is_active ?? true,
     is_default: props.preset?.is_default || false
 });

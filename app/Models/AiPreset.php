@@ -23,6 +23,7 @@ class AiPreset extends Model
         'metadata',
         'loop_interval',
         'max_context_limit',
+        'agent_result_mode',
         'is_active',
         'is_default',
         'created_by',
@@ -122,6 +123,11 @@ class AiPreset extends Model
     public function getMaxContextLimit(): int
     {
         return $this->max_context_limit;
+    }
+
+    public function getAgentResultMode(): string
+    {
+        return $this->agent_result_mode;
     }
 
     public function isActive(): bool

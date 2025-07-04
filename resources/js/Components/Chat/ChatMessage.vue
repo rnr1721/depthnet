@@ -35,7 +35,7 @@
       ]">
         <div @click="toggleCommand(command.id)" :class="[
           'font-semibold text-sm p-3 pb-2 flex items-center cursor-pointer transition-all duration-200 rounded-t-md',
-          isDark ? 'text-blue-300 hover:text-blue-200 hover:bg-blue-800' : 'text-blue-700 hover:text-blue-800 hover:bg-blue-100'
+          isDark ? 'text-blue-300' : 'text-blue-700 hover:text-blue-800'
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
             :class="{ 'rotate-90': commandStates[command.id] }">▶</span>

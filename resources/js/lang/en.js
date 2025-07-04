@@ -87,6 +87,7 @@ export default {
   chat_agent_results_hide: "Hide",
   chat_agent_results: "command agent results",
   chat_agent_output_results: "Agent command results",
+  chat_current_preset: "Active preset",
   settings_header: "System Configuration and AI Settings",
   settings_saving: "Saving",
   settings_tips: "Useful tips",

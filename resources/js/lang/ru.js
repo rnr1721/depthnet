@@ -87,6 +87,7 @@ export default {
   chat_agent_results_hide: "Скрыть",
   chat_agent_results: "результаты",
   chat_agent_output_results: "Результат работы агента",
+  chat_current_preset: "Активный",
   settings_header: "Конфигурация системы и настройки ИИ",
   settings_saving: "Сохранение",
   settings_tips: "Полезные советы",

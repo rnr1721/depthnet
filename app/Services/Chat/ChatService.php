@@ -70,7 +70,7 @@ class ChatService implements ChatServiceInterface
 
         $message = $this->messageModel->create([
             'role' => 'user',
-            'content' => $finalContent,
+            'content' => $formattedContent . $finalContent,
             'from_user_id' => $user->id,
             'preset_id' => $presetId,
             'is_visible_to_user' => true
@@ -88,14 +88,14 @@ class ChatService implements ChatServiceInterface
      *
      * @param string $formattedContent
      * @param int $presetId
-     * @return void
+     * @return string
      */
     protected function runCommands(string $formattedContent, int $presetId)
     {
         $currentPreset = $this->presetRegistry->getPreset($presetId);
         $this->pluginRegistry->setCurrentPreset($currentPreset);
-        $finalMessage = $this->agentActions->runActions($formattedContent, true);
-        return $finalMessage->getResult();
+        $actionResult = $this->agentActions->runActions($formattedContent, true);
+        return $actionResult->getResult();
     }
 
     /**

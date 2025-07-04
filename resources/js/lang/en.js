@@ -87,6 +87,7 @@ export default {
   chat_agent_results_hide: "Hide",
   chat_agent_results: "command agent results",
   chat_agent_output_results: "Agent command results",
+  chat_current_preset: "Active preset",
   settings_header: "System Configuration and AI Settings",
   settings_saving: "Saving",
   settings_tips: "Useful tips",
@@ -392,6 +393,10 @@ export default {
   p_modal_fix_validation_errors: "Please fix validation errors before saving",
   p_modal_save_error: "Failed to save preset",
   p_modal_engines: "Engines",
+  p_modal_agent_result_mode: "Agent Result Mode",
+  p_modal_agent_result_attached: "Attached",
+  p_modal_agent_result_separate: "Separate",
+  p_modal_agent_result_mode_desc: "How to display agent execution results: attached to agent message or as separate message",
   plugins_page_title: 'Plugins',
   plugins_management: 'Plugins management',
   plugins_manage_plugins: 'Manage plugins',
@@ -638,5 +643,8 @@ export default {
   hv_sandbox_ports: "Sandbox ports",
   hv_sandbox_ports_placeholder: "Example: 3000,4000,5000",
   hv_sandbox_ports_help: "Ports that will be forwarded from the outside and through which it is possible to access the sandbox",
-  hv_name: "Name"
+  hv_name: "Name",
+  hv_open_port: "Open port {port}",
+  hv_ports: "Ports",
+  hv_no_ports: "No ports",
 }

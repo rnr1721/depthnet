@@ -13,18 +13,6 @@
             ]">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-3">
-                        <div :class="[
-                            'w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold',
-                            sandbox.status === 'running'
-                                ? 'bg-gradient-to-br from-green-500 to-emerald-600'
-                                : 'bg-gradient-to-br from-gray-500 to-gray-600'
-                        ]">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
-                                </path>
-                            </svg>
-                        </div>
                         <div>
                             <h3 :class="[
                                 'font-semibold',
@@ -55,6 +43,41 @@
                             isDark ? 'text-gray-400' : 'text-gray-600'
                         ]">{{ sandbox.name || sandbox.id }}</span>
                     </div>
+
+                    <!-- Ports -->
+                    <div class="flex justify-between">
+                        <span :class="[
+                            'text-sm font-medium',
+                            isDark ? 'text-gray-300' : 'text-gray-700'
+                        ]">{{ t('hv_ports') }}:</span>
+                        <div class="flex flex-col items-end space-y-1">
+                            <!-- No ports -->
+                            <span v-if="!sandboxHasPorts(sandbox)" :class="[
+                                'text-sm',
+                                isDark ? 'text-gray-500' : 'text-gray-500'
+                            ]">{{ t('hv_no_ports') }}</span>
+
+                            <!-- Port list -->
+                            <div v-else class="flex flex-wrap gap-1 justify-end">
+                                <a v-for="port in getSandboxPorts(sandbox)" :key="port" :href="getPortUrl(port)"
+                                    target="_blank" rel="noopener noreferrer" :class="[
+                                        'inline-flex items-center px-2 py-1 rounded text-xs font-medium transition-colors',
+                                        'hover:scale-105 transform duration-150',
+                                        isDark
+                                            ? 'bg-blue-900 text-blue-200 hover:bg-blue-800'
+                                            : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
+                                    ]" :title="t('hv_open_port', { port })">
+                                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14">
+                                        </path>
+                                    </svg>
+                                    {{ port }}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -198,7 +221,9 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { usePage } from '@inertiajs/vue3';
 
 const props = defineProps({
     sandboxes: {
@@ -226,6 +251,9 @@ const emit = defineEmits([
 ]);
 
 const { t } = useI18n();
+const page = usePage();
+
+const config = computed(() => page.props.config || {});
 
 /**
  * Get CSS classes for sandbox status badge
@@ -241,16 +269,39 @@ const getSandboxStatusClass = (status) => {
     return baseClass + (statusClasses[status] || statusClasses.stopped);
 };
 
-/**
- * Format date for display
- */
-const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('ru-RU', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+const getPortUrl = (port) => {
+    let baseHost = config.value.baseHost || 'localhost';
+    let scheme = config.value.scheme || 'http';
+
+    if (baseHost === 'localhost') {
+        baseHost = window.location.hostname;
+        scheme = window.location.protocol.slice(0, -1);
+    }
+
+    return `${scheme}://${baseHost}:${port}`;
 };
+
+/**
+ * Get ports for specific sandbox
+ */
+const getSandboxPorts = (sandbox) => {
+    // Try to get ports from different sources
+    const ports = sandbox.ports ||
+        sandbox.metadata?.ports ||
+        [];
+
+    // Filter and sort
+    return Array.isArray(ports)
+        ? ports.filter(port => port && typeof port === 'number').sort((a, b) => a - b)
+        : [];
+};
+
+/**
+ * Check if sandbox has ports
+ */
+const sandboxHasPorts = (sandbox) => {
+    const ports = getSandboxPorts(sandbox);
+    return ports && ports.length > 0;
+};
+
 </script>

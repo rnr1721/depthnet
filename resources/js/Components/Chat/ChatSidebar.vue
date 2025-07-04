@@ -22,7 +22,27 @@
           ]">
             {{ appName }}
           </a>
+
+          <!-- Theme toggle button (compact) -->
+          <button @click="$emit('toggleTheme')" :class="[
+            'p-1.5 rounded-lg transition-all hover:scale-110 focus:outline-none',
+            isDark
+              ? 'text-yellow-400 hover:bg-gray-700 hover:text-yellow-300'
+              : 'text-gray-600 hover:bg-gray-100 hover:text-yellow-600'
+          ]" :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'">
+            <!-- Sun icon for dark mode -->
+            <svg v-if="isDark" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd"
+                d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
+                clip-rule="evenodd" />
+            </svg>
+            <!-- Moon icon for light mode -->
+            <svg v-else class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+            </svg>
+          </button>
         </div>
+
         <button @click="$emit('closeMobileMenu')"
           class="lg:hidden p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,17 +94,55 @@
         {{ t('chat_clear_history') }}
       </button>
 
-      <!-- Preset selection -->
-      <PresetSelector v-if="isAdmin" :selectedPresetId="selectedPresetId" :availablePresets="availablePresets"
-        :currentPreset="currentPreset" :isDark="isDark"
-        @update:selectedPresetId="$emit('update:selectedPresetId', $event)" @editPreset="$emit('editPreset')" />
+      <!-- Edit current preset -->
+      <button v-if="isAdmin && currentPreset" @click="$emit('editPreset')" :class="[
+        'w-full px-4 py-3 rounded-xl font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+        'flex items-center justify-center space-x-2',
+        isDark
+          ? 'bg-indigo-600 hover:bg-indigo-700 text-white focus:ring-offset-gray-800'
+          : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+      ]">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
+          </path>
+        </svg>
+        <span>{{ t('chat_edit_current_preset') || 'Edit Current Preset' }}</span>
+      </button>
+
+      <!-- Current preset info -->
+      <div v-if="currentPreset" :class="[
+        'p-3 rounded-xl border',
+        isDark ? 'bg-gray-700 bg-opacity-50 border-gray-600' : 'bg-gray-50 border-gray-200'
+      ]">
+        <div class="flex items-center space-x-2 mb-2">
+          <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          <span :class="[
+            'font-medium text-sm',
+            isDark ? 'text-gray-200' : 'text-gray-700'
+          ]">
+            {{ t('chat_current_preset') || 'Current Preset' }}
+          </span>
+        </div>
+        <h4 :class="[
+          'font-semibold mb-1',
+          isDark ? 'text-white' : 'text-gray-900'
+        ]">
+          {{ currentPreset.name }}
+        </h4>
+        <div class="text-xs space-y-1">
+          <div :class="isDark ? 'text-gray-400' : 'text-gray-600'">
+            {{ t('chat_current_model') || 'Model' }}: {{ currentPreset.model || 'N/A' }}
+          </div>
+          <div :class="isDark ? 'text-gray-400' : 'text-gray-600'">
+            Engine: {{ currentPreset.engine_display_name || currentPreset.engine_name }}
+          </div>
+        </div>
+      </div>
 
       <!-- Model active toggle -->
       <ModelActiveToggle v-if="isAdmin" :isChatActive="isChatActive" :isDark="isDark"
         @update:isChatActive="$emit('update:isChatActive', $event)" />
-
-      <!-- Theme toggle -->
-      <ThemeToggle :isDark="isDark" @toggle="$emit('toggleTheme')" />
 
       <!-- Show thinking toggle -->
       <ShowThinkingToggle :showThinking="showThinking" :isDark="isDark"
@@ -118,9 +176,7 @@
 import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import PresetSelector from './PresetSelector.vue';
 import ModelActiveToggle from './ModelActiveToggle.vue';
-import ThemeToggle from './ThemeToggle.vue';
 import ShowThinkingToggle from './ShowThinkingToggle.vue';
 import ChatExport from './ChatExport.vue';
 
@@ -132,21 +188,18 @@ const props = defineProps({
   appName: String,
   user: Object,
   isAdmin: Boolean,
-  selectedPresetId: Number,
-  availablePresets: Array,
-  currentPreset: Object,
   isChatActive: Boolean,
   showThinking: Boolean,
   selectedExportFormat: String,
   includeThinking: Boolean,
   exportFormats: Array,
-  isExporting: Boolean
+  isExporting: Boolean,
+  currentPreset: Object
 });
 
 defineEmits([
   'closeMobileMenu',
   'clearHistory',
-  'update:selectedPresetId',
   'editPreset',
   'update:isChatActive',
   'toggleTheme',

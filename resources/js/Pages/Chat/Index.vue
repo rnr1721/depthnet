@@ -9,33 +9,33 @@
       <div class="absolute inset-0 bg-black opacity-50"></div>
     </div>
 
-    <!-- Mobile users overlay -->
-    <div v-if="mobileUsersOpen" class="fixed inset-0 z-40 lg:hidden" @click="mobileUsersOpen = false">
+    <!-- Mobile tabs overlay -->
+    <div v-if="mobileTabsOpen" class="fixed inset-0 z-40 lg:hidden" @click="mobileTabsOpen = false">
       <div class="absolute inset-0 bg-black opacity-50"></div>
       <div :class="[
         'fixed inset-y-0 right-0 z-50 w-80 transform transition-transform duration-300 ease-in-out',
         'flex flex-col shadow-xl',
         isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
       ]">
-        <UsersList :users="localUsers" :isDark="isDark" :presetMetadata="presetMetadata"
-          @mentionUser="handleMobileMention" @showAbout="showAboutModal = true" />
+        <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
+          :isDark="isDark" :presetMetadata="presetMetadata" @mentionUser="handleMobileMention"
+          @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect" @editPreset="editCurrentPreset" />
       </div>
     </div>
 
     <!-- Sidebar -->
     <ChatSidebar :mobileMenuOpen="mobileMenuOpen" :isDark="isDark" :appName="page.props.app_name" :user="user"
-      :isAdmin="isAdmin" v-model:selectedPresetId="selectedPresetId" :availablePresets="availablePresets"
-      :currentPreset="currentPreset" v-model:isChatActive="isChatActive" v-model:showThinking="showThinking"
-      v-model:selectedExportFormat="selectedExportFormat" v-model:includeThinking="includeThinking"
-      :exportFormats="exportFormats" :isExporting="isExporting" @closeMobileMenu="mobileMenuOpen = false"
-      @clearHistory="confirmClearHistory" @editPreset="editCurrentPreset" @toggleTheme="toggleTheme"
-      @exportChat="exportChat" />
+      :isAdmin="isAdmin" :currentPreset="currentPreset" v-model:isChatActive="isChatActive"
+      v-model:showThinking="showThinking" v-model:selectedExportFormat="selectedExportFormat"
+      v-model:includeThinking="includeThinking" :exportFormats="exportFormats" :isExporting="isExporting"
+      @closeMobileMenu="mobileMenuOpen = false" @clearHistory="confirmClearHistory" @editPreset="editCurrentPreset"
+      @toggleTheme="toggleTheme" @exportChat="exportChat" />
 
     <!-- Main chat area -->
     <div class="flex-1 flex flex-col overflow-hidden lg:ml-0">
       <!-- Mobile header -->
       <MobileHeader :isDark="isDark" :appName="page.props.app_name" @openMenu="mobileMenuOpen = true"
-        @openUsers="mobileUsersOpen = true" />
+        @openUsers="mobileTabsOpen = true" />
 
       <!-- Messages -->
       <ChatMessages ref="messagesComponent" :messages="localMessages" :showThinking="showThinking" :isDark="isDark"
@@ -51,10 +51,11 @@
         :isDark="isDark" @send="sendMessage" />
     </div>
 
-    <!-- Users list (desktop) -->
+    <!-- Tabs panel (desktop) -->
     <div class="hidden lg:flex lg:w-80 flex-col border-l">
-      <UsersList :users="localUsers" :isDark="isDark" :presetMetadata="presetMetadata" @mentionUser="mentionUser"
-        @showAbout="showAboutModal = true" />
+      <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
+        :isDark="isDark" :presetMetadata="presetMetadata" @mentionUser="mentionUser" @showAbout="showAboutModal = true"
+        @selectPreset="handlePresetSelect" @editPreset="editCurrentPreset" />
     </div>
 
     <!-- Preset Modal -->
@@ -72,7 +73,7 @@ import axios from 'axios';
 
 import PageTitle from '@/Components/PageTitle.vue';
 import PresetModal from '@/Components/Admin/Presets/PresetModal.vue';
-import UsersList from '@/Components/Chat/UsersList.vue';
+import TabsPanel from '@/Components/Chat/TabsPanel.vue';
 import ChatSidebar from '@/Components/Chat/ChatSidebar.vue';
 import MobileHeader from '@/Components/Chat/MobileHeader.vue';
 import ChatMessages from '@/Components/Chat/ChatMessages.vue';
@@ -108,13 +109,19 @@ const props = defineProps({
 const { isDark, toggleTheme } = useTheme();
 
 const mobileMenuOpen = ref(false);
-const mobileUsersOpen = ref(false);
+const mobileTabsOpen = ref(false);
 
 const form = useForm({
   content: '',
 });
 
 const isAdmin = computed(() => props.user && props.user.is_admin);
+
+// Get current preset from availablePresets based on selectedPresetId
+const currentPreset = computed(() => {
+  if (!props.availablePresets || !selectedPresetId.value) return null;
+  return props.availablePresets.find(preset => preset.id === selectedPresetId.value) || null;
+});
 
 const messagesComponent = ref(null);
 const messageInputComponent = ref(null);
@@ -154,6 +161,16 @@ const {
 } = usePresets(props, isAdmin);
 
 /**
+ * Handle preset selection
+ */
+function handlePresetSelect(presetId) {
+  selectedPresetId.value = presetId;
+  if (isAdmin.value) {
+    updatePresetSettings();
+  }
+}
+
+/**
  * Handle scroll updates from messages component
  */
 function handleScrollUpdate(scrollData) {
@@ -185,6 +202,7 @@ function sendMessage(content) {
 
   isProcessing.value = true;
   mobileMenuOpen.value = false;
+  mobileTabsOpen.value = false;
 
   isUserAtBottom.value = true;
   shouldAutoRefresh.value = true;
@@ -275,7 +293,7 @@ function mentionUser(userName) {
  */
 function handleMobileMention(userName) {
   mentionUser(userName);
-  mobileUsersOpen.value = false;
+  mobileTabsOpen.value = false;
 }
 
 // Watchers
@@ -349,7 +367,6 @@ let refreshInterval = null;
 </script>
 
 <style>
-/* Custom animations */
 @keyframes chat-bounce {
 
   0%,

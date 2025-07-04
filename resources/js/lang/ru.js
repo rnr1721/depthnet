@@ -87,6 +87,7 @@ export default {
   chat_agent_results_hide: "Скрыть",
   chat_agent_results: "результаты",
   chat_agent_output_results: "Результат работы агента",
+  chat_current_preset: "Активный",
   settings_header: "Конфигурация системы и настройки ИИ",
   settings_saving: "Сохранение",
   settings_tips: "Полезные советы",
@@ -392,6 +393,10 @@ export default {
   p_modal_fix_validation_errors: "Пожалуйста, исправьте ошибки валидации перед сохранением",
   p_modal_save_error: "Не удалось сохранить пресет",
   p_modal_engines: "Движки",
+  p_modal_agent_result_mode: "Режим результатов агента",
+  p_modal_agent_result_attached: "Прикреплен",
+  p_modal_agent_result_separate: "Отдельно",
+  p_modal_agent_result_mode_desc: "Как отображать результаты выполнения агента: прикреплять к сообщению агента или отдельным сообщением",
   plugins_page_title: 'Плагины',
   plugins_management: 'Управление плагинами',
   plugins_manage_plugins: 'Управление плагинами',
@@ -636,5 +641,8 @@ export default {
   hv_sandbox_ports: "Порты песочницы",
   hv_sandbox_ports_placeholder: "Пример: 3000,4000,5000",
   hv_sandbox_ports_help: "Порты, которые будут проброшены извне, и по которым возможно получать доступ к песочнице",
-  hv_name: "Название"
+  hv_name: "Название",
+  hv_open_port: "Открыть порт {port}",
+  hv_ports: "Порты",
+  hv_no_ports: "Нет портов",
 }

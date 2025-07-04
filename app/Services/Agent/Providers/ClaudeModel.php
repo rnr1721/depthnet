@@ -443,16 +443,17 @@ class ClaudeModel implements AIModelEngineInterface
             // Map internal agent roles to Claude API roles
             switch ($role) {
                 case 'user':
-                    // Real user messages
                     $messages[] = [
                         'role' => 'user',
                         'content' => $content
                     ];
                     break;
-
-                case 'command':
-                case 'thinking':
-                case 'speaking':
+                case 'result':
+                    $messages[] = [
+                        'role' => 'system',
+                        'content' => $content
+                    ];
+                    break;
                 default:
                     // Agent messages (thinking, commands, responses)
                     $messages[] = [

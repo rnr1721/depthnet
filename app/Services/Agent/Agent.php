@@ -58,7 +58,7 @@ class Agent implements AgentInterface
             $response = $this->generateResponse($context, $defaultPreset);
 
             // 3. Handle response
-            return $this->handleResponse($response, $presetId);
+            return $this->handleResponse($response, $defaultPreset);
 
         } catch (\Exception $e) {
             return $this->handleError($e, $presetId);
@@ -116,49 +116,65 @@ class Agent implements AgentInterface
      * Handle successful or error response
      *
      * @param mixed $response
-     * @param int $presetId
+     * @param AiPreset $preset
      * @return Message
      */
-    protected function handleResponse($response, int $presetId): Message
+    protected function handleResponse($response, AiPreset $preset): Message
     {
         if ($response->isError()) {
             return $this->createSystemMessage(
                 $response->getResponse(),
-                $presetId,
+                $preset->getId(),
                 $response->getMetadata()
             );
         }
 
-        return $this->processSuccessfulResponse($response, $presetId);
+        return $this->processSuccessfulResponse($response, $preset);
     }
 
     /**
      * Process successful AI response through actions
      *
      * @param mixed $response
-     * @param int $presetId
+     * @param AiPreset $preset
      * @return Message
      */
-    protected function processSuccessfulResponse($response, int $presetId): Message
+    protected function processSuccessfulResponse($response, AiPreset $preset): Message
     {
         $output = $response->getResponse();
         $actionsResult = $this->agentActions->runActions($output);
 
-        if ($actionsResult->getSystemMessage()) {
-            $this->createSystemMessage(
-                $actionsResult->getSystemMessage(),
-                $presetId
-            );
-        }
+        $method = $preset->getAgentResultMode();
 
-        return $this->messageModel->create([
+        $messageContent = $method === 'separate' ? $response->getResponse() : $response->getResponse() . "\n" . $actionsResult->getResult();
+
+        $message = $this->messageModel->create([
             'role' => $actionsResult->getRole(),
-            'content' => $actionsResult->getResult(),
+            'content' => $messageContent,
             'from_user_id' => null,
-            'preset_id' => $presetId,
+            'preset_id' => $preset->getId(),
             'is_visible_to_user' => $actionsResult->isVisibleForUser(),
             'metadata' => $response->getMetadata()
         ]);
+
+        if ($method === 'separate' && !empty(trim($actionsResult->getResult()))) {
+            $this->messageModel->create([
+                'role' => 'result',
+                'content' => $actionsResult->getResult(),
+                'from_user_id' => null,
+                'preset_id' => $preset->getId(),
+                'is_visible_to_user' => true,
+            ]);
+        }
+
+        if ($actionsResult->getSystemMessage()) {
+            $this->createSystemMessage(
+                $actionsResult->getSystemMessage(),
+                $preset->getId()
+            );
+        }
+
+        return $message;
     }
 
     /**

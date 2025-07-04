@@ -35,7 +35,7 @@
       ]">
         <div @click="toggleCommand(command.id)" :class="[
           'font-semibold text-sm p-3 pb-2 flex items-center cursor-pointer transition-all duration-200 rounded-t-md',
-          isDark ? 'text-blue-300 hover:text-blue-200 hover:bg-blue-800' : 'text-blue-700 hover:text-blue-800 hover:bg-blue-100'
+          isDark ? 'text-blue-300' : 'text-blue-700 hover:text-blue-800'
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
             :class="{ 'rotate-90': commandStates[command.id] }">▶</span>
@@ -109,11 +109,11 @@ const commandStates = reactive({});
 defineEmits(['delete']);
 
 const hasCommandResults = computed(() => {
-  return props.message.content.includes('<agent_output_results>');
+  return props.message.content.includes('<system_output_results>');
 });
 
 const commandResults = computed(() => {
-  const marker = '<agent_output_results>';
+  const marker = '<system_output_results>';
   if (!props.message.content.includes(marker)) return '';
 
   const lastIndex = props.message.content.lastIndexOf(marker);
@@ -195,7 +195,7 @@ const extractedCommands = computed(() => {
   const content = props.message.content;
 
   // Remove command results - cut by LAST occurrence of marker
-  const commandResultsMarker = '<agent_output_results>';
+  const commandResultsMarker = '<system_output_results>';
   let userContent = content;
 
   if (content.includes(commandResultsMarker)) {
@@ -232,7 +232,7 @@ const extractedCommands = computed(() => {
 
 const formattedContent = computed(() => {
   let content = props.message.content;
-  const commandResultsMarker = '<agent_output_results>';
+  const commandResultsMarker = '<system_output_results>';
   let userContent = content;
 
   // Remove command results from main content - last marker!
@@ -251,7 +251,7 @@ const formattedContent = computed(() => {
 
   // FIRST: Replace fake agent markers with placeholder
   userContent = userContent.replace(
-    /<agent_output_results>/g,
+    /<system_output_results>/g,
     '___FAKE_AGENT_MARKER___'
   );
 
@@ -262,7 +262,7 @@ const formattedContent = computed(() => {
   userContent = userContent.replace(
     /___FAKE_AGENT_MARKER___/g,
     `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
-      <span class="mr-1">⚠️</span>&lt;agent_output_results&gt;
+      <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
     </span>`
   );
 
@@ -279,11 +279,11 @@ const formattedContent = computed(() => {
     }
   );
 
-  // Highlight all remaining <agent_output_results> tags in red (these are fake ones from the model)
+  // Highlight all remaining <system_output_results> tags in red (these are fake ones from the model)
   userContent = userContent.replace(
-    /<agent_output_results>/g,
+    /<system_output_results>/g,
     `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
-      <span class="mr-1">⚠️</span>&lt;agent_output_results&gt;
+      <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
     </span>`
   );
 

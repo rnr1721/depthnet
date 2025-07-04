@@ -640,15 +640,17 @@ class GeminiModel implements AIModelEngineInterface
             // Map roles for Gemini (OpenAI-compatible)
             switch ($role) {
                 case 'user':
-                case 'command':
                     $messages[] = [
                         'role' => 'user',
                         'content' => $content
                     ];
                     break;
-
-                case 'thinking':
-                case 'speaking':
+                case 'result':
+                    $messages[] = [
+                        'role' => 'system',
+                        'content' => $content
+                    ];
+                    break;
                 default:
                     $messages[] = [
                         'role' => 'assistant',

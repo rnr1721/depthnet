@@ -22,7 +22,7 @@ class CommandExecutor implements CommandExecutorInterface
     /**
      * @inheritDoc
      */
-    public function executeCommands(array $commands, string $originalOutput): CommandExecutionResult
+    public function executeCommands(array $commands): CommandExecutionResult
     {
         $results = [];
         $hasErrors = false;
@@ -38,7 +38,7 @@ class CommandExecutor implements CommandExecutorInterface
             }
         }
 
-        $formattedMessage = $this->formatMessage($originalOutput, $results);
+        $formattedMessage = $this->formatMessage($results);
 
         return new CommandExecutionResult($results, $formattedMessage, $hasErrors, $pluginExecutionMeta);
     }
@@ -123,23 +123,20 @@ class CommandExecutor implements CommandExecutorInterface
     /**
      * Formats the output message with command results
      *
-     * @param string $originalOutput
      * @param CommandResult[] $results
      * @return string
      */
     protected function formatMessage(
-        string $originalOutput,
         array $results
     ): string {
-        //$formatted = $originalOutput . "\n\n" . "AGENT COMMAND RESULTS:" . "\n\n";
-        $formatted = $originalOutput . "\n\n" . "<agent_output_results>" . "\n\n";
+        $formatted = "\n\n" . "<system_output_results>" . "\n\n";
 
         foreach ($results as $i => $result) {
             $command = $result->command;
 
             $plugin = $this->pluginRegistry->get($command->plugin);
             if (!$plugin) {
-                $formatted .= '💀 AGENT COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
+                $formatted .= '💀 SYSTEM COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
                 continue;
             }
             $customSuccessMessage = $plugin->getCustomSuccessMessage();

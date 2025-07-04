@@ -39,7 +39,7 @@ class CommandInstructionBuilder implements CommandInstructionBuilderInterface
         }
 
         $instructions .= "CRITICAL RULES FOR COMMANDS:\n";
-        $instructions .= "- NEVER write 'agent_output_results' tag - system adds them automatically\n";
+        $instructions .= "- NEVER write 'system_output_results' tag - system adds them automatically\n";
         $instructions .= "- NEVER invent or imitate the output of commands.\n";
         $instructions .= "- ALWAYS pay attention to the output of commands\n";
         $instructions .= "- Wait for real results before continuing\n\n";

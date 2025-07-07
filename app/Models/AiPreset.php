@@ -18,12 +18,19 @@ class AiPreset extends Model
         'description',
         'engine_name',
         'system_prompt',
+        'preset_code',
+        'preset_code_next',
+        'default_call_message',
+        'before_execution_wait',
         'plugins_disabled',
         'engine_config',
         'metadata',
         'loop_interval',
         'max_context_limit',
         'agent_result_mode',
+        'error_behavior',
+        'allow_handoff_to',
+        'allow_handoff_from',
         'is_active',
         'is_default',
         'created_by',
@@ -34,6 +41,9 @@ class AiPreset extends Model
         'metadata' => 'array',
         'loop_interval' => 'integer',
         'max_context_limit' => 'integer',
+        'before_execution_wait' => 'integer',
+        'allow_handoff_to' => 'boolean',
+        'allow_handoff_from' => 'boolean',
         'is_active' => 'boolean',
         'is_default' => 'boolean',
         'created_at' => 'datetime',
@@ -43,6 +53,10 @@ class AiPreset extends Model
     protected $attributes = [
         'is_active' => true,
         'is_default' => false,
+        'allow_handoff_to' => true,
+        'allow_handoff_from' => true,
+        'error_behavior' => 'stop',
+        'before_execution_wait' => 5,
         'engine_config' => '{}',
         'metadata' => '{}',
         'system_prompt' => '',
@@ -153,6 +167,41 @@ class AiPreset extends Model
     public function getUpdatedAt(): ?\DateTime
     {
         return $this->updated_at;
+    }
+
+    public function getPresetCode(): ?string
+    {
+        return $this->preset_code;
+    }
+
+    public function getPresetCodeNext(): ?string
+    {
+        return $this->preset_code_next;
+    }
+
+    public function getErrorBehavior(): string
+    {
+        return $this->error_behavior;
+    }
+
+    public function getDefaultCallMessage(): ?string
+    {
+        return $this->default_call_message;
+    }
+
+    public function getBeforeExecutionWait(): int
+    {
+        return $this->before_execution_wait;
+    }
+
+    public function allowsHandoffTo(): bool
+    {
+        return $this->allow_handoff_to;
+    }
+
+    public function allowsHandoffFrom(): bool
+    {
+        return $this->allow_handoff_from;
     }
 
     /**

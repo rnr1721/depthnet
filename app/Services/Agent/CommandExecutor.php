@@ -135,8 +135,10 @@ class CommandExecutor implements CommandExecutorInterface
             $command = $result->command;
 
             $plugin = $this->pluginRegistry->get($command->plugin);
+
             if (!$plugin) {
                 $formatted .= '💀 SYSTEM COMMAND ERRORS. PLEASE ANALYSE AND CORRECT YOUR WAY';
+                $formatted .= "\n\n";
                 continue;
             }
             $customSuccessMessage = $plugin->getCustomSuccessMessage();

@@ -59,7 +59,6 @@ class MemoryPlugin implements CommandPluginInterface
         return [
             'Add new memory item: [memory]Completed task: Created users table successfully[/memory]',
             'Delete specific memory item: [memory delete]3[/memory]',
-            'Replace entire memory content: [memory replace]User prefers PHP over Python. Database credentials saved.[/memory]',
             'Clear all memory: [memory clear][/memory]',
             'Show current memory: [memory show][/memory]',
             'Search memory: [memory search]database[/memory]',
@@ -411,12 +410,23 @@ class MemoryPlugin implements CommandPluginInterface
         return false;
     }
 
+    /**
+     * @inheritDoc
+     */
     public function pluginReady(): void
     {
         $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () {
             return $this->memoryService->getFormattedMemory($this->preset);
         });
 
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getSelfClosingTags(): array
+    {
+        return ['clear','show','stats'];
     }
 
 }

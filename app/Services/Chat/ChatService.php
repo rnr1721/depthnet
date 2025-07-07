@@ -94,7 +94,7 @@ class ChatService implements ChatServiceInterface
     {
         $currentPreset = $this->presetRegistry->getPreset($presetId);
         $this->pluginRegistry->setCurrentPreset($currentPreset);
-        $actionResult = $this->agentActions->runActions($formattedContent, true);
+        $actionResult = $this->agentActions->runActions($formattedContent, $currentPreset, true);
         return $actionResult->getResult();
     }
 

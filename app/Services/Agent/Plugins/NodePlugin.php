@@ -492,4 +492,12 @@ class NodePlugin implements CommandPluginInterface
         // Nothing to do here
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function getSelfClosingTags(): array
+    {
+        return [];
+    }
+
 }

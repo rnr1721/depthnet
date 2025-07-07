@@ -558,4 +558,12 @@ class MoodPlugin implements CommandPluginInterface
         );
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function getSelfClosingTags(): array
+    {
+        return ['get','list','reset','history'];
+    }
+
 }

@@ -97,6 +97,14 @@ interface PresetServiceInterface
     public function findByIdOrFail(int $id): AiPreset;
 
     /**
+     * Find preset by code
+     *
+     * @param string $code
+     * @return AiPreset|null
+     */
+    public function findByCode(string $code): ?AiPreset;
+
+    /**
      * Get the current default preset
      *
      * @return AiPreset|null The default preset or null if none set

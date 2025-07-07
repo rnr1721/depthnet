@@ -75,6 +75,10 @@
                 <PresetAgentSettings v-model="form" :is-dark="isDark" :errors="errors"
                     :available-plugins="availablePlugins" />
 
+                <!-- Logic & Handoff Component -->
+                <PresetLogicInfo v-model="form" :is-dark="isDark" :errors="errors"
+                    :available-presets="availablePresets" @success="showNotification" @error="showError" />
+
                 <!-- Engine Config Component -->
                 <PresetEngineConfig v-model="form" :engine-name="form.engine_name" :engines="engines" :is-dark="isDark"
                     :errors="errors" @validation-errors="onValidationErrors" @success="showNotification"
@@ -107,6 +111,7 @@ import { useI18n } from 'vue-i18n';
 import PresetBasicInfo from './PresetBasicInfo.vue';
 import PresetSystemPrompt from './PresetSystemPrompt.vue';
 import PresetSandboxManager from './PresetSandboxManager.vue';
+import PresetLogicInfo from './PresetLogicInfo.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';
 
@@ -117,6 +122,10 @@ const props = defineProps({
     engines: Object,
     placeholders: Object,
     availablePlugins: {
+        type: Array,
+        default: () => []
+    },
+    availablePresets: {
         type: Array,
         default: () => []
     }
@@ -137,11 +146,18 @@ const form = ref({
     description: props.preset?.description || '',
     engine_name: props.preset?.engine_name || '',
     system_prompt: props.preset?.system_prompt || '',
+    preset_code: props.preset?.preset_code || '',
+    preset_code_next: props.preset?.preset_code_next || '',
+    default_call_message: props.preset?.default_call_message || '',
+    before_execution_wait: props.preset?.before_execution_wait || 5,
     plugins_disabled: props.preset?.plugins_disabled || '',
     engine_config: props.preset?.engine_config || {},
     loop_interval: props.preset?.loop_interval || 15,
     max_context_limit: props.preset?.max_context_limit || 8,
     agent_result_mode: props.preset?.agent_result_mode || 'separate',
+    error_behavior: props.preset?.error_behavior || 'stop',
+    allow_handoff_to: props.preset?.allow_handoff_to ?? true,
+    allow_handoff_from: props.preset?.allow_handoff_from ?? true,
     is_active: props.preset?.is_active ?? true,
     is_default: props.preset?.is_default || false
 });
@@ -219,6 +235,27 @@ const submit = async () => {
 
     if (form.value.plugins_disabled && form.value.plugins_disabled.length > 255) {
         errors.value.plugins_disabled = t('p_modal_plugins_disabled_to_long');
+        return;
+    }
+
+    // NEW: Validate handoff logic fields
+    if (form.value.preset_code && form.value.preset_code.length > 50) {
+        errors.value.preset_code = t('p_modal_preset_code_too_long');
+        return;
+    }
+
+    if (form.value.preset_code_next && form.value.preset_code_next.length > 50) {
+        errors.value.preset_code_next = t('p_modal_preset_code_next_too_long');
+        return;
+    }
+
+    if (form.value.default_call_message && form.value.default_call_message.length > 1000) {
+        errors.value.default_call_message = t('p_modal_default_call_message_too_long');
+        return;
+    }
+
+    if (form.value.before_execution_wait < 1 || form.value.before_execution_wait > 60) {
+        errors.value.before_execution_wait = t('p_modal_before_execution_wait_invalid');
         return;
     }
 

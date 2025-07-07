@@ -275,7 +275,7 @@ class SandboxPlugin implements CommandPluginInterface
     {
         // Ensure PHP code has proper opening tags
         //if (!str_starts_with(trim($code), '<?php') && !str_starts_with(trim($code), '<?')) {
-            //$code = "<?php\n" . $code;
+        //$code = "<?php\n" . $code;
         //}
 
         $this->sandboxService->setUser($this->config['user']);
@@ -603,6 +603,14 @@ class SandboxPlugin implements CommandPluginInterface
     public function node(string $content): string
     {
         return $this->execute("node\n" . $content);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getSelfClosingTags(): array
+    {
+        return [];
     }
 
 }

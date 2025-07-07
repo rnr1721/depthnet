@@ -22,10 +22,10 @@ trait PluginExecutionMetaTrait
      * This is system things
      *
      * @param string $key
-     * @param string $data
+     * @param string|array $data
      * @return void
      */
-    protected function setPluginExecutionMeta(string $key, string $data)
+    protected function setPluginExecutionMeta(string $key, string|array $data)
     {
         $this->pluginExecutionMeta[$key] = $data;
     }

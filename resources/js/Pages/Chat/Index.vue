@@ -61,15 +61,15 @@
     <!-- Preset Modal -->
     <PresetModal v-if="showEditPresetModal" :placeholders="placeholders" :preset="editingPreset" :engines="engines"
       @close="closeEditModal" @save="saveCurrentPreset" />
-    <AboutModal v-if="showAboutModal" :isDark="isDark" :appName="page.props.app_name" @close="showAboutModal = false" />
+    <AboutModal v-if="showAboutModal" :isDark="isDark" :available-presets="availablePresets"
+      :appName="page.props.app_name" @close="showAboutModal = false" />
   </div>
 </template>
 
 <script setup>
-import { Link, useForm, router, usePage } from '@inertiajs/vue3';
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { useForm, router, usePage } from '@inertiajs/vue3';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import axios from 'axios';
 
 import PageTitle from '@/Components/PageTitle.vue';
 import PresetModal from '@/Components/Admin/Presets/PresetModal.vue';

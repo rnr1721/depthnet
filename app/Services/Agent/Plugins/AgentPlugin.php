@@ -4,6 +4,7 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
@@ -31,7 +32,8 @@ class AgentPlugin implements CommandPluginInterface
     public function __construct(
         protected Container $container,
         protected LoggerInterface $logger,
-        protected PlaceholderServiceInterface $placeholderService
+        protected PlaceholderServiceInterface $placeholderService,
+        protected PresetServiceInterface $presetService
     ) {
         $this->initializeConfig();
     }
@@ -82,6 +84,12 @@ class AgentPlugin implements CommandPluginInterface
 
         if ($this->config['allow_resume'] ?? true) {
             $instructions[] = 'Resume thinking cycles: [agent resume][/agent]';
+        }
+
+        if ($this->config['allow_handoff'] ?? true) {
+            $instructions[] = 'Transfer control to another preset: [agent handoff]AGENT_NAME_HERE[/agent]';
+            $instructions[] = 'Transfer with message: [agent handoff]AGENT_NAME_HERE:YOUR_MESSAGE_HERE[/agent]';
+            $instructions[] = 'To delegate something: [agent handoff]AGENT_NAME_HERE:YOUR TASK_HERE[/agent]';
         }
 
         $instructions[] = 'Check agent status: [agent status][/agent]';
@@ -137,6 +145,13 @@ class AgentPlugin implements CommandPluginInterface
                 'label' => 'Require Reason',
                 'description' => 'Require agent to provide reason for pause/resume actions',
                 'value' => false,
+                'required' => false
+            ],
+            'allow_handoff' => [
+                'type' => 'checkbox',
+                'label' => 'Allow Handoff',
+                'description' => 'Allow agent preset to delegate tasks for other presets',
+                'value' => true,
                 'required' => false
             ],
             'log_actions' => [
@@ -354,6 +369,46 @@ class AgentPlugin implements CommandPluginInterface
         return 'The user will see your message.';
     }
 
+    public function handoff(string $content): string
+    {
+        $targetPreset = trim($content);
+
+        if (strpos($content, ':') !== false) {
+            [$targetPreset, $message] = explode(':', $content, 2);
+            $targetPreset = trim($targetPreset);
+            $message = trim($message);
+        } else {
+            $targetPreset = $content;
+            $message = null;
+        }
+
+        if (!($this->config['allow_handoff'] ?? true)) {
+            return "Error: Agent handoff is not allowed in current configuration.";
+        }
+
+        if (empty($content)) {
+            return "Error: Empty preset code for handoff";
+        }
+
+        $preset = $this->presetService->findByCode($targetPreset);
+        if (!$preset) {
+            return "Cannot Transfer control to preset: $targetPreset";
+        }
+
+        if (!$preset->allow_handoff_to) {
+            return "Error: Preset '$targetPreset' does not allow handoff transfers";
+        }
+
+        $this->setPluginExecutionMeta('handoff', [
+            'target_preset' => $targetPreset,
+            'handoff_message' => $message,
+            'error_behavior' => $preset->error_behavior ?? 'stop'
+        ]);
+
+        $messageInfo = $message ? " with message: '$message'" : "";
+        return "Transferring control to preset: $targetPreset$messageInfo";
+    }
+
     /**
      * Log agent control actions safely to prevent recursion
      *
@@ -414,6 +469,11 @@ class AgentPlugin implements CommandPluginInterface
             return $this->status('');
         });
 
+    }
+
+    public function getSelfClosingTags(): array
+    {
+        return ['pause', 'resume', 'status'];
     }
 
 }

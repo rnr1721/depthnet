@@ -446,4 +446,12 @@ class DopaminePlugin implements CommandPluginInterface
             $this->config['default_level']
         );
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function getSelfClosingTags(): array
+    {
+        return ['reward', 'penalty', 'show'];
+    }
 }

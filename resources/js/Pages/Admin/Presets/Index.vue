@@ -248,7 +248,7 @@
 
         <!-- Create/Edit Modal -->
         <PresetModal v-if="showCreateModal || editingPreset" :placeholders="placeholders" :preset="editingPreset"
-            :engines="engines" @close="closeModal" @save="savePreset" />
+            :engines="engines" @close="closeModal" :available-presets="availablePresets" @save="savePreset" />
     </div>
 </template>
 
@@ -269,7 +269,11 @@ const editingPreset = ref(null);
 const props = defineProps({
     presets: Array,
     engines: Object,
-    placeholders: Object
+    placeholders: Object,
+    availablePresets: {
+        type: Array,
+        default: () => []
+    }
 });
 
 // Engine colors mapping based on engines data

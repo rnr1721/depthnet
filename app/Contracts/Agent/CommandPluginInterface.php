@@ -174,4 +174,13 @@ interface CommandPluginInterface
      * @return void
      */
     public function pluginReady(): void;
+
+    /**
+     * Get list of self-closing tags for this plugin
+     * These tags don't require content and will be auto-closed
+     * Example: ['pause', 'resume', 'status'] for agent plugin
+     *
+     * @return array List of method names that are self-closing
+     */
+    public function getSelfClosingTags(): array;
 }

@@ -43,11 +43,18 @@ class PresetService implements PresetServiceInterface
                 'description' => $data['description'] ?? null,
                 'engine_name' => $data['engine_name'],
                 'system_prompt' => $data['system_prompt'] ?? '',
+                'preset_code' => $data['preset_code'] ?? null,
                 'plugins_disabled' => $data['plugins_disabled'] ?? '',
                 'engine_config' => $data['engine_config'] ?? [],
                 'loop_interval' => $data['loop_interval'] ?? 15,
                 'max_context_limit' => $data['max_context_limit'] ?? 8,
                 'agent_result_mode' => $data['agent_result_mode'] ?? 'separate',
+                'preset_code_next' => $data['preset_code_next'] ?? '',
+                'default_call_message' => $data['default_call_message'] ?? '',
+                'before_execution_wait' => $data['before_execution_wait'] ?? 5,
+                'error_behavior' => $data['error_behavior'] ?? 'stop',
+                'allow_handoff_to' => $data['allow_handoff_to'] ?? true,
+                'allow_handoff_from' => $data['allow_handoff_from'] ?? true,
                 'is_active' => $data['is_active'] ?? true,
                 'is_default' => $data['is_default'] ?? false,
                 'created_by' => $data['created_by'] ?? $this->authService->getCurrentUserId(),
@@ -96,11 +103,18 @@ class PresetService implements PresetServiceInterface
                 'description' => $data['description'] ?? $preset->description,
                 'engine_name' => $data['engine_name'] ?? $preset->engine_name,
                 'system_prompt' => array_key_exists('system_prompt', $data) ? $data['system_prompt'] : $preset->system_prompt,
+                'preset_code' => array_key_exists('preset_code', $data) ? $data['preset_code'] : $preset->preset_code,
                 'plugins_disabled' => array_key_exists('plugins_disabled', $data) ? $data['plugins_disabled'] : $preset->plugins_disabled,
                 'engine_config' => $data['engine_config'] ?? $preset->engine_config,
                 'loop_interval' => $data['loop_interval'] ?? $preset->loop_interval,
                 'max_context_limit' => $data['max_context_limit'] ?? $preset->max_context_limit,
                 'agent_result_mode' => $data['agent_result_mode'] ?? $preset->agent_result_mode,
+                'preset_code_next' => array_key_exists('preset_code_next', $data) ? $data['preset_code_next'] : $preset->preset_code_next,
+                'default_call_message' => array_key_exists('default_call_message', $data) ? $data['default_call_message'] : $preset->default_call_message,
+                'before_execution_wait' => $data['before_execution_wait'] ?? $preset->before_execution_wait,
+                'error_behavior' => $data['error_behavior'] ?? $preset->error_behavior,
+                'allow_handoff_to' => $data['allow_handoff_to'] ?? $preset->allow_handoff_to,
+                'allow_handoff_from' => $data['allow_handoff_from'] ?? $preset->allow_handoff_from,
                 'is_active' => $data['is_active'] ?? $preset->is_active,
                 'is_default' => $data['is_default'] ?? $preset->is_default,
             ]);
@@ -182,6 +196,16 @@ class PresetService implements PresetServiceInterface
     public function findByIdOrFail(int $id): AiPreset
     {
         return $this->aiPresetModel->findOrFail($id);
+    }
+
+    /**
+     * Find preset by code (case-insensitive)
+     */
+    public function findByCode(string $code): ?AiPreset
+    {
+        return $this->aiPresetModel
+            ->whereRaw('LOWER(preset_code) = ?', [strtolower(trim($code))])
+            ->first();
     }
 
     /**
@@ -540,11 +564,18 @@ class PresetService implements PresetServiceInterface
             'description' => 'nullable|string|max:1000',
             'engine_name' => 'required|string|max:100',
             'system_prompt' => 'nullable|string|max:5000',
+            'preset_code' => 'nullable|string|max:50',
             'plugins_disabled' => 'nullable|string|max:255',
             'engine_config' => 'array',
             'loop_interval' => 'nullable|integer|min:4|max:30',
             'max_context_limit' => 'nullable|integer|min:0|max:50',
             'agent_result_mode' => 'nullable|string',
+            'preset_code_next' => 'nullable|string',
+            'default_call_message' => 'nullable|string',
+            'before_execution_wait' => 'nullable|integer|min:4|max:15',
+            'error_behavior' => 'nullable|in:stop,continue,fallback',
+            'allow_handoff_to' => 'boolean',
+            'allow_handoff_from' => 'boolean',
             'is_active' => 'boolean',
             'is_default' => 'boolean',
             'created_by' => 'nullable|exists:users,id',
@@ -574,6 +605,14 @@ class PresetService implements PresetServiceInterface
             if (!empty($configErrors)) {
                 throw new PresetException('Engine configuration validation failed: ' . implode(', ', $configErrors));
             }
+        }
+
+        if (isset($data['preset_code']) && !empty($data['preset_code'])) {
+            $presetCodeRule = 'unique:ai_presets,preset_code';
+            if ($excludeId) {
+                $presetCodeRule .= ',' . $excludeId;
+            }
+            $rules['preset_code'] .= '|' . $presetCodeRule;
         }
     }
 

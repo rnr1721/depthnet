@@ -13,7 +13,8 @@ class ActionsResponseDTO implements AiActionsResponseInterface
         private string $result = '',
         private string $role = '',
         private bool $isVisibleForUser = false,
-        private ?string $systemMessage = null
+        private ?string $systemMessage = null,
+        private ?array $handoff = null
     ) {
     }
 
@@ -47,6 +48,14 @@ class ActionsResponseDTO implements AiActionsResponseInterface
     public function getSystemMessage(): ?string
     {
         return $this->systemMessage;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getHandoff(): ?array
+    {
+        return $this->handoff;
     }
 
 }

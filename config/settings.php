@@ -49,18 +49,6 @@ return [
             'order' => 4,
         ],
 
-        'model_message_thinking_phrase' => [
-            'type' => 'input',
-            'input_type' => 'text',
-            'label' => 'settings_message_thinking_phrase',
-            'description' => 'settings_message_thinking_phrase_desc',
-            'placeholder' => '',
-            'default' => 'settings_message_thinking_phrase_def',
-            'validation' => 'string|max:255',
-            'group' => 'agent_settings',
-            'order' => 5,
-        ],
-
         'chat_max_chat_history' => [
             'type' => 'input',
             'input_type' => 'number',

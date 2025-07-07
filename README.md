@@ -68,6 +68,7 @@ DepthNet enables autonomous AI agents through:
 - **Self-Motivation**: Internal reward system for goal-oriented behavior
 - **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
 - **Sandbox Isolation**: Code execution in isolated Docker containers for enhanced security
+- **Agent Handoff**: Seamless delegation between specialized AI presets within single workflows
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
@@ -121,6 +122,13 @@ The AI communicates through special command tags that trigger plugin execution:
 [run php]echo "Database users: " . DB::table('users')->count();[/run] 
 [run python]import datetime; print(f"Server time: {datetime.now()}")[/run]
 [run node]console.log(`Memory: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/run]
+
+# Agent workflow management
+[agent handoff]analyst[/agent]  # Transfer control to another preset
+[agent handoff]researcher:Find data about Tesla[/agent]  # Transfer with specific task
+[agent pause][/agent]   # Pause autonomous thinking
+[agent resume][/agent]  # Resume autonomous thinking
+[agent status][/agent]  # Check current agent status
 
 # Execute code in local instance without Docker
 [php]echo "Database rows: " . DB::table('users')->count();[/php]
@@ -181,6 +189,11 @@ Built on modern Laravel principles with dependency injection:
 - **OptionsServiceInterface**: Database-backed dynamic configuration
 - **SandboxManagerInterface**: Docker-based isolated execution environments
 
+**Core Interfaces:**
+- **AiAgentResponseInterface**: Unified agent response handling with handoff support
+- **CommandPluginInterface**: Plugin system integration
+- **PresetRegistryInterface**: AI configuration management
+
 **Service Providers:**
 - `AiServiceProvider` - Registers agents, engines, plugins, presets
 - `ChatServiceProvider` - Conversation handling and export functionality
@@ -189,6 +202,34 @@ Built on modern Laravel principles with dependency injection:
 <a href="docs/screenshots/presets.png">
   <img src="docs/screenshots/presets.png" alt="Main Interface" height="300">
 </a>
+
+## Advanced Workflow Features
+
+### Agent Handoff System
+
+DepthNet introduces a revolutionary **decentralized handoff system** that allows AI presets to seamlessly delegate tasks to other specialized presets within a single thinking cycle.
+
+**How it works:**
+- Any preset can transfer control using `[agent handoff]preset_code[/agent]`
+- Target preset inherits conversation context but uses its own system prompt and capabilities
+- Multiple handoffs can chain together: Research → Analysis → Writing → Review
+- Each preset can be debugged independently while maintaining workflow integrity
+
+**Benefits:**
+- **Modular workflows**: Break complex tasks into specialized components
+- **Independent testing**: Debug each preset separately before chaining
+- **Flexible routing**: Presets self-organize based on task requirements  
+- **No central orchestration**: Agents decide delegation autonomously
+
+**Example workflow:**
+
+User: "Analyze Tesla's financial performance"
+├── Researcher preset: Gathers financial data
+├── [handoff] → Analyst preset: Performs calculations
+├── [handoff] → Validator preset: Checks accuracy
+└── [handoff] → Writer preset: Creates final report
+
+This creates **emergent AI workflows** where specialized agents collaborate without rigid programming.
 
 ## Security Considerations
 
@@ -243,6 +284,12 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - Educational platforms for AI development concepts
 - AI-powered code generation and file manipulation assistance
 
+**Advanced Workflow Applications:**
+- Multi-stage content creation (research → writing → editing → SEO optimization)
+- Code development pipelines (coding → testing → review → deployment)
+- Data analysis workflows (collection → processing → visualization → reporting)
+- Quality assurance chains (development → testing → validation → approval)
+
 ## How Autonomous Reasoning Works
 
 The core innovation is the continuous thinking loop powered by Laravel's queue system:
@@ -255,7 +302,8 @@ The core innovation is the continuous thinking loop powered by Laravel's queue s
 6. **Plugin Execution**: `CommandExecutor` routes commands to appropriate plugins with security controls
 7. **Result Integration**: Command outputs automatically appended to AI message for context continuity
 8. **Database Storage**: Complete message with results saved for future reference
-9. **Loop Continuation**: Next thinking cycle scheduled with configurable delay
+9. **Handoff Processing**: If preset delegation detected, switch to target preset and continue cycle with inherited context
+10. **Loop Continuation**: Next thinking cycle scheduled with configurable delay
 
 **Key Technical Components:**
 - **Agent Locking**: Prevents multiple simultaneous thinking cycles

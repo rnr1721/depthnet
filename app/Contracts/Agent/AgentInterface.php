@@ -2,7 +2,7 @@
 
 namespace App\Contracts\Agent;
 
-use App\Models\Message;
+use App\Models\AiPreset;
 
 /**
  * Interface AgentInterface
@@ -15,8 +15,13 @@ interface AgentInterface
     /**
      * Start the agent's "thinking" process
      *
-     * @return Message|null
+     * @param AiPreset $currentPreset Current working preset
+     * @param AiPreset|null $Main pipeline preset - Default null
+     * @return AiAgentResponseInterface
      */
-    public function think(): ?Message;
+    public function think(
+        AiPreset $currentPreset,
+        ?AiPreset $mainPreset = null
+    ): AiAgentResponseInterface;
 
 }

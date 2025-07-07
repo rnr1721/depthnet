@@ -13,6 +13,7 @@ use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
+use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
@@ -41,6 +42,7 @@ use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandLinter;
 use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
+use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\EnvironmentInfoService;
@@ -93,6 +95,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(EnvironmentInfoServiceInterface::class, EnvironmentInfoService::class);
         $this->app->singleton(AgentJobServiceInterface::class, AgentJobService::class);
         $this->app->singleton(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
+        $this->app->bind(CommandPreProcessorInterface::class, CommandPreProcessor::class);
         $this->app->bind(CommandParserInterface::class, function ($app) {
             $options = $app->make(OptionsServiceInterface::class);
             $parserMode = $options->get('agent_command_parser_mode', 'smart');

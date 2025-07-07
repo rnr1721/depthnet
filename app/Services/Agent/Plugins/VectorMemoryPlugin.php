@@ -61,7 +61,9 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'Store important information: [vectormemory]Successfully optimized database queries using indexes[/vectormemory]',
             'Search by meaning: [vectormemory search]how to speed up code[/vectormemory]',
             'Show recent memories: [vectormemory recent]5[/vectormemory]',
-            'Clear all memories: [vectormemory clear][/vectormemory]'
+            'Clear all memories: [vectormemory clear][/vectormemory]',
+            'Delete by ID: [vectormemory delete]42[/vectormemory]',
+            'Delete by content: [vectormemory delete]optimization query[/vectormemory]',
         ];
     }
 
@@ -348,8 +350,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 $similarity = round($searchResult['similarity'] * 100, 1);
                 $date = $searchResult['memory']->created_at->format('M j, H:i');
                 $content = $this->truncateContent($searchResult['memory']->content, 200);
-
-                $output .= "• [{$similarity}% match, {$date}] {$content}\n";
+                $id = $searchResult['memory']->id;
+                $output .= "• [ID:{$id}, {$similarity}% match, {$date}] {$content}\n";
             }
 
             return $output;
@@ -393,7 +395,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 $content = $this->truncateContent($memory->content, 150);
                 $features = count($memory->tfidf_vector);
 
-                $output .= "• [{$date}, {$features} features] {$content}\n";
+                $output .= "• [ID:{$memory->id}, {$date}, {$features} features] {$content}\n";
             }
 
             return $output;
@@ -423,6 +425,62 @@ class VectorMemoryPlugin implements CommandPluginInterface
         } catch (\Throwable $e) {
             $this->logger->error("VectorMemoryPlugin::clear error: " . $e->getMessage());
             return "Error clearing memories: " . $e->getMessage();
+        }
+    }
+
+    /**
+     * Delete specific vector memory by ID or content search
+     *
+     * @param string $identifier Memory ID or content fragment to search for
+     * @return string
+     */
+    public function delete(string $identifier): string
+    {
+        if (!$this->isEnabled()) {
+            return "Error: Vector memory plugin is disabled.";
+        }
+
+        try {
+            $identifier = trim($identifier);
+
+            if (empty($identifier)) {
+                return "Error: Please provide memory ID or content to search for deletion.";
+            }
+
+            // Try to parse as ID first
+            if (is_numeric($identifier)) {
+                $id = (int) $identifier;
+                if ($id > 0) {
+                    $result = $this->vectorMemoryService->deleteVectorMemory($this->preset, $id);
+                    return $result['message'];
+                }
+            }
+
+            // If not a valid ID, search by content
+            $searchResult = $this->vectorMemoryService->searchVectorMemories($this->preset, $identifier, [
+                'search_limit' => 1,
+                'similarity_threshold' => 0.3
+            ]);
+
+            if (!$searchResult['success'] || empty($searchResult['results'])) {
+                return "No memory found matching '{$identifier}'. Try using exact ID or different search terms.";
+            }
+
+            $memory = $searchResult['results'][0]['memory'];
+            $similarity = round($searchResult['results'][0]['similarity'] * 100, 1);
+
+            $deleteResult = $this->vectorMemoryService->deleteVectorMemory($this->preset, $memory->id);
+
+            if ($deleteResult['success']) {
+                $preview = $this->truncateContent($memory->content, 60);
+                return "Deleted memory (ID:{$memory->id}, {$similarity}% match): {$preview}";
+            }
+
+            return $deleteResult['message'];
+
+        } catch (\Throwable $e) {
+            $this->logger->error("VectorMemoryPlugin::delete error: " . $e->getMessage());
+            return "Error deleting memory: " . $e->getMessage();
         }
     }
 
@@ -544,5 +602,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
     public function pluginReady(): void
     {
         // Nothing to do here
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getSelfClosingTags(): array
+    {
+        return ['clear'];
     }
 }

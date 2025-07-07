@@ -32,4 +32,11 @@ interface AiActionsResponseInterface
      * @return string|null
      */
     public function getSystemMessage(): ?string;
+
+    /**
+     * Get handoff actions
+     *
+     * @return array|null
+     */
+    public function getHandoff(): ?array;
 }

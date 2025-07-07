@@ -4,6 +4,7 @@ namespace App\Services\Agent;
 
 use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentInterface;
+use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -15,6 +16,8 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
+use App\Services\Agent\DTO\ActionsResponseDTO;
+use App\Services\Agent\DTO\AgentResponseDTO;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use Psr\Log\LoggerInterface;
 
@@ -42,23 +45,25 @@ class Agent implements AgentInterface
     /**
      * @inheritDoc
      */
-    public function think(): Message
-    {
+    public function think(
+        AiPreset $currentPreset,
+        ?AiPreset $mainPreset = null,
+        ?string $handoffMessage = null
+    ): AiAgentResponseInterface {
         try {
 
             // Get and setup preset
-            $defaultPreset = $this->presetRegistry->getDefaultPreset();
-            $presetId = $defaultPreset->getId();
-            $this->setupPresetEnvironment($defaultPreset);
+            $presetId = $currentPreset->getId();
+            $this->setupPresetEnvironment($currentPreset);
 
             // 1. Build context
-            $context = $this->buildContext($defaultPreset);
+            $context = $this->buildContext($mainPreset ?? $currentPreset, $handoffMessage);
 
             // 2. Setup and generate response
-            $response = $this->generateResponse($context, $defaultPreset);
+            $response = $this->generateResponse($context, $currentPreset, $handoffMessage);
 
             // 3. Handle response
-            return $this->handleResponse($response, $defaultPreset);
+            return $this->handleResponse($response, $mainPreset ?? $currentPreset);
 
         } catch (\Exception $e) {
             return $this->handleError($e, $presetId);
@@ -68,20 +73,31 @@ class Agent implements AgentInterface
     /**
      * Build context based on chat status
      *
+     * @param AiPreset $preset Current preset
      * @return array
      */
-    protected function buildContext(AiPreset $preset): array
+    protected function buildContext(AiPreset $preset, ?string $handoffMessage = null): array
     {
         $mode = $this->chatStatusService->getChatStatus() ? self::MODE_CYCLE : self::MODE_SINGLE;
         $contextBuilder = $this->contextBuilderFactory->getContextBuilder($mode);
 
-        return $contextBuilder->build($preset);
+        $context = $contextBuilder->build($preset);
+        if ($handoffMessage) {
+            $context[] = [
+                'role' => 'user',
+                'content' => "[Handoff Task: {$handoffMessage}]",
+                'from_user_id' => null
+            ];
+        }
+
+        return $context;
     }
 
     /**
      * Generate AI response using current preset
      *
      * @param array $context
+     * @param AiPreset $preset
      * @return mixed
      */
     protected function generateResponse(array $context, AiPreset $preset)
@@ -117,19 +133,34 @@ class Agent implements AgentInterface
      *
      * @param mixed $response
      * @param AiPreset $preset
-     * @return Message
+     * @return AiAgentResponseInterface
      */
-    protected function handleResponse($response, AiPreset $preset): Message
-    {
+    protected function handleResponse(
+        $response,
+        AiPreset $preset
+    ): AiAgentResponseInterface {
         if ($response->isError()) {
-            return $this->createSystemMessage(
+            $errorMessage = $this->createSystemMessage(
                 $response->getResponse(),
                 $preset->getId(),
                 $response->getMetadata()
             );
+
+            return new AgentResponseDTO(
+                $errorMessage,
+                new ActionsResponseDTO('', 'system', true),
+                true,
+                $response->getResponse()
+            );
         }
 
-        return $this->processSuccessfulResponse($response, $preset);
+        $result = $this->processSuccessfulResponse($response, $preset);
+
+        return new AgentResponseDTO(
+            $result['message'],
+            $result['actionsResult'],
+            false
+        );
     }
 
     /**
@@ -137,12 +168,12 @@ class Agent implements AgentInterface
      *
      * @param mixed $response
      * @param AiPreset $preset
-     * @return Message
+     * @return array
      */
-    protected function processSuccessfulResponse($response, AiPreset $preset): Message
+    protected function processSuccessfulResponse($response, AiPreset $preset): array
     {
         $output = $response->getResponse();
-        $actionsResult = $this->agentActions->runActions($output);
+        $actionsResult = $this->agentActions->runActions($output, $preset);
 
         $method = $preset->getAgentResultMode();
 
@@ -174,7 +205,10 @@ class Agent implements AgentInterface
             );
         }
 
-        return $message;
+        return [
+            'actionsResult' => $actionsResult,
+            'message' => $message
+        ];
     }
 
     /**
@@ -202,9 +236,9 @@ class Agent implements AgentInterface
      *
      * @param \Exception $e
      * @param int $presetId
-     * @return Message
+     * @return AiAgentResponseInterface
      */
-    protected function handleError(\Exception $e, int $presetId): Message
+    protected function handleError(\Exception $e, int $presetId): AiAgentResponseInterface
     {
         $this->logger->error("Agent: Error in think method", [
             'error_message' => $e->getMessage(),
@@ -214,9 +248,16 @@ class Agent implements AgentInterface
             'trace' => $e->getTraceAsString()
         ]);
 
-        return $this->createSystemMessage(
+        $errorMessage = $this->createSystemMessage(
             "Error in thinking process: " . $e->getMessage(),
             $presetId
+        );
+
+        return new AgentResponseDTO(
+            $errorMessage,
+            new ActionsResponseDTO('', 'system', true),
+            true, // hasError
+            $e->getMessage()
         );
     }
 }

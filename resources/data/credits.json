@@ -80,10 +80,13 @@
             "name": "Claude (Anthropic)",
             "role": "AI Assistant",
             "contributions": [
+                "AI API best practices design",
                 "Testing as agent",
                 "LLM-specific consulting",
                 "Documentation assistance",
-                "Feature ideation"
+                "Code review",
+                "Feature ideation",
+                "Translations"
             ]
         }
     ],

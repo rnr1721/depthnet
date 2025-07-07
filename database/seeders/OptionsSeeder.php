@@ -57,13 +57,6 @@ class OptionsSeeder extends Seeder
                 'description' => 'Message from user text',
                 'is_system' => true,
             ],
-            [
-                'key' => 'model_message_thinking_phrase',
-                'value' => 'Thinking: ',
-                'type' => 'string',
-                'description' => 'Thinking phrase for AI agent',
-                'is_system' => true,
-            ],
 
             // Chat Settings
             [

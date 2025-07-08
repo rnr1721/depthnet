@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
@@ -19,14 +21,19 @@ use App\Http\Requests\Chat\ChatExportRequest;
 use App\Http\Requests\Chat\SendMessageRequest;
 use App\Http\Requests\Chat\UpdatePresetSettingsRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\HttpFoundation\Response;
 
 class ChatController extends Controller
 {
     public function __construct(
         protected ChatServiceInterface $chatService,
         protected PresetServiceInterface $presetService,
+        protected AuthServiceInterface $authService,
+        protected LoggerInterface $logger
     ) {
     }
 
@@ -38,7 +45,6 @@ class ChatController extends Controller
     public function index(
         ChatExporterServiceInterface $chatExporterService,
         EngineRegistryInterface $engineRegistry,
-        AuthServiceInterface $authService,
         ChatStatusServiceInterface $chatStatusService,
         UserServiceInterface $userService,
         PluginRegistryInterface $pluginRegistry,
@@ -46,13 +52,12 @@ class ChatController extends Controller
         OptionsServiceInterface $optionsService
     ) {
         $defaultPreset = $this->presetService->getDefaultPreset();
-        $messages = $this->chatService->getAllMessages($defaultPreset->getId());
-        $user = $authService->getCurrentUser();
+        $user = $this->authService->getCurrentUser();
         $users = $userService->getAllUsers();
         $toLabel = __('To');
 
         $data = [
-            'messages' => $messages,
+            'messages' => [],
             'user' => $user,
             'presetMetadata' => $defaultPreset->metadata ?? [],
             'showAgentResults' => $optionsService->get('agent_show_results', true),
@@ -132,16 +137,77 @@ class ChatController extends Controller
     }
 
     /**
-     * Clear the chat history
+     * Clear the chat history based on request parameters
      *
-     * @return \Illuminate\Http\RedirectResponse
+     * @param \Illuminate\Http\Request $request
+     * @param MemoryServiceInterface $memoryService
+     * @param VectorMemoryServiceInterface $vectorMemoryService
+     * @return RedirectResponse|JsonResponse
      */
-    public function clearHistory()
-    {
-        $currentPreset = $this->presetService->getDefaultPreset();
-        $this->chatService->clearHistory($currentPreset->getId());
+    public function clearHistory(
+        Request $request,
+        MemoryServiceInterface $memoryService,
+        VectorMemoryServiceInterface $vectorMemoryService
+    ): JsonResponse|RedirectResponse {
+        try {
+            $currentPreset = $this->presetService->getDefaultPreset();
+            $presetId = $currentPreset->getId();
 
-        return back();
+            $cleared = [];
+
+            $clearMessages = $request->boolean('clear_messages', true);
+            if ($clearMessages) {
+                $this->chatService->clearHistory($presetId);
+                $cleared[] = 'messages';
+            }
+
+            if ($request->boolean('clear_memory')) {
+                $memoryService->clearMemory($currentPreset);
+                $cleared[] = 'memory';
+            }
+
+            if ($request->boolean('clear_vector_memory')) {
+                $vectorMemoryService->clearVectorMemories($currentPreset);
+                $cleared[] = 'vector_memory';
+            }
+
+            if (empty($cleared)) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Nothing selected to clear'
+                    ], 400);
+                }
+                return back()->withErrors(['error' => 'Nothing selected to clear']);
+            }
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Selected items cleared successfully',
+                    'cleared' => $cleared
+                ]);
+            }
+
+            return back()->with('success', 'Selected items cleared successfully');
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to clear chat history', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'preset_id' => $presetId ?? null,
+                'user_id' => $this->authService->getCurrentUserId(),
+                'request_params' => $request->only(['clear_messages', 'clear_memory', 'clear_vector_memory'])
+            ]);
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to clear selected items: ' . $e->getMessage()
+                ], 500);
+            }
+
+            return back()->withErrors(['error' => 'Failed to clear selected items']);
+        }
     }
 
     /**
@@ -151,12 +217,28 @@ class ChatController extends Controller
      * @param int $lastId
      * @return \Illuminate\Http\JsonResponse
      */
-    public function getNewMessages(Request $request, $lastId = 0)
+    public function getNewMessages(Request $request, $lastId = 0): JsonResponse
     {
-        $currentPreset = $this->presetService->getDefaultPreset();
+        $limit = $request->get('limit', 10);
+        $limit = min($limit, 50);
+        $presetId = $request->get('preset_id');
+
+        $preset = $presetId
+            ? $this->presetService->findById($presetId)
+            : $this->presetService->getDefaultPreset();
+
+        if (!$preset) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Preset not found',
+                'messages' => []
+            ], 404);
+        }
+
         $messages = $this->chatService->getNewMessages(
-            $currentPreset->getId(),
-            $lastId
+            $preset->getId(),
+            $lastId,
+            $limit
         );
 
         $response = [
@@ -164,20 +246,104 @@ class ChatController extends Controller
         ];
 
         if (count($messages) > 0) {
-            $currentPreset->refresh();
-            $response['presetMetadata'] = $currentPreset->metadata ?? [];
+            $preset->refresh();
+            $response['presetMetadata'] = $preset->metadata ?? [];
         }
 
         return response()->json($response);
     }
 
     /**
+     * Get paginated latest messages
+     *
+     * @param Request $request
+     * @return void
+     */
+    public function getLatestMessages(Request $request): JsonResponse
+    {
+        try {
+            $presetId = $request->get('preset_id');
+            $perPage = min((int) $request->get('per_page', 30), 100);
+
+            $preset = $presetId
+                ? $this->presetService->findById($presetId)
+                : $this->presetService->getDefaultPreset();
+
+            if (!$preset) {
+                return response()->json(['success' => false, 'error' => 'Preset not found'], 404);
+            }
+
+            $result = $this->chatService->getLatestMessagesWithPagination($preset->getId(), $perPage);
+
+            return response()->json([
+                'success' => true,
+                'messages' => $result['messages'],
+                'pagination' => $result['pagination'],
+                'presetMetadata' => $preset->metadata ?? [],
+                'presetId' => $preset->getId()
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->error('Error fetching latest messages', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to fetch messages',
+                'messages' => [],
+            ], 500);
+        }
+    }
+
+    /**
+     * Load older messages (any page)
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function loadOlderMessages(Request $request): JsonResponse
+    {
+        try {
+            $page = max(1, (int) $request->get('page', 1));
+            $perPage = min((int) $request->get('per_page', 30), 100);
+            $presetId = $request->get('preset_id');
+
+            $preset = $presetId
+                ? $this->presetService->findById($presetId)
+                : $this->presetService->getDefaultPreset();
+
+            if (!$preset) {
+                return response()->json(['success' => false, 'error' => 'Preset not found'], 404);
+            }
+
+            $result = $this->chatService->getMessagesPaginatedEnhanced(
+                $preset->getId(),
+                $page,
+                $perPage
+            );
+
+            return response()->json([
+                'success' => true,
+                'messages' => $result['messages'],
+                'pagination' => $result['pagination'],
+                'presetId' => $preset->getId()
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->error('Error loading older messages', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to load older messages',
+                'messages' => [],
+            ], 500);
+        }
+    }
+
+    /**
      * Delete a specific message
      *
      * @param int $messageId
-     * @return \Illuminate\Http\RedirectResponse
+     * @return RedirectResponse
      */
-    public function deleteMessage(int $messageId)
+    public function deleteMessage(int $messageId): RedirectResponse
     {
         $deleted = $this->chatService->deleteMessage($messageId);
 
@@ -192,12 +358,12 @@ class ChatController extends Controller
      * Update chat preset settings
      *
      * @param UpdatePresetSettingsRequest $request
-     * @return \Illuminate\Http\RedirectResponse
+     * @return RedirectResponse
      */
     public function updatePresetSettings(
         UpdatePresetSettingsRequest $request,
         AgentJobServiceInterface $agentJobService
-    ) {
+    ): RedirectResponse {
         try {
             $validated = $request->validated();
 
@@ -211,7 +377,6 @@ class ChatController extends Controller
             }
 
             return back()->with('error', 'Failed to update model settings');
-
         } catch (\Exception $e) {
             return back()->with('error', 'Failed to update chat settings: ' . $e->getMessage());
         }
@@ -219,6 +384,10 @@ class ChatController extends Controller
 
     /**
      * Update preset from chat page (stays on chat)
+     *
+     * @param UpdatePresetRequest $request
+     * @param integer $id
+     * @return JsonResponse
      */
     public function updatePreset(UpdatePresetRequest $request, int $id): JsonResponse
     {
@@ -229,7 +398,6 @@ class ChatController extends Controller
                 'success' => true,
                 'message' => 'Preset updated successfully'
             ]);
-
         } catch (PresetException $e) {
             return response()->json([
                 'success' => false,
@@ -246,9 +414,9 @@ class ChatController extends Controller
     /**
      * Get current chat preset information
      *
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
-    public function getCurrentPreset()
+    public function getCurrentPreset(): JsonResponse
     {
         $preset = $this->presetService->getDefaultPreset();
 
@@ -278,9 +446,9 @@ class ChatController extends Controller
      * Export chat history
      *
      * @param ChatExportRequest $request
-     * @return \Symfony\Component\HttpFoundation\Response
+     * @return Response
      */
-    public function exportChat(ChatExportRequest $request, ChatExporterServiceInterface $chatExporterService)
+    public function exportChat(ChatExportRequest $request, ChatExporterServiceInterface $chatExporterService): Response
     {
         $params = $request->validated();
 
@@ -292,6 +460,12 @@ class ChatController extends Controller
         return $chatExporterService->export($request['format'], $currentPreset->getId(), $options);
     }
 
+    /**
+     * Get user list
+     *
+     * @param UserServiceInterface $userService
+     * @return JsonResponse
+     */
     public function getUsers(UserServiceInterface $userService): JsonResponse
     {
         try {

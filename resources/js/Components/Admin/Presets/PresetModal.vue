@@ -76,8 +76,8 @@
                     :available-plugins="availablePlugins" />
 
                 <!-- Logic & Handoff Component -->
-                <PresetLogicInfo v-model="form" :is-dark="isDark" :errors="errors"
-                    :available-presets="availablePresets" @success="showNotification" @error="showError" />
+                <PresetLogicInfo v-model="form" :is-dark="isDark" :errors="errors" :available-presets="availablePresets"
+                    @success="showNotification" @error="showError" />
 
                 <!-- Engine Config Component -->
                 <PresetEngineConfig v-model="form" :engine-name="form.engine_name" :engines="engines" :is-dark="isDark"
@@ -142,6 +142,7 @@ const notification = ref({ message: '', type: 'success' });
 
 // Form data
 const form = ref({
+    id: props.preset?.id || null,
     name: props.preset?.name || '',
     description: props.preset?.description || '',
     engine_name: props.preset?.engine_name || '',

@@ -313,6 +313,7 @@ class ClaudeModel implements AIModelEngineInterface
     ): AiModelResponseInterface {
         try {
             $messages = $this->buildMessages($request);
+            $systemMessage = $this->prepareMessage($request);
 
             $data = [
                 'model' => $this->model,
@@ -321,6 +322,10 @@ class ClaudeModel implements AIModelEngineInterface
                 'top_p' => $this->config['top_p'],
                 'messages' => $messages
             ];
+
+            if (!empty(trim($systemMessage))) {
+                $data['system'] = $systemMessage;
+            }
 
             $headers = $this->getRequestHeaders();
             $timeout = config('ai.engines.claude.timeout', 120);
@@ -421,14 +426,7 @@ class ClaudeModel implements AIModelEngineInterface
      */
     protected function buildMessages(AiModelRequestInterface $request): array
     {
-        $systemMessage = $this->prepareMessage($request);
         $messages = [];
-
-        // Add system as first user message (Claude API feature)
-        $messages[] = [
-            'role' => 'user',
-            'content' => $systemMessage
-        ];
 
         $context = $request->getContext();
 
@@ -450,7 +448,7 @@ class ClaudeModel implements AIModelEngineInterface
                     break;
                 case 'result':
                     $messages[] = [
-                        'role' => 'system',
+                        'role' => 'assistant',
                         'content' => $content
                     ];
                     break;

@@ -30,9 +30,58 @@ interface ChatServiceInterface
      *
      * @param integer $presetId
      * @param integer $lastId Last message ID to start from
+     * @param integer|null $limit
      * @return Collection
      */
-    public function getNewMessages(int $presetId, int $lastId = 0): Collection;
+    public function getNewMessages(int $presetId, int $lastId = 0, ?int $limit = null): Collection;
+
+    /**
+     * Get recent messages for preset (last N messages in chronological order)
+     *
+     * @param integer $presetId
+     * @param integer $limit
+     * @return Collection
+     */
+    public function getRecentMessages(int $presetId, int $limit = 50): Collection;
+
+    /**
+     * Get latest messages with pagination metadata
+     *
+     * @param int $presetId
+     * @param int $perPage
+     * @return array
+     */
+    public function getLatestMessagesWithPagination(int $presetId, int $perPage = 30): array;
+
+    /**
+     * Check if there are more messages beyond the limit
+     *
+     * @param int $presetId
+     * @param int $loadedCount Number of messages already loaded
+     * @return bool
+     */
+    public function hasMoreMessages(int $presetId, int $loadedCount): bool;
+
+    /**
+     * Get messages with pagination (enhanced version with proper metadata)
+     *
+     * @param int $presetId
+     * @param int $page
+     * @param int $perPage
+     * @return array
+     */
+    public function getMessagesPaginated(int $presetId, int $page = 1, int $perPage = 30): array;
+
+    /**
+     * Get messages with pagination (enhanced version)
+     * Returns messages array directly in pagination structure
+     *
+     * @param int $presetId
+     * @param int $page
+     * @param int $perPage
+     * @return array
+     */
+    public function getMessagesPaginatedEnhanced(int $presetId, int $page = 1, int $perPage = 30): array;
 
     /**
      * Send message from user

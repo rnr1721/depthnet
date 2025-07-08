@@ -19,7 +19,7 @@
       ]">
         <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
           :isDark="isDark" :presetMetadata="presetMetadata" @mentionUser="handleMobileMention"
-          @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect" @editPreset="editCurrentPreset" />
+          @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" />
       </div>
     </div>
 
@@ -28,7 +28,7 @@
       :isAdmin="isAdmin" :currentPreset="currentPreset" v-model:isChatActive="isChatActive"
       v-model:showThinking="showThinking" v-model:selectedExportFormat="selectedExportFormat"
       v-model:includeThinking="includeThinking" :exportFormats="exportFormats" :isExporting="isExporting"
-      @closeMobileMenu="mobileMenuOpen = false" @clearHistory="confirmClearHistory" @editPreset="editCurrentPreset"
+      @closeMobileMenu="mobileMenuOpen = false" @clearHistory="showClearHistory" @editPreset="editCurrentPreset"
       @toggleTheme="toggleTheme" @exportChat="exportChat" />
 
     <!-- Main chat area -->
@@ -37,10 +37,22 @@
       <MobileHeader :isDark="isDark" :appName="page.props.app_name" @openMenu="mobileMenuOpen = true"
         @openUsers="mobileTabsOpen = true" />
 
+      <!-- Loading state -->
+      <div v-if="isInitialLoading" :class="[
+        'flex-1 flex items-center justify-center',
+        isDark ? 'bg-gray-900' : 'bg-gray-50'
+      ]">
+        <div class="text-center">
+          <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p :class="isDark ? 'text-gray-400' : 'text-gray-600'">{{ t('chat_loading_messages') }}</p>
+        </div>
+      </div>
+
       <!-- Messages -->
-      <ChatMessages ref="messagesComponent" :messages="localMessages" :showThinking="showThinking" :isDark="isDark"
-        :appName="page.props.app_name" @deleteMessage="deleteMessage" @scrollUpdate="handleScrollUpdate"
-        :showAgentResults="showAgentResults" :showCommandResults="showCommandResults" />
+      <ChatMessages v-if="!isInitialLoading" ref="messagesComponent" :messages="localMessages" :pagination="pagination"
+        :showThinking="showThinking" :isDark="isDark" :appName="page.props.app_name" @deleteMessage="deleteMessage"
+        @scrollUpdate="handleScrollUpdate" @loadOlder="handleLoadOlder" :showAgentResults="showAgentResults"
+        :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing" />
 
       <!-- Scroll to bottom button -->
       <ScrollToBottomButton v-if="hasUnreadMessages || !isUserAtBottom" :hasUnreadMessages="hasUnreadMessages"
@@ -55,14 +67,20 @@
     <div class="hidden lg:flex lg:w-80 flex-col border-l">
       <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
         :isDark="isDark" :presetMetadata="presetMetadata" @mentionUser="mentionUser" @showAbout="showAboutModal = true"
-        @selectPreset="handlePresetSelect" @editPreset="editCurrentPreset" />
+        @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" />
     </div>
 
     <!-- Preset Modal -->
     <PresetModal v-if="showEditPresetModal" :placeholders="placeholders" :preset="editingPreset" :engines="engines"
-      @close="closeEditModal" @save="saveCurrentPreset" />
+      @close="closeEditModal" @save="saveAnyPreset" />
+
+    <!-- About Modal -->
     <AboutModal v-if="showAboutModal" :isDark="isDark" :available-presets="availablePresets"
       :appName="page.props.app_name" @close="showAboutModal = false" />
+
+    <!-- Clear History Modal -->
+    <ClearHistoryModal :show="showClearHistoryModal" :isDark="isDark" :isClearing="isClearingHistory"
+      @close="showClearHistoryModal = false" @confirm="handleClearHistory" />
   </div>
 </template>
 
@@ -70,6 +88,7 @@
 import { useForm, router, usePage } from '@inertiajs/vue3';
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import axios from 'axios';
 
 import PageTitle from '@/Components/PageTitle.vue';
 import PresetModal from '@/Components/Admin/Presets/PresetModal.vue';
@@ -80,6 +99,7 @@ import ChatMessages from '@/Components/Chat/ChatMessages.vue';
 import ScrollToBottomButton from '@/Components/Chat/ScrollToBottomButton.vue';
 import MessageInput from '@/Components/Chat/MessageInput.vue';
 import AboutModal from '@/Components/Chat/AboutModal.vue';
+import ClearHistoryModal from '@/Components/Chat/ClearHistoryModal.vue';
 
 import { useTheme } from '@/Composables/useTheme';
 import { useChat } from '@/Composables/useChat';
@@ -103,7 +123,8 @@ const props = defineProps({
   placeholders: Object,
   presetMetadata: Object,
   showAgentResults: Boolean,
-  showCommandResults: Boolean
+  showCommandResults: Boolean,
+  pagination: Object,
 });
 
 const { isDark, toggleTheme } = useTheme();
@@ -127,6 +148,8 @@ const messagesComponent = ref(null);
 const messageInputComponent = ref(null);
 
 const showAboutModal = ref(false);
+const showClearHistoryModal = ref(false);
+const isClearingHistory = ref(false);
 
 const {
   localMessages,
@@ -136,11 +159,18 @@ const {
   shouldAutoRefresh,
   hasUnreadMessages,
   presetMetadata,
+  isInitialLoading,
+  isBackgroundRefreshing,
+  pagination,
+  loadLatestMessages,
   refreshMessages,
   startFrequentRefresh,
   stopFrequentRefresh,
   startUsersRefresh,
-  stopUsersRefresh
+  loadOlderMessages,
+  switchPreset,
+  resetChatState,
+  cleanup: cleanupChat
 } = useChat(props);
 
 const {
@@ -161,13 +191,33 @@ const {
 } = usePresets(props, isAdmin);
 
 /**
- * Handle preset selection
+ * Handle preset selection with chat reload
  */
-function handlePresetSelect(presetId) {
+async function handlePresetSelect(presetId) {
+  if (presetId === selectedPresetId.value) return;
+
   selectedPresetId.value = presetId;
-  if (isAdmin.value) {
+
+  // Switch to new preset and reload messages
+  const success = await switchPreset(presetId);
+
+  if (success && isAdmin.value) {
     updatePresetSettings();
   }
+
+  // Scroll to bottom after loading
+  setTimeout(() => {
+    if (messagesComponent.value) {
+      messagesComponent.value.scrollToBottom();
+    }
+  }, 100);
+}
+
+/**
+ * Handle load older messages request
+ */
+function handleLoadOlder() {
+  loadOlderMessages();
 }
 
 /**
@@ -213,15 +263,20 @@ function sendMessage(content) {
     onSuccess: () => {
       form.reset();
       isProcessing.value = false;
+
       startFrequentRefresh();
-      if (messagesComponent.value) {
-        messagesComponent.value.scrollToBottom();
-      }
-      if (messageInputComponent.value) {
-        messageInputComponent.value.focusInput();
-      }
+
+      requestAnimationFrame(() => {
+        if (messagesComponent.value) {
+          messagesComponent.value.scrollToBottom();
+        }
+        if (messageInputComponent.value) {
+          messageInputComponent.value.focusInput();
+        }
+      });
     },
-    onError: () => {
+    onError: (errors) => {
+      console.error('Send message error:', errors);
       isProcessing.value = false;
       if (messageInputComponent.value) {
         messageInputComponent.value.focusInput();
@@ -251,11 +306,61 @@ function deleteMessage(messageId) {
 }
 
 /**
- * Clear chat history
+ * Show clear history modal
  */
-function confirmClearHistory() {
-  if (confirm(t('chat_delete_all_confirm'))) {
-    router.post(route('chat.clear'));
+function showClearHistory() {
+  showClearHistoryModal.value = true;
+}
+
+/**
+ * Handle clear history confirmation
+ */
+async function handleClearHistory(options) {
+  if (isClearingHistory.value) return;
+
+  try {
+    isClearingHistory.value = true;
+
+    // Build request data based on selected options
+    const requestData = {};
+    if (options.clearMessages) requestData.clear_messages = true;
+    if (options.clearMemory) requestData.clear_memory = true;
+    if (options.clearVectorMemory) requestData.clear_vector_memory = true;
+
+    await router.post(route('chat.clear'), requestData, {
+      preserveScroll: true,
+      onSuccess: () => {
+        if (options.clearMessages) {
+          resetChatState();
+
+          stopFrequentRefresh();
+
+          setTimeout(async () => {
+            try {
+              await loadLatestMessages(null, false);
+              startFrequentRefresh();
+
+              setTimeout(() => {
+                if (messagesComponent.value) {
+                  messagesComponent.value.scrollToBottom();
+                }
+              }, 100);
+            } catch (error) {
+              console.error('Failed to reload messages after clear:', error);
+            }
+          }, 100);
+        }
+
+        showClearHistoryModal.value = false;
+      },
+      onError: (errors) => {
+        console.error('Error clearing history:', errors);
+      }
+    });
+  } catch (error) {
+    console.error('Failed to clear history:', error);
+  } finally {
+    isClearingHistory.value = false;
   }
 }
 
@@ -289,6 +394,115 @@ function mentionUser(userName) {
 }
 
 /**
+ * Handle preset editing from tabs panel (can edit any preset)
+ * @param {number} presetId - ID of preset to edit, if not provided uses current
+ */
+async function handleEditPreset(presetId = null) {
+  if (!isAdmin.value) return;
+
+  if (presetId) {
+    // Load full preset data before editing
+    await loadAndEditPreset(presetId);
+  } else {
+    editCurrentPreset();
+  }
+}
+
+/**
+ * Load full preset data and open for editing
+ * @param {number} presetId 
+ */
+async function loadAndEditPreset(presetId) {
+  try {
+    console.log('Loading full preset data for ID:', presetId);
+
+    // Use admin route to get full preset data
+    const response = await axios.get(route('admin.presets.show', presetId));
+
+    if (response.data && response.data.success && response.data.data) {
+      const fullPresetData = response.data.data;
+      console.log('Loaded full preset data:', fullPresetData);
+
+      // Use the full data (same as admin panel)
+      editingPreset.value = fullPresetData;
+      showEditPresetModal.value = true;
+    } else {
+      console.error('Invalid response format:', response.data);
+      throw new Error('Invalid response format');
+    }
+  } catch (error) {
+    console.error('Failed to load preset data:', error);
+
+    // Fallback to using available data if API fails
+    const presetToEdit = props.availablePresets.find(p => p.id === presetId);
+    if (presetToEdit) {
+      console.log('Using fallback preset data:', presetToEdit);
+      editingPreset.value = presetToEdit;
+      showEditPresetModal.value = true;
+    }
+  }
+}
+
+/**
+ * Save any preset using existing chat route
+ */
+async function saveAnyPreset(presetData) {
+  if (!presetData.id) {
+    console.error('No preset ID provided for saving');
+    return;
+  }
+
+  try {
+
+    const response = await axios.put(route('chat.preset.update', presetData.id), presetData);
+
+    if (response.data.success) {
+
+      const presetIndex = props.availablePresets.findIndex(p => p.id === presetData.id);
+      if (presetIndex !== -1) {
+        Object.assign(props.availablePresets[presetIndex], {
+          name: presetData.name,
+          description: presetData.description,
+          engine_name: presetData.engine_name,
+          engine_display_name: presetData.engine_display_name || presetData.engine_name,
+          engine_config: presetData.engine_config,
+          model: presetData.engine_config?.model || null,
+          is_active: presetData.is_active,
+          is_default: presetData.is_default
+        });
+      }
+
+      if (presetData.id === selectedPresetId.value) {
+        setTimeout(async () => {
+          try {
+            await refreshMessages();
+          } catch (error) {
+            console.error('Failed to refresh after preset update:', error);
+          }
+        }, 100);
+      }
+
+      showEditPresetModal.value = false;
+    } else {
+      console.error('Failed to update preset:', response.data.errors || response.data.message);
+    }
+  } catch (error) {
+    console.error('Error updating preset:', error);
+
+    if (error.response?.status === 422) {
+      console.error('Validation errors:', error.response.data);
+
+      if (error.response.data.errors) {
+        console.error('Field errors:', error.response.data.errors);
+        Object.entries(error.response.data.errors).forEach(([field, messages]) => {
+          console.error(`Field "${field}":`, messages);
+        });
+      }
+    }
+  }
+}
+
+/**
  * Handle mobile mention (closes mobile panel)
  */
 function handleMobileMention(userName) {
@@ -296,16 +510,11 @@ function handleMobileMention(userName) {
   mobileTabsOpen.value = false;
 }
 
-// Watchers
 watch([selectedPresetId, isChatActive], () => {
   if (isAdmin.value) {
     updatePresetSettings();
   }
 });
-
-watch(() => props.messages, (newMessages) => {
-  localMessages.value = [...newMessages];
-}, { deep: true });
 
 watch(() => props.users, (newUsers) => {
   localUsers.value = [...newUsers];
@@ -319,19 +528,15 @@ watch(() => props.chatActive, (newValue) => {
   isChatActive.value = newValue;
 });
 
-watch(() => props.presetMetadata, (newMetadata) => {
-  if (newMetadata) {
-    presetMetadata.value = newMetadata;
-  }
-}, { deep: true });
-
 watch(() => localMessages.value.length, (newLength, oldLength) => {
   if (newLength > oldLength && shouldAutoRefresh.value) {
-    setTimeout(() => {
-      if (messagesComponent.value) {
-        messagesComponent.value.scrollToBottom();
-      }
-    }, 100);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (messagesComponent.value) {
+          messagesComponent.value.scrollToBottom();
+        }
+      }, 50); // Reduced delay for better responsiveness
+    });
   }
 });
 
@@ -341,16 +546,25 @@ watch(selectedPresetId, (newPresetId, oldPresetId) => {
   }
 });
 
-onMounted(() => {
-  localMessages.value = [...props.messages];
+onMounted(async () => {
   localUsers.value = [...props.users];
 
-  if (messagesComponent.value) {
-    messagesComponent.value.scrollToBottom();
+  try {
+    await loadLatestMessages();
+
+    if (messagesComponent.value) {
+      messagesComponent.value.scrollToBottom();
+    }
+  } catch (error) {
+    console.error('Failed to load initial messages:', error);
   }
 
-  // Start refresh intervals
-  refreshInterval = setInterval(refreshMessages, 10000);
+  refreshInterval = setInterval(() => {
+    refreshMessages().catch(error => {
+      console.error('Periodic refresh failed:', error);
+    });
+  }, 5000);
+
   startUsersRefresh();
 });
 
@@ -359,10 +573,15 @@ onBeforeUnmount(() => {
     clearInterval(refreshInterval);
     refreshInterval = null;
   }
-  stopUsersRefresh();
+
+  cleanupChat();
+
+  if (typeof window !== 'undefined') {
+    let id = requestAnimationFrame(() => { });
+    cancelAnimationFrame(id);
+  }
 });
 
-// Initialize refresh interval
 let refreshInterval = null;
 </script>
 

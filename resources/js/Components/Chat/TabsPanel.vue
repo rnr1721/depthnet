@@ -24,8 +24,8 @@
                     <span :class="[
                         'ml-2 text-xs px-1.5 py-0.5 rounded-full',
                         activeTab === 'users'
-                            ? 'bg-white bg-opacity-20'
-                            : (isDark ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-600')
+                            ? 'bg-gray bg-opacity-20'
+                            : (isDark ? 'bg-gray-600 text-green-300' : 'bg-gray-200 text-gray-600')
                     ]">
                         {{ users.length }}
                     </span>
@@ -39,7 +39,7 @@
             <div v-if="activeTab === 'presets'" class="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
                 <PresetItem v-for="preset in availablePresets" :key="preset.id" :preset="preset"
                     :isActive="selectedPresetId === preset.id" :isDark="isDark"
-                    @select="$emit('selectPreset', preset.id)" @edit="$emit('editPreset')" />
+                    @select="$emit('selectPreset', preset.id)" @edit="handleEditPreset" />
             </div>
 
             <!-- Users Tab -->
@@ -105,7 +105,7 @@
 
         <!-- Footer (always visible) -->
         <div :class="[
-            'p-4 text-center flex-shrink-0 border-t',
+            'p-7 text-center flex-shrink-0 border-t bg-gray-800',
             isDark ? 'text-gray-400 border-gray-600' : 'text-gray-500 border-gray-200'
         ]">
             <button @click="$emit('showAbout')" :class="[
@@ -149,9 +149,17 @@ defineProps({
     }
 });
 
-defineEmits(['mentionUser', 'showAbout', 'selectPreset', 'editPreset']);
+const emit = defineEmits(['mentionUser', 'showAbout', 'selectPreset', 'editPreset']);
 
 const activeTab = ref('presets');
+
+/**
+ * Handle preset editing with specific preset ID
+ * @param {number} presetId - ID of the preset to edit
+ */
+function handleEditPreset(presetId) {
+    emit('editPreset', presetId);
+}
 </script>
 
 <style scoped>

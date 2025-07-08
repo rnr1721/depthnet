@@ -14,13 +14,13 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
-* Service for managing a general chat
-*
-* This service handles the exchange of messages in a general chat, where:
-* - Different users can send messages
-* - All messages are visible to all chat participants
-* - The AI ​​model receives formatted messages and can "think" (generate internal thoughts)
-*/
+ * Service for managing a general chat
+ *
+ * This service handles the exchange of messages in a general chat, where:
+ * - Different users can send messages
+ * - All messages are visible to all chat participants
+ * - The AI model receives formatted messages and can "think" (generate internal thoughts)
+ */
 class ChatService implements ChatServiceInterface
 {
     public function __construct(
@@ -40,22 +40,140 @@ class ChatService implements ChatServiceInterface
     public function getAllMessages(int $presetId, int $limit = 100): Collection
     {
         return $this->messageModel
-        ->forPreset($presetId)
-        ->orderBy('created_at', 'asc')
-        ->limit($limit)
-        ->get();
+            ->forPreset($presetId)
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
+            ->limit($limit)
+            ->get();
     }
 
     /**
      * @inheritDoc
      */
-    public function getNewMessages(int $presetId, int $lastId = 0): Collection
+    public function getNewMessages(int $presetId, int $lastId = 0, ?int $limit = null): Collection
     {
-        return $this->messageModel
+        $query = $this->messageModel
             ->forPreset($presetId)
             ->where('id', '>', $lastId)
             ->orderBy('created_at', 'asc')
-            ->get();
+            ->orderBy('id', 'asc');
+
+        if ($limit !== null && $limit > 0) {
+            $query->limit($limit);
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getRecentMessages(int $presetId, int $limit = 30): Collection
+    {
+        return $this->messageModel
+            ->forPreset($presetId)
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->limit($limit)
+            ->get()
+            ->reverse()
+            ->values();
+    }
+
+    /**
+     * Get latest messages with pagination metadata
+     *
+     * @param int $presetId
+     * @param int $perPage
+     * @return array
+     */
+    public function getLatestMessagesWithPagination(int $presetId, int $perPage = 30): array
+    {
+        $messages = $this->getRecentMessages($presetId, $perPage);
+        $totalMessages = $this->getMessagesCount($presetId);
+
+        $loadedCount = count($messages);
+        $remainingMessages = max(0, $totalMessages - $loadedCount);
+
+        $totalPages = max(1, ceil($totalMessages / $perPage));
+        $currentVirtualPage = $totalPages;
+
+        $hasMorePages = $remainingMessages > 0;
+
+        return [
+            'messages' => $messages,
+            'pagination' => [
+                'current_page' => $currentVirtualPage,
+                'last_page' => $totalPages,
+                'total' => $totalMessages,
+                'per_page' => $perPage,
+                'has_more_pages' => $hasMorePages,
+                'loaded_count' => $loadedCount,
+                'remaining_count' => $remainingMessages,
+                'from' => max(1, $totalMessages - $loadedCount + 1),
+                'to' => $totalMessages
+            ]
+        ];
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function hasMoreMessages(int $presetId, int $loadedCount): bool
+    {
+        $totalCount = $this->messageModel
+            ->forPreset($presetId)
+            ->count();
+
+        return $totalCount > $loadedCount;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getMessagesPaginated(int $presetId, int $page = 1, int $perPage = 30): array
+    {
+        $paginator = $this->messageModel
+            ->forPreset($presetId)
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        return [
+            'data' => $paginator->items(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'total' => $paginator->total(),
+            'per_page' => $paginator->perPage(),
+            'has_more_pages' => $paginator->hasMorePages(),
+            'from' => $paginator->firstItem(),
+            'to' => $paginator->lastItem(),
+        ];
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getMessagesPaginatedEnhanced(int $presetId, int $page = 1, int $perPage = 30): array
+    {
+        $paginator = $this->messageModel
+            ->forPreset($presetId)
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        return [
+            'messages' => $paginator->items(),
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'total' => $paginator->total(),
+                'per_page' => $paginator->perPage(),
+                'has_more_pages' => $paginator->hasMorePages(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ]
+        ];
     }
 
     /**
@@ -154,5 +272,4 @@ class ChatService implements ChatServiceInterface
     {
         $this->messageModel->truncate();
     }
-
 }

@@ -475,7 +475,7 @@ class OpenAIModel implements AIModelEngineInterface
                     break;
                 case 'result':
                     $messages[] = [
-                        'role' => 'system',
+                        'role' => 'assistant',
                         'content' => $content
                     ];
                     break;

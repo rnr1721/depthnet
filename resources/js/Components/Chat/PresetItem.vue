@@ -33,7 +33,7 @@
                             ? 'bg-white bg-opacity-20 text-green-700'
                             : (isDark ? 'bg-yellow-900 bg-opacity-50 text-yellow-300' : 'bg-yellow-100 text-yellow-800')
                     ]">
-                        {{ t('chat_current_preset') }}
+                        {{ t('chat_current_preset') || 'Default' }}
                     </span>
                 </div>
 
@@ -49,13 +49,17 @@
             </div>
 
             <!-- Edit button -->
-            <button @click.stop="$emit('edit')" v-if="isActive" :class="[
-                'p-1.5 rounded-md transition-colors flex-shrink-0 ml-2',
-                'opacity-0 group-hover:opacity-100',
-                isDark
-                    ? 'hover:bg-indigo-800 text-indigo-300 hover:text-indigo-200'
-                    : 'hover:bg-indigo-200 text-indigo-600 hover:text-indigo-800'
-            ]" title="Edit preset">
+            <button @click.stop="$emit('edit', preset.id)" :class="[
+                'p-1.5 rounded-md transition-all duration-200 flex-shrink-0 ml-2',
+                'opacity-0 group-hover:opacity-100 transform group-hover:scale-110',
+                isActive
+                    ? (isDark
+                        ? 'hover:bg-indigo-800 text-indigo-300 hover:text-indigo-200'
+                        : 'hover:bg-indigo-200 text-indigo-600 hover:text-indigo-800')
+                    : (isDark
+                        ? 'hover:bg-gray-600 text-gray-400 hover:text-gray-200'
+                        : 'hover:bg-gray-200 text-gray-600 hover:text-gray-800')
+            ]" :title="t('chat_edit_preset') || 'Edit preset'">
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
@@ -86,16 +90,6 @@
                 ]" :title="preset.model">
                     {{ preset.model }}
                 </span>
-            </div>
-
-            <!-- Metadata count -->
-            <div v-if="preset.metadata && Object.keys(preset.metadata).length > 0" :class="[
-                'text-xs px-1.5 py-0.5 rounded flex-shrink-0',
-                isActive
-                    ? (isDark ? 'bg-indigo-800 bg-opacity-50 text-indigo-300' : 'bg-indigo-200 text-indigo-700')
-                    : (isDark ? 'bg-gray-600 bg-opacity-50 text-gray-400' : 'bg-gray-100 text-gray-500')
-            ]">
-                {{ Object.keys(preset.metadata).length }} meta
             </div>
         </div>
     </div>

@@ -37,14 +37,18 @@ class ChatService implements ChatServiceInterface
     /**
      * @inheritDoc
      */
-    public function getAllMessages(int $presetId, int $limit = 100): Collection
+    public function getAllMessages(int $presetId, ?int $limit = null): Collection
     {
-        return $this->messageModel
+        $query = $this->messageModel
             ->forPreset($presetId)
             ->orderBy('created_at', 'asc')
-            ->orderBy('id', 'asc')
-            ->limit($limit)
-            ->get();
+            ->orderBy('id', 'asc');
+
+        if ($limit !== null) {
+            $query->limit($limit);
+        }
+
+        return $query->get();
     }
 
     /**
@@ -184,11 +188,14 @@ class ChatService implements ChatServiceInterface
         $messageFromUserLabel = $this->optionsService->get('model_message_from_user', 'message_from_user');
         $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
 
-        $finalContent = $user->is_admin ? $this->runCommands($formattedContent, $presetId) : $formattedContent;
+        $finalContent = null;
+        if ($this->optionsService->get('user_can_run_commands', false)) {
+            $finalContent = $user->is_admin ? $this->runCommands($formattedContent, $presetId) : $formattedContent;
+        }
 
         $message = $this->messageModel->create([
             'role' => 'user',
-            'content' => $formattedContent . $finalContent,
+            'content' => $formattedContent . $finalContent ?? '',
             'from_user_id' => $user->id,
             'preset_id' => $presetId,
             'is_visible_to_user' => true

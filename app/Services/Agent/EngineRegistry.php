@@ -168,7 +168,7 @@ class EngineRegistry implements EngineRegistryInterface
     /**
      * @inheritDoc
      */
-    public function getEngineConfigFields(string $engineName): array
+    public function getEngineConfigFields(string $engineName, ?array $presetConfig = null): array
     {
         $fields = [];
 
@@ -176,7 +176,7 @@ class EngineRegistry implements EngineRegistryInterface
         if ($this->has($engineName)) {
             $engine = $this->engines[$engineName];
             if (method_exists($engine, 'getConfigFields')) {
-                $fields = $engine->getConfigFields();
+                $fields = $engine->getConfigFields($presetConfig);
             }
         }
 

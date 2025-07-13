@@ -61,6 +61,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'Store important information: [vectormemory]Successfully optimized database queries using indexes[/vectormemory]',
             'Search by meaning: [vectormemory search]how to speed up code[/vectormemory]',
             'Show recent memories: [vectormemory recent]5[/vectormemory]',
+            'Show full memory item by id: [vectormemory show]42[/vectormemory]',
             'Clear all memories: [vectormemory clear][/vectormemory]',
             'Delete by ID: [vectormemory delete]42[/vectormemory]',
             'Delete by content: [vectormemory delete]optimization query[/vectormemory]',
@@ -178,6 +179,15 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'value' => 'auto',
                 'required' => false
             ],
+            'display_content_length' => [
+                'type' => 'number',
+                'label' => 'Display Content Length',
+                'description' => 'Maximum number of characters to show in search results',
+                'min' => 100,
+                'max' => 1000,
+                'value' => 500,
+                'required' => false
+            ],
             'custom_stop_words_ru' => [
                 'type' => 'textarea',
                 'label' => 'Custom Russian Stop Words',
@@ -230,6 +240,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
             }
         }
 
+        if (isset($config['display_content_length'])) {
+            $length = (int) $config['display_content_length'];
+            if ($length < 100 || $length > 1000) {
+                $errors['display_content_length'] = 'Display content length must be between 100 and 1000';
+            }
+        }
+
         return $errors;
     }
 
@@ -249,6 +266,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'memory_link_format' => 'descriptive',
             'max_link_keywords' => 4,
             'language_mode' => 'auto',
+            'display_content_length' => 500,
             'custom_stop_words_ru' => '',
             'custom_stop_words_en' => ''
         ];
@@ -349,7 +367,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
             foreach ($result['results'] as $searchResult) {
                 $similarity = round($searchResult['similarity'] * 100, 1);
                 $date = $searchResult['memory']->created_at->format('M j, H:i');
-                $content = $this->truncateContent($searchResult['memory']->content, 200);
+                $truncateLength = $this->config['display_content_length'] ?? 500;
+                $content = $this->truncateContent($searchResult['memory']->content, $truncateLength);
                 $id = $searchResult['memory']->id;
                 $output .= "• [ID:{$id}, {$similarity}% match, {$date}] {$content}\n";
             }
@@ -392,7 +411,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
             foreach ($memories as $memory) {
                 $date = $memory->created_at->format('M j, H:i');
-                $content = $this->truncateContent($memory->content, 150);
+                $truncateLength = $this->config['display_content_length'] ?? 500;
+                $content = $this->truncateContent($memory->content, $truncateLength);
                 $features = count($memory->tfidf_vector);
 
                 $output .= "• [ID:{$memory->id}, {$date}, {$features} features] {$content}\n";
@@ -403,6 +423,34 @@ class VectorMemoryPlugin implements CommandPluginInterface
         } catch (\Throwable $e) {
             $this->logger->error("VectorMemoryPlugin::recent error: " . $e->getMessage());
             return "Error retrieving recent memories: " . $e->getMessage();
+        }
+    }
+
+    public function show(string $memoryId): string
+    {
+        if (!$this->isEnabled()) {
+            return "Error: Vector memory plugin is disabled.";
+        }
+
+        try {
+            $id = (int) $memoryId;
+            $memory = $this->vectorMemoryService->getVectorMemoryById($this->preset, $id);
+
+            if (!$memory) {
+                return "Memory with ID {$id} not found.";
+            }
+
+            $date = $memory->created_at->format('M j, H:i');
+            $features = count($memory->tfidf_vector);
+            $keywords = implode(', ', $memory->keywords ?? []);
+
+            return "Memory ID {$id} [{$date}, {$features} features]:\n\n" .
+                "{$memory->content}\n\n" .
+                "Keywords: {$keywords}";
+
+        } catch (\Throwable $e) {
+            $this->logger->error("VectorMemoryPlugin::show error: " . $e->getMessage());
+            return "Error showing memory: " . $e->getMessage();
         }
     }
 
@@ -565,19 +613,34 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Truncate content for display
+     * Truncate content for display with proper UTF-8 support and word boundaries
      *
-     * @param string $content
-     * @param int $length
-     * @return string
+     * @param string $content Content to truncate
+     * @param int $length Maximum length in characters (not bytes)
+     * @param bool $respectWordBoundaries Whether to avoid cutting words in the middle
+     * @return string Truncated content
      */
-    private function truncateContent(string $content, int $length): string
+    private function truncateContent(string $content, int $length, bool $respectWordBoundaries = true): string
     {
-        if (strlen($content) <= $length) {
+        // Use mb_strlen for proper UTF-8 character counting
+        if (mb_strlen($content, 'UTF-8') <= $length) {
             return $content;
         }
 
-        return substr($content, 0, $length) . '...';
+        // Truncate using mb_substr for proper UTF-8 handling
+        $truncated = mb_substr($content, 0, $length, 'UTF-8');
+
+        if ($respectWordBoundaries) {
+            // Find the last space to avoid cutting words in the middle
+            $lastSpace = mb_strrpos($truncated, ' ', 0, 'UTF-8');
+
+            // If we found a space and it's not too close to the beginning
+            if ($lastSpace !== false && $lastSpace > ($length * 0.7)) {
+                $truncated = mb_substr($truncated, 0, $lastSpace, 'UTF-8');
+            }
+        }
+
+        return $truncated . '...';
     }
 
     /**

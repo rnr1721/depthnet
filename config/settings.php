@@ -49,6 +49,16 @@ return [
             'order' => 4,
         ],
 
+        'user_can_run_commands' => [
+            'type' => 'checkbox',
+            'label' => 'settings_user_can_run_commands',
+            'description' => 'settings_user_can_run_commands_desc',
+            'default' => false,
+            'validation' => 'boolean',
+            'group' => 'chat_settings',
+            'order' => 1,
+        ],
+
         'chat_max_chat_history' => [
             'type' => 'input',
             'input_type' => 'number',

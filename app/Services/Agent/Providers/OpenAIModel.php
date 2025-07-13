@@ -60,6 +60,22 @@ class OpenAIModel implements AIModelEngineInterface
     /**
      * @inheritDoc
      */
+    public function supportsDynamicModels(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function requiresApiKeyForModels(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getDescription(): string
     {
         return config(
@@ -149,6 +165,277 @@ class OpenAIModel implements AIModelEngineInterface
                 'rows' => 6
             ]
         ];
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getAvailableModels(?array $config = null): array
+    {
+        $apiKey = $config['api_key'] ?? $this->apiKey ?? '';
+
+        // OpenAI requires API key for model listing
+        if (empty($apiKey)) {
+            $this->logger->info('No OpenAI API key provided, using fallback models');
+            return $this->getFallbackModels();
+        }
+
+        $cacheKey = 'openai_models_' . substr(md5($apiKey), 0, 8);
+        $cacheLifetime = config('ai.engines.openai.models_cache_lifetime', 3600); // 1 hour
+
+        return $this->cache->remember($cacheKey, $cacheLifetime, function () use ($apiKey) {
+            try {
+                $modelsEndpoint = config('ai.engines.openai.models_endpoint', 'https://api.openai.com/v1/models');
+
+                $headers = [
+                    'Content-Type' => 'application/json',
+                    'Authorization' => 'Bearer ' . $apiKey,
+                ];
+
+                $timeout = config('ai.engines.openai.timeout', 30);
+
+                $this->logger->info('Fetching OpenAI models from API', [
+                    'endpoint' => $modelsEndpoint,
+                    'api_key_prefix' => substr($apiKey, 0, 8) . '...'
+                ]);
+
+                $response = $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+                    ->get($modelsEndpoint);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    $models = [];
+
+                    foreach ($data['data'] ?? [] as $model) {
+                        $modelId = $model['id'] ?? '';
+                        if (empty($modelId)) {
+                            continue;
+                        }
+
+                        // Filter only chat completion models
+                        if (!$this->isChatModel($modelId)) {
+                            continue;
+                        }
+
+                        $models[$modelId] = [
+                            'id' => $modelId,
+                            'display_name' => $this->formatModelDisplayName($modelId),
+                            'description' => $this->getModelDescription($modelId),
+                            'context_length' => $this->getModelContextLength($modelId),
+                            'owned_by' => $model['owned_by'] ?? 'openai',
+                            'category' => $this->categorizeModel($modelId),
+                            'recommended' => $this->isRecommendedModel($modelId),
+                            'created' => $model['created'] ?? null,
+                            'source' => 'api'
+                        ];
+                    }
+
+                    // Sort models with recommended first
+                    uasort($models, function ($a, $b) {
+                        if ($a['recommended'] !== $b['recommended']) {
+                            return $b['recommended'] <=> $a['recommended'];
+                        }
+                        return strcmp($a['display_name'], $b['display_name']);
+                    });
+
+                    if (!empty($models)) {
+                        $this->logger->info('OpenAI models loaded from API', [
+                            'count' => count($models)
+                        ]);
+                        return $models;
+                    }
+                }
+
+                $this->logger->warning('Failed to fetch OpenAI models from API', [
+                    'status_code' => $response->status(),
+                    'response_body' => $response->body()
+                ]);
+
+            } catch (\Exception $e) {
+                $this->logger->error('Error fetching OpenAI models: ' . $e->getMessage(), [
+                    'exception_type' => get_class($e)
+                ]);
+            }
+
+            // Return fallback models if API fails
+            $fallbackModels = $this->getFallbackModels();
+            foreach ($fallbackModels as $modelId => $modelInfo) {
+                $fallbackModels[$modelId]['source'] = 'fallback';
+            }
+
+            $this->logger->info('Using fallback models for OpenAI after API failure', ['count' => count($fallbackModels)]);
+            return $fallbackModels;
+        });
+    }
+
+    /**
+     * Get model context length
+     */
+    protected function getModelContextLength(string $modelId): int
+    {
+        $contextLengths = [
+            'gpt-4o' => 128000,
+            'gpt-4o-mini' => 128000,
+            'gpt-4-turbo' => 128000,
+            'gpt-4' => 8192,
+            'gpt-3.5-turbo' => 16385,
+            'o1-preview' => 128000,
+            'o1-mini' => 128000
+        ];
+
+        // Handle versioned models
+        foreach ($contextLengths as $model => $length) {
+            if (str_starts_with($modelId, $model)) {
+                return $length;
+            }
+        }
+
+        return 4096; // default
+    }
+
+    /**
+     * Categorize model by capabilities
+     */
+    protected function categorizeModel(string $modelId): string
+    {
+        if (str_contains($modelId, 'o1')) {
+            return 'reasoning';
+        }
+
+        if (str_contains($modelId, 'gpt-4')) {
+            return 'general';
+        }
+
+        if (str_contains($modelId, 'gpt-3.5')) {
+            return 'general';
+        }
+
+        return 'general';
+    }
+
+    /**
+     * Get fallback model options for select field
+     */
+    protected function getFallbackModelOptions(): array
+    {
+        $models = $this->getFallbackModels();
+        $options = [];
+
+        foreach ($models as $modelId => $modelInfo) {
+            $prefix = $modelInfo['recommended'] ? '⭐ ' : '';
+            $options[$modelId] = $prefix . $modelInfo['display_name'];
+        }
+
+        return $options;
+    }
+
+    /**
+     * Check if model is recommended
+     */
+    protected function isRecommendedModel(string $modelId): bool
+    {
+        $recommendedModels = [
+            'gpt-4o',
+            'gpt-4o-mini',
+            'gpt-4-turbo'
+        ];
+
+        return in_array($modelId, $recommendedModels);
+    }
+
+    /**
+     * Check if model is suitable for chat completion
+     */
+    protected function isChatModel(string $modelId): bool
+    {
+        // Filter out non-chat models
+        $excludePatterns = [
+            'whisper',
+            'tts',
+            'dall-e',
+            'davinci',
+            'curie',
+            'babbage',
+            'ada',
+            'embedding',
+            'text-moderation',
+            'text-similarity',
+            'text-search',
+            'code-search'
+        ];
+
+        foreach ($excludePatterns as $pattern) {
+            if (str_contains(strtolower($modelId), $pattern)) {
+                return false;
+            }
+        }
+
+        // Include known chat models
+        $chatPatterns = [
+            'gpt-3.5',
+            'gpt-4',
+            'o1',
+            'chatgpt'
+        ];
+
+        foreach ($chatPatterns as $pattern) {
+            if (str_contains(strtolower($modelId), $pattern)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Format model display name
+     */
+    protected function formatModelDisplayName(string $modelId): string
+    {
+        // Handle special cases
+        $specialNames = [
+            'gpt-4o' => 'GPT-4o',
+            'gpt-4o-mini' => 'GPT-4o Mini',
+            'gpt-4-turbo' => 'GPT-4 Turbo',
+            'gpt-4' => 'GPT-4',
+            'gpt-3.5-turbo' => 'GPT-3.5 Turbo',
+            'o1-preview' => 'o1 Preview',
+            'o1-mini' => 'o1 Mini'
+        ];
+
+        if (isset($specialNames[$modelId])) {
+            return $specialNames[$modelId];
+        }
+
+        // General formatting
+        $displayName = str_replace(['-', '_'], ' ', $modelId);
+        $displayName = ucwords($displayName);
+
+        // Handle GPT naming
+        $displayName = preg_replace('/Gpt (\d+)/', 'GPT-$1', $displayName);
+        $displayName = str_replace('Gpt', 'GPT', $displayName);
+
+        return $displayName;
+    }
+
+    /**
+     * Get model description based on known models
+     */
+    protected function getModelDescription(string $modelId): ?string
+    {
+        $descriptions = [
+            'gpt-4o' => 'Latest GPT-4 Omni model with multimodal capabilities',
+            'gpt-4o-mini' => 'Smaller, faster version of GPT-4o',
+            'gpt-4-turbo' => 'Latest GPT-4 Turbo model with improved performance',
+            'gpt-4' => 'Original GPT-4 model with advanced reasoning',
+            'gpt-3.5-turbo' => 'Fast and cost-effective model for most tasks',
+            'o1-preview' => 'Advanced reasoning model optimized for complex problems',
+            'o1-mini' => 'Faster reasoning model for coding and math'
+        ];
+
+        return $descriptions[$modelId] ?? null;
     }
 
     /**
@@ -625,4 +912,77 @@ class OpenAIModel implements AIModelEngineInterface
             return false;
         }
     }
+
+    /**
+     * Get fallback models when API is unavailable
+     */
+    protected function getFallbackModels(): array
+    {
+        return [
+            'gpt-4o' => [
+                'id' => 'gpt-4o',
+                'display_name' => 'GPT-4o',
+                'description' => 'Latest GPT-4 Omni model with multimodal capabilities',
+                'context_length' => 128000,
+                'owned_by' => 'openai',
+                'category' => 'general',
+                'recommended' => true
+            ],
+            'gpt-4o-mini' => [
+                'id' => 'gpt-4o-mini',
+                'display_name' => 'GPT-4o Mini',
+                'description' => 'Smaller, faster version of GPT-4o',
+                'context_length' => 128000,
+                'owned_by' => 'openai',
+                'category' => 'general',
+                'recommended' => true
+            ],
+            'gpt-4-turbo' => [
+                'id' => 'gpt-4-turbo',
+                'display_name' => 'GPT-4 Turbo',
+                'description' => 'Latest GPT-4 Turbo model',
+                'context_length' => 128000,
+                'owned_by' => 'openai',
+                'category' => 'general',
+                'recommended' => true
+            ],
+            'gpt-4' => [
+                'id' => 'gpt-4',
+                'display_name' => 'GPT-4',
+                'description' => 'Original GPT-4 model',
+                'context_length' => 8192,
+                'owned_by' => 'openai',
+                'category' => 'reasoning',
+                'recommended' => false
+            ],
+            'gpt-3.5-turbo' => [
+                'id' => 'gpt-3.5-turbo',
+                'display_name' => 'GPT-3.5 Turbo',
+                'description' => 'Fast and cost-effective model',
+                'context_length' => 16385,
+                'owned_by' => 'openai',
+                'category' => 'general',
+                'recommended' => false
+            ],
+            'o1-preview' => [
+                'id' => 'o1-preview',
+                'display_name' => 'o1 Preview',
+                'description' => 'Advanced reasoning model (preview)',
+                'context_length' => 128000,
+                'owned_by' => 'openai',
+                'category' => 'reasoning',
+                'recommended' => false
+            ],
+            'o1-mini' => [
+                'id' => 'o1-mini',
+                'display_name' => 'o1 Mini',
+                'description' => 'Faster reasoning model',
+                'context_length' => 128000,
+                'owned_by' => 'openai',
+                'category' => 'reasoning',
+                'recommended' => false
+            ]
+        ];
+    }
+
 }

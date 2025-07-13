@@ -74,6 +74,22 @@ class GeminiModel implements AIModelEngineInterface
     /**
      * @inheritDoc
      */
+    public function supportsDynamicModels(): bool
+    {
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function requiresApiKeyForModels(): bool
+    {
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getConfigFields(): array
     {
         $models = config('ai.engines.gemini.models', []);
@@ -346,10 +362,11 @@ class GeminiModel implements AIModelEngineInterface
     /**
      * Get available models dynamically from Gemini API
      */
-    public function getAvailableModels(): array
+    public function getAvailableModels(?array $config = []): array
     {
+        $config = empty($config) ? $this->config : $config;
         try {
-            $modelsEndpoint = $this->config['models_endpoint'] ?? 'https://generativelanguage.googleapis.com/v1beta/models';
+            $modelsEndpoint = $config['models_endpoint'] ?? 'https://generativelanguage.googleapis.com/v1beta/models';
             $headers = $this->getRequestHeaders();
             $timeout = config('ai.engines.gemini.timeout', 30);
 

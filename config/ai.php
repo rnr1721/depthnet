@@ -259,28 +259,32 @@ return [
             'temperature' => (float) env('CLAUDE_TEMPERATURE', 0.8),
             'top_p' => (float) env('CLAUDE_TOP_P', 0.9),
             'system_prompt' => env('CLAUDE_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
-
+ 
             // Supported models
             'models' => [
                 'claude-3-5-sonnet-20241022' => [
                     'display_name' => 'Claude 3.5 Sonnet (newest)',
                     'max_tokens' => 8192,
                     'context_window' => 200000,
+                    'recommended' => true
                 ],
                 'claude-3-opus-20240229' => [
                     'display_name' => 'Claude 3 Opus (the most powerful)',
                     'max_tokens' => 8192,
                     'context_window' => 200000,
+                    'recommended' => true
                 ],
                 'claude-3-sonnet-20240229' => [
                     'display_name' => 'Claude 3 Sonnet (balance)',
                     'max_tokens' => 8192,
                     'context_window' => 200000,
+                    'recommended' => false
                 ],
                 'claude-3-haiku-20240307' => [
                     'display_name' => 'Claude 3 Haiku (fast and economical)',
                     'max_tokens' => 8192,
                     'context_window' => 200000,
+                    'recommended' => false
                 ],
             ],
 
@@ -1038,6 +1042,280 @@ return [
             ],
         ],
 
+        'fireworks' => [
+            'display_name' => 'Fireworks AI',
+            'description' => 'Fireworks AI provides fast inference for open-source models including LLaMA, Mistral, Code Llama, and others. Optimized for production with high-speed inference and competitive pricing.',
+            'enabled' => env('FIREWORKS_ENABLED', true),
+
+            // Default model settings
+            'model' => env('FIREWORKS_MODEL', 'accounts/fireworks/models/llama-v3p1-8b-instruct'),
+            'api_key' => env('FIREWORKS_API_KEY', ''), // Fallback key, user will provide their own
+            'server_url' => env('FIREWORKS_SERVER_URL', 'https://api.fireworks.ai/inference/v1/chat/completions'),
+            'models_endpoint' => env('FIREWORKS_MODELS_ENDPOINT', 'https://api.fireworks.ai/inference/v1/models'),
+
+            // Generation parameters
+            'max_tokens' => (int) env('FIREWORKS_MAX_TOKENS', 2048),
+            'temperature' => (float) env('FIREWORKS_TEMPERATURE', 0.8),
+            'top_p' => (float) env('FIREWORKS_TOP_P', 0.9),
+            'frequency_penalty' => (float) env('FIREWORKS_FREQUENCY_PENALTY', 0.0),
+            'presence_penalty' => (float) env('FIREWORKS_PRESENCE_PENALTY', 0.0),
+
+            // System settings
+            'system_prompt' => env('FIREWORKS_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
+            'timeout' => (int) env('FIREWORKS_TIMEOUT', 120),
+            'models_cache_lifetime' => (int) env('FIREWORKS_MODELS_CACHE_LIFETIME', 3600), // 1 hour
+            'log_usage' => env('FIREWORKS_LOG_USAGE', true),
+
+            // Request headers
+            'request_headers' => [
+                'Content-Type' => 'application/json',
+                'User-Agent' => 'Laravel-AI-Agent/1.0',
+            ],
+
+            // Recommended models for UI
+            'recommended_models' => [
+                'accounts/fireworks/models/llama-v3p1-8b-instruct',
+                'accounts/fireworks/models/llama-v3p1-70b-instruct',
+                'accounts/fireworks/models/mixtral-8x7b-instruct',
+                'accounts/fireworks/models/yi-34b-200k-capybara',
+            ],
+
+            // Validation rules for config fields
+            'validation' => [
+                'temperature' => [
+                    'min' => 0,
+                    'max' => 2,
+                ],
+                'top_p' => [
+                    'min' => 0,
+                    'max' => 1,
+                ],
+                'frequency_penalty' => [
+                    'min' => -2,
+                    'max' => 2,
+                ],
+                'presence_penalty' => [
+                    'min' => -2,
+                    'max' => 2,
+                ],
+                'max_tokens' => [
+                    'min' => 1,
+                    'max' => 16384,
+                ],
+            ],
+
+            // Cleanup patterns for output
+            'cleanup' => [
+                'role_prefixes' => '/^(Assistant|AI|Bot|Fireworks):\s*/i',
+            ],
+
+            // Pre-configured presets for different use cases
+            'recommended_presets' => [
+                [
+                    'name' => 'LLaMA 3.1 8B - Balanced',
+                    'description' => 'LLaMA 3.1 8B with balanced settings for general use',
+                    'config' => [
+                        'model' => 'accounts/fireworks/models/llama-v3p1-8b-instruct',
+                        'temperature' => 0.8,
+                        'top_p' => 0.9,
+                        'frequency_penalty' => 0.0,
+                        'presence_penalty' => 0.0,
+                        'max_tokens' => 2048,
+                    ]
+                ],
+                [
+                    'name' => 'LLaMA 3.1 70B - Power',
+                    'description' => 'LLaMA 3.1 70B for complex reasoning and analysis',
+                    'config' => [
+                        'model' => 'accounts/fireworks/models/llama-v3p1-70b-instruct',
+                        'temperature' => 0.7,
+                        'top_p' => 0.9,
+                        'frequency_penalty' => 0.0,
+                        'presence_penalty' => 0.0,
+                        'max_tokens' => 4096,
+                    ]
+                ],
+                [
+                    'name' => 'LLaMA 3.1 405B - Ultimate',
+                    'description' => 'LLaMA 3.1 405B for the most demanding tasks',
+                    'config' => [
+                        'model' => 'accounts/fireworks/models/llama-v3p1-405b-instruct',
+                        'temperature' => 0.6,
+                        'top_p' => 0.9,
+                        'frequency_penalty' => 0.0,
+                        'presence_penalty' => 0.0,
+                        'max_tokens' => 4096,
+                    ]
+                ],
+                [
+                    'name' => 'Mixtral 8x7B - Creative',
+                    'description' => 'Mixtral 8x7B optimized for creative writing and brainstorming',
+                    'config' => [
+                        'model' => 'accounts/fireworks/models/mixtral-8x7b-instruct',
+                        'temperature' => 1.0,
+                        'top_p' => 0.95,
+                        'frequency_penalty' => 0.2,
+                        'presence_penalty' => 0.2,
+                        'max_tokens' => 4096,
+                    ]
+                ],
+                [
+                    'name' => 'Yi 34B - Long Context',
+                    'description' => 'Yi 34B with 200k context for document analysis',
+                    'config' => [
+                        'model' => 'accounts/fireworks/models/yi-34b-200k-capybara',
+                        'temperature' => 0.6,
+                        'top_p' => 0.9,
+                        'frequency_penalty' => 0.0,
+                        'presence_penalty' => 0.0,
+                        'max_tokens' => 2048,
+                    ]
+                ],
+                [
+                    'name' => 'Code Llama 34B - Programming',
+                    'description' => 'Code Llama 34B specialized for coding tasks',
+                    'config' => [
+                        'model' => 'accounts/fireworks/models/code-llama-34b-instruct',
+                        'temperature' => 0.1,
+                        'top_p' => 0.9,
+                        'frequency_penalty' => 0.0,
+                        'presence_penalty' => 0.0,
+                        'max_tokens' => 2048,
+                    ]
+                ]
+            ],
+
+            // Mode-specific presets
+            'mode_presets' => [
+                'creative' => [
+                    'temperature' => 1.0,
+                    'top_p' => 0.95,
+                    'frequency_penalty' => 0.2,
+                    'presence_penalty' => 0.2,
+                    'max_tokens' => 4096,
+                ],
+                'focused' => [
+                    'temperature' => 0.2,
+                    'top_p' => 0.8,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 2048,
+                ],
+                'balanced' => [
+                    'temperature' => 0.8,
+                    'top_p' => 0.9,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 2048,
+                ],
+                'coding' => [
+                    'temperature' => 0.1,
+                    'top_p' => 0.9,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 2048,
+                ],
+                'analytical' => [
+                    'temperature' => 0.3,
+                    'top_p' => 0.85,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 4096,
+                ],
+            ],
+
+            // Error messages customization
+            'error_messages' => [
+                'invalid_api_key' => 'Invalid Fireworks AI API key. Please check your API key at https://fireworks.ai/account/api-keys',
+                'insufficient_quota' => 'Not enough Fireworks AI quota. Please check your account balance at https://fireworks.ai/account/billing',
+                'invalid_model' => 'Selected model is not available. Please choose a different model.',
+                'rate_limit' => 'Fireworks AI request limit exceeded. Please try again in a few moments.',
+                'model_unavailable' => 'Model is temporarily unavailable. Please try again later or choose a different model.',
+                'connection_failed' => 'Failed to connect to Fireworks AI. Please check your internet connection.',
+                'api_error' => 'Error from Fireworks AI API. Please try again later.',
+                'general' => 'Error contacting Fireworks AI. Please check your configuration and try again.',
+            ],
+
+            // Model categories for filtering
+            'model_categories' => [
+                'reasoning' => [
+                    'accounts/fireworks/models/llama-v3p1-70b-instruct',
+                    'accounts/fireworks/models/llama-v3p1-405b-instruct',
+                    'accounts/fireworks/models/yi-34b-200k-capybara',
+                ],
+                'creative' => [
+                    'accounts/fireworks/models/mixtral-8x7b-instruct',
+                    'accounts/fireworks/models/llama-v3p1-8b-instruct',
+                    'accounts/fireworks/models/llama-v3p1-70b-instruct',
+                ],
+                'coding' => [
+                    'accounts/fireworks/models/code-llama-34b-instruct',
+                    'accounts/fireworks/models/code-llama-7b-instruct',
+                    'accounts/fireworks/models/deepseek-coder-33b-instruct',
+                ],
+                'long_context' => [
+                    'accounts/fireworks/models/yi-34b-200k-capybara',
+                    'accounts/fireworks/models/llama-v3p1-8b-instruct',
+                    'accounts/fireworks/models/llama-v3p1-70b-instruct',
+                ],
+            ],
+
+            // Pricing information (per million tokens)
+            'pricing' => [
+                'accounts/fireworks/models/llama-v3p1-8b-instruct' => [
+                    'input' => 0.2,
+                    'output' => 0.2,
+                ],
+                'accounts/fireworks/models/llama-v3p1-70b-instruct' => [
+                    'input' => 0.9,
+                    'output' => 0.9,
+                ],
+                'accounts/fireworks/models/llama-v3p1-405b-instruct' => [
+                    'input' => 3.0,
+                    'output' => 3.0,
+                ],
+                'accounts/fireworks/models/mixtral-8x7b-instruct' => [
+                    'input' => 0.5,
+                    'output' => 0.5,
+                ],
+                'accounts/fireworks/models/yi-34b-200k-capybara' => [
+                    'input' => 0.8,
+                    'output' => 0.8,
+                ],
+                'accounts/fireworks/models/code-llama-34b-instruct' => [
+                    'input' => 0.8,
+                    'output' => 0.8,
+                ],
+            ],
+
+            // Provider-specific features
+            'features' => [
+                'streaming' => true,
+                'function_calling' => false,
+                'embeddings' => true,
+                'fine_tuning' => false,
+                'batch_processing' => false,
+                'image_input' => false,
+                'image_output' => false,
+                'audio_input' => false,
+                'audio_output' => false,
+            ],
+
+            // Rate limiting (if needed)
+            'rate_limits' => [
+                'requests_per_minute' => 1000,
+                'tokens_per_minute' => 100000,
+            ],
+
+            // Health check configuration
+            'health_check' => [
+                'enabled' => true,
+                'interval' => 300, // 5 minutes
+                'timeout' => 10,
+                'max_retries' => 3,
+            ],
+        ],
+
         /*
         |--------------------------------------------------------------------------
         | Mock Engine (for testing)
@@ -1554,6 +1832,7 @@ return [
                 'integrate_with_memory' => false, // Integrate with regular memory
                 'memory_link_format' => 'descriptive', //short, descriptive, timestamped
                 'max_link_keywords' => 4, // Max keywords in memory link
+                'display_content_length' => 500,
                 'language_mode' => 'auto',
                 'custom_stop_words_ru' => '',
                 'custom_stop_words_en' => ''

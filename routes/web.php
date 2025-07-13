@@ -99,6 +99,7 @@ Route::middleware('auth')->group(function () {
         // AI Engines management routes
         Route::prefix('engines')->name('engines.')->group(function () {
             Route::get('/', [EngineController::class, 'index'])->name('index');
+            Route::get('/{engineName}/models', [EngineController::class, 'getAvailableModels'])->name('models');
             Route::get('/{engineName}/defaults', [EngineController::class, 'getDefaults'])->name('defaults');
             Route::post('/{engineName}/validate', [EngineController::class, 'validateConfig'])->name('validate');
             Route::get('/{engineName}/test', [EngineController::class, 'testConnection'])->name('test');

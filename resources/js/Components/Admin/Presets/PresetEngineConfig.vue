@@ -90,6 +90,56 @@
                     </option>
                 </select>
 
+                <!-- Dynamic Models dropdown -->
+                <div v-else-if="fieldConfig.type === 'dynamic_models'" class="space-y-2">
+                    <select :value="getFieldValue(fieldName)"
+                        @change="updateConfigField(fieldName, $event.target.value)" :required="fieldConfig.required"
+                        :disabled="isLoadingModels[fieldName]" :class="[
+                            inputClass,
+                            isLoadingModels[fieldName] ? 'opacity-50 cursor-not-allowed' : ''
+                        ]">
+                        <option value="">{{ t('p_modal_choose') }}</option>
+
+                        <!-- Current selected value (if not in available models yet) -->
+                        <option v-if="getFieldValue(fieldName) && !isModelInList(fieldName, getFieldValue(fieldName))"
+                            :value="getFieldValue(fieldName)" class="font-medium">
+                            {{ getFieldValue(fieldName) }} (current)
+                        </option>
+
+                        <!-- Available models -->
+                        <option v-for="model in availableModels[fieldName]" :key="model.value" :value="model.value">
+                            {{ model.label }}
+                        </option>
+                    </select>
+
+                    <!-- Models loading state -->
+                    <div v-if="isLoadingModels[fieldName]"
+                        :class="['flex items-center text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        <svg class="w-3 h-3 animate-spin mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                            </path>
+                        </svg>
+                        {{ fieldConfig.loading_text || 'Loading models...' }}
+                    </div>
+
+                    <!-- Models load error -->
+                    <div v-if="modelsErrors[fieldName]" :class="['flex items-center justify-between text-xs p-2 rounded',
+                        isDark ? 'bg-red-900 bg-opacity-50 text-red-200' : 'bg-red-100 text-red-700']">
+                        <span>{{ fieldConfig.error_text || 'Failed to load models' }}</span>
+                        <button @click="loadModels(fieldName, fieldConfig)" class="ml-2 underline hover:no-underline">
+                            Retry
+                        </button>
+                    </div>
+
+                    <!-- Models count info -->
+                    <div v-if="availableModels[fieldName] && availableModels[fieldName].length > 0"
+                        :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        {{ availableModels[fieldName].length }} models available
+                        <span v-if="modelsFromCache[fieldName]" class="ml-1 opacity-75">(cached)</span>
+                    </div>
+                </div>
+
                 <!-- Checkbox -->
                 <label v-else-if="fieldConfig.type === 'checkbox'"
                     :class="['flex items-center space-x-2 cursor-pointer', isDark ? 'text-white' : 'text-gray-900']">
@@ -146,7 +196,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
 
@@ -181,6 +231,12 @@ const isLoading = ref(false);
 const isTestingConnection = ref(false);
 const testResult = ref(null);
 const validationErrors = ref([]);
+
+// Dynamic models state
+const availableModels = ref({});
+const isLoadingModels = ref({});
+const modelsErrors = ref({});
+const modelsFromCache = ref({});
 
 const currentEngineData = computed(() => {
     return props.engineName ? props.engines[props.engineName] : null;
@@ -221,11 +277,109 @@ const updateConfigField = (fieldName, value) => {
         [fieldName]: value
     };
     updateField('engine_config', newConfig);
+
+    // If this field is a dependency for dynamic_models, reload dependent models
+    checkAndReloadDependentModels(fieldName);
 };
 
 const parseNumberValue = (value, fieldConfig) => {
     const num = fieldConfig.step && fieldConfig.step < 1 ? parseFloat(value) : parseInt(value);
     return isNaN(num) ? '' : num;
+};
+
+// Check if a model value exists in the available models list
+const isModelInList = (fieldName, modelValue) => {
+    if (!modelValue || !availableModels.value[fieldName]) return false;
+    return availableModels.value[fieldName].some(model => model.value === modelValue);
+};
+
+// Load models for dynamic_models fields
+const loadModels = async (fieldName, fieldConfig) => {
+    if (!props.engineName) return;
+
+    isLoadingModels.value[fieldName] = true;
+    modelsErrors.value[fieldName] = null;
+
+    try {
+        // Check if we need to wait for dependent field (e.g., api_key)
+        const dependsOn = fieldConfig.depends_on;
+        if (dependsOn && !getFieldValue(dependsOn)) {
+            // Use fallback options if available
+            if (fieldConfig.fallback_options) {
+                availableModels.value[fieldName] = Object.entries(fieldConfig.fallback_options).map(([value, label]) => ({
+                    value,
+                    label,
+                    source: 'fallback'
+                }));
+                modelsFromCache.value[fieldName] = false;
+            } else {
+                availableModels.value[fieldName] = [];
+            }
+            return;
+        }
+
+        // Prepare config for API call
+        const config = props.modelValue.engine_config || {};
+
+        const response = await axios.get(`/admin/engines/${props.engineName}/models`, {
+            params: { config }
+        });
+
+        if (response.data.success) {
+            availableModels.value[fieldName] = response.data.data.models || [];
+            modelsFromCache.value[fieldName] = false;
+
+            // If no models loaded and fallback available, use fallback
+            if (availableModels.value[fieldName].length === 0 && fieldConfig.fallback_options) {
+                availableModels.value[fieldName] = Object.entries(fieldConfig.fallback_options).map(([value, label]) => ({
+                    value,
+                    label,
+                    source: 'fallback'
+                }));
+            }
+        } else {
+            throw new Error(response.data.message || 'Failed to load models');
+        }
+    } catch (error) {
+        console.error('Failed to load models:', error);
+        modelsErrors.value[fieldName] = error.response?.data?.message || error.message;
+
+        // Use fallback options on error
+        if (fieldConfig.fallback_options) {
+            availableModels.value[fieldName] = Object.entries(fieldConfig.fallback_options).map(([value, label]) => ({
+                value,
+                label,
+                source: 'fallback'
+            }));
+        } else {
+            availableModels.value[fieldName] = [];
+        }
+    } finally {
+        isLoadingModels.value[fieldName] = false;
+    }
+};
+
+// Check if any dynamic_models fields depend on the changed field
+const checkAndReloadDependentModels = (changedFieldName) => {
+    Object.entries(configFields.value).forEach(([fieldName, fieldConfig]) => {
+        if (fieldConfig.type === 'dynamic_models' && fieldConfig.depends_on === changedFieldName) {
+            // Reload models for this field after a short delay
+            setTimeout(() => {
+                loadModels(fieldName, fieldConfig);
+            }, 300);
+        }
+    });
+};
+
+// Initialize dynamic models fields
+const initializeDynamicModels = async () => {
+    await nextTick();
+
+    Object.entries(configFields.value).forEach(([fieldName, fieldConfig]) => {
+        if (fieldConfig.type === 'dynamic_models') {
+            loadModels(fieldName, fieldConfig);
+        }
+    });
 };
 
 const loadDefaults = async () => {
@@ -332,17 +486,38 @@ watch(() => props.modelValue.engine_config, () => {
 }, { deep: true });
 
 // Watch for engine changes
-watch(() => props.engineName, (newEngine) => {
-    if (newEngine) {
+watch(() => props.engineName, (newEngine, oldEngine) => {
+    if (newEngine && newEngine !== oldEngine) {
         // Clear previous state
         testResult.value = null;
         validationErrors.value = [];
+        availableModels.value = {};
+        isLoadingModels.value = {};
+        modelsErrors.value = {};
+        modelsFromCache.value = {};
         emit('validation-errors', []);
 
         // Auto-load defaults for new engines
         if (!props.modelValue.engine_config || Object.keys(props.modelValue.engine_config).length === 0) {
             loadDefaults();
         }
+
+        // Initialize dynamic models after engine change
+        initializeDynamicModels();
+    }
+});
+
+// Watch for configFields changes and initialize dynamic models
+watch(() => configFields.value, () => {
+    if (props.engineName) {
+        initializeDynamicModels();
+    }
+}, { deep: true });
+
+// Initialize on mount
+onMounted(() => {
+    if (props.engineName && Object.keys(configFields.value).length > 0) {
+        initializeDynamicModels();
     }
 });
 </script>

@@ -66,6 +66,13 @@ class OptionsSeeder extends Seeder
                 'description' => 'Maximum chat history entries',
                 'is_system' => true,
             ],
+            [
+                'key' => 'user_can_run_commands',
+                'value' => '0',
+                'type' => 'boolean',
+                'description' => 'User can run model commands',
+                'is_system' => true,
+            ],
 
             // Site Settings
             [

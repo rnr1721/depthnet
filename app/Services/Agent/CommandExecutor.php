@@ -129,7 +129,7 @@ class CommandExecutor implements CommandExecutorInterface
     protected function formatMessage(
         array $results
     ): string {
-        $formatted = "\n\n" . "<system_output_results>" . "\n\n";
+        $formatted = "\n\n" . "<system_output_results>" . "\n" . '```system_command_results' . "\n\n";
 
         foreach ($results as $i => $result) {
             $command = $result->command;
@@ -170,9 +170,9 @@ class CommandExecutor implements CommandExecutorInterface
                 $formatted .= $result->error . "\n\n";
             }
 
-            $formatted .= str_repeat("-", 30) . "\n\n";
+            $formatted .= str_repeat("-", 5) . "\n\n";
         }
 
-        return $formatted;
+        return $formatted . '```';
     }
 }

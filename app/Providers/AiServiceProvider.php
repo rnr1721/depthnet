@@ -73,6 +73,7 @@ use App\Services\Agent\PresetMetadataService;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetSandboxService;
 use App\Services\Agent\PresetService;
+use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
@@ -348,6 +349,8 @@ class AiServiceProvider extends ServiceProvider
                 return new NovitaModel($httpFactory, $logger, $cache, $config);
             case 'gemini':
                 return new GeminiModel($httpFactory, $logger, $cache, $config);
+            case 'fireworks':
+                return new FireworksModel($httpFactory, $logger, $cache, $config);
             default:
                 $logger->warning("Unknown AI engine: {$engineName}");
                 return null;

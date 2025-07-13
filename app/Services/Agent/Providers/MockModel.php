@@ -55,6 +55,30 @@ class MockModel implements AIModelEngineInterface
     /**
      * @inheritDoc
      */
+    public function supportsDynamicModels(): bool
+    {
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function requiresApiKeyForModels(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Get available models with Laravel caching
+     */
+    public function getAvailableModels(?array $config = null): array
+    {
+        return [];
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getDescription(): string
     {
         return config(

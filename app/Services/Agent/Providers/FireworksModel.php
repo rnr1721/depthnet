@@ -13,18 +13,18 @@ use Illuminate\Cache\CacheManager;
 use Psr\Log\LoggerInterface;
 
 /**
- * Novita AI engine implementation
+ * Fireworks AI engine implementation
  *
- * Supports 200+ models including LLaMA, Mistral, DeepSeek, Qwen and others via Novita AI API
+ * Supports open-source models including LLaMA, Mistral, Code Llama, and others via Fireworks AI API
  * Compatible with OpenAI API standard for easy integration
  */
-class NovitaModel implements AIModelEngineInterface
+class FireworksModel implements AIModelEngineInterface
 {
     use AiModelPromptTrait;
 
     protected string $serverUrl;
     protected string $apiKey;
-    protected string $model;
+    protected ?string $model;
 
     public function __construct(
         protected HttpFactory $http,
@@ -32,10 +32,8 @@ class NovitaModel implements AIModelEngineInterface
         protected CacheManager $cache,
         protected array $config = []
     ) {
-        // Get default config from global AI config
-        $defaultConfig = config('ai.engines.novita', []);
+        $defaultConfig = config('ai.engines.fireworks', []);
 
-        // Merge with provided config
         $this->config = array_merge($this->getDefaultConfig(), $defaultConfig, $config);
 
         $this->serverUrl = $this->config['server_url'];
@@ -49,7 +47,7 @@ class NovitaModel implements AIModelEngineInterface
      */
     public function getName(): string
     {
-        return 'novita';
+        return 'fireworks';
     }
 
     /**
@@ -57,18 +55,7 @@ class NovitaModel implements AIModelEngineInterface
      */
     public function getDisplayName(): string
     {
-        return config('ai.engines.novita.display_name', 'Novita AI');
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function getDescription(): string
-    {
-        return config(
-            'ai.engines.novita.description',
-            'Novita AI provides access to 200+ open-source models including LLaMA, Mistral, DeepSeek, Qwen and others. Fast, reliable and cost-effective inference with up to 300 tokens/sec. Compatible with OpenAI API standard.'
-        );
+        return config('ai.engines.fireworks.display_name', 'Fireworks AI');
     }
 
     /**
@@ -84,28 +71,41 @@ class NovitaModel implements AIModelEngineInterface
      */
     public function requiresApiKeyForModels(): bool
     {
-        return false;
+        return true;
     }
 
     /**
      * @inheritDoc
      */
-    public function getConfigFields(): array
+    public function getDescription(): string
     {
-        $validation = config('ai.engines.novita.validation', []);
+        return config(
+            'ai.engines.fireworks.description',
+            'Fireworks AI provides fast inference for open-source models including LLaMA, Mistral, Code Llama, and others. Optimized for production with high-speed inference and competitive pricing.'
+        );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getConfigFields(?array $presetConfig = null): array
+    {
+
+        $validation = config('ai.engines.fireworks.validation', []);
 
         return [
             'api_key' => [
                 'type' => 'password',
                 'label' => 'API Key',
-                'description' => 'Get your API key from https://novita.ai/settings/key-management',
-                'placeholder' => 'nvapi-...',
+                'description' => 'Get your API key from https://fireworks.ai/account/api-keys',
+                'placeholder' => 'fw_...',
                 'required' => true
             ],
             'model' => [
                 'type' => 'dynamic_models',
                 'label' => 'Model',
                 'description' => 'Choose from available models',
+                'depends_on' => 'api_key',
                 'options' => [],
                 'loading_text' => 'Loading available Claude models...',
                 'error_text' => 'Failed to load models. Using fallback list.',
@@ -134,7 +134,7 @@ class NovitaModel implements AIModelEngineInterface
                 'label' => 'Max tokens',
                 'description' => 'Maximum number of tokens in response',
                 'min' => $validation['max_tokens']['min'] ?? 1,
-                'max' => $validation['max_tokens']['max'] ?? 32768,
+                'max' => $validation['max_tokens']['max'] ?? 16384,
                 'required' => false
             ],
             'frequency_penalty' => [
@@ -171,28 +171,28 @@ class NovitaModel implements AIModelEngineInterface
      */
     public function getRecommendedPresets(): array
     {
-        // Get presets from config or use hardcoded fallback
-        $configPresets = config('ai.engines.novita.recommended_presets', []);
+        $configPresets = config('ai.engines.fireworks.recommended_presets', []);
 
         if (!empty($configPresets)) {
             return $configPresets;
         }
 
-        // Fallback to default presets
         return $this->getDefaultPresets();
     }
 
     /**
      * Get default presets (fallback)
+     *
+     * @return array
      */
     protected function getDefaultPresets(): array
     {
         return [
             [
                 'name' => 'LLaMA 3.1 8B - Balanced',
-                'description' => 'Meta LLaMA 3.1 8B with balanced settings for general use',
+                'description' => 'LLaMA 3.1 8B with balanced settings for general use',
                 'config' => [
-                    'model' => 'meta-llama/llama-3.1-8b-instruct',
+                    'model' => 'accounts/fireworks/models/llama-v3p1-8b-instruct',
                     'temperature' => 0.8,
                     'top_p' => 0.9,
                     'frequency_penalty' => 0.0,
@@ -201,10 +201,22 @@ class NovitaModel implements AIModelEngineInterface
                 ]
             ],
             [
-                'name' => 'DeepSeek R1 - Creative',
-                'description' => 'DeepSeek R1 optimized for creative and reasoning tasks',
+                'name' => 'LLaMA 3.1 70B - Power',
+                'description' => 'LLaMA 3.1 70B for complex reasoning and analysis',
                 'config' => [
-                    'model' => 'deepseek/deepseek-r1',
+                    'model' => 'accounts/fireworks/models/llama-v3p1-70b-instruct',
+                    'temperature' => 0.7,
+                    'top_p' => 0.9,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 4096,
+                ]
+            ],
+            [
+                'name' => 'Mixtral 8x7B - Creative',
+                'description' => 'Mixtral 8x7B optimized for creative writing and brainstorming',
+                'config' => [
+                    'model' => 'accounts/fireworks/models/mixtral-8x7b-instruct',
                     'temperature' => 1.0,
                     'top_p' => 0.95,
                     'frequency_penalty' => 0.2,
@@ -213,12 +225,12 @@ class NovitaModel implements AIModelEngineInterface
                 ]
             ],
             [
-                'name' => 'Mistral 7B - Focused',
-                'description' => 'Mistral 7B with focused settings for accurate responses',
+                'name' => 'Yi 34B - Long Context',
+                'description' => 'Yi 34B with 200k context for document analysis',
                 'config' => [
-                    'model' => 'mistralai/mistral-7b-instruct',
-                    'temperature' => 0.3,
-                    'top_p' => 0.8,
+                    'model' => 'accounts/fireworks/models/yi-34b-200k-capybara',
+                    'temperature' => 0.6,
+                    'top_p' => 0.9,
                     'frequency_penalty' => 0.0,
                     'presence_penalty' => 0.0,
                     'max_tokens' => 2048,
@@ -233,16 +245,16 @@ class NovitaModel implements AIModelEngineInterface
     public function getDefaultConfig(): array
     {
         return [
-            'model' => config('ai.engines.novita.model', 'meta-llama/llama-3.1-8b-instruct'),
-            'max_tokens' => (int) config('ai.engines.novita.max_tokens', 2048),
-            'temperature' => (float) config('ai.engines.novita.temperature', 0.8),
-            'top_p' => (float) config('ai.engines.novita.top_p', 0.9),
-            'frequency_penalty' => (float) config('ai.engines.novita.frequency_penalty', 0.0),
-            'presence_penalty' => (float) config('ai.engines.novita.presence_penalty', 0.0),
-            'api_key' => config('ai.engines.novita.api_key', ''),
-            'server_url' => config('ai.engines.novita.server_url', 'https://api.novita.ai/v3/openai/chat/completions'),
-            'models_endpoint' => config('ai.engines.novita.models_endpoint', 'https://api.novita.ai/v3/openai/models'),
-            'system_prompt' => config('ai.engines.novita.system_prompt', 'You are a useful AI assistant.')
+            'model' => config('ai.engines.fireworks.model', 'accounts/fireworks/models/llama-v3p1-8b-instruct'),
+            'max_tokens' => (int) config('ai.engines.fireworks.max_tokens', 2048),
+            'temperature' => (float) config('ai.engines.fireworks.temperature', 0.8),
+            'top_p' => (float) config('ai.engines.fireworks.top_p', 0.9),
+            'frequency_penalty' => (float) config('ai.engines.fireworks.frequency_penalty', 0.0),
+            'presence_penalty' => (float) config('ai.engines.fireworks.presence_penalty', 0.0),
+            'api_key' => config('ai.engines.fireworks.api_key', ''),
+            'server_url' => config('ai.engines.fireworks.server_url', 'https://api.fireworks.ai/inference/v1/chat/completions'),
+            'models_endpoint' => config('ai.engines.fireworks.models_endpoint', 'https://api.fireworks.ai/inference/v1/models'),
+            'system_prompt' => config('ai.engines.fireworks.system_prompt', 'You are a useful AI assistant.')
         ];
     }
 
@@ -262,10 +274,8 @@ class NovitaModel implements AIModelEngineInterface
             $errors['model'] = 'Model name is required';
         }
 
-        // Get validation rules from config
-        $validation = config('ai.engines.novita.validation', []);
+        $validation = config('ai.engines.fireworks.validation', []);
 
-        // Validate numeric parameters using config ranges
         $numericFields = ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'max_tokens'];
 
         foreach ($numericFields as $field) {
@@ -283,7 +293,6 @@ class NovitaModel implements AIModelEngineInterface
             }
         }
 
-        // Validate server_url
         if (isset($config['server_url']) && !filter_var($config['server_url'], FILTER_VALIDATE_URL)) {
             $errors['server_url'] = 'The server URL must be a valid URL.';
         }
@@ -296,10 +305,14 @@ class NovitaModel implements AIModelEngineInterface
      */
     public function testConnection(): bool
     {
+        if (empty($this->apiKey)) {
+            return false;
+        }
+
         try {
-            $modelsEndpoint = $this->config['models_endpoint'] ?? 'https://api.novita.ai/v3/openai/models';
+            $modelsEndpoint = $this->config['models_endpoint'] ?? 'https://api.fireworks.ai/inference/v1/models';
             $headers = $this->getRequestHeaders();
-            $timeout = config('ai.engines.novita.timeout', 10);
+            $timeout = config('ai.engines.fireworks.timeout', 10);
 
             $response = $this->http
                 ->withHeaders($headers)
@@ -315,40 +328,59 @@ class NovitaModel implements AIModelEngineInterface
 
     /**
      * Get detailed connection test results
+     *
+     * @return array
      */
     public function testConnectionDetailed(): array
     {
         try {
+            $endpoints = [
+                'https://api.fireworks.ai/inference/v1/models',
+                'https://api.fireworks.ai/v1/models'
+            ];
 
-            $modelsEndpoint = $this->config['models_endpoint'] ?? 'https://api.novita.ai/v3/openai/models';
             $headers = $this->getRequestHeaders();
-            $timeout = config('ai.engines.novita.timeout', 10);
+            $timeout = config('ai.engines.fireworks.timeout', 10);
 
-            $response = $this->http
-                ->withHeaders($headers)
-                ->timeout($timeout)
-                ->get($modelsEndpoint);
+            foreach ($endpoints as $endpoint) {
+                $this->logger->info('Testing Fireworks AI endpoint', [
+                    'endpoint' => $endpoint,
+                    'headers' => array_keys($headers)
+                ]);
 
-            if ($response->successful()) {
-                $models = $response->json();
-                return [
-                    'success' => true,
-                    'message' => 'Successfully connected to Novita AI.',
-                    'available_models' => $models['data'] ?? [],
-                    'total_models' => count($models['data'] ?? [])
-                ];
+                $response = $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+                    ->get($endpoint);
+
+                if ($response->successful()) {
+                    $models = $response->json();
+                    return [
+                        'success' => true,
+                        'message' => 'Successfully connected to Fireworks AI.',
+                        'endpoint_used' => $endpoint,
+                        'available_models' => $models['data'] ?? [],
+                        'total_models' => count($models['data'] ?? [])
+                    ];
+                }
+
+                $this->logger->warning('Fireworks AI endpoint failed', [
+                    'endpoint' => $endpoint,
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
             }
 
             return [
                 'success' => false,
-                'message' => 'Novita AI responded with an error: ' . $response->status(),
-                'status_code' => $response->status()
+                'message' => 'All Fireworks AI endpoints failed',
+                'endpoints_tried' => $endpoints
             ];
 
         } catch (\Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to connect to Novita AI: ' . $e->getMessage(),
+                'message' => 'Failed to connect to Fireworks AI: ' . $e->getMessage(),
                 'error_type' => get_class($e)
             ];
         }
@@ -356,172 +388,200 @@ class NovitaModel implements AIModelEngineInterface
 
     /**
      * Get available models with Laravel caching
+     * Note: Fireworks AI requires authentication to list models
+     *
+     * @param array|null $config
+     * @return array
      */
     public function getAvailableModels(?array $config = null): array
     {
 
         $apiKey = $config['api_key'] ?? $this->apiKey ?? '';
 
-        // If no API key, return fallback immediately
+        // Fireworks AI requires API key to list models, unlike some other providers
         if (empty($apiKey)) {
-            $this->logger->warning('No Novita AI API key provided, using fallback models');
+            $this->logger->info('No Fireworks AI API key provided, using fallback models (API requires auth)');
             return $this->getFallbackModels();
         }
 
-        $cacheKey = 'novita_models_' . substr(md5($apiKey), 0, 8);
-        $cacheLifetime = config('ai.engines.novita.models_cache_lifetime', 3600); // 30 min
+        $cacheKey = 'fireworks_models_' . substr(md5($apiKey), 0, 8);
+        $cacheLifetime = config('ai.engines.fireworks.models_cache_lifetime', 3600); // 1 hour
 
-        return $this->cache->remember($cacheKey, $cacheLifetime, function () {
+        return $this->cache->remember($cacheKey, $cacheLifetime, function () use ($apiKey) {
             try {
-                $modelsEndpoint = $this->config['models_endpoint'] ?? 'https://api.novita.ai/v3/openai/models';
+                $endpoints = [
+                    $this->config['models_endpoint'] ?? 'https://api.fireworks.ai/inference/v1/models',
+                    'https://api.fireworks.ai/v1/models'
+                ];
+
                 $headers = $this->getRequestHeaders();
-                $timeout = config('ai.engines.novita.timeout', 30);
+                $timeout = config('ai.engines.fireworks.timeout', 30);
 
-                $response = $this->http
-                    ->withHeaders($headers)
-                    ->timeout($timeout)
-                    ->get($modelsEndpoint);
+                foreach ($endpoints as $modelsEndpoint) {
+                    $this->logger->info('Fetching Fireworks AI models from API', [
+                        'endpoint' => $modelsEndpoint,
+                        'headers' => array_keys($headers),
+                        'api_key_prefix' => substr($apiKey, 0, 8) . '...'
+                    ]);
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    $models = [];
+                    $response = $this->http
+                        ->withHeaders($headers)
+                        ->timeout($timeout)
+                        ->get($modelsEndpoint);
 
-                    foreach ($data['data'] ?? [] as $model) {
-                        $modelId = $model['id'] ?? '';
-                        if (empty($modelId)) {
-                            continue;
-                        } // Skip invalid models
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        $models = [];
 
-                        $models[$modelId] = [
-                            'id' => $modelId,
-                            'display_name' => $this->formatModelDisplayName($modelId),
-                            'context_length' => $model['context_length'] ?? null,
-                            'created' => $model['created'] ?? null,
-                            'owned_by' => $model['owned_by'] ?? 'novita',
-                            'source' => 'api' // Mark as API source
-                        ];
-                    }
-
-                    if (!empty($models)) {
-                        $this->logger->info('Novita AI models loaded from API', ['count' => count($models)]);
-
-                        $modelOptions = [];
-                        $recommendedModels = config('ai.engines.novita.recommended_models', [
-                            'meta-llama/llama-3.1-8b-instruct',
-                            'meta-llama/llama-3.1-70b-instruct',
-                            'deepseek/deepseek-r1'
-                        ]);
-
-                        foreach ($recommendedModels as $modelId) {
-                            if (isset($models[$modelId])) {
-                                $displayName = $models[$modelId]['display_name'] ?? $modelId;
-                                $source = $models[$modelId]['source'] ?? '';
-                                $label = $source === 'fallback' ? "{$displayName} (offline)" : $displayName;
-                                $modelOptions[$modelId] = "⭐ {$label}";
+                        foreach ($data['data'] ?? [] as $model) {
+                            $modelId = $model['id'] ?? '';
+                            if (empty($modelId)) {
+                                continue;
                             }
+
+                            // Filter out non-chat models (embeddings, etc.)
+                            if (str_contains($modelId, 'embedding') || str_contains($modelId, 'rerank')) {
+                                continue;
+                            }
+
+                            $models[$modelId] = [
+                                'id' => $modelId,
+                                'display_name' => $this->formatModelDisplayName($modelId),
+                                'context_length' => $model['context_length'] ?? null,
+                                'created' => $model['created'] ?? null,
+                                'owned_by' => $model['owned_by'] ?? 'fireworks',
+                                'source' => 'api'
+                            ];
                         }
 
-                        foreach ($models as $modelId => $modelInfo) {
-                            if (!in_array($modelId, $recommendedModels)) {
-                                $displayName = $modelInfo['display_name'] ?? $modelId;
-                                $source = $modelInfo['source'] ?? '';
-                                $label = $source === 'fallback' ? "{$displayName} (offline)" : $displayName;
-                                $modelOptions[$modelId] = $label;
-                            }
-                        }
+                        if (!empty($models)) {
 
-                        return $modelOptions;
+                            $modelOptions = [];
+                            $recommendedModels = config('ai.engines.fireworks.recommended_models', [
+                                'accounts/fireworks/models/llama-v3p1-8b-instruct',
+                                'accounts/fireworks/models/llama-v3p1-70b-instruct',
+                                'accounts/fireworks/models/mixtral-8x7b-instruct',
+                                'accounts/fireworks/models/yi-34b-200k-capybara'
+                            ]);
+
+                            foreach ($recommendedModels as $modelId) {
+                                if (isset($models[$modelId])) {
+                                    $displayName = $models[$modelId]['display_name'] ?? $modelId;
+                                    $source = $models[$modelId]['source'] ?? '';
+                                    $label = $source === 'fallback' ? "{$displayName} (offline)" : $displayName;
+                                    $modelOptions[$modelId] = "⭐ {$label}";
+                                }
+                            }
+
+                            foreach ($models as $modelId => $modelInfo) {
+                                if (!in_array($modelId, $recommendedModels)) {
+                                    $displayName = $modelInfo['display_name'] ?? $modelId;
+                                    $source = $modelInfo['source'] ?? '';
+                                    $label = $source === 'fallback' ? "{$displayName} (offline)" : $displayName;
+                                    $modelOptions[$modelId] = $label;
+                                }
+                            }
+
+                            return $models;
+                        }
                     }
+
                 }
 
-                $this->logger->warning('Failed to fetch Novita AI models from API', [
-                    'status_code' => $response->status(),
-                    'response_body' => $response->body()
-                ]);
-
             } catch (\Exception $e) {
-                $this->logger->error('Error fetching Novita AI models: ' . $e->getMessage(), [
-                    'exception_type' => get_class($e)
+                $this->logger->error('Error fetching Fireworks AI models: ' . $e->getMessage(), [
+                    'exception_type' => get_class($e),
+                    'trace' => $e->getTraceAsString()
                 ]);
             }
 
-            // Fallback with source marking
+            // If API call failed, still return fallback models
             $fallbackModels = $this->getFallbackModels();
             foreach ($fallbackModels as $modelId => $modelInfo) {
                 $fallbackModels[$modelId]['source'] = 'fallback';
             }
 
-            $this->logger->info('Using fallback models for Novita AI', ['count' => count($fallbackModels)]);
+            $this->logger->info('Using fallback models for Fireworks AI after API failure', ['count' => count($fallbackModels)]);
             return $fallbackModels;
         });
     }
 
     /**
-     * Clear models cache (useful for admin panel)
+     * Clear models cache
+     *
+     * @return void
      */
     public function clearModelsCache(): void
     {
-        $cacheKey = 'novita_models_' . substr(md5($this->apiKey), 0, 8);
+        $cacheKey = 'fireworks_models_' . substr(md5($this->apiKey), 0, 8);
         $this->cache->forget($cacheKey);
     }
 
     /**
      * Get fallback models when API is unavailable
+     *
+     * @return array
      */
     protected function getFallbackModels(): array
     {
         return [
-            'meta-llama/llama-3.1-8b-instruct' => [
-                'id' => 'meta-llama/llama-3.1-8b-instruct',
+            'accounts/fireworks/models/llama-v3p1-8b-instruct' => [
+                'id' => 'accounts/fireworks/models/llama-v3p1-8b-instruct',
                 'display_name' => 'LLaMA 3.1 8B Instruct',
                 'context_length' => 131072,
                 'owned_by' => 'meta'
             ],
-            'meta-llama/llama-3.1-70b-instruct' => [
-                'id' => 'meta-llama/llama-3.1-70b-instruct',
+            'accounts/fireworks/models/llama-v3p1-70b-instruct' => [
+                'id' => 'accounts/fireworks/models/llama-v3p1-70b-instruct',
                 'display_name' => 'LLaMA 3.1 70B Instruct',
                 'context_length' => 131072,
                 'owned_by' => 'meta'
             ],
-            'deepseek/deepseek-r1' => [
-                'id' => 'deepseek/deepseek-r1',
-                'display_name' => 'DeepSeek R1',
-                'context_length' => 65536,
-                'owned_by' => 'deepseek'
-            ],
-            'deepseek/deepseek-r1-turbo' => [
-                'id' => 'deepseek/deepseek-r1-turbo',
-                'display_name' => 'DeepSeek R1 Turbo',
-                'context_length' => 65536,
-                'owned_by' => 'deepseek'
-            ],
-            'mistralai/mistral-7b-instruct' => [
-                'id' => 'mistralai/mistral-7b-instruct',
-                'display_name' => 'Mistral 7B Instruct',
+            'accounts/fireworks/models/mixtral-8x7b-instruct' => [
+                'id' => 'accounts/fireworks/models/mixtral-8x7b-instruct',
+                'display_name' => 'Mixtral 8x7B Instruct',
                 'context_length' => 32768,
                 'owned_by' => 'mistralai'
+            ],
+            'accounts/fireworks/models/yi-34b-200k-capybara' => [
+                'id' => 'accounts/fireworks/models/yi-34b-200k-capybara',
+                'display_name' => 'Yi 34B 200K Capybara',
+                'context_length' => 200000,
+                'owned_by' => '01-ai'
+            ],
+            'accounts/fireworks/models/llama-v3p1-405b-instruct' => [
+                'id' => 'accounts/fireworks/models/llama-v3p1-405b-instruct',
+                'display_name' => 'LLaMA 3.1 405B Instruct',
+                'context_length' => 131072,
+                'owned_by' => 'meta'
             ]
         ];
     }
 
     /**
      * Format model display name for better UX
+     *
+     * @param string $modelId
+     * @return string
      */
     protected function formatModelDisplayName(string $modelId): string
     {
-        // Convert model ID to human-readable format
-        $displayName = str_replace(['/', '-'], [' ', ' '], $modelId);
+        $displayName = str_replace('accounts/fireworks/models/', '', $modelId);
+
+        // Convert to human-readable format
+        $displayName = str_replace(['-', '_'], ' ', $displayName);
         $displayName = ucwords($displayName);
 
-        // Handle specific providers
         $displayName = str_replace([
-            'Meta Llama',
-            'Mistralai',
-            'Deepseek'
+            'Llama V3p1',
+            'Mixtral',
+            'Yi ',
+            'Code Llama'
         ], [
-            'LLaMA',
-            'Mistral',
-            'DeepSeek'
+            'LLaMA 3.1',
+            'Mixtral',
+            'Yi ',
+            'Code Llama'
         ], $displayName);
 
         return $displayName;
@@ -548,15 +608,7 @@ class NovitaModel implements AIModelEngineInterface
             ];
 
             $headers = $this->getRequestHeaders();
-            $timeout = (int) config('ai.engines.novita.timeout', 120);
-
-            /*
-            \Log::info('connect info',[
-                'headers' => $headers,
-                'server_url' => $this->serverUrl,
-                'data' => $data
-            ]);
-            */
+            $timeout = (int) config('ai.engines.fireworks.timeout', 120);
 
             $response = $this->http
                 ->withHeaders($headers)
@@ -567,23 +619,23 @@ class NovitaModel implements AIModelEngineInterface
                 $errorBody = $response->json();
                 $errorMessage = $errorBody['error']['message'] ?? config('ai.global.error_messages.connection_failed', 'Unknown error');
                 $errorCode = $errorBody['error']['code'] ?? 'unknown';
-                throw new AiModelException("Novita AI API Error ({$response->status()}, {$errorCode}): $errorMessage");
+                throw new AiModelException("Fireworks AI API Error ({$response->status()}, {$errorCode}): $errorMessage");
             }
 
             $result = $response->json();
 
             if (!isset($result['choices'][0]['message']['content'])) {
-                $this->logger->warning("Invalid Novita AI response format", [
+                $this->logger->warning("Invalid Fireworks AI response format", [
                     'response' => $result,
                     'model' => $this->model
                 ]);
-                $errorMessage = config('ai.global.error_messages.invalid_format', 'Invalid response format from Novita AI API');
+                $errorMessage = config('ai.global.error_messages.invalid_format', 'Invalid response format from Fireworks AI API');
                 throw new AiModelException($errorMessage);
             }
 
             // Log token usage if enabled
-            if (isset($result['usage']) && config('ai.engines.novita.log_usage', true)) {
-                $this->logger->info("Novita AI tokens used", [
+            if (isset($result['usage']) && config('ai.engines.fireworks.log_usage', true)) {
+                $this->logger->info("Fireworks AI tokens used", [
                     'model' => $this->model,
                     'prompt_tokens' => $result['usage']['prompt_tokens'],
                     'completion_tokens' => $result['usage']['completion_tokens'],
@@ -595,7 +647,7 @@ class NovitaModel implements AIModelEngineInterface
                 $this->cleanOutput($result['choices'][0]['message']['content'])
             );
         } catch (\Exception $e) {
-            $this->logger->error("NovitaModel error: " . $e->getMessage(), [
+            $this->logger->error("FireworksModel error: " . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
                 'context_size' => count($request->getContext()),
                 'model' => $this->model
@@ -606,14 +658,17 @@ class NovitaModel implements AIModelEngineInterface
     }
 
     /**
-     * Handle different types of Novita AI errors
+     * Handle different types of Fireworks AI errors
+     *
+     * @param \Exception $e
+     * @return ModelResponseDTO
      */
     protected function handleError(\Exception $e): ModelResponseDTO
     {
-        $errorMessages = config('ai.engines.novita.error_messages', []);
+        $errorMessages = config('ai.engines.fireworks.error_messages', []);
         $errorMessage = $e->getMessage();
 
-        $this->logger->error("Novita AI Error Details", [
+        $this->logger->error("Fireworks AI Error Details", [
             'error_message' => $errorMessage,
             'api_key_masked' => substr($this->apiKey, 0, 8) . '...',
             'model' => $this->model,
@@ -621,27 +676,27 @@ class NovitaModel implements AIModelEngineInterface
         ]);
 
         // Check for HTTP status codes in error message
-        if (preg_match('/Novita AI API Error \((\d+),/', $errorMessage, $matches)) {
+        if (preg_match('/Fireworks AI API Error \((\d+),/', $errorMessage, $matches)) {
             $statusCode = intval($matches[1]);
 
             switch ($statusCode) {
                 case 401:
-                    $message = $errorMessages['invalid_api_key'] ?? "Invalid API key. Please check your Novita AI API key.";
+                    $message = $errorMessages['invalid_api_key'] ?? "Invalid API key. Please check your Fireworks AI API key.";
                     break;
                 case 403:
-                    $message = $errorMessages['insufficient_quota'] ?? "Not enough Novita AI quota. Check your account balance.";
+                    $message = $errorMessages['insufficient_quota'] ?? "Not enough Fireworks AI quota. Check your account balance.";
                     break;
                 case 404:
                     $message = $errorMessages['invalid_model'] ?? "Model '{$this->model}' not found. Please choose a different model.";
                     break;
                 case 429:
-                    $message = $errorMessages['rate_limit'] ?? "Novita AI request limit exceeded. Please try again later.";
+                    $message = $errorMessages['rate_limit'] ?? "Fireworks AI request limit exceeded. Please try again later.";
                     break;
                 case 500:
                     $message = $errorMessages['model_unavailable'] ?? "Model temporarily unavailable. Please try again later.";
                     break;
                 default:
-                    $message = $errorMessages['api_error'] ?? "Error from Novita AI API: HTTP {$statusCode}";
+                    $message = $errorMessages['api_error'] ?? "Error from Fireworks AI API: HTTP {$statusCode}";
             }
 
             return new ModelResponseDTO("error\n{$message}", true);
@@ -649,26 +704,26 @@ class NovitaModel implements AIModelEngineInterface
 
         // Check for specific error types
         if (str_contains($errorMessage, 'rate_limit_exceeded')) {
-            $message = $errorMessages['rate_limit'] ?? "Novita AI request limit exceeded. Please try again later.";
+            $message = $errorMessages['rate_limit'] ?? "Fireworks AI request limit exceeded. Please try again later.";
             return new ModelResponseDTO("error\n{$message}", true);
         }
 
         if (str_contains($errorMessage, 'insufficient_quota')) {
-            $message = $errorMessages['insufficient_quota'] ?? "Not enough Novita AI quota. Check your account balance.";
+            $message = $errorMessages['insufficient_quota'] ?? "Not enough Fireworks AI quota. Check your account balance.";
             return new ModelResponseDTO("error\n{$message}", true);
         }
 
         if (str_contains($errorMessage, 'Connection refused') || str_contains($errorMessage, 'Could not resolve host')) {
-            $message = $errorMessages['connection_failed'] ?? "Failed to connect to Novita AI. Please check your internet connection.";
+            $message = $errorMessages['connection_failed'] ?? "Failed to connect to Fireworks AI. Please check your internet connection.";
             return new ModelResponseDTO("error\n{$message}", true);
         }
 
         if (str_contains($errorMessage, 'API Error')) {
-            $message = $errorMessages['api_error'] ?? "Error from Novita AI API: " . $errorMessage;
+            $message = $errorMessages['api_error'] ?? "Error from Fireworks AI API: " . $errorMessage;
             return new ModelResponseDTO("error\n{$message}", true);
         }
 
-        $message = $errorMessages['general'] ?? "Error contacting Novita AI: " . $errorMessage;
+        $message = $errorMessages['general'] ?? "Error contacting Fireworks AI: " . $errorMessage;
         return new ModelResponseDTO("error\n{$message}", true);
     }
 
@@ -679,17 +734,14 @@ class NovitaModel implements AIModelEngineInterface
     {
         $this->config = array_merge($this->config, $newConfig);
 
-        // Update the model if passed
         if (isset($newConfig['model'])) {
             $this->model = $newConfig['model'];
         }
 
-        // Update API key if passed
         if (isset($newConfig['api_key'])) {
             $this->apiKey = $newConfig['api_key'];
         }
 
-        // Update server URL if passed
         if (isset($newConfig['server_url'])) {
             $this->serverUrl = $newConfig['server_url'];
         }
@@ -708,10 +760,12 @@ class NovitaModel implements AIModelEngineInterface
 
     /**
      * Get request headers from config
+     *
+     * @return array
      */
     protected function getRequestHeaders(): array
     {
-        $baseHeaders = config('ai.engines.novita.request_headers', [
+        $baseHeaders = config('ai.engines.fireworks.request_headers', [
             'Content-Type' => 'application/json',
         ]);
 
@@ -721,7 +775,7 @@ class NovitaModel implements AIModelEngineInterface
     }
 
     /**
-     * Build messages array for Novita AI API
+     * Build messages array for Fireworks AI API
      *
      * @param AiModelRequestInterface $request
      * @return array
@@ -731,7 +785,6 @@ class NovitaModel implements AIModelEngineInterface
         $systemMessage = $this->prepareMessage($request);
         $messages = [];
 
-        // Novita AI uses system role like OpenAI
         $messages[] = [
             'role' => 'system',
             'content' => $systemMessage
@@ -747,7 +800,7 @@ class NovitaModel implements AIModelEngineInterface
                 continue;
             }
 
-            // Map roles for Novita AI (OpenAI-compatible)
+            // Map roles for Fireworks AI (OpenAI-compatible)
             switch ($role) {
                 case 'user':
                 case 'command':
@@ -776,22 +829,25 @@ class NovitaModel implements AIModelEngineInterface
 
     /**
      * Clean output using config patterns
+     *
+     * @param string|null $output
+     * @return string
      */
     protected function cleanOutput(?string $output): string
     {
         if (empty($output)) {
-            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: Novita AI did not provide a response.');
+            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: Fireworks AI did not provide a response.');
             return "response_from_model\n{$errorMessage}";
         }
 
         $cleanOutput = trim($output);
 
         // Apply cleanup patterns from config
-        $cleanupPattern = config('ai.engines.novita.cleanup.role_prefixes', '/^(Assistant|AI|Bot):\s*/i');
+        $cleanupPattern = config('ai.engines.fireworks.cleanup.role_prefixes', '/^(Assistant|AI|Bot):\s*/i');
         $cleanOutput = preg_replace($cleanupPattern, '', $cleanOutput);
 
         if (empty($cleanOutput)) {
-            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: Novita AI returned an empty response.');
+            $errorMessage = config('ai.global.error_messages.empty_response', 'Error: Fireworks AI returned an empty response.');
             return "response_from_model\n{$errorMessage}";
         }
 
@@ -800,11 +856,13 @@ class NovitaModel implements AIModelEngineInterface
 
     /**
      * Set optimized settings for different modes using config
+     *
+     * @param string $mode
+     * @return void
      */
     public function setMode(string $mode): void
     {
-        // Get mode presets from config
-        $modePresets = config('ai.engines.novita.mode_presets', []);
+        $modePresets = config('ai.engines.fireworks.mode_presets', []);
 
         if (isset($modePresets[$mode])) {
             $preset = $modePresets[$mode];
@@ -858,6 +916,8 @@ class NovitaModel implements AIModelEngineInterface
 
     /**
      * Get information about model limits from config or API
+     *
+     * @return array
      */
     public function getModelLimits(): array
     {
@@ -872,6 +932,8 @@ class NovitaModel implements AIModelEngineInterface
 
     /**
      * Get current model information
+     *
+     * @return array
      */
     public function getModelInfo(): array
     {
@@ -879,12 +941,14 @@ class NovitaModel implements AIModelEngineInterface
         return $availableModels[$this->model] ?? [
             'id' => $this->model,
             'display_name' => $this->formatModelDisplayName($this->model),
-            'owned_by' => 'novita'
+            'owned_by' => 'fireworks'
         ];
     }
 
     /**
      * Check if current model is available
+     *
+     * @return boolean
      */
     public function isModelAvailable(): bool
     {
@@ -892,8 +956,96 @@ class NovitaModel implements AIModelEngineInterface
         return isset($availableModels[$this->model]);
     }
 
+
+    /**
+     * Fetch models from API with user-provided API key
+     * This method bypasses cache and fetches fresh model list
+     *
+     * @param string $userApiKey
+     * @return array
+     */
+    public function fetchModelsFromAPI(string $userApiKey): array
+    {
+        try {
+            $endpoints = [
+                'https://api.fireworks.ai/inference/v1/models',
+                'https://api.fireworks.ai/v1/models'
+            ];
+
+            $headers = [
+                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $userApiKey,
+                'User-Agent' => 'Laravel-AI-Agent/1.0',
+            ];
+
+            $timeout = config('ai.engines.fireworks.timeout', 30);
+
+            foreach ($endpoints as $modelsEndpoint) {
+                $this->logger->info('Fetching Fireworks AI models with user API key', [
+                    'endpoint' => $modelsEndpoint,
+                    'api_key_prefix' => substr($userApiKey, 0, 8) . '...'
+                ]);
+
+                $response = $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+                    ->get($modelsEndpoint);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    $models = [];
+
+                    foreach ($data['data'] ?? [] as $model) {
+                        $modelId = $model['id'] ?? '';
+                        if (empty($modelId)) {
+                            continue;
+                        }
+
+                        // Filter out non-chat models
+                        if (str_contains($modelId, 'embedding') || str_contains($modelId, 'rerank')) {
+                            continue;
+                        }
+
+                        $models[$modelId] = [
+                            'id' => $modelId,
+                            'display_name' => $this->formatModelDisplayName($modelId),
+                            'context_length' => $model['context_length'] ?? null,
+                            'created' => $model['created'] ?? null,
+                            'owned_by' => $model['owned_by'] ?? 'fireworks',
+                            'source' => 'api'
+                        ];
+                    }
+
+                    if (!empty($models)) {
+                        $this->logger->info('Fireworks AI models fetched successfully', [
+                            'endpoint' => $modelsEndpoint,
+                            'count' => count($models)
+                        ]);
+                        return $models;
+                    }
+                }
+
+                $this->logger->warning('Failed to fetch models from endpoint', [
+                    'endpoint' => $modelsEndpoint,
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            $this->logger->error('Error fetching Fireworks AI models: ' . $e->getMessage(), [
+                'exception_type' => get_class($e)
+            ]);
+        }
+
+        return [];
+    }
+
     /**
      * Get models suitable for specific tasks
+     *
+     * @param string $category
+     * @return array
      */
     public function getModelsByCategory(string $category = 'general'): array
     {
@@ -905,16 +1057,21 @@ class NovitaModel implements AIModelEngineInterface
 
             switch ($category) {
                 case 'reasoning':
-                    $matches = str_contains(strtolower($modelId), 'deepseek') ||
-                              str_contains(strtolower($modelId), 'qwen');
+                    $matches = str_contains(strtolower($modelId), 'llama-v3p1-70b') ||
+                              str_contains(strtolower($modelId), 'llama-v3p1-405b') ||
+                              str_contains(strtolower($modelId), 'yi-34b');
                     break;
                 case 'creative':
-                    $matches = str_contains(strtolower($modelId), 'llama') ||
-                              str_contains(strtolower($modelId), 'mistral');
+                    $matches = str_contains(strtolower($modelId), 'mixtral') ||
+                              str_contains(strtolower($modelId), 'llama');
                     break;
                 case 'coding':
-                    $matches = str_contains(strtolower($modelId), 'code') ||
-                              str_contains(strtolower($modelId), 'deepseek');
+                    $matches = str_contains(strtolower($modelId), 'code-llama') ||
+                              str_contains(strtolower($modelId), 'deepseek-coder');
+                    break;
+                case 'long_context':
+                    $matches = str_contains(strtolower($modelId), '200k') ||
+                              str_contains(strtolower($modelId), 'yi-34b');
                     break;
                 case 'general':
                 default:
@@ -928,5 +1085,49 @@ class NovitaModel implements AIModelEngineInterface
         }
 
         return $categorizedModels;
+    }
+
+    /**
+     * Get maximum tokens for current model
+     *
+     * @return integer
+     */
+    public function getMaxTokens(): int
+    {
+        $modelInfo = $this->getModelInfo();
+        return $modelInfo['context_length'] ?? 32768;
+    }
+
+    /**
+     * Get model pricing information (if available)
+     *
+     * @return array
+     */
+    public function getModelPricing(): array
+    {
+        // Fireworks AI pricing per million tokens (as of 2024)
+        $pricing = [
+            'accounts/fireworks/models/llama-v3p1-8b-instruct' => [
+                'input' => 0.2,
+                'output' => 0.2
+            ],
+            'accounts/fireworks/models/llama-v3p1-70b-instruct' => [
+                'input' => 0.9,
+                'output' => 0.9
+            ],
+            'accounts/fireworks/models/llama-v3p1-405b-instruct' => [
+                'input' => 3.0,
+                'output' => 3.0
+            ],
+            'accounts/fireworks/models/mixtral-8x7b-instruct' => [
+                'input' => 0.5,
+                'output' => 0.5
+            ]
+        ];
+
+        return $pricing[$this->model] ?? [
+            'input' => null,
+            'output' => null
+        ];
     }
 }

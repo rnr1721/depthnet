@@ -37,6 +37,10 @@ class AgentActions implements AgentActionsInterface
      */
     public function runActions(string $responseString, AiPreset $preset, bool $isUser = false): AiActionsResponseInterface
     {
+
+        // Step 0: Cleanup response from fake system command results
+        $responseString = $this->cleanupResponse($responseString);
+
         // Step 1: Check for auto-handoff before processing
         if (!$isUser) {
             $responseString = $this->addAutoHandoffIfNeeded($responseString, $preset);
@@ -78,6 +82,20 @@ class AgentActions implements AgentActionsInterface
             $systemMessage,
             $executionResult->pluginExecutionMeta['handoff'] ?? null
         );
+    }
+
+    /**
+     * Remove fake system command results from the response
+     *
+     * @param string $response
+     * @return string
+     */
+    private function cleanupResponse(string $response): string
+    {
+        $response = str_replace('<system_output_results>', '', $response);
+        $response = preg_replace('/```system_command_results.*?```/s', '', $response);
+
+        return trim($response);
     }
 
     /**

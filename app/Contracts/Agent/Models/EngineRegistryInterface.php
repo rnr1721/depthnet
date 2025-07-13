@@ -103,9 +103,10 @@ interface EngineRegistryInterface
      * Get configuration fields metadata for engine
      *
      * @param string $engineName Engine name
+     * @param array|null $presetConfig Optional preset configuration to merge with defaults
      * @return array Configuration fields with type, validation rules, etc.
      */
-    public function getEngineConfigFields(string $engineName): array;
+    public function getEngineConfigFields(string $engineName, ?array $presetConfig = null): array;
 
     /**
      * Get recommended presets for engine

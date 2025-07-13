@@ -73,6 +73,22 @@ class ClaudeModel implements AIModelEngineInterface
     /**
      * @inheritDoc
      */
+    public function supportsDynamicModels(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function requiresApiKeyForModels(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getConfigFields(): array
     {
         $models = config('ai.engines.claude.models', []);
@@ -92,11 +108,14 @@ class ClaudeModel implements AIModelEngineInterface
                 'required' => true
             ],
             'model' => [
-                'type' => 'select',
+                'type' => 'dynamic_models',
                 'label' => 'Model Claude',
                 'description' => 'Select the Claude model to use',
-                'options' => $modelOptions,
-                'required' => true
+                'required' => true,
+                'depends_on' => 'api_key',
+                'loading_text' => 'Loading available Claude models...',
+                'error_text' => 'Failed to load models. Using fallback list.',
+                'fallback_options' => $this->getFallbackModelOptions()
             ],
             'temperature' => [
                 'type' => 'number',
@@ -133,6 +152,22 @@ class ClaudeModel implements AIModelEngineInterface
                 'rows' => 6
             ]
         ];
+    }
+
+    /**
+     * Get fallback model options for select field
+     */
+    protected function getFallbackModelOptions(): array
+    {
+        $models = $this->getFallbackModels();
+        $options = [];
+
+        foreach ($models as $modelId => $modelInfo) {
+            $prefix = $modelInfo['recommended'] ? '⭐ ' : '';
+            $options[$modelId] = $prefix . $modelInfo['display_name'];
+        }
+
+        return $options;
     }
 
     /**
@@ -548,4 +583,70 @@ class ClaudeModel implements AIModelEngineInterface
         $modelInfo = $this->getModelInfo();
         return $modelInfo['max_tokens'] ?? 8192;
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function getAvailableModels(?array $config = null): array
+    {
+        return $this->getFallbackModels();
+    }
+
+    /**
+     * Format model display name
+     */
+    protected function formatModelDisplayName(string $modelId): string
+    {
+        // Convert model ID to human-readable format
+        $displayName = str_replace(['-', '_'], ' ', $modelId);
+        $displayName = ucwords($displayName);
+
+        // Handle specific Claude naming conventions
+        $displayName = preg_replace('/Claude (\d+)/', 'Claude $1', $displayName);
+        $displayName = preg_replace('/V(\d+)/', 'v$1', $displayName);
+
+        return $displayName;
+    }
+
+    /**
+     * Categorize model by capabilities
+     */
+    protected function categorizeModel(string $modelId): string
+    {
+        if (str_contains($modelId, 'opus')) {
+            return 'reasoning';
+        }
+
+        if (str_contains($modelId, 'haiku')) {
+            return 'general';
+        }
+
+        if (str_contains($modelId, 'sonnet')) {
+            return 'general';
+        }
+
+        return 'general';
+    }
+
+    /**
+     * Check if model is recommended
+     */
+    protected function isRecommendedModel(string $modelId): bool
+    {
+        $recommendedModels = [
+            'claude-3-5-sonnet-20241022',
+            'claude-3-5-haiku-20241022'
+        ];
+
+        return in_array($modelId, $recommendedModels);
+    }
+
+    /**
+     * Get fallback models when API is unavailable
+     */
+    protected function getFallbackModels(): array
+    {
+        return config('ai.engines.claude.models', []);
+    }
+
 }

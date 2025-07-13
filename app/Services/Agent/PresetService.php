@@ -12,6 +12,7 @@ use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Factory as ValidatorFactory;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Cache\CacheManager;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -26,7 +27,8 @@ class PresetService implements PresetServiceInterface
         protected DatabaseManager $db,
         protected ValidatorFactory $validator,
         protected AiPreset $aiPresetModel,
-        protected LoggerInterface $logger
+        protected LoggerInterface $logger,
+        protected CacheManager $cacheManager
     ) {
     }
 
@@ -314,7 +316,12 @@ class PresetService implements PresetServiceInterface
             // First try to test configuration if method exists
             if (method_exists($engine, 'testConnection')) {
                 // Create a temporary engine instance with the config for testing
-                $tempEngine = new $engineClass($engine->http ?? app('Illuminate\Http\Client\Factory'), '', $config);
+                $tempEngine = new $engineClass(
+                    $engine->http ?? app('Illuminate\Http\Client\Factory'),
+                    $this->logger,
+                    $this->cacheManager,
+                    $config
+                );
                 $testResult = $tempEngine->testConnection();
 
                 if ($testResult) {

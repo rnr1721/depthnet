@@ -67,6 +67,22 @@ class LocalModel implements AIModelEngineInterface
     /**
      * @inheritDoc
      */
+    public function supportsDynamicModels(): bool
+    {
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function requiresApiKeyForModels(): bool
+    {
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getConfigFields(): array
     {
         $serverTypes = config('ai.engines.local.server_types', []);
@@ -511,6 +527,11 @@ class LocalModel implements AIModelEngineInterface
         }
 
         return $messages;
+    }
+
+    public function getAvailableModels(?array $config = null): array
+    {
+        return [];
     }
 
     /**

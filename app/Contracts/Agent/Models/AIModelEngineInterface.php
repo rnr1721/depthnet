@@ -59,6 +59,41 @@ interface AIModelEngineInterface
     public function getConfigFields(): array;
 
     /**
+     * Get available models dynamically
+     * This method should handle cases where API key is required or not
+     *
+     * @param array|null $config Optional config containing API key and other params
+     * @return array Format:
+     * [
+     *     'model_id' => [
+     *         'id' => 'model_id',
+     *         'display_name' => 'Human readable name',
+     *         'description' => 'Model description (optional)',
+     *         'context_length' => 4096, // optional
+     *         'owned_by' => 'company', // optional
+     *         'category' => 'general|reasoning|creative|coding', // optional
+     *         'recommended' => true|false, // optional
+     *         'source' => 'api|fallback', // optional
+     *     ]
+     * ]
+     */
+    public function getAvailableModels(?array $config = null): array;
+
+    /**
+     * Check if this engine supports dynamic model loading
+     *
+     * @return bool
+     */
+    public function supportsDynamicModels(): bool;
+
+    /**
+     * Check if API key is required for loading models
+     *
+     * @return bool
+     */
+    public function requiresApiKeyForModels(): bool;
+
+    /**
      * Get recommended preset configurations
      *
      * @return array Format:

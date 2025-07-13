@@ -6,6 +6,7 @@ use App\Contracts\Agent\Models\{EngineRegistryInterface, PresetServiceInterface}
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Engine\{ValidateEngineConfigRequest, TestEngineWithConfigRequest};
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Inertia\{Inertia, Response};
 use Psr\Log\LoggerInterface;
 
@@ -97,10 +98,13 @@ class EngineController extends Controller
     /**
      * Get configuration fields for specific engine (API endpoint)
      */
-    public function getConfigFields(string $engineName): JsonResponse
+    public function getConfigFields(string $engineName, Request $request): JsonResponse
     {
         try {
-            $fields = $this->engineRegistry->getEngineConfigFields($engineName);
+
+            $presetConfig = $request->input('preset_config', []);
+
+            $fields = $this->engineRegistry->getEngineConfigFields($engineName, $presetConfig);
 
             return $this->successResponse([
                 'engine_name' => $engineName,
@@ -135,6 +139,64 @@ class EngineController extends Controller
             ]);
 
             return $this->errorResponse('Failed to retrieve recommended presets');
+        }
+    }
+
+    /**
+     * Get available models for specific engine dynamically (API endpoint)
+     */
+    public function getAvailableModels(string $engineName, Request $request): JsonResponse
+    {
+        try {
+            $config = $request->input('config', []);
+
+            // Get engine instance to check capabilities
+            $engine = $this->engineRegistry->createInstance($engineName, $config);
+
+            if (!$engine) {
+                return $this->errorResponse('Engine not found', 404);
+            }
+
+            // Check if engine supports dynamic models
+            if (!method_exists($engine, 'supportsDynamicModels') || !$engine->supportsDynamicModels()) {
+                return $this->errorResponse('Engine does not support dynamic model loading', 400);
+            }
+
+            // Validate API key if required
+            if (method_exists($engine, 'requiresApiKeyForModels') &&
+                $engine->requiresApiKeyForModels() &&
+                empty($config['api_key'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'API key is required for this engine',
+                    'requires_api_key' => true
+                ], 400);
+            }
+
+            // Get available models
+            $models = $engine->getAvailableModels($config);
+
+            // Format models for frontend
+            $formattedModels = $this->formatModelsForFrontend($models);
+
+            return $this->successResponse([
+                'engine_name' => $engineName,
+                'models' => $formattedModels,
+                'total_count' => count($formattedModels),
+                'supports_dynamic_models' => true,
+                'requires_api_key' => method_exists($engine, 'requiresApiKeyForModels') ?
+                    $engine->requiresApiKeyForModels() : false
+            ]);
+
+        } catch (\Exception $e) {
+            $this->logger->error('EngineController: Failed to load models', [
+                'engine_name' => $engineName,
+                'config_provided' => !empty($config),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return $this->errorResponse('Failed to load models: ' . $e->getMessage());
         }
     }
 
@@ -270,4 +332,28 @@ class EngineController extends Controller
             'message' => $message
         ], $status);
     }
+
+    /**
+     * Format models for frontend consumption
+     *
+     * @param array $models
+     * @return array
+     */
+    protected function formatModelsForFrontend(array $models): array
+    {
+        $formattedModels = [];
+
+        foreach ($models as $modelId => $modelInfo) {
+
+            $formattedModels[] = [
+                'value' => $modelId,
+                'label' => $modelInfo['display_name'] ?? $modelId,
+                'source' => $modelInfo['source'] ?? 'api',
+                'context_length' => $modelInfo['context_length'] ?? null,
+            ];
+        }
+
+        return $formattedModels;
+    }
+
 }

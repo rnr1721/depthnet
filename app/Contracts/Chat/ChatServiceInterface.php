@@ -20,10 +20,10 @@ interface ChatServiceInterface
      * Get all messages (global feed)
      *
      * @param integer $presetId
-     * @param integer $limit Limit the number of messages to retrieve
+     * @param integer|null $limit Limit the number of messages to retrieve
      * @return Collection All messages
      */
-    public function getAllMessages(int $presetId, int $limit = 100): Collection;
+    public function getAllMessages(int $presetId, ?int $limit = null): Collection;
 
     /**
      * Get new messages after a specific ID (new messages)

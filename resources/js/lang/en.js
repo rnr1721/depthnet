@@ -703,4 +703,11 @@ export default {
   hv_open_port: "Open port {port}",
   hv_ports: "Ports",
   hv_no_ports: "No ports",
+  pg_showing: 'Showing',
+  pg_to: 'to',
+  pg_of: 'of',
+  pg_results: 'results',
+  pg_previous: 'Previous',
+  pg_next: 'Next',
+  pg_per_page: 'Per page',
 }

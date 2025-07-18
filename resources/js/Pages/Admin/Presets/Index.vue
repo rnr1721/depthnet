@@ -190,7 +190,7 @@
                                         </svg>
                                         {{ t('presets_set_default') }}
                                     </button>
-                                    <button @click="deletePreset(preset)" :class="[
+                                    <button v-if="!preset.is_default" @click="deletePreset(preset)" :class="[
                                         'inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium transition-all hover:scale-105',
                                         isDark
                                             ? 'bg-red-900 bg-opacity-50 text-red-200 hover:bg-opacity-70'

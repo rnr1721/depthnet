@@ -6,6 +6,7 @@ use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
 
@@ -22,6 +23,20 @@ class VectorMemoryService implements VectorMemoryServiceInterface
         protected VectorMemoryExporter $exporter,
         protected VectorMemory $vectorMemoryModel
     ) {
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getPaginatedVectorMemories(AiPreset $preset, int $perPage = 20): LengthAwarePaginator
+    {
+        $perPage = max(10, min(100, $perPage));
+
+        return $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage)
+            ->withQueryString();
     }
 
     /**

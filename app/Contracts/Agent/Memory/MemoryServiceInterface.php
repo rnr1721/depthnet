@@ -4,9 +4,29 @@ namespace App\Contracts\Agent\Memory;
 
 use Illuminate\Support\Collection;
 use App\Models\AiPreset;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 interface MemoryServiceInterface
 {
+    /**
+     * Get paginated memory items using Laravel pagination
+     *
+     * @param AiPreset $preset
+     * @param int $perPage
+     * @return LengthAwarePaginator
+     */
+    public function getPaginatedMemoryItems(AiPreset $preset, int $perPage = 20): LengthAwarePaginator;
+
+    /**
+     * Search memory with pagination
+     *
+     * @param AiPreset $preset
+     * @param string $query
+     * @param int $perPage
+     * @return LengthAwarePaginator
+     */
+    public function searchMemoryPaginated(AiPreset $preset, string $query, int $perPage = 20): LengthAwarePaginator;
+
     /**
      * Get all memory items for a preset, ordered by position
      *

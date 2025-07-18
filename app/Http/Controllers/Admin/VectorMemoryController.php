@@ -36,7 +36,7 @@ class VectorMemoryController extends Controller
     }
 
     /**
-     * Display vector memory management interface
+     * Display vector memory management interface with pagination
      */
     public function index(Request $request)
     {
@@ -52,12 +52,20 @@ class VectorMemoryController extends Controller
         $currentPresetId = $request->get('preset_id', $this->presetRegistry->getDefaultPreset()->id);
         $currentPreset = $this->presetRegistry->getPresetOrDefault($currentPresetId);
 
-        $vectorMemories = [];
+        $perPage = max(10, min(100, (int) $request->get('per_page', 20))); // Between 10 and 100
+
+        $vectorMemories = collect();
         $memoryStats = [];
         $searchResults = [];
 
         if ($currentPreset) {
-            $vectorMemories = $this->vectorMemoryService->getVectorMemories($currentPreset, 50)->map(function ($memory) {
+            // Get paginated memories using Laravel pagination
+            $paginatedMemories = $this->vectorMemoryService->getPaginatedVectorMemories(
+                $currentPreset,
+                $perPage
+            );
+
+            $vectorMemories = $paginatedMemories->map(function ($memory) {
                 return [
                     'id' => $memory->id,
                     'content' => $memory->content,
@@ -72,7 +80,7 @@ class VectorMemoryController extends Controller
 
             $memoryStats = $this->vectorMemoryService->getVectorMemoryStats($currentPreset, $this->config);
 
-            // If there's a search query, perform search
+            // Handle search - search results are not paginated for now (can be added later)
             if ($request->filled('search')) {
                 $searchResult = $this->vectorMemoryService->searchVectorMemories(
                     $currentPreset,
@@ -106,10 +114,12 @@ class VectorMemoryController extends Controller
                 'is_default' => $currentPreset->is_default
             ],
             'vectorMemories' => $vectorMemories,
+            'pagination' => $currentPreset ? $paginatedMemories->toArray() : null,
             'memoryStats' => $memoryStats,
             'searchResults' => $searchResults,
             'config' => $this->config,
             'searchQuery' => $request->get('search', ''),
+            'perPage' => $perPage,
         ]);
     }
 

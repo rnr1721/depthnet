@@ -355,6 +355,9 @@
                         {{ t('vm_add_first_memory') }}
                     </button>
                 </div>
+                <!-- Pagination -->
+                <PaginationComponent v-if="pagination && !searchResults.length" :pagination="pagination"
+                    :isDark="isDark" class="mt-6" />
             </div>
         </main>
 
@@ -363,6 +366,7 @@
         <ImportModal v-model="showImportModal" :preset="currentPreset" @success="refreshData" />
         <ImportanceModal v-model="showImportanceModal" :memory="editingMemory" :preset="currentPreset"
             @success="refreshData" />
+
     </div>
 </template>
 
@@ -375,6 +379,7 @@ import PageTitle from '@/Components/PageTitle.vue';
 import AddMemoryModal from '@/Components/Admin/VectorMemory/AddMemoryModal.vue';
 import ImportModal from '@/Components/Admin/VectorMemory/ImportModal.vue';
 import ImportanceModal from '@/Components/Admin/VectorMemory/ImportanceModal.vue';
+import PaginationComponent from '@/Components/Pagination.vue';
 
 const { t } = useI18n();
 
@@ -385,7 +390,8 @@ const props = defineProps({
     searchResults: Array,
     memoryStats: Object,
     config: Object,
-    searchQuery: String
+    searchQuery: String,
+    pagination: Object,
 });
 
 const isDark = ref(false);

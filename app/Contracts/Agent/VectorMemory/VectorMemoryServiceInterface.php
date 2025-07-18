@@ -4,6 +4,7 @@ namespace App\Contracts\Agent\VectorMemory;
 
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
 /**
@@ -12,6 +13,15 @@ use Illuminate\Support\Collection;
  */
 interface VectorMemoryServiceInterface
 {
+    /**
+     * Get paginated vector memories using Laravel pagination
+     *
+     * @param AiPreset $preset
+     * @param int $perPage
+     * @return LengthAwarePaginator
+     */
+    public function getPaginatedVectorMemories(AiPreset $preset, int $perPage = 20): LengthAwarePaginator;
+
     /**
      * Get vector memories for preset
      *

@@ -38,7 +38,7 @@ class MemoryController extends Controller
     }
 
     /**
-     * Display memory management interface
+     * Display memory management interface with pagination
      *
      * @param Request $request
      * @return \Inertia\Response
@@ -57,17 +57,26 @@ class MemoryController extends Controller
         $currentPresetId = $request->get('preset_id', $this->presetRegistry->getDefaultPreset()->id);
         $currentPreset = $this->presetRegistry->getPresetOrDefault($currentPresetId);
         $searchQuery = $request->get('search', '');
-        $memoryItems = [];
+        $perPage = max(10, min(100, (int) $request->get('per_page', 20)));
+
+        $memoryItems = collect();
         $memoryStats = [];
 
         if ($currentPreset) {
-            // If we have a search query, perform search
+            // If we have a search query, perform paginated search
             if (!empty($searchQuery)) {
-                $searchResults = $this->memoryService->searchMemory($currentPreset, $searchQuery);
-                $memoryItems = $searchResults->toArray();
+                $paginatedItems = $this->memoryService->searchMemoryPaginated($currentPreset, $searchQuery, $perPage);
             } else {
-                $memoryItems = $this->memoryService->getMemoryItems($currentPreset)->toArray();
+                $paginatedItems = $this->memoryService->getPaginatedMemoryItems($currentPreset, $perPage);
             }
+
+            $memoryItems = $paginatedItems->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'content' => $item->content,
+                    'position' => $item->position,
+                ];
+            });
 
             $memoryStats = $this->memoryService->getMemoryStats($currentPreset, $this->config);
         }
@@ -80,9 +89,11 @@ class MemoryController extends Controller
                 'is_default' => $currentPreset->is_default
             ],
             'memoryItems' => $memoryItems,
+            'pagination' => $currentPreset ? $paginatedItems->toArray() : null,
             'memoryStats' => $memoryStats,
             'config' => $this->config,
-            'searchQuery' => $request->get('search', ''),
+            'searchQuery' => $searchQuery,
+            'perPage' => $perPage,
         ]);
     }
 

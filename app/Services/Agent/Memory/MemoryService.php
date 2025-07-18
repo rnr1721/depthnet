@@ -5,6 +5,7 @@ namespace App\Services\Agent\Memory;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Models\AiPreset;
 use App\Models\MemoryItem;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
 
@@ -20,6 +21,33 @@ class MemoryService implements MemoryServiceInterface
         protected LoggerInterface $logger,
         protected MemoryItem $memoryItemModel
     ) {
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getPaginatedMemoryItems(AiPreset $preset, int $perPage = 20): LengthAwarePaginator
+    {
+        $perPage = max(10, min(100, $perPage));
+
+        return $this->memoryItemModel->forPreset($preset->id)
+            ->ordered()
+            ->paginate($perPage)
+            ->withQueryString();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function searchMemoryPaginated(AiPreset $preset, string $query, int $perPage = 20): LengthAwarePaginator
+    {
+        $perPage = max(10, min(100, $perPage));
+
+        return $this->memoryItemModel->forPreset($preset->id)
+            ->where('content', 'LIKE', '%' . $query . '%')
+            ->ordered()
+            ->paginate($perPage)
+            ->withQueryString();
     }
 
     /**

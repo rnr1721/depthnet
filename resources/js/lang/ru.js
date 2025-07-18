@@ -701,4 +701,11 @@ export default {
   hv_open_port: "Открыть порт {port}",
   hv_ports: "Порты",
   hv_no_ports: "Нет портов",
+  pg_showing: 'Показано',
+  pg_to: 'до',
+  pg_of: 'от',
+  pg_results: 'результатов',
+  pg_previous: 'Предыдущая',
+  pg_next: 'Следующая',
+  pg_per_page: 'На странице',
 }

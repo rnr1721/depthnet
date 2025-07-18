@@ -320,6 +320,11 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Pagination -->
+                <PaginationComponent v-if="pagination && !searchQuery" :pagination="pagination" :isDark="isDark"
+                    class="mt-6" />
+
             </div>
         </main>
 
@@ -342,6 +347,7 @@ import PageTitle from '@/Components/PageTitle.vue';
 import AddItemModal from '@/Components/Admin/Memory/AddItemModal.vue';
 import EditItemModal from '@/Components/Admin/Memory/EditItemModal.vue';
 import ImportModal from '@/Components/Admin/Memory/ImportModal.vue';
+import PaginationComponent from '@/Components/Pagination.vue';
 
 const { t } = useI18n();
 
@@ -352,7 +358,8 @@ const props = defineProps({
     memoryStats: Object,
     config: Object,
     searchQuery: String,
-    isSearching: Boolean
+    isSearching: Boolean,
+    pagination: Object,
 });
 
 const isDark = ref(false);

@@ -92,8 +92,11 @@ class AgentActions implements AgentActionsInterface
      */
     private function cleanupResponse(string $response): string
     {
-        $response = str_replace('<system_output_results>', '', $response);
+        $response = preg_replace('/<system_output_results>.*?```\s*$/s', '', $response);
+
         $response = preg_replace('/```system_command_results.*?```/s', '', $response);
+
+        $response = preg_replace('/🤖\s*Command\s*Results:\s*/i', '', $response);
 
         return trim($response);
     }

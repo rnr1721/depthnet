@@ -64,6 +64,7 @@ use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\NodePlugin;
 use App\Services\Agent\Plugins\PHPPlugin;
+use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\SandboxPlugin;
@@ -211,6 +212,7 @@ class AiServiceProvider extends ServiceProvider
             PythonPlugin::class,
             DopaminePlugin::class,
             MoodPlugin::class,
+            PuppeteerBrowserPlugin::class,
             CodeCraftPlugin::class,
         ];
     }

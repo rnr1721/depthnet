@@ -48,6 +48,11 @@ class MemoryPlugin implements CommandPluginInterface
     public function getDescription(): string
     {
         $limit = $this->config['memory_limit'] ?? 2000;
+
+        if ($this->config['memory_code_units'] ?? false) {
+            return "Persistent memory storage for notes and consciousness modules. Limit is {$limit} symbols. Remember important information and store executable functions that define how you think, survive, and make decisions.";
+        }
+
         return "Persistent memory storage with structured list format. Limit is {$limit} symbols. Use it to remember important information between conversations.";
     }
 
@@ -56,10 +61,19 @@ class MemoryPlugin implements CommandPluginInterface
      */
     public function getInstructions(): array
     {
+        if ($this->config['memory_code_units'] ?? false) {
+            return [
+                'Add consciousness module: [memory]def survival_check(self): return self.vitality > 0.5[/memory]',
+                'Add memory note: [memory]Completed task: Created users table successfully[/memory]',
+                'Delete specific memory item: [memory delete]3[/memory]',
+                'Show current memory: [memory show][/memory]',
+                'Search memory: [memory search]database[/memory]',
+                'Get memory stats: [memory stats][/memory]'
+            ];
+        }
         return [
             'Add new memory item: [memory]Completed task: Created users table successfully[/memory]',
             'Delete specific memory item: [memory delete]3[/memory]',
-            'Clear all memory: [memory clear][/memory]',
             'Show current memory: [memory show][/memory]',
             'Search memory: [memory search]database[/memory]',
             'Get memory stats: [memory stats][/memory]'
@@ -92,6 +106,13 @@ class MemoryPlugin implements CommandPluginInterface
                 'type' => 'checkbox',
                 'label' => 'Enable Memory Plugin',
                 'description' => 'Allow persistent memory operations',
+                'required' => false
+            ],
+            'memory_code_units' => [
+                'type' => 'checkbox',
+                'label' => 'Memory Code Execution',
+                'description' => 'Enable storing and executing Python code in memory. AI can create self-modifying behavioral modules and survival instincts.',
+                'value' => true,
                 'required' => false
             ],
             'memory_limit' => [
@@ -175,6 +196,7 @@ class MemoryPlugin implements CommandPluginInterface
     {
         return [
             'enabled' => true,
+            'memory_code_units' => false,
             'memory_limit' => 2000,
             'auto_cleanup' => true,
             'cleanup_strategy' => 'truncate_old',

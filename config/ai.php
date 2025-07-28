@@ -259,7 +259,7 @@ return [
             'temperature' => (float) env('CLAUDE_TEMPERATURE', 0.8),
             'top_p' => (float) env('CLAUDE_TOP_P', 0.9),
             'system_prompt' => env('CLAUDE_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
- 
+
             // Supported models
             'models' => [
                 'claude-3-5-sonnet-20241022' => [
@@ -1753,6 +1753,7 @@ return [
             'node',
             'python',
             'codecraft',
+            'browser',
             'mood'
         ],
 
@@ -1815,6 +1816,7 @@ return [
 
             'memory' => [
                 'enabled' => true,
+                'memory_code_units' => false, // Use code units instead of characters for memory size
                 'memory_limit' => 2000, // Maximum characters in memory
                 'auto_cleanup' => false, // Automatically trim memory when limit exceeded
                 'cleanup_strategy' => 'reject', // 'truncate_old', 'truncate_new', 'compress', 'reject'
@@ -1866,6 +1868,25 @@ return [
 
             'codecraft' => [
                 'enabled' => false,
+            ],
+
+            'browser' => [
+                'enabled' => false,
+                'headless' => true,
+                'viewport_width' => 1280,
+                'viewport_height' => 720,
+                'browser_timeout' => 100000,
+                'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'screenshot_path' => 'screenshots',
+                'enable_javascript' => true,
+                'enable_images' => true,
+                'auto_screenshot' => false,
+                'content_max_length' => 5000,
+                'include_head' => false,
+                'allowed_domains' => '',
+                'blocked_domains' => '',
+                'node_path' => 'node',
+                'puppeteer_path' => ''
             ]
         ],
 

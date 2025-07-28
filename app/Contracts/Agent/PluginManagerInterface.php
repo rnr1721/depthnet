@@ -2,6 +2,8 @@
 
 namespace App\Contracts\Agent;
 
+use App\Models\AiPreset;
+
 /**
  * Interface PluginManagerInterface
  *
@@ -28,7 +30,7 @@ interface PluginManagerInterface
     public function getPluginInfo(CommandPluginInterface $plugin): array;
 
     /**
-     * Update plugin configuration
+     * Update plugin configuration for current preset
      *
      * @param string $pluginName
      * @param array $config
@@ -77,6 +79,15 @@ interface PluginManagerInterface
     public function resetPluginConfig(string $pluginName): array;
 
     /**
+     * Copy plugin configurations from one preset to another
+     *
+     * @param int $fromPresetId
+     * @param int $toPresetId
+     * @return array
+     */
+    public function copyPluginConfigsBetweenPresets(int $fromPresetId, int $toPresetId): array;
+
+    /**
      * Get plugin statistics
      *
      * @return array
@@ -93,6 +104,25 @@ interface PluginManagerInterface
     /**
      * Get plugin instance with ensured configuration
      * This method should be used by command executors
+     *
+     * @param string $pluginName
+     * @return CommandPluginInterface|null
      */
     public function getConfiguredPlugin(string $pluginName): ?CommandPluginInterface;
+
+    /**
+     * Set current preset for plugin configuration context
+     *
+     * @param AiPreset $preset
+     * @return void
+     */
+    public function setCurrentPreset(AiPreset $preset): void;
+
+
+    /**
+     * Get current preset
+     *
+     * @return AiPreset|null
+     */
+    public function getCurrentPreset(): ?AiPreset;
 }

@@ -6,7 +6,9 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Models\AiPreset;
 use App\Models\PluginConfig;
+use App\Models\PresetPluginConfig;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Cache\CacheManager;
 use Psr\Log\LoggerInterface;
@@ -17,10 +19,13 @@ use Psr\Log\LoggerInterface;
  */
 class PluginManager implements PluginManagerInterface
 {
+    protected ?AiPreset $currentPreset = null;
+
     public function __construct(
         protected PluginRegistryInterface $registry,
         protected PresetRegistryInterface $presetRegistry,
         protected PluginConfig $pluginConfigModel,
+        protected PresetPluginConfig $presetPluginConfigModel,
         protected DatabaseManager $db,
         protected CacheManager $cache,
         protected LoggerInterface $logger
@@ -36,7 +41,7 @@ class PluginManager implements PluginManagerInterface
     protected function initializePlugins(): void
     {
         $preset = $this->presetRegistry->getDefaultPreset();
-        $this->registry->setCurrentPreset($preset);
+        $this->setCurrentPreset($preset);
 
         $plugins = $this->registry->allRegistered();
 
@@ -64,23 +69,70 @@ class PluginManager implements PluginManagerInterface
     }
 
     /**
+     * Initialize plugin configuration for specific preset
+     *
+     * @param CommandPluginInterface $plugin
+     * @param AiPreset $preset
+     * @return PresetPluginConfig
+     */
+    protected function initializePresetPluginConfig(CommandPluginInterface $plugin, AiPreset $preset): PresetPluginConfig
+    {
+        return $this->presetPluginConfigModel->findOrCreateForPreset(
+            $preset->getId(),
+            $plugin->getName(),
+            $plugin->getDefaultConfig()
+        );
+    }
+
+    /**
      * Apply database configuration to plugin instance
+     * Now supports per-preset configuration
      *
      * @param CommandPluginInterface $plugin
      * @return void
      */
     protected function applyDatabaseConfigToPlugin(CommandPluginInterface $plugin): void
     {
-        $config = $this->pluginConfigModel->findOrCreateByName(
-            $plugin->getName(),
-            $plugin->getDefaultConfig()
-        );
-
-        // Apply stored configuration to plugin
-        if ($config->config_data) {
-            $plugin->updateConfig($config->config_data);
+        if (!$this->currentPreset) {
+            $this->currentPreset = $this->presetRegistry->getDefaultPreset();
         }
-        $plugin->setEnabled($config->is_enabled);
+
+        // Try to get preset-specific configuration first
+        $presetConfig = $this->getPresetPluginConfig($plugin->getName(), $this->currentPreset);
+
+        if ($presetConfig) {
+            // Use preset-specific configuration
+            if ($presetConfig->config_data) {
+                $plugin->updateConfig($presetConfig->config_data);
+            }
+            $plugin->setEnabled($presetConfig->is_enabled);
+        } else {
+            // Fallback to global configuration
+            $globalConfig = $this->pluginConfigModel->findOrCreateByName(
+                $plugin->getName(),
+                $plugin->getDefaultConfig()
+            );
+
+            if ($globalConfig->config_data) {
+                $plugin->updateConfig($globalConfig->config_data);
+            }
+            $plugin->setEnabled($globalConfig->is_enabled);
+        }
+    }
+
+    /**
+     * Get plugin configuration for specific preset
+     *
+     * @param string $pluginName
+     * @param AiPreset $preset
+     * @return PresetPluginConfig|null
+     */
+    protected function getPresetPluginConfig(string $pluginName, AiPreset $preset): ?PresetPluginConfig
+    {
+        return $this->presetPluginConfigModel
+            ->where('preset_id', $preset->getId())
+            ->where('plugin_name', $pluginName)
+            ->first();
     }
 
     /**
@@ -91,7 +143,11 @@ class PluginManager implements PluginManagerInterface
      */
     protected function ensurePluginConfigured(CommandPluginInterface $plugin): void
     {
-        $cacheKey = "plugin_config_applied_{$plugin->getName()}";
+        if (!$this->currentPreset) {
+            return;
+        }
+
+        $cacheKey = "plugin_config_applied_{$plugin->getName()}_{$this->currentPreset->getId()}";
 
         // Check if we recently applied config (cache for 30 seconds)
         if (!$this->cache->has($cacheKey)) {
@@ -105,6 +161,10 @@ class PluginManager implements PluginManagerInterface
      */
     public function getAllPluginsInfo(): array
     {
+        if (!$this->currentPreset) {
+            $this->currentPreset = $this->presetRegistry->getDefaultPreset();
+        }
+
         $plugins = $this->registry->allRegistered();
         $info = [];
 
@@ -120,10 +180,37 @@ class PluginManager implements PluginManagerInterface
      */
     public function getPluginInfo(CommandPluginInterface $plugin): array
     {
-        $config = $this->pluginConfigModel->where('plugin_name', $plugin->getName())->first();
+        if (!$this->currentPreset) {
+            $this->currentPreset = $this->presetRegistry->getDefaultPreset();
+        }
 
-        if (!$config) {
-            $config = $this->pluginConfigModel->findOrCreateByName(
+        // Try preset-specific config first
+        $presetConfig = $this->getPresetPluginConfig($plugin->getName(), $this->currentPreset);
+
+        if ($presetConfig) {
+            return [
+                'name' => $plugin->getName(),
+                'description' => $plugin->getDescription(),
+                'enabled' => $presetConfig->is_enabled,
+                'config_fields' => $plugin->getConfigFields(),
+                'current_config' => $presetConfig->config_data ?? $plugin->getDefaultConfig(),
+                'default_config' => $plugin->getDefaultConfig(),
+                'instructions' => $plugin->getInstructions(),
+                'available_methods' => $plugin->getAvailableMethods(),
+                'health_status' => 'unknown', // Per-preset health status would need additional implementation
+                'last_tested_at' => null,
+                'last_test_error' => null,
+                'configuration_source' => 'preset', // Indicates this is preset-specific
+                'preset_id' => $this->currentPreset->getId(),
+                'preset_name' => $this->currentPreset->getName(),
+            ];
+        }
+
+        // Fallback to global config
+        $globalConfig = $this->pluginConfigModel->where('plugin_name', $plugin->getName())->first();
+
+        if (!$globalConfig) {
+            $globalConfig = $this->pluginConfigModel->findOrCreateByName(
                 $plugin->getName(),
                 $plugin->getDefaultConfig()
             );
@@ -132,15 +219,18 @@ class PluginManager implements PluginManagerInterface
         return [
             'name' => $plugin->getName(),
             'description' => $plugin->getDescription(),
-            'enabled' => $config->is_enabled,
+            'enabled' => $globalConfig->is_enabled,
             'config_fields' => $plugin->getConfigFields(),
-            'current_config' => $config->config_data ?? $plugin->getDefaultConfig(),
+            'current_config' => $globalConfig->config_data ?? $plugin->getDefaultConfig(),
             'default_config' => $plugin->getDefaultConfig(),
             'instructions' => $plugin->getInstructions(),
             'available_methods' => $plugin->getAvailableMethods(),
-            'health_status' => $config->health_status,
-            'last_tested_at' => $config->last_test_at?->toISOString(),
-            'last_test_error' => $config->last_test_error,
+            'health_status' => $globalConfig->health_status,
+            'last_tested_at' => $globalConfig->last_test_at?->toISOString(),
+            'last_test_error' => $globalConfig->last_test_error,
+            'configuration_source' => 'global', // Indicates this is global config
+            'preset_id' => $this->currentPreset->getId(),
+            'preset_name' => $this->currentPreset->getName(),
         ];
     }
 
@@ -158,6 +248,13 @@ class PluginManager implements PluginManagerInterface
             ];
         }
 
+        if (!$this->currentPreset) {
+            return [
+                'success' => false,
+                'errors' => ['preset' => 'No current preset set']
+            ];
+        }
+
         // Validate configuration
         $errors = $plugin->validateConfig($config);
 
@@ -170,34 +267,33 @@ class PluginManager implements PluginManagerInterface
 
         try {
             return $this->db->transaction(function () use ($plugin, $pluginName, $config) {
-                // Get or create plugin config
-                $pluginConfig = $this->pluginConfigModel->findOrCreateByName(
-                    $pluginName,
-                    $plugin->getDefaultConfig()
-                );
+                // Get or create preset-specific plugin config
+                $presetPluginConfig = $this->initializePresetPluginConfig($plugin, $this->currentPreset);
 
                 // Update plugin configuration in database
-                $pluginConfig->updateConfig($config);
+                $presetPluginConfig->updateConfig($config);
 
                 // Apply configuration to ALL plugin instances
-                $this->applyConfigToAllPluginInstances($pluginName, $config, $pluginConfig->is_enabled);
+                $this->applyConfigToAllPluginInstances($pluginName, $config, $presetPluginConfig->is_enabled);
 
                 // Clear any cached plugin data
                 $this->clearPluginCache($pluginName);
 
                 // Test connection if plugin is enabled
-                $connectionStatus = $pluginConfig->is_enabled ? $this->testPluginConnection($plugin) : true;
+                $connectionStatus = $presetPluginConfig->is_enabled ? $this->testPluginConnection($plugin) : true;
 
                 return [
                     'success' => true,
-                    'config' => $pluginConfig->config_data,
-                    'connection_status' => $connectionStatus
+                    'config' => $presetPluginConfig->config_data,
+                    'connection_status' => $connectionStatus,
+                    'preset_id' => $this->currentPreset->getId(),
                 ];
             });
 
         } catch (\Exception $e) {
-            $this->logger->error("Failed to update plugin config", [
+            $this->logger->error("Failed to update plugin config for preset", [
                 'plugin' => $pluginName,
+                'preset_id' => $this->currentPreset->getId(),
                 'error' => $e->getMessage(),
                 'config' => $config
             ]);
@@ -290,22 +386,27 @@ class PluginManager implements PluginManagerInterface
      */
     public function testAllPlugins(): array
     {
-        $plugins = $this->registry->allRegistered();
+        if (!$this->currentPreset) {
+            return [];
+        }
+
+        $enabledConfigs = $this->presetPluginConfigModel->getEnabledForPreset($this->currentPreset->getId());
         $results = [];
 
-        foreach ($plugins as $plugin) {
+        foreach ($enabledConfigs as $config) {
+            $plugin = $this->registry->get($config->plugin_name);
+            if (!$plugin) {
+                continue;
+            }
+
             // Ensure plugin has latest config before testing
             $this->ensurePluginConfigured($plugin);
 
-            $pluginConfig = $this->pluginConfigModel->findOrCreateByName(
-                $plugin->getName(),
-                $plugin->getDefaultConfig()
-            );
-
             $results[$plugin->getName()] = [
-                'enabled' => $pluginConfig->is_enabled,
-                'connection_status' => $pluginConfig->is_enabled ? $this->testPluginConnection($plugin) : null,
-                'health_status' => $pluginConfig->health_status,
+                'enabled' => true,
+                'connection_status' => $this->testPluginConnection($plugin),
+                'health_status' => 'unknown', // Would need per-preset health tracking
+                'preset_id' => $this->currentPreset->getId(),
             ];
         }
 
@@ -323,17 +424,20 @@ class PluginManager implements PluginManagerInterface
             return null;
         }
 
-        $pluginConfig = $this->pluginConfigModel->findOrCreateByName(
-            $pluginName,
-            $plugin->getDefaultConfig()
-        );
+        if (!$this->currentPreset) {
+            return null;
+        }
+
+        $presetPluginConfig = $this->getPresetPluginConfig($pluginName, $this->currentPreset);
 
         return [
             'name' => $plugin->getName(),
             'description' => $plugin->getDescription(),
             'fields' => $plugin->getConfigFields(),
             'default_values' => $plugin->getDefaultConfig(),
-            'current_values' => $pluginConfig->config_data ?? $plugin->getDefaultConfig(),
+            'current_values' => $presetPluginConfig?->config_data ?? $plugin->getDefaultConfig(),
+            'preset_id' => $this->currentPreset->getId(),
+            'preset_name' => $this->currentPreset->getName(),
         ];
     }
 
@@ -351,21 +455,25 @@ class PluginManager implements PluginManagerInterface
             ];
         }
 
+        if (!$this->currentPreset) {
+            return [
+                'success' => false,
+                'errors' => ['preset' => 'No current preset set']
+            ];
+        }
+
         try {
             return $this->db->transaction(function () use ($plugin, $pluginName, $enabled) {
-                // Get or create plugin config
-                $pluginConfig = $this->pluginConfigModel->findOrCreateByName(
-                    $pluginName,
-                    $plugin->getDefaultConfig()
-                );
+                // Get or create preset-specific plugin config
+                $presetPluginConfig = $this->initializePresetPluginConfig($plugin, $this->currentPreset);
 
                 // Update enabled state in database
-                $pluginConfig->update(['is_enabled' => $enabled]);
+                $presetPluginConfig->update(['is_enabled' => $enabled]);
 
                 // Apply to all plugin instances
                 $this->applyConfigToAllPluginInstances(
                     $pluginName,
-                    $pluginConfig->config_data ?? [],
+                    $presetPluginConfig->config_data ?? [],
                     $enabled
                 );
 
@@ -379,13 +487,15 @@ class PluginManager implements PluginManagerInterface
 
                 return [
                     'success' => true,
-                    'enabled' => $enabled
+                    'enabled' => $enabled,
+                    'preset_id' => $this->currentPreset->getId(),
                 ];
             });
 
         } catch (\Exception $e) {
-            $this->logger->error("Failed to set plugin enabled state", [
+            $this->logger->error("Failed to set plugin enabled state for preset", [
                 'plugin' => $pluginName,
+                'preset_id' => $this->currentPreset->getId(),
                 'enabled' => $enabled,
                 'error' => $e->getMessage()
             ]);
@@ -411,22 +521,26 @@ class PluginManager implements PluginManagerInterface
             ];
         }
 
+        if (!$this->currentPreset) {
+            return [
+                'success' => false,
+                'errors' => ['preset' => 'No current preset set']
+            ];
+        }
+
         try {
             return $this->db->transaction(function () use ($plugin, $pluginName) {
-                // Get or create plugin config
-                $pluginConfig = $this->pluginConfigModel->findOrCreateByName(
-                    $pluginName,
-                    $plugin->getDefaultConfig()
-                );
+                // Get or create preset-specific plugin config
+                $presetPluginConfig = $this->initializePresetPluginConfig($plugin, $this->currentPreset);
 
                 // Reset to defaults
-                $pluginConfig->resetToDefaults();
+                $presetPluginConfig->resetToDefaults();
 
                 // Apply defaults to all plugin instances
                 $this->applyConfigToAllPluginInstances(
                     $pluginName,
                     $plugin->getDefaultConfig(),
-                    $pluginConfig->is_enabled
+                    $presetPluginConfig->is_enabled
                 );
 
                 // Clear cache
@@ -434,13 +548,15 @@ class PluginManager implements PluginManagerInterface
 
                 return [
                     'success' => true,
-                    'config' => $pluginConfig->config_data
+                    'config' => $presetPluginConfig->config_data,
+                    'preset_id' => $this->currentPreset->getId(),
                 ];
             });
 
         } catch (\Exception $e) {
-            $this->logger->error("Failed to reset plugin config", [
+            $this->logger->error("Failed to reset plugin config for preset", [
                 'plugin' => $pluginName,
+                'preset_id' => $this->currentPreset->getId(),
                 'error' => $e->getMessage()
             ]);
 
@@ -452,11 +568,41 @@ class PluginManager implements PluginManagerInterface
     }
 
     /**
-     * Get plugin instance with ensured configuration
-     * This method should be used by command executors
-     *
-     * @param string $pluginName
-     * @return CommandPluginInterface|null
+     * @inheritDoc
+     */
+    public function copyPluginConfigsBetweenPresets(int $fromPresetId, int $toPresetId): array
+    {
+        try {
+            $copiedCount = $this->presetPluginConfigModel->copyBetweenPresets($fromPresetId, $toPresetId);
+
+            $this->logger->info("Plugin configurations copied between presets", [
+                'from_preset_id' => $fromPresetId,
+                'to_preset_id' => $toPresetId,
+                'copied_count' => $copiedCount
+            ]);
+
+            return [
+                'success' => true,
+                'copied_count' => $copiedCount,
+                'message' => "Copied {$copiedCount} plugin configurations"
+            ];
+
+        } catch (\Exception $e) {
+            $this->logger->error("Failed to copy plugin configurations between presets", [
+                'from_preset_id' => $fromPresetId,
+                'to_preset_id' => $toPresetId,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'errors' => ['general' => $e->getMessage()]
+            ];
+        }
+    }
+
+    /**
+     * @inheritDoc
      */
     public function getConfiguredPlugin(string $pluginName): ?CommandPluginInterface
     {
@@ -477,7 +623,15 @@ class PluginManager implements PluginManagerInterface
      */
     public function getPluginStatistics(): array
     {
-        return $this->pluginConfigModel->getStatistics();
+        if (!$this->currentPreset) {
+            return [
+                'total_plugins' => 0,
+                'enabled_plugins' => 0,
+                'disabled_plugins' => 0,
+            ];
+        }
+
+        return $this->presetPluginConfigModel->getPresetStatistics($this->currentPreset->getId());
     }
 
     /**
@@ -485,23 +639,97 @@ class PluginManager implements PluginManagerInterface
      */
     public function getHealthStatus(): array
     {
-        return $this->pluginConfigModel->getOverallHealth();
+        if (!$this->currentPreset) {
+            return [
+                'overall_status' => 'unknown',
+                'plugins' => []
+            ];
+        }
+
+        $enabledConfigs = $this->presetPluginConfigModel->getEnabledForPreset($this->currentPreset->getId());
+
+        if ($enabledConfigs->isEmpty()) {
+            return [
+                'overall_status' => 'unknown',
+                'plugins' => []
+            ];
+        }
+
+        // For now, we'll use global health status but filter by enabled plugins for this preset
+        $plugins = [];
+        foreach ($enabledConfigs as $config) {
+            $globalConfig = $this->pluginConfigModel->where('plugin_name', $config->plugin_name)->first();
+
+            $plugins[] = [
+                'name' => $config->plugin_name,
+                'health_status' => $globalConfig?->health_status ?? 'unknown',
+                'last_test_at' => $globalConfig?->last_test_at?->toISOString(),
+            ];
+        }
+
+        // Simple overall status calculation
+        $healthStatuses = collect($plugins)->pluck('health_status');
+        $overallStatus = 'healthy';
+
+        if ($healthStatuses->contains('error')) {
+            $overallStatus = 'error';
+        } elseif ($healthStatuses->contains('warning')) {
+            $overallStatus = 'warning';
+        } elseif ($healthStatuses->contains('unknown')) {
+            $overallStatus = 'unknown';
+        }
+
+        return [
+            'overall_status' => $overallStatus,
+            'plugins' => $plugins,
+            'preset_id' => $this->currentPreset->getId(),
+            'preset_name' => $this->currentPreset->getName(),
+        ];
     }
 
     /**
      * Clear plugin cache
+     *
+     * @param string $pluginName
+     * @return void
      */
     protected function clearPluginCache(string $pluginName): void
     {
+        $presetId = $this->currentPreset?->getId() ?? 'global';
+
         $keys = [
             "plugin_test_{$pluginName}",
-            "plugin_config_{$pluginName}",
-            "plugin_info_{$pluginName}",
-            "plugin_config_applied_{$pluginName}",
+            "plugin_config_{$pluginName}_{$presetId}",
+            "plugin_info_{$pluginName}_{$presetId}",
+            "plugin_config_applied_{$pluginName}_{$presetId}",
         ];
 
         foreach ($keys as $key) {
             $this->cache->forget($key);
         }
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function setCurrentPreset(AiPreset $preset): void
+    {
+        $this->currentPreset = $preset;
+        $this->registry->setCurrentPreset($preset);
+
+        // Re-apply configurations for the new preset
+        $plugins = $this->registry->allRegistered();
+        foreach ($plugins as $plugin) {
+            $this->applyDatabaseConfigToPlugin($plugin);
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getCurrentPreset(): ?AiPreset
+    {
+        return $this->currentPreset;
+    }
+
 }

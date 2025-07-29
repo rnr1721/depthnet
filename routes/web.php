@@ -111,16 +111,17 @@ Route::middleware('auth')->group(function () {
 
         // Command Plugin management routes
         Route::prefix('plugins')->name('plugins.')->group(function () {
-            Route::get('/', [PluginController::class, 'index'])->name('index');
-            Route::get('/health', [PluginController::class, 'health'])->name('health');
-            Route::post('/health-check', [PluginController::class, 'healthCheck'])->name('health-check');
+            Route::get('/{presetId?}', [PluginController::class, 'index'])->name('index')->where('presetId', '[0-9]+');
+            Route::get('/health/{presetId?}', [PluginController::class, 'health'])->name('health')->where('presetId', '[0-9]+');
+            Route::post('/health-check/{presetId?}', [PluginController::class, 'healthCheck'])->name('health-check')->where('presetId', '[0-9]+');
+            Route::post('/copy-configurations', [PluginController::class, 'copyConfigurations'])->name('copy-configurations');
 
             Route::prefix('{pluginName}')->group(function () {
-                Route::get('/', [PluginController::class, 'show'])->name('show');
-                Route::post('/toggle', [PluginController::class, 'toggle'])->name('toggle');
-                Route::post('/test', [PluginController::class, 'test'])->name('test');
-                Route::post('/update', [PluginController::class, 'update'])->name('update');
-                Route::post('/reset', [PluginController::class, 'reset'])->name('reset');
+                Route::get('/{presetId?}', [PluginController::class, 'show'])->name('show')->where('presetId', '[0-9]+');
+                Route::post('/toggle/{presetId?}', [PluginController::class, 'toggle'])->name('toggle')->where('presetId', '[0-9]+');
+                Route::post('/test/{presetId?}', [PluginController::class, 'test'])->name('test')->where('presetId', '[0-9]+');
+                Route::post('/update/{presetId?}', [PluginController::class, 'update'])->name('update')->where('presetId', '[0-9]+');
+                Route::post('/reset/{presetId?}', [PluginController::class, 'reset'])->name('reset')->where('presetId', '[0-9]+');
             });
         });
 

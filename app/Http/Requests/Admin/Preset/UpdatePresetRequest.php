@@ -17,7 +17,7 @@ class UpdatePresetRequest extends FormRequest
 
         return [
             'name' => ['string', 'max:255', "unique:ai_presets,name,{$presetId}"],
-            'system_prompt' => ['nullable', 'string', 'max:5000'],
+            'system_prompt' => ['nullable', 'string', 'max:10000'],
             'preset_code' => ['nullable', 'string', 'max:50', "unique:ai_presets,preset_code,{$presetId}"],
             'plugins_disabled' => ['nullable','string','max:255'],
             'description' => ['nullable', 'string', 'max:1000'],

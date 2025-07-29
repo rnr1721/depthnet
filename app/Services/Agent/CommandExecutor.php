@@ -31,7 +31,7 @@ class CommandExecutor implements CommandExecutorInterface
         foreach ($commands as $command) {
             $result = $this->executeCommand($command);
             $results[] = $result;
-            $pluginExecutionMeta = array_merge($pluginExecutionMeta, $result->executionMeta);
+            $pluginExecutionMeta = $this->mergeExecutionMetaStrings($pluginExecutionMeta, $result->executionMeta);
 
             if (!$result->success) {
                 $hasErrors = true;
@@ -41,6 +41,25 @@ class CommandExecutor implements CommandExecutorInterface
         $formattedMessage = $this->formatMessage($results);
 
         return new CommandExecutionResult($results, $formattedMessage, $hasErrors, $pluginExecutionMeta);
+    }
+
+    /**
+     * Merges execution meta strings from base and override arrays.
+     *
+     * @param array $base Base execution meta
+     * @param array $override Override execution meta
+     * @return array Merged execution meta
+     */
+    private function mergeExecutionMetaStrings(array $base, array $override): array
+    {
+        foreach ($override as $key => $value) {
+            if (isset($base[$key]) && is_string($base[$key]) && is_string($value)) {
+                $base[$key] .= ' ' . $value;
+            } else {
+                $base[$key] = $value;
+            }
+        }
+        return $base;
     }
 
     /**

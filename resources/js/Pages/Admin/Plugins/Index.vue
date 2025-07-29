@@ -64,8 +64,85 @@
                     </div>
                 </Transition>
 
-                <!-- Statistics Cards -->
-                <PluginStats :statistics="statistics" :health_status="health_status" :isDark="isDark" />
+                <!-- Preset Selector -->
+                <div v-if="availablePresets.length > 1" :class="[
+                    'mb-6 p-4 rounded-xl border backdrop-blur-sm',
+                    isDark
+                        ? 'bg-gray-800 bg-opacity-90 border-gray-700'
+                        : 'bg-white bg-opacity-90 border-gray-200'
+                ]">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 :class="['text-lg font-semibold mb-1', isDark ? 'text-white' : 'text-gray-900']">
+                                {{ t('plugins_current_preset') }}
+                            </h3>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <select v-model="selectedPresetId" @change="changePreset" :class="[
+                                'px-4 py-2 rounded-lg border text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500',
+                                isDark
+                                    ? 'bg-gray-700 border-gray-600 text-white'
+                                    : 'bg-white border-gray-300 text-gray-900'
+                            ]">
+                                <option v-for="preset in availablePresets" :key="preset.id" :value="preset.id">
+                                    {{ preset.name }} ({{ preset.engine_name }})
+                                </option>
+                            </select>
+
+                            <!-- Copy Configuration Button -->
+                            <button @click="showCopyModal = true" :class="[
+                                'inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
+                                isDark
+                                    ? 'bg-purple-600 hover:bg-purple-700 text-white focus:ring-purple-500 focus:ring-offset-gray-900'
+                                    : 'bg-purple-600 hover:bg-purple-700 text-white focus:ring-purple-500'
+                            ]">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z">
+                                    </path>
+                                </svg>
+                                {{ t('plugins_copy_config') }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Preset Info -->
+                <div v-if="currentPreset" :class="[
+                    'mb-6 p-4 rounded-xl border backdrop-blur-sm',
+                    isDark
+                        ? 'bg-blue-900 bg-opacity-30 border-blue-700'
+                        : 'bg-blue-50 bg-opacity-90 border-blue-200'
+                ]">
+                    <div class="flex items-start">
+                        <div
+                            class="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center mr-4">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                                </path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 :class="['text-lg font-semibold mb-1', isDark ? 'text-white' : 'text-blue-900']">
+                                {{ currentPreset.name }}
+                            </h3>
+                            <p :class="['text-sm mb-2', isDark ? 'text-blue-200' : 'text-blue-700']">
+                                {{ currentPreset.description || t('plugins_no_description') }}
+                            </p>
+                            <div class="flex items-center">
+                                <span :class="[
+                                    'inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium',
+                                    isDark ? 'bg-blue-800 text-blue-200' : 'bg-blue-100 text-blue-800'
+                                ]">
+                                    ID: {{ currentPreset.id }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Header with actions -->
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
@@ -77,7 +154,7 @@
                         <p :class="[
                             'text-sm',
                             isDark ? 'text-gray-400' : 'text-gray-600'
-                        ]">{{ t('plugins_manage_description') }}</p>
+                        ]">{{ t('plugins_manage_description_preset') }}</p>
                     </div>
 
                     <div class="mt-4 sm:mt-0 flex flex-wrap gap-3">
@@ -215,6 +292,11 @@
                 </div>
             </div>
         </main>
+
+        <!-- Copy Configuration Modal -->
+        <CopyConfigModal v-if="showCopyModal" :show="showCopyModal" :current-preset="currentPreset"
+            :available-presets="availablePresets" :isDark="isDark" @close="showCopyModal = false"
+            @copy="handleCopyConfigurations" />
     </div>
 </template>
 
@@ -225,8 +307,8 @@ import { Link, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import PageTitle from '@/Components/PageTitle.vue';
 import AdminHeader from '@/Components/AdminHeader.vue';
-import PluginStats from '@/Components/Admin/Plugins/PluginStats.vue';
 import PluginCard from '@/Components/Admin/Plugins/PluginCard.vue';
+import CopyConfigModal from '@/Components/Admin/Plugins/CopyConfigModal.vue';
 
 const { t } = useI18n();
 
@@ -250,6 +332,14 @@ const props = defineProps({
             plugins: {}
         })
     },
+    current_preset: {
+        type: Object,
+        default: null
+    },
+    available_presets: {
+        type: Array,
+        default: () => []
+    },
     error: {
         type: String,
         default: null
@@ -263,18 +353,34 @@ const errorMessage = ref(props.error || '');
 const plugins = ref(props.plugins);
 const statistics = ref(props.statistics);
 const health_status = ref(props.health_status);
+const currentPreset = ref(props.current_preset);
+const availablePresets = ref(props.available_presets);
+const selectedPresetId = ref(props.current_preset?.id);
+const showCopyModal = ref(false);
+
+const changePreset = () => {
+    if (selectedPresetId.value && selectedPresetId.value !== currentPreset.value?.id) {
+        router.visit(route('admin.plugins.index', { presetId: selectedPresetId.value }), {
+            preserveState: false
+        });
+    }
+};
 
 const refreshPlugins = async () => {
     loading.value = true;
     errorMessage.value = '';
 
     try {
+        const params = currentPreset.value?.id ? { presetId: currentPreset.value.id } : {};
+
         router.reload({
-            only: ['plugins', 'statistics', 'health_status'],
+            only: ['plugins', 'statistics', 'health_status', 'current_preset'],
+            data: params,
             onSuccess: (page) => {
                 plugins.value = page.props.plugins;
                 statistics.value = page.props.statistics;
                 health_status.value = page.props.health_status;
+                currentPreset.value = page.props.current_preset;
             },
             onError: (errors) => {
                 errorMessage.value = t('plugins_refresh_failed');
@@ -291,7 +397,8 @@ const runHealthCheck = async () => {
     errorMessage.value = '';
 
     try {
-        const response = await axios.get(route('admin.plugins.health'));
+        const params = currentPreset.value?.id ? `?presetId=${currentPreset.value.id}` : '';
+        const response = await axios.get(route('admin.plugins.health') + params);
         health_status.value = response.data.data;
 
         await refreshPlugins();
@@ -306,7 +413,8 @@ const runHealthCheck = async () => {
 
 const handleTogglePlugin = async (pluginName) => {
     try {
-        const response = await axios.post(route('admin.plugins.toggle', { pluginName }));
+        const params = currentPreset.value?.id ? { pluginName, presetId: currentPreset.value.id } : { pluginName };
+        const response = await axios.post(route('admin.plugins.toggle', params));
 
         if (response.data.success) {
             const newEnabledState = response.data.data?.enabled;
@@ -336,7 +444,8 @@ const handleTogglePlugin = async (pluginName) => {
 
 const handleTestPlugin = async (pluginName) => {
     try {
-        const response = await axios.post(route('admin.plugins.test', { pluginName }));
+        const params = currentPreset.value?.id ? { pluginName, presetId: currentPreset.value.id } : { pluginName };
+        const response = await axios.post(route('admin.plugins.test', params));
         return response.data.data;
 
     } catch (error) {
@@ -354,7 +463,8 @@ const handleUpdateConfig = async (pluginName, config) => {
     try {
         console.log('Parent: Updating config for', pluginName, config);
 
-        const response = await axios.post(route('admin.plugins.update', { pluginName }), config);
+        const params = currentPreset.value?.id ? { pluginName, presetId: currentPreset.value.id } : { pluginName };
+        const response = await axios.post(route('admin.plugins.update', params), config);
 
         if (response.data.success) {
             const pluginIndex = plugins.value.findIndex(p => p.name === pluginName);
@@ -390,7 +500,8 @@ const handleUpdateConfig = async (pluginName, config) => {
 
 const handleResetConfig = async (pluginName) => {
     try {
-        const response = await axios.post(route('admin.plugins.reset', { pluginName }));
+        const params = currentPreset.value?.id ? { pluginName, presetId: currentPreset.value.id } : { pluginName };
+        const response = await axios.post(route('admin.plugins.reset', params));
 
         if (response.data.success) {
             const pluginIndex = plugins.value.findIndex(p => p.name === pluginName);
@@ -404,6 +515,34 @@ const handleResetConfig = async (pluginName) => {
     } catch (error) {
         errorMessage.value = t('plugins_reset_failed', { plugin: pluginName });
         console.error(`Failed to reset plugin ${pluginName} config:`, error);
+        throw error;
+    }
+};
+
+const handleCopyConfigurations = async ({ fromPresetId, toPresetId }) => {
+    try {
+        const response = await axios.post(route('admin.plugins.copy-configurations'), {
+            from_preset_id: fromPresetId,
+            to_preset_id: toPresetId
+        });
+
+        if (response.data.success) {
+            // Show success message
+            errorMessage.value = '';
+            // Could show a success notification here
+            console.log('Configurations copied successfully:', response.data.message);
+
+            // If we're currently viewing the target preset, refresh the page
+            if (currentPreset.value?.id === toPresetId) {
+                await refreshPlugins();
+            }
+        }
+
+        return response.data;
+
+    } catch (error) {
+        console.error('Failed to copy configurations:', error);
+        errorMessage.value = 'Failed to copy plugin configurations';
         throw error;
     }
 };

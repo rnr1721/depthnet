@@ -34,6 +34,20 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     gnupg \
     lsb-release \
+    libnss3 \
+    libnspr4 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libxss1 \
+    libasound2 \
+    libatspi2.0-0 \
+    libgtk-3-0 \
+    libgdk-pixbuf2.0-0 \
+    libxshmfence1 \
     && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI (client only, not the daemon)
@@ -42,6 +56,10 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /
     && apt-get update \
     && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Puppeteer and Chrome globally
+RUN npm install -g puppeteer \
+ && npx puppeteer browsers install chrome
 
 # Latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

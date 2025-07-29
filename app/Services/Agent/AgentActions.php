@@ -39,7 +39,7 @@ class AgentActions implements AgentActionsInterface
     {
 
         // Step 0: Cleanup response from fake system command results
-        $responseString = $this->cleanupResponse($responseString);
+        $responseString = $this->cleanupResponse($responseString, $preset);
 
         // Step 1: Check for auto-handoff before processing
         if (!$isUser) {
@@ -90,11 +90,17 @@ class AgentActions implements AgentActionsInterface
      * @param string $response
      * @return string
      */
-    private function cleanupResponse(string $response): string
+    private function cleanupResponse(string $response, AiPreset $preset): string
     {
-        $response = str_replace('<system_output_results>', '', $response);
-        $response = preg_replace('/```system_command_results.*?```/s', '', $response);
+        if ($preset->getAgentResultMode() === 'separate') {
+            $response = preg_replace('/<system_output_results>.*?```\s*$/s', '', $response);
 
+            $response = preg_replace('/```system_command_results.*?```/s', '', $response);
+
+            $response = preg_replace('/🤖\s*Command\s*Results:\s*/i', '', $response);
+
+            return trim($response);
+        }
         return trim($response);
     }
 

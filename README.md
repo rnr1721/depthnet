@@ -92,7 +92,14 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
 - **Agent Plugin**: Agent loop mode can stopped or started by model
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
+- **Browser Plugin**: Experimental Puppeteer browser (alpha). If you need it, please run npx puppeteer browsers install chrome
 
+For user browser, please install chrome:
+
+```bash
+make shell
+npx puppeteer browsers install chrome
+```
 
 Visual memory management is available using MemoryManager and VectorMemoryManager (Vector and normal memory is individual for each preset).
 

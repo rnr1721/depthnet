@@ -22,16 +22,6 @@
         </option>
       </select>
 
-      <label class="flex items-center space-x-2 cursor-pointer">
-        <input type="checkbox" :checked="includeThinking"
-          @input="$emit('update:includeThinking', $event.target.checked)"
-          class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-        <span :class="[
-          'text-sm',
-          isDark ? 'text-gray-200' : 'text-gray-700'
-        ]">{{ t('chat_include_thinking') || 'Turn on AI think messages' }}</span>
-      </label>
-
       <button @click="$emit('export')" :disabled="!selectedExportFormat || isExporting" :class="[
         'w-full px-4 py-2 rounded-lg font-medium transition-all',
         'disabled:opacity-50 disabled:cursor-not-allowed',
@@ -58,11 +48,10 @@ const { t } = useI18n();
 
 defineProps({
   selectedExportFormat: String,
-  includeThinking: Boolean,
   exportFormats: Array,
   isExporting: Boolean,
   isDark: Boolean
 });
 
-defineEmits(['update:selectedExportFormat', 'update:includeThinking', 'export']);
+defineEmits(['update:selectedExportFormat', 'export']);
 </script>

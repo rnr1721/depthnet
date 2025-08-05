@@ -61,7 +61,16 @@ class ChatController extends Controller
             'user' => $user,
             'presetMetadata' => $defaultPreset->metadata ?? [],
             'showAgentResults' => $optionsService->get('agent_show_results', true),
-            'showCommandResults' => $optionsService->get('agent_show_commands', true)
+            'showCommandResults' => $optionsService->get('agent_show_commands', true),
+            'currentPresetId' => $defaultPreset->getId(),
+            'currentPreset' => $defaultPreset ? [
+                'id' => $defaultPreset->id,
+                'name' => $defaultPreset->name,
+                'engine_name' => $defaultPreset->engine_name,
+                'engine_display_name' => $defaultPreset->engine_display_name ?? $defaultPreset->engine_name,
+                'model' => $defaultPreset->engine_config['model'] ?? null,
+                'metadata' => $defaultPreset->metadata ?? [],
+            ] : null,
         ];
 
         if ($user && $user->isAdmin()) {
@@ -86,15 +95,6 @@ class ChatController extends Controller
                     'model' => $preset->engine_config['model'] ?? null,
                     'metadata' => $preset->metadata ?? [],
                 ])->toArray(),
-                'currentPresetId' => $defaultPreset->getId(),
-                'currentPreset' => $defaultPreset ? [
-                    'id' => $defaultPreset->id,
-                    'name' => $defaultPreset->name,
-                    'engine_name' => $defaultPreset->engine_name,
-                    'engine_display_name' => $defaultPreset->engine_display_name ?? $defaultPreset->engine_name,
-                    'model' => $defaultPreset->engine_config['model'] ?? null,
-                    'metadata' => $defaultPreset->metadata ?? [],
-                ] : null,
                 'chatActive' => $chatActive,
                 'exportFormats' => array_values($chatExporterService->getAvailableFormats()),
                 'engines' => $engines,
@@ -452,12 +452,8 @@ class ChatController extends Controller
     {
         $params = $request->validated();
 
-        $options = [
-            'include_thinking' => $params['include_thinking']
-        ];
-
         $currentPreset = $this->presetService->getDefaultPreset();
-        return $chatExporterService->export($request['format'], $currentPreset->getId(), $options);
+        return $chatExporterService->export($params['format'], $currentPreset->getId());
     }
 
     /**

@@ -1,6 +1,6 @@
 <template>
     <div :class="[
-        'lg:hidden p-4 border-b flex items-center justify-between flex-shrink-0',
+        'lg:hidden fixed top-0 left-0 right-0 z-40 p-4 border-b flex items-center justify-between flex-shrink-0',
         isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
     ]">
         <button @click="$emit('openMenu')" :class="[

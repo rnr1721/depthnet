@@ -22,8 +22,7 @@ class ChatExportRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'format' => 'required|string',
-            'include_thinking' => 'boolean'
+            'format' => 'required|string'
         ];
     }
 }

@@ -144,15 +144,10 @@
       <ModelActiveToggle v-if="isAdmin" :isChatActive="isChatActive" :isDark="isDark"
         @update:isChatActive="$emit('update:isChatActive', $event)" />
 
-      <!-- Show thinking toggle -->
-      <ShowThinkingToggle :showThinking="showThinking" :isDark="isDark"
-        @update:showThinking="$emit('update:showThinking', $event)" />
-
       <!-- Chat export -->
-      <ChatExport v-if="isAdmin" :selectedExportFormat="selectedExportFormat" :includeThinking="includeThinking"
-        :exportFormats="exportFormats" :isExporting="isExporting" :isDark="isDark"
-        @update:selectedExportFormat="$emit('update:selectedExportFormat', $event)"
-        @update:includeThinking="$emit('update:includeThinking', $event)" @export="$emit('exportChat')" />
+      <ChatExport v-if="isAdmin" :selectedExportFormat="selectedExportFormat" :exportFormats="exportFormats"
+        :isExporting="isExporting" :isDark="isDark"
+        @update:selectedExportFormat="$emit('update:selectedExportFormat', $event)" @export="$emit('exportChat')" />
     </div>
 
     <!-- Logout -->
@@ -177,7 +172,6 @@ import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ModelActiveToggle from './ModelActiveToggle.vue';
-import ShowThinkingToggle from './ShowThinkingToggle.vue';
 import ChatExport from './ChatExport.vue';
 
 const { t } = useI18n();
@@ -189,9 +183,7 @@ const props = defineProps({
   user: Object,
   isAdmin: Boolean,
   isChatActive: Boolean,
-  showThinking: Boolean,
   selectedExportFormat: String,
-  includeThinking: Boolean,
   exportFormats: Array,
   isExporting: Boolean,
   currentPreset: Object
@@ -203,9 +195,7 @@ defineEmits([
   'editPreset',
   'update:isChatActive',
   'toggleTheme',
-  'update:showThinking',
   'update:selectedExportFormat',
-  'update:includeThinking',
   'exportChat'
 ]);
 

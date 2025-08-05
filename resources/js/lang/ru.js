@@ -75,7 +75,6 @@ export default {
   chat_model_processing: "Цикл обработки активен",
   chat_model_paused: "Цикл обработки приостановлен",
   chat_export_format: "Экспортировать",
-  chat_include_thinking: "Включить мышление",
   chat_select_format: "Выбрат формат",
   chat_export: "Экспорт",
   chat_presets: "Пресеты",

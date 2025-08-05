@@ -13,12 +13,10 @@ export function usePresets(props, isAdmin) {
   const selectedPresetId = ref(props.currentPresetId);
   const isChatActive = ref(props.chatActive);
   const selectedExportFormat = ref('');
-  const includeThinking = ref(false);
   const isExporting = ref(false);
   const showEditPresetModal = ref(false);
   const editingPreset = ref(null);
   const engines = ref(props.engines || {});
-  const showThinking = ref(props.mode === 'single' || true);
 
   /**
    * Update preset settings
@@ -54,7 +52,6 @@ export function usePresets(props, isAdmin) {
     try {
       const response = await axios.post(route('chat.export'), {
         format: selectedExportFormat.value,
-        include_thinking: includeThinking.value
       }, {
         responseType: 'blob'
       });
@@ -161,12 +158,10 @@ export function usePresets(props, isAdmin) {
     selectedPresetId,
     isChatActive,
     selectedExportFormat,
-    includeThinking,
     isExporting,
     showEditPresetModal,
     editingPreset,
     engines,
-    showThinking,
     updatePresetSettings,
     exportChat,
     editCurrentPreset,

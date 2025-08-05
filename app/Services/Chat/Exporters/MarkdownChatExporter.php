@@ -47,7 +47,6 @@ class MarkdownChatExporter implements ChatExporterInterface
      */
     public function export($messages, array $options = []): string
     {
-        $includeThinking = $options['include_thinking'] ?? false;
         $output = [];
 
         $output[] = "# Chat Export";
@@ -59,11 +58,6 @@ class MarkdownChatExporter implements ChatExporterInterface
         $output[] = "";
 
         foreach ($messages as $message) {
-            // Skip thinking messages if not requested
-            if (!$includeThinking && $message->role === 'thinking') {
-                continue;
-            }
-
             $timestamp = $message->created_at->format('Y-m-d H:i:s');
             $role = $this->formatRole($message->role);
 

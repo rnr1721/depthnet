@@ -58,7 +58,6 @@ const { t } = useI18n();
 
 const props = defineProps({
   messages: Array,
-  showThinking: Boolean,
   isDark: Boolean,
   appName: String,
   showAgentResults: Boolean,
@@ -72,11 +71,7 @@ const emit = defineEmits(['deleteMessage', 'scrollUpdate', 'loadOlder']);
 const messagesContainer = ref(null);
 
 const filteredMessages = computed(() => {
-  if (props.showThinking) {
-    return props.messages || [];
-  } else {
-    return (props.messages || []).filter(message => message.is_visible_to_user);
-  }
+  return props.messages || [];
 });
 
 /**

@@ -1,6 +1,8 @@
 <template>
   <div :class="[
-    'p-4 border-t flex-shrink-0',
+    'p-4 border-t flex-shrink-0 lg:mt-4',
+    'lg:relative lg:bottom-auto', // For desktop
+    'fixed bottom-0 left-0 right-0 z-30', // For mobile
     isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
   ]">
     <form @submit.prevent="handleSubmit" class="flex space-x-3">

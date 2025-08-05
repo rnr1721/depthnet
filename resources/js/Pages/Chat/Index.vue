@@ -12,13 +12,13 @@
     <!-- Mobile tabs overlay -->
     <div v-if="mobileTabsOpen" class="fixed inset-0 z-40 lg:hidden" @click="mobileTabsOpen = false">
       <div class="absolute inset-0 bg-black opacity-50"></div>
-      <div :class="[
+      <div @click.stop :class="[
         'fixed inset-y-0 right-0 z-50 w-80 transform transition-transform duration-300 ease-in-out',
-        'flex flex-col shadow-xl',
+        'flex flex-col shadow-xl pt-20',
         isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
       ]">
         <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
-          :isDark="isDark" :presetMetadata="presetMetadata" @mentionUser="handleMobileMention"
+          :isDark="isDark" :presetMetadata="presetMetadata" :user="user" @mentionUser="handleMobileMention"
           @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" />
       </div>
     </div>
@@ -26,8 +26,7 @@
     <!-- Sidebar -->
     <ChatSidebar :mobileMenuOpen="mobileMenuOpen" :isDark="isDark" :appName="page.props.app_name" :user="user"
       :isAdmin="isAdmin" :currentPreset="currentPreset" v-model:isChatActive="isChatActive"
-      v-model:showThinking="showThinking" v-model:selectedExportFormat="selectedExportFormat"
-      v-model:includeThinking="includeThinking" :exportFormats="exportFormats" :isExporting="isExporting"
+      v-model:selectedExportFormat="selectedExportFormat" :exportFormats="exportFormats" :isExporting="isExporting"
       @closeMobileMenu="mobileMenuOpen = false" @clearHistory="showClearHistory" @editPreset="editCurrentPreset"
       @toggleTheme="toggleTheme" @exportChat="exportChat" />
 
@@ -36,6 +35,8 @@
       <!-- Mobile header -->
       <MobileHeader :isDark="isDark" :appName="page.props.app_name" @openMenu="mobileMenuOpen = true"
         @openUsers="mobileTabsOpen = true" />
+
+      <div class="lg:hidden h-20"></div>
 
       <!-- Loading state -->
       <div v-if="isInitialLoading" :class="[
@@ -50,13 +51,14 @@
 
       <!-- Messages -->
       <ChatMessages v-if="!isInitialLoading" ref="messagesComponent" :messages="localMessages" :pagination="pagination"
-        :showThinking="showThinking" :isDark="isDark" :appName="page.props.app_name" @deleteMessage="deleteMessage"
+        :isDark="isDark" :appName="page.props.app_name" @deleteMessage="deleteMessage"
         @scrollUpdate="handleScrollUpdate" @loadOlder="handleLoadOlder" :showAgentResults="showAgentResults"
-        :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing" />
+        :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing"
+        class="pb-24 lg:pb-0" />
 
       <!-- Scroll to bottom button -->
       <ScrollToBottomButton v-if="hasUnreadMessages || !isUserAtBottom" :hasUnreadMessages="hasUnreadMessages"
-        :isDark="isDark" @click="scrollToBottomForced" />
+        :isDark="isDark" @click="scrollToBottomForced" class="bottom-24 lg:bottom-4" />
 
       <!-- Message input -->
       <MessageInput ref="messageInputComponent" :disabled="form.processing" :isProcessing="isProcessing"
@@ -66,8 +68,8 @@
     <!-- Tabs panel (desktop) -->
     <div class="hidden lg:flex lg:w-80 flex-col border-l">
       <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
-        :isDark="isDark" :presetMetadata="presetMetadata" @mentionUser="mentionUser" @showAbout="showAboutModal = true"
-        @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" />
+        :isDark="isDark" :presetMetadata="presetMetadata" :user="user" @mentionUser="mentionUser"
+        @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" />
     </div>
 
     <!-- Preset Modal -->
@@ -140,8 +142,11 @@ const isAdmin = computed(() => props.user && props.user.is_admin);
 
 // Get current preset from availablePresets based on selectedPresetId
 const currentPreset = computed(() => {
-  if (!props.availablePresets || !selectedPresetId.value) return null;
-  return props.availablePresets.find(preset => preset.id === selectedPresetId.value) || null;
+  if (props.availablePresets && selectedPresetId.value) {
+    const found = props.availablePresets.find(preset => preset.id === selectedPresetId.value);
+    if (found) return found;
+  }
+  return props.currentPreset || null;
 });
 
 const messagesComponent = ref(null);
@@ -177,17 +182,14 @@ const {
   selectedPresetId,
   isChatActive,
   selectedExportFormat,
-  includeThinking,
   isExporting,
   showEditPresetModal,
   editingPreset,
   engines,
-  showThinking,
   updatePresetSettings,
   exportChat,
   editCurrentPreset,
   closeEditModal,
-  saveCurrentPreset
 } = usePresets(props, isAdmin);
 
 /**

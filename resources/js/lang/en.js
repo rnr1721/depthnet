@@ -75,7 +75,6 @@ export default {
   chat_model_processing: "Processing",
   chat_model_paused: "Model is paused",
   chat_export_format: "Export chat",
-  chat_include_thinking: "Include thinking",
   chat_select_format: "Select format",
   chat_export: "Export",
   chat_presets: "Presets",

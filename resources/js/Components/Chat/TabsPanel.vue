@@ -6,7 +6,7 @@
             isDark ? 'border-gray-600 bg-gray-700' : 'border-gray-200 bg-gray-50'
         ]">
             <div class="flex space-x-1">
-                <button @click="activeTab = 'presets'" :class="[
+                <button v-if="isAdmin" @click="activeTab = 'presets'" :class="[
                     'flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all',
                     activeTab === 'presets'
                         ? (isDark ? 'bg-indigo-600 text-white' : 'bg-indigo-600 text-white')
@@ -15,7 +15,8 @@
                     {{ t('chat_presets') || 'Presets' }}
                 </button>
                 <button @click="activeTab = 'users'" :class="[
-                    'flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                    'px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                    isAdmin ? 'flex-1' : 'w-full',
                     activeTab === 'users'
                         ? (isDark ? 'bg-indigo-600 text-white' : 'bg-indigo-600 text-white')
                         : (isDark ? 'text-gray-300 hover:text-white hover:bg-gray-600' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100')
@@ -36,9 +37,10 @@
         <!-- Tab Content -->
         <div class="flex-1 overflow-hidden flex flex-col min-h-0">
             <!-- Presets Tab -->
-            <div v-if="activeTab === 'presets'" class="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
-                <PresetItem v-for="preset in availablePresets" :key="preset.id" :preset="preset"
-                    :isActive="selectedPresetId === preset.id" :isDark="isDark"
+            <div v-if="activeTab === 'presets' && isAdmin" ref="presetsContainer"
+                class="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+                <PresetItem v-for="preset in availablePresets" :key="preset.id" :ref="el => setPresetRef(el, preset.id)"
+                    :preset="preset" :isActive="selectedPresetId === preset.id" :isDark="isDark"
                     @select="$emit('selectPreset', preset.id)" @edit="handleEditPreset" />
             </div>
 
@@ -98,8 +100,8 @@
             </div>
         </div>
 
-        <!-- Preset Metadata (always visible) -->
-        <div class="flex-shrink-0 p-3 border-t" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+        <!-- Preset Metadata (only for admins) -->
+        <div v-if="isAdmin" class="flex-shrink-0 p-3 border-t" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
             <PresetMetadata :metadata="presetMetadata" :isDark="isDark" />
         </div>
 
@@ -119,25 +121,25 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import PresetMetadata from './PresetMetadata.vue';
 import PresetItem from './PresetItem.vue';
 
 const { t } = useI18n();
 
-defineProps({
+const props = defineProps({
     users: {
         type: Array,
         required: true
     },
     availablePresets: {
         type: Array,
-        required: true
+        default: () => []
     },
     selectedPresetId: {
         type: Number,
-        required: true
+        default: null
     },
     isDark: {
         type: Boolean,
@@ -146,20 +148,109 @@ defineProps({
     presetMetadata: {
         type: Object,
         default: () => ({})
+    },
+    user: {
+        type: Object,
+        default: null
     }
 });
 
 const emit = defineEmits(['mentionUser', 'showAbout', 'selectPreset', 'editPreset']);
 
-const activeTab = ref('presets');
+const isAdmin = computed(() => props.user && props.user.is_admin);
+
+// Set the active tab depending on user rights
+const activeTab = ref(isAdmin.value ? 'presets' : 'users');
+const presetsContainer = ref(null);
+const presetRefs = ref(new Map());
+
+/**
+ * Set reference to preset component
+ * @param {Object} el - Vue component instance
+ * @param {number} presetId - Preset ID
+ */
+function setPresetRef(el, presetId) {
+    if (el) {
+        presetRefs.value.set(presetId, el);
+    } else {
+        presetRefs.value.delete(presetId);
+    }
+}
+
+/**
+ * Scroll to active preset
+ */
+function scrollToActivePreset() {
+    if (!isAdmin.value || !props.selectedPresetId || !presetsContainer.value || activeTab.value !== 'presets') {
+        return;
+    }
+
+    nextTick(() => {
+        const activePresetRef = presetRefs.value.get(props.selectedPresetId);
+        if (activePresetRef && activePresetRef.$el) {
+            const container = presetsContainer.value;
+            const element = activePresetRef.$el;
+
+            // We receive positions
+            const containerRect = container.getBoundingClientRect();
+            const elementRect = element.getBoundingClientRect();
+
+            // Checking if the element is fully visible
+            const isVisible = (
+                elementRect.top >= containerRect.top &&
+                elementRect.bottom <= containerRect.bottom
+            );
+
+            if (!isVisible) {
+                // Calculate the position to center the element
+                const containerScrollTop = container.scrollTop;
+                const containerHeight = container.clientHeight;
+                const elementOffsetTop = element.offsetTop;
+                const elementHeight = element.offsetHeight;
+
+                // Center the selected preset in the container
+                const scrollTo = elementOffsetTop - (containerHeight / 2) + (elementHeight / 2);
+
+                container.scrollTo({
+                    top: Math.max(0, scrollTo),
+                    behavior: 'smooth'
+                });
+            }
+        }
+    });
+}
 
 /**
  * Handle preset editing with specific preset ID
- * @param {number} presetId - ID of the preset to edit
  */
 function handleEditPreset(presetId) {
-    emit('editPreset', presetId);
+    if (isAdmin.value) {
+        emit('editPreset', presetId);
+    }
 }
+
+// Monitor the change of the selected preset (for admins only)
+watch(() => props.selectedPresetId, () => {
+    if (isAdmin.value && activeTab.value === 'presets') {
+        scrollToActivePreset();
+    }
+}, { flush: 'post' });
+
+// Monitor changes in active tab (for admins only)
+watch(activeTab, (newTab) => {
+    if (isAdmin.value && newTab === 'presets') {
+        // A small delay to allow the DOM to update
+        setTimeout(scrollToActivePreset, 100);
+    }
+});
+
+// Scroll to active preset when mounting (admins only)
+onMounted(() => {
+    if (isAdmin.value) {
+        // Wait until all components are loaded
+        setTimeout(scrollToActivePreset, 200);
+    }
+});
 </script>
 
 <style scoped>

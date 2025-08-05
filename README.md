@@ -246,6 +246,10 @@ The platform implements multiple layers of security controls for safe code execu
 
 Default security settings prioritize safety with safe_mode enabled, network access disabled, execution timeouts, and memory limits for all plugins. Production deployments should configure dedicated execution users and review security settings for their specific environment.
 
+<a href="docs/screenshots/hypervisor.png">
+  <img src="docs/screenshots/hypervisor.png" alt="Main Interface" height="300">
+</a>
+
 ## User Roles & Interface
 
 ### Regular Users

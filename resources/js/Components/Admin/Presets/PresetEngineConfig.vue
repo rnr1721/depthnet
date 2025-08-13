@@ -268,7 +268,15 @@ const updateField = (field, value) => {
 };
 
 const getFieldValue = (fieldName) => {
-    return props.modelValue.engine_config?.[fieldName] || '';
+    const value = props.modelValue.engine_config?.[fieldName];
+
+    // For checkboxes, convert to boolean
+    const fieldConfig = configFields.value[fieldName];
+    if (fieldConfig?.type === 'checkbox') {
+        return Boolean(value);
+    }
+
+    return value || '';
 };
 
 const updateConfigField = (fieldName, value) => {

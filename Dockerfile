@@ -4,8 +4,6 @@ ARG DOCKER_UID=1000
 ARG DOCKER_GID=1000
 ARG DOCKER_SOCKET_GID=999
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-
 # System dependencies
 RUN apt-get update && apt-get install -y \
     mc \
@@ -17,7 +15,6 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     zip \
     unzip \
-    nodejs \
     supervisor \
     nginx \
     default-mysql-client \
@@ -46,9 +43,16 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libatspi2.0-0 \
     libgtk-3-0 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-xlib-2.0-0 \
     libxshmfence1 \
     && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js (LTS version)
+RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI (client only, not the daemon)
 RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \

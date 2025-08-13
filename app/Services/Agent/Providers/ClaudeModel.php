@@ -256,6 +256,7 @@ class ClaudeModel implements AIModelEngineInterface
     {
         return [
             'model' => config('ai.engines.claude.model', 'claude-3-5-sonnet-20241022'),
+            'models_endpoint' => 'https://api.anthropic.com/v1/models',
             'max_tokens' => config('ai.engines.claude.max_tokens', 4096),
             'temperature' => config('ai.engines.claude.temperature', 0.8),
             'top_p' => config('ai.engines.claude.top_p', 0.9),
@@ -602,7 +603,99 @@ class ClaudeModel implements AIModelEngineInterface
      */
     public function getAvailableModels(?array $config = null): array
     {
-        return $this->getFallbackModels();
+        $apiKey = $config['api_key'] ?? $this->apiKey ?? '';
+
+        if (empty($apiKey)) {
+            $this->logger->info('No Claude API key provided, using fallback models');
+            return $this->getFallbackModels();
+        }
+
+        $cacheKey = 'claude_models_' . substr(md5($apiKey), 0, 8);
+        $cacheLifetime = config('ai.engines.claude.models_cache_lifetime', 3600); // 1 hour
+
+        return $this->cache->remember($cacheKey, $cacheLifetime, function () use ($apiKey) {
+            try {
+                $modelsEndpoint = $this->config['models_endpoint'] ?? 'https://api.anthropic.com/v1/models';
+
+                $headers = [
+                    'Content-Type' => 'application/json',
+                    'x-api-key' => $apiKey,
+                    'anthropic-version' => '2023-06-01'
+                ];
+
+                $timeout = config('ai.engines.claude.timeout', 30);
+
+                $this->logger->info('Fetching Claude models from API', [
+                    'endpoint' => $modelsEndpoint,
+                    'api_key_prefix' => substr($apiKey, 0, 8) . '...'
+                ]);
+
+                $response = $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+                    ->get($modelsEndpoint);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    $models = [];
+
+                    foreach ($data['data'] ?? [] as $model) {
+                        $modelId = $model['id'] ?? '';
+                        if (empty($modelId)) {
+                            continue;
+                        }
+
+                        $models[$modelId] = [
+                            'id' => $modelId,
+                            'display_name' => $model['display_name'] ?? $this->formatModelDisplayName($modelId),
+                            'created_at' => $model['created_at'] ?? null,
+                            'type' => $model['type'] ?? 'model',
+                            'source' => 'api'
+                        ];
+                    }
+
+                    if (!empty($models)) {
+                        $this->logger->info('Claude models fetched successfully', [
+                            'count' => count($models)
+                        ]);
+                        return $models;
+                    }
+                }
+
+                $this->logger->warning('Failed to fetch Claude models from API', [
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+
+            } catch (\Exception $e) {
+                $this->logger->error('Error fetching Claude models: ' . $e->getMessage(), [
+                    'exception_type' => get_class($e),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
+
+            // fallback to local models list if API request fails
+            $fallbackModels = $this->getFallbackModels();
+            foreach ($fallbackModels as $modelId => $modelInfo) {
+                $fallbackModels[$modelId]['source'] = 'fallback';
+            }
+
+            $this->logger->info('Using fallback models for Claude after API failure', [
+                'count' => count($fallbackModels)
+            ]);
+            return $fallbackModels;
+        });
+    }
+
+    /**
+     * Clear models cache
+     *
+     * @return void
+     */
+    public function clearModelsCache(): void
+    {
+        $cacheKey = 'claude_models_' . substr(md5($this->apiKey), 0, 8);
+        $this->cache->forget($cacheKey);
     }
 
     /**

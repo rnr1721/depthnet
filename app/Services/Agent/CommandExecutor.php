@@ -150,6 +150,8 @@ class CommandExecutor implements CommandExecutorInterface
     ): string {
         $formatted = "\n\n" . "<system_output_results>" . "\n" . '```system_command_results' . "\n\n";
 
+        $formatted .= "for date " . date('d.m.Y H:i') . "\n\n";
+
         foreach ($results as $i => $result) {
             $command = $result->command;
 

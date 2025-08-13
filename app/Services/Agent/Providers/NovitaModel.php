@@ -155,6 +155,18 @@ class NovitaModel implements AIModelEngineInterface
                 'step' => 0.1,
                 'required' => false
             ],
+            'agent_results_role' => [
+                'type' => 'select',
+                'label' => 'Role for Agent Results in context',
+                'description' => 'Select role for Agent Results in context (default is "system")',
+                'options' => [
+                    'system' => 'system',
+                    'assistant' => 'assistant',
+                    'user' => 'user',
+                    'tool' => 'tool'
+                ],
+                'required' => false
+            ],
             'system_prompt' => [
                 'type' => 'textarea',
                 'label' => 'System prompt',
@@ -242,6 +254,7 @@ class NovitaModel implements AIModelEngineInterface
             'api_key' => config('ai.engines.novita.api_key', ''),
             'server_url' => config('ai.engines.novita.server_url', 'https://api.novita.ai/v3/openai/chat/completions'),
             'models_endpoint' => config('ai.engines.novita.models_endpoint', 'https://api.novita.ai/v3/openai/models'),
+            'agent_results_role' => config('ai.engines.novita.agent_results_role', 'system'),
             'system_prompt' => config('ai.engines.novita.system_prompt', 'You are a useful AI assistant.')
         ];
     }
@@ -758,7 +771,7 @@ class NovitaModel implements AIModelEngineInterface
                     break;
                 case 'result':
                     $messages[] = [
-                        'role' => 'assistant',
+                        'role' => $this->config['agent_results_role'] ?? 'assistant',
                         'content' => $content
                     ];
                     break;

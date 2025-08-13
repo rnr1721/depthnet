@@ -102,6 +102,13 @@ class LocalModel implements AIModelEngineInterface
         }
 
         return [
+            'api_key' => [
+                'type' => 'password',
+                'label' => 'API Key',
+                'description' => 'Optional API key for authentication (not used for local models)',
+                'placeholder' => '...',
+                'required' => false
+            ],
             'server_url' => [
                 'type' => 'url',
                 'label' => 'Server URL',
@@ -187,6 +194,18 @@ class LocalModel implements AIModelEngineInterface
                 'description' => 'Remove service tokens and formatting from model response',
                 'required' => false
             ],
+            'agent_results_role' => [
+                'type' => 'select',
+                'label' => 'Role for Agent Results in context',
+                'description' => 'Select role for Agent Results in context (default is "system")',
+                'options' => [
+                    'system' => 'system',
+                    'assistant' => 'assistant',
+                    'user' => 'user',
+                    'tool' => 'tool'
+                ],
+                'required' => true
+            ],
             'system_prompt' => [
                 'type' => 'textarea',
                 'label' => 'System prompt',
@@ -259,6 +278,7 @@ class LocalModel implements AIModelEngineInterface
     public function getDefaultConfig(): array
     {
         return [
+            'api_key' => null, // Not used for local models
             'model' => config('ai.engines.local.model', 'llama3'),
             'model_family' => config('ai.engines.local.model_family', 'llama'),
             'server_type' => config('ai.engines.local.server_type', 'ollama'),
@@ -270,6 +290,7 @@ class LocalModel implements AIModelEngineInterface
             'timeout' => (int) config('ai.engines.local.timeout', 60),
             'cleanup_enabled' => config('ai.engines.local.cleanup_enabled', true),
             'server_url' => config('ai.engines.local.server_url', 'http://localhost:11434'),
+            'agent_results_role' => config('ai.engines.local.agent_results_role', 'system'),
             'system_prompt' => config('ai.engines.local.system_prompt', 'You are a useful AI assistant.')
         ];
     }
@@ -341,9 +362,15 @@ class LocalModel implements AIModelEngineInterface
             $endpoint = $this->getModelsEndpoint();
             $timeout = config('ai.engines.local.timeout', 10);
 
-            $response = $this->http
-                ->timeout($timeout)
-                ->get($this->serverUrl . $endpoint);
+            $httpRequest = $this->http->timeout($timeout);
+
+            if (!empty($this->config['api_key'])) {
+                $httpRequest = $httpRequest->withHeaders([
+                    'Authorization' => 'Bearer ' . $this->config['api_key']
+                ]);
+            }
+
+            $response = $httpRequest->get($this->serverUrl . $endpoint);
 
             return $response->successful();
 
@@ -361,9 +388,15 @@ class LocalModel implements AIModelEngineInterface
             $endpoint = $this->getModelsEndpoint();
             $timeout = config('ai.engines.local.timeout', 10);
 
-            $response = $this->http
-                ->timeout($timeout)
-                ->get($this->serverUrl . $endpoint);
+            $httpRequest = $this->http->timeout($timeout);
+
+            if (!empty($this->config['api_key'])) {
+                $httpRequest = $httpRequest->withHeaders([
+                    'Authorization' => 'Bearer ' . $this->config['api_key']
+                ]);
+            }
+
+            $response = $httpRequest->get($this->serverUrl . $endpoint);
 
             if ($response->successful()) {
                 $models = $response->json();
@@ -405,7 +438,7 @@ class LocalModel implements AIModelEngineInterface
             ]);
 
             // Remove non-API parameters
-            $nonApiParams = ['model_family', 'server_type', 'cleanup_enabled', 'system_prompt', 'server_url'];
+            $nonApiParams = ['model_family', 'server_type', 'cleanup_enabled', 'system_prompt', 'server_url', 'api_key'];
             foreach ($nonApiParams as $param) {
                 unset($data[$param]);
             }
@@ -413,9 +446,15 @@ class LocalModel implements AIModelEngineInterface
             $endpoint = $this->getApiEndpoint();
             $timeout = $this->config['timeout'] ?? config('ai.engines.local.timeout', 60);
 
-            $response = $this->http
-                ->timeout($timeout)
-                ->post($this->serverUrl . $endpoint, $data);
+            $httpRequest = $this->http->timeout($timeout);
+
+            if (!empty($this->config['api_key'])) {
+                $httpRequest = $httpRequest->withHeaders([
+                    'Authorization' => 'Bearer ' . $this->config['api_key']
+                ]);
+            }
+
+            $response = $httpRequest->post($this->serverUrl . $endpoint, $data);
 
             if ($response->failed()) {
                 $errorMessage = config('ai.global.error_messages.connection_failed', 'HTTP Error');
@@ -513,7 +552,7 @@ class LocalModel implements AIModelEngineInterface
                     break;
                 case 'result':
                     $messages[] = [
-                        'role' => 'assistant',
+                        'role' => $this->config['agent_results_role'] ?? 'system',
                         'content' => $content
                     ];
                     break;

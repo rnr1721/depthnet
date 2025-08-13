@@ -258,6 +258,7 @@ return [
             'max_tokens' => (int) env('CLAUDE_MAX_TOKENS', 4096),
             'temperature' => (float) env('CLAUDE_TEMPERATURE', 0.8),
             'top_p' => (float) env('CLAUDE_TOP_P', 0.9),
+            'agent_results_role' => env('CLAUDE_AGENT_RESULTS_ROLE', 'assistant'),
             'system_prompt' => env('CLAUDE_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
 
             // Supported models
@@ -406,6 +407,7 @@ return [
             'top_k' => (int) env('AI_LOCAL_TOP_K', 40),
             'repeat_penalty' => (float) env('AI_LOCAL_REPEAT_PENALTY', 1.1),
             'cleanup_enabled' => env('AI_LOCAL_CLEANUP', true),
+            'agent_results_role' => env('AI_LOCAL_AGENT_RESULTS_ROLE', 'system'),
             'system_prompt' => env('AI_LOCAL_SYSTEM_PROMPT', 'You are useful AI assistant.'),
             // Supported server types and their endpoints
             'server_types' => [
@@ -665,6 +667,7 @@ return [
 
             // System settings
             'timeout' => (int) env('NOVITA_TIMEOUT', 120),
+            'agent_results_role' => env('NOVITA_AGENT_RESULTS_ROLE', 'system'),
             'system_prompt' => env('NOVITA_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
             'log_usage' => env('NOVITA_LOG_USAGE', true),
 
@@ -1061,6 +1064,7 @@ return [
             'presence_penalty' => (float) env('FIREWORKS_PRESENCE_PENALTY', 0.0),
 
             // System settings
+            'agent_results_role' => env('FIREWORKS_AGENT_RESULTS_ROLE', 'system'),
             'system_prompt' => env('FIREWORKS_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
             'timeout' => (int) env('FIREWORKS_TIMEOUT', 120),
             'models_cache_lifetime' => (int) env('FIREWORKS_MODELS_CACHE_LIFETIME', 3600), // 1 hour

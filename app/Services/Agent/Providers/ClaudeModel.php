@@ -279,13 +279,6 @@ class ClaudeModel implements AIModelEngineInterface
             $errors['api_key'] = 'API key is required';
         }
 
-        // Validate model against supported models from config
-        $supportedModels = array_keys(config('ai.engines.claude.models', []));
-
-        if (isset($config['model']) && !empty($supportedModels) && !in_array($config['model'], $supportedModels)) {
-            $errors['model'] = 'Unsupported model: ' . $config['model'] . '. Supported: ' . implode(', ', $supportedModels);
-        }
-
         // Get validation rules from config
         $validation = config('ai.engines.claude.validation', []);
 

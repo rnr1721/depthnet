@@ -1,0 +1,33 @@
+# docker-compose.override.example.yml
+#
+# Copy to: docker-compose.override.yml
+# and uncomment + set real certificate paths
+# This enables SSL/TLS for MySQL.
+
+services:
+  mysql:
+    volumes:
+      # Add your SSL certificates here
+      - ./docker/mysql/certs:/etc/mysql/certs:ro
+
+    environment:
+      # Enable SSL verification
+      MYSQL_SSL_CA: /etc/mysql/certs/ca.pem
+      MYSQL_SSL_CERT: /etc/mysql/certs/server-cert.pem
+      MYSQL_SSL_KEY: /etc/mysql/certs/server-key.pem
+
+    command: >
+      --default-authentication-plugin=caching_sha2_password
+      --ssl-ca=/etc/mysql/certs/ca.pem
+      --ssl-cert=/etc/mysql/certs/server-cert.pem
+      --ssl-key=/etc/mysql/certs/server-key.pem
+
+  app:
+    environment:
+      DB_SSL_CA: /etc/mysql/certs/ca.pem
+      DB_SSL_CERT: /etc/mysql/certs/client-cert.pem
+      DB_SSL_KEY: /etc/mysql/certs/client-key.pem
+      DB_SSL_VERIFY_SERVER_CERT: true
+
+    volumes:
+      - ./docker/mysql/certs:/etc/mysql/certs:ro

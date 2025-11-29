@@ -561,3 +561,31 @@ docker compose --profile sandbox up -d
 | **Full** | ~2min | ~1.5GB | ~3GB | AI features, code execution |
 
 Choose the mode that best fits your needs and available resources.
+
+
+## 🔐 Enabling MySQL SSL/TLS (optional)
+
+SSL is **not enabled by default** to keep the repository clean and avoid shipping certificates.
+
+To enable SSL:
+
+1. Copy the example override file:
+
+```bash
+cp docker-compose.override.example.yml docker-compose.override.yml
+```
+
+2. Put your certificates into:
+
+```
+docker/mysql/certs/
+  ├── ca.pem
+  ├── server-cert.pem
+  ├── server-key.pem
+  ├── client-cert.pem
+  └── client-key.pem
+```
+
+3. Start the stack.
+
+The override file is excluded from Git via `.gitignore`, so your real certificates will never be committed.

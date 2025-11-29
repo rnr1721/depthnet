@@ -56,5 +56,7 @@ _ide_helper_models.php
 
 # Docker
 /docker/logs
+/docker/mysql/certs
+docker-compose.override.yml
 *.log
 /shared

@@ -12,6 +12,11 @@ DB_USERNAME=${DB_USERNAME:-depthnet}
 DB_PASSWORD=${DB_PASSWORD:-secret}
 DB_DATABASE=${DB_DATABASE:-depthnet}
 
+DB_SSL_MODE=${DB_SSL_MODE:-DISABLED}
+DB_SSL_CA=${DB_SSL_CA:-}
+DB_SSL_CERT=${DB_SSL_CERT:-}
+DB_SSL_KEY=${DB_SSL_KEY:-}
+
 cleanup() {
     echo "Shutting down gracefully..."
     if [ ! -z "$SUPERVISOR_PID" ]; then
@@ -110,10 +115,48 @@ if [ ! -f storage/app/.docker_initialized ]; then
     fi
 
     # Database setup
-    until mysql -h $DB_HOST -u $DB_USERNAME -p$DB_PASSWORD -D $DB_DATABASE -e 'SELECT 1' > /dev/null 2>&1; do
-        echo 'Waiting for database...'
+    echo "Waiting for database connection..."
+    MYSQL_OPTS="-h$DB_HOST -u$DB_USERNAME -p$DB_PASSWORD"
+    MYSQL_CMD="mysql $MYSQL_OPTS -D$DB_DATABASE"
+
+    # Auto-detect SSL configuration
+    if [ -n "$DB_SSL_CA" ] && [ -f "$DB_SSL_CA" ]; then
+        echo "Using SSL connection with certificates"
+        MYSQL_CMD="$MYSQL_CMD --ssl-ca=$DB_SSL_CA"
+        [ -n "$DB_SSL_CERT" ] && MYSQL_CMD="$MYSQL_CMD --ssl-cert=$DB_SSL_CERT"
+        [ -n "$DB_SSL_KEY" ] && MYSQL_CMD="$MYSQL_CMD --ssl-key=$DB_SSL_KEY"
+        MYSQL_CMD="$MYSQL_CMD --ssl-mode=REQUIRED"
+    elif [ "$DB_SSL_MODE" = "REQUIRED" ]; then
+        echo "SSL required but no certificates provided"
+        MYSQL_CMD="$MYSQL_CMD --ssl-mode=REQUIRED"
+    elif [ "$DB_SSL_MODE" = "VERIFY_CA" ] || [ "$DB_SSL_MODE" = "VERIFY_IDENTITY" ]; then
+        MYSQL_CMD="$MYSQL_CMD --ssl-mode=$DB_SSL_MODE"
+    else
+        echo "Using non-SSL connection"
+        MYSQL_CMD="$MYSQL_CMD --skip-ssl"
+    fi
+
+    MAX_TRIES=30
+    TRIES=0
+
+    until $MYSQL_CMD -e 'SELECT 1' > /dev/null 2>&1; do
+        TRIES=$((TRIES+1))
+        if [ $TRIES -ge $MAX_TRIES ]; then
+            echo "ERROR: Failed to connect to database after $MAX_TRIES attempts"
+            echo "Connection details:"
+            echo "  Host: $DB_HOST"
+            echo "  User: $DB_USERNAME"
+            echo "  Database: $DB_DATABASE"
+            echo "  SSL Mode: ${DB_SSL_MODE:-DISABLED}"
+            echo ""
+            echo "Last error:"
+            $MYSQL_CMD -e 'SELECT 1'
+            exit 1
+        fi
+        echo "Waiting for database... (attempt $TRIES/$MAX_TRIES)"
         sleep 3
     done
+    echo "✓ Database connection established"
 
     if ! php artisan migrate --force; then
         echo "Failed to run migrations"

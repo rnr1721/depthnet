@@ -49,6 +49,30 @@ return [
             'order' => 4,
         ],
 
+        'agent_cycle_start_instruction' => [
+            'type' => 'input',
+            'input_type' => 'text',
+            'label' => 'settings_cycle_start_instruction',
+            'description' => 'settings_cycle_start_instruction_desc',
+            'placeholder' => 'cycle_start_instruction',
+            'default' => 'Please start thinking',
+            'validation' => 'string|max:255',
+            'group' => 'agent_settings',
+            'order' => 5,
+        ],
+
+        'agent_cycle_continue_instruction' => [
+            'type' => 'input',
+            'input_type' => 'text',
+            'label' => 'settings_cycle_continue_instruction',
+            'description' => 'settings_cycle_continue_instruction_desc',
+            'placeholder' => 'cycle_continue_instruction',
+            'default' => 'Please continue thinking',
+            'validation' => 'string|max:255',
+            'group' => 'agent_settings',
+            'order' => 5,
+        ],
+
         'user_can_run_commands' => [
             'type' => 'checkbox',
             'label' => 'settings_user_can_run_commands',

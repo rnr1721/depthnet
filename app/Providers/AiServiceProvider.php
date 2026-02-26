@@ -78,6 +78,7 @@ use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
+use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
 use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
@@ -90,6 +91,23 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+
+        $options = $this->app->get(OptionsServiceInterface::class);
+        $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
+        $this->app->bind(MemoryImporterInterface::class, TextMemoryImporter::class);
+        $this->app->bind(VectorMemoryImporterInterface::class, VectorMemoryImporter::class);
+        $this->app->bind(VectorMemoryExporterInterface::class, VectorMemoryExporter::class);
+
+        $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
+
+        $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
+        $this->app->singleton(VectorMemoryServiceInterface::class, function ($app) use ($options) {
+            $vectorConfig = $options->get('agent_vector_memory_mode', 'generic');
+            return $vectorConfig === 'associative'
+                ? $app->make(VectorMemoryAssociativeService::class)
+                : $app->make(VectorMemoryService::class);
+        });
+
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);
@@ -98,8 +116,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(AgentJobServiceInterface::class, AgentJobService::class);
         $this->app->singleton(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
         $this->app->bind(CommandPreProcessorInterface::class, CommandPreProcessor::class);
-        $this->app->bind(CommandParserInterface::class, function ($app) {
-            $options = $app->make(OptionsServiceInterface::class);
+        
+        $this->app->bind(CommandParserInterface::class, function ($app) use ($options) {
             $parserMode = $options->get('agent_command_parser_mode', 'smart');
             switch ($parserMode) {
                 case 'smart':
@@ -112,6 +130,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(CommandLinterInterface::class, CommandLinter::class);
 
         $this->app->singleton(PluginRegistryInterface::class, function ($app) {
+
             $registry = $app->make(PluginRegistry::class);
             $this->registerPlugins($registry, $app);
 
@@ -136,14 +155,8 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(PresetServiceInterface::class, PresetService::class);
         $this->app->singleton(PresetRegistryInterface::class, PresetRegistry::class);
-        $this->app->bind(MemoryServiceInterface::class, MemoryService::class);
 
-        $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
-        $this->app->bind(MemoryImporterInterface::class, TextMemoryImporter::class);
-        $this->app->bind(VectorMemoryImporterInterface::class, VectorMemoryImporter::class);
-        $this->app->bind(VectorMemoryExporterInterface::class, VectorMemoryExporter::class);
 
-        $this->app->bind(VectorMemoryServiceInterface::class, VectorMemoryService::class);
         $this->app->bind(AgentActionsInterface::class, AgentActions::class);
         $this->app->singleton(AgentInterface::class, Agent::class);
     }
@@ -161,7 +174,7 @@ class AiServiceProvider extends ServiceProvider
      */
     protected function registerPlugins(PluginRegistryInterface $registry, $app): void
     {
-        $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
+
 
         // built-in + composer packages
         $allPlugins = $this->getAllAvailablePlugins();
@@ -203,8 +216,8 @@ class AiServiceProvider extends ServiceProvider
     {
         return [
             AgentPlugin::class,
-            MemoryPlugin::class,
             VectorMemoryPlugin::class,
+            MemoryPlugin::class,    
             SandboxPlugin::class,
             ShellPlugin::class,
             PHPPlugin::class,

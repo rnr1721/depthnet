@@ -73,6 +73,20 @@ return [
             'order' => 5,
         ],
 
+        'agent_vector_memory_mode' => [
+            'type' => 'select',
+            'label' => 'settings_vector_memory_mode',
+            'description' => 'settings_vector_memory_mode_desc',
+            'default' => 'associative',
+            'validation' => 'required|string|in:generic,associative',
+            'group' => 'agent_settings',
+            'order' => 6,
+            'options' => [
+                'generic' => 'Generic vector memory',
+                'associative' => 'Associative vector memory'
+            ],
+        ],
+
         'user_can_run_commands' => [
             'type' => 'checkbox',
             'label' => 'settings_user_can_run_commands',

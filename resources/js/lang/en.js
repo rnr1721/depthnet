@@ -150,6 +150,8 @@ export default {
   settings_cycle_start_instruction_desc: "When the agent operates in cyclic mode, this instruction will be sent to it at the beginning of first cycle. You can use it to give the agent instructions on how to analyze the situation and what to do next.",
   settings_cycle_continue_instruction: "Cycle continue instruction",
   settings_cycle_continue_instruction_desc: "When the agent operates in cyclic mode, this instruction will be sent to it at the end of each cycle. You can use it to give the agent instructions on how to continue the conversation and what to do next.",
+  settings_vector_memory_mode: "Vector memory mode",
+  settings_vector_memory_mode_desc: "Vector memory allows the agent to remember information in a more flexible way. You can choose between simple vector memory, which just stores information as vectors, or associative vector memory, which also tracks the importance and relevance of memories over time. Important: After changing this option, you must clear the cache (optimize:clear) for the changes to take effect.",
   profile_profile_settings: "Profile Settings",
   profile_profile_info: "Profile Information",
   profile_name: "Name",

@@ -19,6 +19,7 @@ use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
 use App\Contracts\Agent\Memory\MemoryImporterInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
+use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
@@ -53,6 +54,7 @@ use App\Services\Agent\Providers\OpenAIModel;
 use App\Services\Agent\Memory\TextMemoryExporter;
 use App\Services\Agent\Memory\TextMemoryImporter;
 use App\Services\Agent\Memory\MemoryService;
+use App\Services\Agent\Memory\PersonMemoryService;
 use App\Services\Agent\PlaceholderService;
 use App\Services\Agent\PluginManager;
 use App\Services\Agent\PluginMetadataService;
@@ -63,6 +65,7 @@ use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\NodePlugin;
+use App\Services\Agent\Plugins\PersonPlugin;
 use App\Services\Agent\Plugins\PHPPlugin;
 use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
@@ -99,6 +102,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(VectorMemoryExporterInterface::class, VectorMemoryExporter::class);
 
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
+        $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
 
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
         $this->app->singleton(VectorMemoryServiceInterface::class, function ($app) use ($options) {
@@ -116,7 +120,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(AgentJobServiceInterface::class, AgentJobService::class);
         $this->app->singleton(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
         $this->app->bind(CommandPreProcessorInterface::class, CommandPreProcessor::class);
-        
+
         $this->app->bind(CommandParserInterface::class, function ($app) use ($options) {
             $parserMode = $options->get('agent_command_parser_mode', 'smart');
             switch ($parserMode) {
@@ -217,7 +221,8 @@ class AiServiceProvider extends ServiceProvider
         return [
             AgentPlugin::class,
             VectorMemoryPlugin::class,
-            MemoryPlugin::class,    
+            MemoryPlugin::class,
+            PersonPlugin::class,
             SandboxPlugin::class,
             ShellPlugin::class,
             PHPPlugin::class,

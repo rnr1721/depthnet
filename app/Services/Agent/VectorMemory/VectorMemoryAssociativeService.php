@@ -4,6 +4,7 @@ namespace App\Services\Agent\VectorMemory;
 
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
+use Carbon\Carbon;
 
 /**
  * Associative vector memory service.
@@ -32,6 +33,12 @@ class VectorMemoryAssociativeService extends VectorMemoryService
      * Maximum importance value a memory can reach.
      */
     protected const MAX_IMPORTANCE = 5.0;
+
+    /**
+     * Saturation penalty factor to prevent overemphasis on frequently accessed memories.
+     * Higher values increase the penalty for high access rates.
+     */
+    protected const SATURATION_PENALTY_FACTOR = 0.5;
 
     /**
      * Search with associative chain traversal and composite scoring.
@@ -110,7 +117,8 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                     $compositeScore = $this->computeCompositeScore(
                         $result['similarity'],
                         $memory->access_count ?? 0,
-                        $memory->last_accessed_at
+                        $memory->last_accessed_at,
+                        $memory->created_at
                     );
 
                     $chainResults[] = array_merge($result, [
@@ -178,12 +186,14 @@ class VectorMemoryAssociativeService extends VectorMemoryService
      * @param float $tfidfScore Raw cosine similarity from TF-IDF
      * @param int $accessCount Number of times this memory was accessed
      * @param \Carbon\Carbon|null $lastAccessedAt Timestamp of last access
+     * @param \Carbon\Carbon|null $createdAt Timestamp of memory creation
      * @return float Composite score in range [0, ~2]
      */
     protected function computeCompositeScore(
         float $tfidfScore,
         int $accessCount,
-        $lastAccessedAt
+        Carbon|null $lastAccessedAt = null,
+        Carbon|null $createdAt = null
     ): float {
         // Access weight: logarithmic growth, normalized to [1.0, 2.0]
         // log(1) = 0 → 1.0, log(101) ≈ 4.6 → ≈ 2.0 at 100 accesses
@@ -201,7 +211,12 @@ class VectorMemoryAssociativeService extends VectorMemoryService
             $timeWeight = max(0.1, $timeWeight);
         }
 
-        return $tfidfScore * $accessWeight * $timeWeight;
+        $ageInDays = $createdAt ? max(1, $createdAt->diffInDays(now())) : 1;
+        $accessRate = ($accessCount ?? 0) / $ageInDays;
+        $saturationPenalty = 1.0 / (1.0 + ($accessRate * self::SATURATION_PENALTY_FACTOR));
+
+        return $tfidfScore * $accessWeight * $timeWeight * $saturationPenalty;
+
     }
 
     /**

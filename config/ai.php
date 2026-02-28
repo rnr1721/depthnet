@@ -1759,6 +1759,7 @@ return [
             'python',
             'codecraft',
             'browser',
+            'goal',
             'mood'
         ],
 
@@ -1846,6 +1847,10 @@ return [
             ],
 
             'person' => [
+                'enabled' => true,
+            ],
+
+            'goal' => [
                 'enabled' => true,
             ],
 

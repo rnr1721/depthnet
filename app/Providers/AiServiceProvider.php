@@ -16,6 +16,7 @@ use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
+use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
 use App\Contracts\Agent\Memory\MemoryImporterInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -47,6 +48,7 @@ use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\EnvironmentInfoService;
+use App\Services\Agent\Goals\GoalService;
 use App\Services\Agent\Providers\ClaudeModel;
 use App\Services\Agent\Providers\LocalModel;
 use App\Services\Agent\Providers\MockModel;
@@ -62,6 +64,7 @@ use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
+use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\NodePlugin;
@@ -111,6 +114,8 @@ class AiServiceProvider extends ServiceProvider
                 ? $app->make(VectorMemoryAssociativeService::class)
                 : $app->make(VectorMemoryService::class);
         });
+
+        $this->app->singleton(GoalServiceInterface::class, GoalService::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
@@ -231,6 +236,7 @@ class AiServiceProvider extends ServiceProvider
             DopaminePlugin::class,
             MoodPlugin::class,
             PuppeteerBrowserPlugin::class,
+            GoalPlugin::class,
             CodeCraftPlugin::class,
         ];
     }

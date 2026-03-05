@@ -54,10 +54,10 @@ class OptionsSeeder extends Seeder
             ],
 
             [
-                'key' => 'agent_vector_memory_mode',
+                'key' => 'agent_rag_vector_memory_mode',
                 'value' => 'associative',
                 'type' => 'string',
-                'description' => 'Default agent vector memory mode',
+                'description' => 'Default agent vector memory mode for RAG',
                 'is_system' => true,
             ],
 

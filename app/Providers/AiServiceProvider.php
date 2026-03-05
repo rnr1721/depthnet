@@ -31,10 +31,11 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
+use App\Contracts\Agent\Rag\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
+use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
-use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
@@ -83,9 +84,11 @@ use App\Services\Agent\PresetService;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
+use App\Services\Agent\Rag\RagContextEnricher;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
 use App\Services\Agent\VectorMemory\VectorMemoryExporter;
+use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
 use Illuminate\Cache\CacheManager;
@@ -107,12 +110,16 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
 
+        $this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
+
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
-        $this->app->singleton(VectorMemoryServiceInterface::class, function ($app) use ($options) {
-            $vectorConfig = $options->get('agent_vector_memory_mode', 'generic');
-            return $vectorConfig === 'associative'
-                ? $app->make(VectorMemoryAssociativeService::class)
-                : $app->make(VectorMemoryService::class);
+
+        // VectorMemoryFactory
+        $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {
+            return new VectorMemoryFactory(
+                $app->make(VectorMemoryService::class),
+                $app->make(VectorMemoryAssociativeService::class),
+            );
         });
 
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);

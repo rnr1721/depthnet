@@ -34,6 +34,7 @@ class UpdatePresetRequest extends FormRequest
             'allow_handoff_from' => ['boolean'],
             'is_active' => ['boolean'],
             'is_default' => ['boolean'],
+            'rag_preset_id' => 'nullable|integer|exists:ai_presets,id',
         ];
     }
 }

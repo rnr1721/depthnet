@@ -25,6 +25,7 @@ class PresetResource extends JsonResource
             'max_context_limit' => $this->max_context_limit,
             'agent_result_mode' => $this->agent_result_mode,
             'preset_code_next' => $this->preset_code_next,
+            'rag_preset_id' => $this->rag_preset_id,
             'default_call_message' => $this->default_call_message,
             'before_execution_wait' => $this->before_execution_wait,
             'error_behavior' => $this->error_behavior,

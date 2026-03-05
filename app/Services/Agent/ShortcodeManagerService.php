@@ -24,6 +24,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setDateTime();
         $this->setCommandBuilderInstructions();
         $this->setEnvironmentInfo();
+        $this->setRagContext();
     }
 
     /**
@@ -60,6 +61,26 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic('environment_info', 'Current system environment information', function () {
             return $this->environmentInfoService->getEnvironmentInfo();
         });
+    }
+
+    /**
+     * Register RAG context placeholder.
+     *
+     * Registered here so the system knows it exists and shows it in the
+     * available placeholders UI. The actual content is injected by
+     * CycleContextBuilder / SingleContextBuilder before each request
+     * via registerShortcode('rag_context', ...) which overwrites this stub.
+     * If the preset has no RAG configured the placeholder resolves to ''.
+     *
+     * @return void
+     */
+    private function setRagContext(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'rag_context',
+            'Relevant memories retrieved from vector memory before each thinking cycle (requires RAG preset to be configured)',
+            fn () => ''
+        );
     }
 
     /**

@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\VectorMemory\{
     StoreVectorMemoryRequest,
@@ -28,7 +28,7 @@ class VectorMemoryController extends Controller
     private array $config;
 
     public function __construct(
-        protected VectorMemoryServiceInterface $vectorMemoryService,
+        protected VectorMemoryFactoryInterface $vectorMemoryFactory,
         protected PresetRegistryInterface $presetRegistry,
         protected PluginRegistryInterface $pluginRegistry
     ) {
@@ -49,6 +49,8 @@ class VectorMemoryController extends Controller
             ->sortByDesc('is_default')
             ->values();
 
+        $vectorMemoryService = $this->vectorMemoryFactory->make();
+
         $currentPresetId = $request->get('preset_id', $this->presetRegistry->getDefaultPreset()->id);
         $currentPreset = $this->presetRegistry->getPresetOrDefault($currentPresetId);
 
@@ -60,7 +62,7 @@ class VectorMemoryController extends Controller
 
         if ($currentPreset) {
             // Get paginated memories using Laravel pagination
-            $paginatedMemories = $this->vectorMemoryService->getPaginatedVectorMemories(
+            $paginatedMemories = $vectorMemoryService->getPaginatedVectorMemories(
                 $currentPreset,
                 $perPage
             );
@@ -78,11 +80,11 @@ class VectorMemoryController extends Controller
                 ];
             });
 
-            $memoryStats = $this->vectorMemoryService->getVectorMemoryStats($currentPreset, $this->config);
+            $memoryStats = $vectorMemoryService->getVectorMemoryStats($currentPreset, $this->config);
 
             // Handle search - search results are not paginated for now (can be added later)
             if ($request->filled('search')) {
-                $searchResult = $this->vectorMemoryService->searchVectorMemories(
+                $searchResult = $vectorMemoryService->searchVectorMemories(
                     $currentPreset,
                     $request->get('search'),
                     $this->config
@@ -129,7 +131,8 @@ class VectorMemoryController extends Controller
     public function store(StoreVectorMemoryRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
-        $result = $this->vectorMemoryService->storeVectorMemory(
+        $vectorMemoryService = $this->vectorMemoryFactory->make();
+        $result = $vectorMemoryService->storeVectorMemory(
             $preset,
             $request->getValidatedContent(),
             $this->config
@@ -148,7 +151,8 @@ class VectorMemoryController extends Controller
     public function updateImportance(UpdateImportanceRequest $request, int $memoryId)
     {
         $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
-        $result = $this->vectorMemoryService->updateVectorMemoryImportance(
+        $vectorMemoryService = $this->vectorMemoryFactory->make();
+        $result = $vectorMemoryService->updateVectorMemoryImportance(
             $preset,
             $memoryId,
             $request->getImportance()
@@ -167,7 +171,8 @@ class VectorMemoryController extends Controller
     public function destroy(DeleteVectorMemoryRequest $request, int $memoryId)
     {
         $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
-        $result = $this->vectorMemoryService->deleteVectorMemory($preset, $memoryId);
+        $vectorMemoryService = $this->vectorMemoryFactory->make();
+        $result = $vectorMemoryService->deleteVectorMemory($preset, $memoryId);
 
         if ($result['success']) {
             return back()->with('success', $result['message']);
@@ -182,7 +187,8 @@ class VectorMemoryController extends Controller
     public function clear(ClearVectorMemoryRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
-        $result = $this->vectorMemoryService->clearVectorMemories($preset);
+        $vectorMemoryService = $this->vectorMemoryFactory->make();
+        $result = $vectorMemoryService->clearVectorMemories($preset);
 
         if ($result['success']) {
             return back()->with('success', $result['message']);
@@ -208,7 +214,8 @@ class VectorMemoryController extends Controller
     public function export(ExportVectorMemoryRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
-        $result = $this->vectorMemoryService->exportVectorMemories($preset);
+        $vectorMemoryService = $this->vectorMemoryFactory->make();
+        $result = $vectorMemoryService->exportVectorMemories($preset);
 
         if (!$result['success']) {
             return back()->with('error', $result['message']);
@@ -228,7 +235,8 @@ class VectorMemoryController extends Controller
             $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
             $importData = $request->getImportContent();
 
-            $result = $this->vectorMemoryService->importVectorMemories(
+            $vectorMemoryService = $this->vectorMemoryFactory->make();
+            $result = $vectorMemoryService->importVectorMemories(
                 $preset,
                 $importData['content'],
                 $importData['is_json'],
@@ -258,7 +266,8 @@ class VectorMemoryController extends Controller
     public function stats(StatsVectorMemoryRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
-        $stats = $this->vectorMemoryService->getVectorMemoryStats($preset, $this->config);
+        $vectorMemoryService = $this->vectorMemoryFactory->make();
+        $stats = $vectorMemoryService->getVectorMemoryStats($preset, $this->config);
 
         return response()->json($stats);
     }

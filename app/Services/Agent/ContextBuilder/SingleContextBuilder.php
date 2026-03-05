@@ -3,6 +3,8 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
+use App\Contracts\Agent\Rag\RagContextEnricherInterface;
+use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -10,6 +12,10 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 
 /**
  * Single context builder - simple message processing without cycles
+ *
+ * If the preset has rag_preset_id set, retrieved memory fragments are
+ * prepended as a placeholder so the main model sees them as background
+ * knowledge before it starts its thinking cycle.
  */
 class SingleContextBuilder implements ContextBuilderInterface
 {
@@ -17,7 +23,9 @@ class SingleContextBuilder implements ContextBuilderInterface
 
     public function __construct(
         protected Message $messageModel,
-        protected OptionsServiceInterface $optionsService
+        protected OptionsServiceInterface $optionsService,
+        protected RagContextEnricherInterface $ragEnricher,
+        protected ShortcodeManagerServiceInterface $shortcodeManager,
     ) {
     }
 
@@ -38,6 +46,17 @@ class SingleContextBuilder implements ContextBuilderInterface
             ->reverse();
 
         $context = $this->buildCleanContextFromMessages($messages);
+
+        // RAG enrichment — register as [[rag_context]] placeholder so the
+        // preset's system_prompt can place it wherever makes sense.
+        // If the preset doesn't use [[rag_context]], nothing happens.
+        $ragBlock = $this->ragEnricher->enrich($preset, $context);
+
+        $this->shortcodeManager->registerShortcode(
+            'rag_context',
+            'RAG: relevant memories retrieved before this request',
+            fn () => $ragBlock ?? ''
+        );
 
         // Ensure conversation ends with user message for AI API compatibility
         if (!empty($context)) {

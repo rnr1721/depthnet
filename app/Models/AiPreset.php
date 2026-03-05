@@ -20,6 +20,7 @@ class AiPreset extends Model
         'system_prompt',
         'preset_code',
         'preset_code_next',
+        'rag_preset_id',
         'default_call_message',
         'before_execution_wait',
         'plugins_disabled',
@@ -99,6 +100,15 @@ class AiPreset extends Model
     }
 
     /**
+     * RAG preset: if set, this preset will receive associative memory
+     * context from the RAG preset's vector memory before each thinking cycle.
+     */
+    public function ragPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'rag_preset_id');
+    }
+
+    /**
      * Boot method to handle default preset logic
      */
     protected static function boot()
@@ -111,6 +121,15 @@ class AiPreset extends Model
                     ->update(['is_default' => false]);
             }
         });
+    }
+
+    /**
+     * Whether RAG enrichment is enabled for this preset.
+     * True when rag_preset_id is set and points to an existing preset.
+     */
+    public function hasRag(): bool
+    {
+        return !is_null($this->rag_preset_id);
     }
 
     /**

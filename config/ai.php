@@ -1832,6 +1832,7 @@ return [
 
             'vectormemory' => [
                 'enabled' => true,
+                'memory_mode' => 'default',
                 'max_entries' => 1000,
                 'similarity_threshold' => 0.1,
                 'search_limit' => 5,

@@ -74,7 +74,7 @@
 
     <!-- Preset Modal -->
     <PresetModal v-if="showEditPresetModal" :placeholders="placeholders" :preset="editingPreset" :engines="engines"
-      @close="closeEditModal" @save="saveAnyPreset" />
+      :available-presets="availablePresets" @close="closeEditModal" @save="saveAnyPreset" />
 
     <!-- About Modal -->
     <AboutModal v-if="showAboutModal" :isDark="isDark" :available-presets="availablePresets"

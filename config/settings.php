@@ -73,10 +73,10 @@ return [
             'order' => 5,
         ],
 
-        'agent_vector_memory_mode' => [
+        'agent_rag_vector_memory_mode' => [
             'type' => 'select',
-            'label' => 'settings_vector_memory_mode',
-            'description' => 'settings_vector_memory_mode_desc',
+            'label' => 'settings_rag_vector_memory_mode',
+            'description' => 'settings_rag_vector_memory_mode_desc',
             'default' => 'associative',
             'validation' => 'required|string|in:generic,associative',
             'group' => 'agent_settings',

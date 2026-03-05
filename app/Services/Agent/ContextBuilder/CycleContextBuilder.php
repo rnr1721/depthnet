@@ -3,6 +3,8 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
+use App\Contracts\Agent\Rag\RagContextEnricherInterface;
+use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -10,6 +12,10 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 
 /**
  * Cycle context builder - adds cycle instructions for continuous thinking
+ *
+ * If the preset has rag_preset_id set, retrieved memory fragments are
+ * prepended as a shortcode so the main model sees them as background
+ * knowledge before it starts its thinking cycle.
  */
 class CycleContextBuilder implements ContextBuilderInterface
 {
@@ -17,7 +23,9 @@ class CycleContextBuilder implements ContextBuilderInterface
 
     public function __construct(
         protected Message $messageModel,
-        protected OptionsServiceInterface $optionsService
+        protected OptionsServiceInterface $optionsService,
+        protected RagContextEnricherInterface $ragEnricher,
+        protected ShortcodeManagerServiceInterface $shortcodeManager,
     ) {
     }
 
@@ -39,6 +47,17 @@ class CycleContextBuilder implements ContextBuilderInterface
             ->reverse();
 
         $context = $this->buildCleanContextFromMessages($messages);
+
+        // RAG enrichment — register as [[rag_context]] placeholder so the
+        // preset's system_prompt can place it wherever makes sense.
+        // If the preset doesn't use [[rag_context]], nothing happens.
+        $ragBlock = $this->ragEnricher->enrich($preset, $context);
+
+        $this->shortcodeManager->registerShortcode(
+            'rag_context',
+            'RAG: relevant memories retrieved before this thinking cycle',
+            fn () => $ragBlock ?? ''
+        );
 
         // If context is empty, start first cycle
         if (empty($context)) {
@@ -93,4 +112,3 @@ class CycleContextBuilder implements ContextBuilderInterface
         );
     }
 }
- 

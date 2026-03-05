@@ -5,6 +5,7 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use Psr\Log\LoggerInterface;
 use App\Services\Agent\Plugins\MemoryPlugin;
@@ -27,12 +28,15 @@ class VectorMemoryPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
+    protected VectorMemoryServiceInterface $vectorMemoryService;
+
     public function __construct(
         protected LoggerInterface $logger,
-        protected VectorMemoryServiceInterface $vectorMemoryService,
+        protected VectorMemoryFactoryInterface $vectorMemoryFactory,
         protected MemoryServiceInterface $memoryService
     ) {
         $this->initializeConfig();
+        $this->vectorMemoryService = $this->vectorMemoryFactory->make();
     }
 
     /**
@@ -94,6 +98,17 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'type' => 'checkbox',
                 'label' => 'Enable Vector Memory Plugin',
                 'description' => 'Allow semantic memory storage and search',
+                'required' => false
+            ],
+            'memory_mode' => [
+                'type' => 'select',
+                'label' => 'Memory mode',
+                'description' => 'You can choose between simple vector memory, which just stores information as vectors, or associative vector memory, which also tracks the importance and relevance of memories over time.',
+                'options' => [
+                    'default' => 'Default: simple vector memory',
+                    'associative' => 'Associative: tracks importance and relevance of memories over time',
+                ],
+                'value' => 'default',
                 'required' => false
             ],
             'max_entries' => [
@@ -664,7 +679,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     public function pluginReady(): void
     {
-        // Nothing to do here
+        $mode = $this->config['memory_mode'] ?? 'default';
+        $driver = $mode === 'associative'
+            ? VectorMemoryFactoryInterface::DRIVER_ASSOCIATIVE
+            : VectorMemoryFactoryInterface::DRIVER_DEFAULT;
+
+        $this->vectorMemoryService = $this->vectorMemoryFactory->make($driver);
     }
 
     /**

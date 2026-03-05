@@ -160,7 +160,8 @@ const form = ref({
     allow_handoff_to: props.preset?.allow_handoff_to ?? true,
     allow_handoff_from: props.preset?.allow_handoff_from ?? true,
     is_active: props.preset?.is_active ?? true,
-    is_default: props.preset?.is_default || false
+    is_default: props.preset?.is_default || false,
+    rag_preset_id: props.preset?.rag_preset_id || null
 });
 
 // Computed

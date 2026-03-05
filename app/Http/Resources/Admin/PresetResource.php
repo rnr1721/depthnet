@@ -26,6 +26,7 @@ class PresetResource extends JsonResource
             'agent_result_mode' => $this->agent_result_mode,
             'preset_code_next' => $this->preset_code_next,
             'rag_preset_id' => $this->rag_preset_id,
+            'voice_preset_id' => $this->voice_preset_id,
             'default_call_message' => $this->default_call_message,
             'before_execution_wait' => $this->before_execution_wait,
             'error_behavior' => $this->error_behavior,

@@ -96,6 +96,7 @@ class ChatController extends Controller
                     'metadata' => $preset->metadata ?? [],
                     'preset_code'   => $preset->preset_code,
                     'rag_preset_id' => $preset->rag_preset_id,
+                    'voice_preset_id' => $preset->voice_preset_id,
                 ])->toArray(),
                 'chatActive' => $chatActive,
                 'exportFormats' => array_values($chatExporterService->getAvailableFormats()),

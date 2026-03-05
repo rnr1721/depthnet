@@ -25,6 +25,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setCommandBuilderInstructions();
         $this->setEnvironmentInfo();
         $this->setRagContext();
+        $this->setInnerVoice();
     }
 
     /**
@@ -79,6 +80,23 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'rag_context',
             'Relevant memories retrieved from vector memory before each thinking cycle (requires RAG preset to be configured)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register inner voice placeholder.
+     *
+     * Similar to RAG context, this is a stub registered by default and meant to be overwritten by presets that support it.
+     * The actual content is injected before each request by the preset's CycleContextBuilder if the preset has inner voice enabled.
+     *
+     * @return void
+     */
+    private function setInnerVoice(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'inner_voice',
+            'Inner voice: advice, doubt or intuition from a dedicated preset (requires Voice preset to be configured)',
             fn () => ''
         );
     }

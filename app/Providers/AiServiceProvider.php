@@ -36,6 +36,7 @@ use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
+use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
@@ -91,6 +92,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
+use App\Services\Agent\Voice\InnerVoiceEnricher;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -123,6 +125,8 @@ class AiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
+
+        $this->app->singleton(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);

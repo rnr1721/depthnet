@@ -5,6 +5,7 @@ namespace App\Services\Agent\ContextBuilder;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\Rag\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -25,6 +26,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected Message $messageModel,
         protected OptionsServiceInterface $optionsService,
         protected RagContextEnricherInterface $ragEnricher,
+        protected InnerVoiceEnricherInterface      $voiceEnricher,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
     ) {
     }
@@ -57,6 +59,14 @@ class CycleContextBuilder implements ContextBuilderInterface
             'rag_context',
             'RAG: relevant memories retrieved before this thinking cycle',
             fn () => $ragBlock ?? ''
+        );
+
+        // Inner voice — advisor/conscience/muse as [[inner_voice]]
+        $voiceBlock = $this->voiceEnricher->enrich($preset, $context);
+        $this->shortcodeManager->registerShortcode(
+            'inner_voice',
+            'Inner voice: advice, doubt or intuition injected before each thinking cycle',
+            fn () => $voiceBlock ?? ''
         );
 
         // If context is empty, start first cycle

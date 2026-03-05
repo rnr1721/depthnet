@@ -21,6 +21,7 @@ class AiPreset extends Model
         'preset_code',
         'preset_code_next',
         'rag_preset_id',
+        'voice_preset_id',
         'default_call_message',
         'before_execution_wait',
         'plugins_disabled',
@@ -43,6 +44,8 @@ class AiPreset extends Model
         'metadata' => 'array',
         'plugin_configs' => 'array',
         'loop_interval' => 'integer',
+        'rag_preset_id' => 'integer',
+        'voice_preset_id' => 'integer',
         'max_context_limit' => 'integer',
         'before_execution_wait' => 'integer',
         'allow_handoff_to' => 'boolean',
@@ -130,6 +133,23 @@ class AiPreset extends Model
     public function hasRag(): bool
     {
         return !is_null($this->rag_preset_id);
+    }
+
+    /**
+     * Voice preset: if set, this preset will receive hints from another preset that is optimized for voice interactions
+     */
+    public function voicePreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'voice_preset_id');
+    }
+
+    /**
+     * Whether Internal Voice enrichment is enabled for this preset.
+     * True when voice_preset_id is set and points to an existing preset.
+     */
+    public function hasVoice(): bool
+    {
+        return !is_null($this->voice_preset_id);
     }
 
     /**

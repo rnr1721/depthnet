@@ -18,6 +18,7 @@ class AiPreset extends Model
         'description',
         'engine_name',
         'system_prompt',
+        'input_mode',
         'preset_code',
         'preset_code_next',
         'rag_preset_id',
@@ -57,6 +58,7 @@ class AiPreset extends Model
     ];
 
     protected $attributes = [
+        'input_mode' => 'single',
         'is_active' => true,
         'is_default' => false,
         'allow_handoff_to' => true,
@@ -190,6 +192,17 @@ class AiPreset extends Model
     public function getSystemPrompt(): string
     {
         return $this->system_prompt ?? '';
+    }
+
+    /**
+     * Get input mode for this preset (single or pool)
+     * Multiple input sources or classicl single input
+     *
+     * @return string
+     */
+    public function getInputMode(): string
+    {
+        return $this->input_mode;
     }
 
     public function getPluginsDisabled(): string

@@ -133,7 +133,8 @@ class ChatController extends Controller
         $this->chatService->sendUserMessage(
             $user,
             $currentPreset->getId(),
-            $request->validated()['content']
+            $request->validated()['content'],
+            true
         );
 
         return back();

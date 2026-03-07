@@ -7,13 +7,13 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
-* Service for managing a general chat
-*
-* This service handles the exchange of messages in a general chat, where:
-* - Different users can send messages
-* - All messages are visible to all chat participants
-* - The AI ​​model receives formatted messages and can "think" (generate internal thoughts)
-*/
+ * Service for managing a general chat
+ *
+ * This service handles the exchange of messages in a general chat, where:
+ * - Different users can send messages
+ * - All messages are visible to all chat participants
+ * - The AI model receives formatted messages and can "think" (generate internal thoughts)
+ */
 interface ChatServiceInterface
 {
     /**
@@ -84,19 +84,32 @@ interface ChatServiceInterface
     public function getMessagesPaginatedEnhanced(int $presetId, int $page = 1, int $perPage = 30): array;
 
     /**
-     * Send message from user
+     * Send message from user.
+     * If input pool is enabled — adds the message to the pool as a source.
+     * If dispatch=true — flushes the entire pool and sends it as a single JSON message.
      *
      * @param User $user Current user who sent the message
-     * @param $presetId
+     * @param int $presetId
      * @param string $content Message content
-     * @return Message Created message
+     * @param bool $dispatch Whether to flush and dispatch the pool immediately
+     * @return Message Created message (or unsaved stub if pool is accumulating)
      */
-    public function sendUserMessage(User $user, int $presetId, string $content): Message;
+    public function sendUserMessage(User $user, int $presetId, string $content, bool $dispatch = false): Message;
+
+    /**
+     * Flush the current input pool and send it as a single message.
+     * Returns null if pool is disabled or empty.
+     *
+     * @param User $user
+     * @param int $presetId
+     * @return Message|null
+     */
+    public function dispatchPool(User $user, int $presetId): ?Message;
 
     /**
      * Clear all message history
      *
-     * @param $presetId
+     * @param int $presetId
      * @return void
      */
     public function clearHistory(int $presetId): void;
@@ -104,7 +117,7 @@ interface ChatServiceInterface
     /**
      * Messages count
      *
-     * @param $presetId
+     * @param int $presetId
      * @return integer Count of messages
      */
     public function getMessagesCount(int $presetId): int;
@@ -112,7 +125,6 @@ interface ChatServiceInterface
     /**
      * Messages Total Count
      *
-     * @param integer $presetId
      * @return integer
      */
     public function getTotalMessagesCount(): int;

@@ -16,6 +16,7 @@ class CreatePresetRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255', 'unique:ai_presets,name'],
             'system_prompt' => ['nullable', 'string', 'max:10000'],
+            'input_mode' => ['required', 'in:single,pool'],
             'preset_code' => ['nullable', 'string', 'max:50', 'unique:ai_presets,preset_code'],
             'description' => ['nullable', 'string', 'max:1000'],
             'engine_name' => ['required', 'string', 'max:100'],

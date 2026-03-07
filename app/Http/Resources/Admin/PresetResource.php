@@ -18,6 +18,7 @@ class PresetResource extends JsonResource
             'description' => $this->description,
             'engine_name' => $this->engine_name,
             'system_prompt' => $this->system_prompt,
+            'input_mode' => $this->input_mode,
             'preset_code' => $this->preset_code,
             'plugins_disabled' => $this->plugins_disabled,
             'engine_config' => $this->engine_config,

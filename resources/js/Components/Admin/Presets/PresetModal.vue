@@ -147,6 +147,7 @@ const form = ref({
     description: props.preset?.description || '',
     engine_name: props.preset?.engine_name || '',
     system_prompt: props.preset?.system_prompt || '',
+    input_mode: props.preset?.input_mode || 'single',
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
     default_call_message: props.preset?.default_call_message || '',

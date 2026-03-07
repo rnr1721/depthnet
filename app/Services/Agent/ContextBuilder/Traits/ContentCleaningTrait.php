@@ -73,4 +73,19 @@ trait ContentCleaningTrait
         return $context;
     }
 
+    /**
+     * Strip leading 'command' messages — the first message in context
+     * must not have the 'command' role (AI APIs may reject it or
+     * misinterpret the conversation start).
+     *
+     * @param array $context
+     * @return void
+     */
+    protected function stripLeadingCommandMessages(array &$context): void
+    {
+        while (!empty($context) && ($context[array_key_first($context)]['role'] ?? null) === 'command') {
+            array_shift($context);
+        }
+    }
+
 }

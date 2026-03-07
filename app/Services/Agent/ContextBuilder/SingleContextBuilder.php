@@ -49,6 +49,8 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         $context = $this->buildCleanContextFromMessages($messages);
 
+        $this->stripLeadingCommandMessages($context);
+
         // RAG enrichment — register as [[rag_context]] placeholder so the
         // preset's system_prompt can place it wherever makes sense.
         // If the preset doesn't use [[rag_context]], nothing happens.

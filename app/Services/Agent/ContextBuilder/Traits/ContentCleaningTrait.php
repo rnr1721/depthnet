@@ -83,7 +83,7 @@ trait ContentCleaningTrait
      */
     protected function stripLeadingCommandMessages(array &$context): void
     {
-        while (!empty($context) && ($context[array_key_first($context)]['role'] ?? null) === 'command') {
+        while (!empty($context) && ($context[array_key_first($context)]['role'] ?? null) === 'result') {
             array_shift($context);
         }
     }

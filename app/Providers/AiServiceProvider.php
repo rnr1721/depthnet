@@ -15,6 +15,7 @@ use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\CyclePrompt\CyclePromptEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
@@ -48,6 +49,7 @@ use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
+use App\Services\Agent\CyclePrompt\CyclePromptEnricher;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
@@ -111,6 +113,8 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
+
+        $this->app->bind(CyclePromptEnricherInterface::class, CyclePromptEnricher::class);
 
         $this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
 

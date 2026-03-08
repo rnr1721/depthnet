@@ -57,6 +57,7 @@ class PresetController extends Controller
                 'preset_code'         => $preset->preset_code,
                 'rag_preset_id'       => $preset->rag_preset_id,
                 'voice_preset_id' => $preset->voice_preset_id,
+                'cycle_prompt_preset_id' => $preset->cycle_prompt_preset_id,
             ])->toArray(),
         ]);
     }

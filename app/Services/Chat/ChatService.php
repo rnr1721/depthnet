@@ -195,7 +195,7 @@ class ChatService implements ChatServiceInterface
             $this->inputPoolService->add($presetId, $sourceName, $content);
 
             if (!$dispatch) {
-                // Пул накоплен, но не отправлен — возвращаем несохранённую заглушку
+                // The pool has been accumulated but not sent - returning an unsaved stub
                 return $this->messageModel->make([
                     'role'               => 'user',
                     'content'            => $content,
@@ -205,10 +205,10 @@ class ChatService implements ChatServiceInterface
                 ]);
             }
 
-            // dispatch=true — флашим пул и отправляем всё разом
+            // dispatch=true — flush the pool and send everything at once
             $formattedContent = $this->inputPoolService->flush($presetId) ?? $content;
         } else {
-            // Пул выключен — старый путь
+            // Pool off - the old way
             $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
         }
 

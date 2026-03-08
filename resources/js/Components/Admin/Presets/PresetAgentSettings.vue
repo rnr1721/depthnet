@@ -123,6 +123,29 @@
                 </div>
 
             </div>
+
+            <!-- Cycle Prompt Preset -->
+            <div class="mt-6">
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_cycle_prompt_preset') }}
+                </label>
+                <select :value="modelValue.cycle_prompt_preset_id"
+                    @input="updateField('cycle_prompt_preset_id', $event.target.value ? parseInt($event.target.value) : null)"
+                    :class="inputClass">
+                    <option :value="null">{{ t('p_modal_none') }}</option>
+                    <option v-for="preset in availablePresets" :key="preset.id" :value="preset.id">
+                        {{ preset.name }}
+                    </option>
+                </select>
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_cycle_prompt_preset_desc') }}
+                </p>
+                <div v-if="errors.cycle_prompt_preset_id" class="text-red-500 text-xs mt-1">
+                    {{ errors.cycle_prompt_preset_id }}
+                </div>
+            </div>
+
+
         </div>
     </div>
 </template>
@@ -147,6 +170,10 @@ const props = defineProps({
         default: () => ({})
     },
     availablePlugins: {
+        type: Array,
+        default: () => []
+    },
+    availablePresets: {
         type: Array,
         default: () => []
     }

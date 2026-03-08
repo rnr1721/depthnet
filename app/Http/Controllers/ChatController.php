@@ -97,6 +97,7 @@ class ChatController extends Controller
                     'preset_code'   => $preset->preset_code,
                     'rag_preset_id' => $preset->rag_preset_id,
                     'voice_preset_id' => $preset->voice_preset_id,
+                    'cycle_prompt_preset_id' => $preset->cycle_prompt_preset_id,
                 ])->toArray(),
                 'chatActive' => $chatActive,
                 'exportFormats' => array_values($chatExporterService->getAvailableFormats()),
@@ -125,16 +126,22 @@ class ChatController extends Controller
      */
     public function sendMessage(
         SendMessageRequest $request,
-        AuthServiceInterface $authService
+        AuthServiceInterface $authService,
+        ChatStatusServiceInterface $chatStatusService
     ) {
         $user = $authService->getCurrentUser();
+
+        $dispatch = true;
+        if ($chatStatusService->getChatStatus()) {
+            $dispatch = false;
+        }
 
         $currentPreset = $this->presetService->getDefaultPreset();
         $this->chatService->sendUserMessage(
             $user,
             $currentPreset->getId(),
             $request->validated()['content'],
-            true
+            $dispatch
         );
 
         return back();

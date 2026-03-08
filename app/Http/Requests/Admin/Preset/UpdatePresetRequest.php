@@ -30,6 +30,7 @@ class UpdatePresetRequest extends FormRequest
             'preset_code_next' => ['nullable', 'string', 'max:50'],
             'rag_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'default_call_message' => ['nullable', 'string', 'max:1000'],
             'before_execution_wait' => ['required', 'integer', 'min:1', 'max:60'],
             'error_behavior' => ['required','in:stop,continue,fallback'],

@@ -23,6 +23,7 @@ class AiPreset extends Model
         'preset_code_next',
         'rag_preset_id',
         'voice_preset_id',
+        'cycle_prompt_preset_id',
         'default_call_message',
         'before_execution_wait',
         'plugins_disabled',
@@ -47,6 +48,7 @@ class AiPreset extends Model
         'loop_interval' => 'integer',
         'rag_preset_id' => 'integer',
         'voice_preset_id' => 'integer',
+        'cycle_prompt_preset_id' => 'integer',
         'max_context_limit' => 'integer',
         'before_execution_wait' => 'integer',
         'allow_handoff_to' => 'boolean',
@@ -111,6 +113,25 @@ class AiPreset extends Model
     public function ragPreset(): BelongsTo
     {
         return $this->belongsTo(AiPreset::class, 'rag_preset_id');
+    }
+
+    /**
+     * Whether a dynamic cycle prompt is enabled for this preset.
+     * True when cycle_prompt_preset_id is set.
+     */
+    public function hasCyclePrompt(): bool
+    {
+        return !is_null($this->cycle_prompt_preset_id);
+    }
+
+    /**
+     * Cycle prompt preset: if set, this preset will use another preset to generate
+     * a dynamic continuation prompt instead of the static "[Continue your thinking cycle]".
+     * Useful for breaking resonance loops with critics, motivators, provocateurs etc.
+     */
+    public function cyclePromptPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'cycle_prompt_preset_id');
     }
 
     /**
@@ -465,6 +486,16 @@ class AiPreset extends Model
     public function getBeforeExecutionWait(): int
     {
         return $this->before_execution_wait;
+    }
+
+    /**
+     * Get cycle prompt preset ID
+     *
+     * @return int|null
+     */
+    public function getCyclePromptPresetId(): ?int
+    {
+        return $this->cycle_prompt_preset_id;
     }
 
     public function allowsHandoffTo(): bool

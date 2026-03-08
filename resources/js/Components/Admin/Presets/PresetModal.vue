@@ -73,7 +73,7 @@
 
                 <!-- Agent Settings Component -->
                 <PresetAgentSettings v-model="form" :is-dark="isDark" :errors="errors"
-                    :available-plugins="availablePlugins" />
+                    :available-plugins="availablePlugins" :available-presets="availablePresets" />
 
                 <!-- Logic & Handoff Component -->
                 <PresetLogicInfo v-model="form" :is-dark="isDark" :errors="errors" :available-presets="availablePresets"
@@ -163,7 +163,8 @@ const form = ref({
     is_active: props.preset?.is_active ?? true,
     is_default: props.preset?.is_default || false,
     rag_preset_id: props.preset?.rag_preset_id || null,
-    voice_preset_id: props.preset?.voice_preset_id || null
+    voice_preset_id: props.preset?.voice_preset_id || null,
+    cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
 });
 
 // Computed

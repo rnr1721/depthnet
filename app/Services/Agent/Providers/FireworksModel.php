@@ -816,9 +816,14 @@ class FireworksModel implements AIModelEngineInterface
             // Map roles for Fireworks AI (OpenAI-compatible)
             switch ($role) {
                 case 'user':
-                case 'command':
                     $messages[] = [
                         'role' => 'user',
+                        'content' => $content
+                    ];
+                    break;
+                case 'command':
+                    $messages[] = [
+                        'role' => 'assiatant',
                         'content' => $content
                     ];
                     break;

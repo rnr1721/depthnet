@@ -14,7 +14,17 @@ interface InnerVoiceEnricherInterface
      *
      * @param AiPreset $preset  The main preset being enriched
      * @param array    $context Current conversation context
-     * @return string|null
+     * @param string   $target single or cycle
+     * @return InnerVoiceResponseInterface
      */
-    public function enrich(AiPreset $preset, array $context): ?string;
+    public function enrich(AiPreset $preset, array $context, string $target): InnerVoiceResponseInterface;
+
+    /**
+     * Get voice preset for main preset
+     *
+     * @param AiPreset $mainPreset
+     * @param string $target
+     * @return AiPreset|null
+     */
+    public function getVoicePreset(AiPreset $mainPreset, string $target): ?AiPreset;
 }

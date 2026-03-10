@@ -75,12 +75,17 @@ class AgentActions implements AgentActionsInterface
             $output .= $lintResults;
         }
 
+        $hasCommands = $role === self::ROLE_COMMAND;
+
+        $handoff = $executionResult?->pluginExecutionMeta['handoff'] ?? null;
+
         return new ActionsResponseDTO(
             $output,
             $role,
+            $hasCommands,
             $visibleToUser,
             $systemMessage,
-            $executionResult->pluginExecutionMeta['handoff'] ?? null
+            $handoff
         );
     }
 

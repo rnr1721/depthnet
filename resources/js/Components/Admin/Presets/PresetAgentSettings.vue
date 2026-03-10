@@ -104,47 +104,26 @@
                     </p>
                 </div>
 
-                <!-- Input Mode -->
-                <div>
-                    <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                        {{ t('p_modal_input_mode') }}
-                    </label>
-                    <select :value="modelValue.input_mode" @input="updateField('input_mode', $event.target.value)"
-                        :class="inputClass">
-                        <option value="single">{{ t('p_modal_input_mode_single') }}</option>
-                        <option value="pool">{{ t('p_modal_input_mode_pool') }}</option>
-                    </select>
-                    <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                        {{ t('p_modal_input_mode_desc') }}
-                    </p>
-                    <div v-if="errors.input_mode" class="text-red-500 text-xs mt-1">
-                        {{ errors.input_mode }}
-                    </div>
-                </div>
-
             </div>
 
-            <!-- Cycle Prompt Preset -->
-            <div class="mt-6">
+
+            <!-- Input Mode -->
+            <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                    {{ t('p_modal_cycle_prompt_preset') }}
+                    {{ t('p_modal_input_mode') }}
                 </label>
-                <select :value="modelValue.cycle_prompt_preset_id"
-                    @input="updateField('cycle_prompt_preset_id', $event.target.value ? parseInt($event.target.value) : null)"
+                <select :value="modelValue.input_mode" @input="updateField('input_mode', $event.target.value)"
                     :class="inputClass">
-                    <option :value="null">{{ t('p_modal_none') }}</option>
-                    <option v-for="preset in availablePresets" :key="preset.id" :value="preset.id">
-                        {{ preset.name }}
-                    </option>
+                    <option value="single">{{ t('p_modal_input_mode_single') }}</option>
+                    <option value="pool">{{ t('p_modal_input_mode_pool') }}</option>
                 </select>
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_cycle_prompt_preset_desc') }}
+                    {{ t('p_modal_input_mode_desc') }}
                 </p>
-                <div v-if="errors.cycle_prompt_preset_id" class="text-red-500 text-xs mt-1">
-                    {{ errors.cycle_prompt_preset_id }}
+                <div v-if="errors.input_mode" class="text-red-500 text-xs mt-1">
+                    {{ errors.input_mode }}
                 </div>
             </div>
-
 
         </div>
     </div>

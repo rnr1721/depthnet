@@ -3,7 +3,6 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
-use App\Contracts\Agent\CyclePrompt\CyclePromptEnricherInterface;
 use App\Contracts\Agent\Rag\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
@@ -29,8 +28,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected Message $messageModel,
         protected OptionsServiceInterface $optionsService,
         protected RagContextEnricherInterface $ragEnricher,
-        protected InnerVoiceEnricherInterface      $voiceEnricher,
-        protected CyclePromptEnricherInterface $cyclePromptEnricher,
+        protected InnerVoiceEnricherInterface $innerVoiceEnricher,
         protected InputPoolServiceInterface $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
         protected AuthServiceInterface $authService,
@@ -69,27 +67,19 @@ class CycleContextBuilder implements ContextBuilderInterface
             fn () => $ragBlock ?? ''
         );
 
-        // Inner voice — advisor/conscience/muse as [[inner_voice]]
-        $voiceBlock = $this->voiceEnricher->enrich($preset, $context);
-        $this->shortcodeManager->registerShortcode(
-            'inner_voice',
-            'Inner voice: advice, doubt or intuition injected before each thinking cycle',
-            fn () => $voiceBlock ?? ''
-        );
-
         // If context is empty, start first cycle
         if (empty($context)) {
             return [
                 [
                     'role' => 'user',
-                    'content' => $this->getCycleStartInstruction(),
+                    'content' => $this->resolveStartInstruction($preset),
                     'from_user_id' => null
                 ]
             ];
         }
 
         // Check if last message is from user — no continuation needed
-        $lastMessage = end($context);
+        $lastMessage = $context[array_key_last($context)];
         $lastRole = $lastMessage['role'] ?? null;
 
         // Only add continuation if last message is NOT from user
@@ -115,6 +105,30 @@ class CycleContextBuilder implements ContextBuilderInterface
     }
 
     /**
+     * Resolve start instruction
+     *
+     * @param AiPreset $preset
+     * @return string
+     */
+    protected function resolveStartInstruction(AiPreset $preset): string
+    {
+        $source = $this->getCycleStartInstruction();
+        // If pool mode, flush everything that has accumulated (both self_signal and from the user)
+        if ($preset->input_mode === 'pool') {
+            $voicePreset = $this->innerVoiceEnricher->getVoicePreset($preset, 'cycle');
+
+            if ($voicePreset) {
+                $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), '');
+            }
+            $flushed = $this->inputPoolService->flush($preset->getId());
+            if ($flushed !== null) {
+                return $flushed;
+            }
+        }
+        return $source;
+    }
+
+    /**
      * Resolve the cycle continuation instruction.
      * Uses the cycle prompt preset if configured, falls back to static text.
      *
@@ -125,21 +139,22 @@ class CycleContextBuilder implements ContextBuilderInterface
     protected function resolveContinueInstruction(AiPreset $preset, array $context): string
     {
         // First, put self_signal into the pool if there is a cycle prompt
-        $dynamic = $this->cyclePromptEnricher->enrich($preset, $context);
-        if ($dynamic !== null && $preset->input_mode === 'pool') {
-            $this->inputPoolService->add($preset->id, 'self_signal', $dynamic);
+        $dynamic = $this->innerVoiceEnricher->enrich($preset, $context, 'cycle');
+        $voicePreset = $dynamic->getVoicePreset();
+        if ($dynamic->getResponse() !== null && $preset->input_mode === 'pool' && $voicePreset) {
+            $this->inputPoolService->add($preset->getId(), $dynamic->getVoicePreset()->getName(), $dynamic->getResponse());
         }
 
         // If pool mode, flush everything that has accumulated (both self_signal and from the user)
         if ($preset->input_mode === 'pool') {
-            $flushed = $this->inputPoolService->flush($preset->id);
+            $flushed = $this->inputPoolService->flush($preset->getId());
             if ($flushed !== null) {
                 return $flushed;
             }
         }
 
         // Fallback — dynamic or static
-        return $dynamic ?? $this->getCycleContinueInstruction();
+        return $dynamic->getResponse() ?? $this->getCycleContinueInstruction();
     }
 
     /**

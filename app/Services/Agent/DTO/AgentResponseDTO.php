@@ -27,9 +27,25 @@ class AgentResponseDTO implements AiAgentResponseInterface
     /**
      * @inheritDoc
      */
+    public function getSystemMessage(): ?string
+    {
+        return $this->actionsResult->getSystemMessage();
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getActionsResult(): AiActionsResponseInterface
     {
         return $this->actionsResult;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function hasCommands(): bool
+    {
+        return $this->actionsResult->hasCommands();
     }
 
     /**

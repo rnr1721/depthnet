@@ -763,9 +763,14 @@ class NovitaModel implements AIModelEngineInterface
             // Map roles for Novita AI (OpenAI-compatible)
             switch ($role) {
                 case 'user':
-                case 'command':
                     $messages[] = [
                         'role' => 'user',
+                        'content' => $content
+                    ];
+                    break;
+                case 'command':
+                    $messages[] = [
+                        'role' => 'assistant',
                         'content' => $content
                     ];
                     break;

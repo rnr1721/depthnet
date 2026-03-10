@@ -7,6 +7,7 @@ use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 use App\Contracts\Agent\AgentActionsInterface;
+use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
@@ -15,7 +16,6 @@ use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
-use App\Contracts\Agent\CyclePrompt\CyclePromptEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
@@ -41,6 +41,7 @@ use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
+use App\Services\Agent\AgentActionsHandler;
 use App\Services\Agent\AgentJobService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
@@ -49,7 +50,6 @@ use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
-use App\Services\Agent\CyclePrompt\CyclePromptEnricher;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
@@ -113,8 +113,6 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
-
-        $this->app->bind(CyclePromptEnricherInterface::class, CyclePromptEnricher::class);
 
         $this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
 
@@ -181,7 +179,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(PresetRegistryInterface::class, PresetRegistry::class);
 
 
-        $this->app->bind(AgentActionsInterface::class, AgentActions::class);
+        $this->app->singleton(AgentActionsHandlerInterface::class, AgentActionsHandler::class);
+        $this->app->singleton(AgentActionsInterface::class, AgentActions::class);
         $this->app->singleton(AgentInterface::class, Agent::class);
     }
 

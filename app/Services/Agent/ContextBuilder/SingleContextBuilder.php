@@ -63,12 +63,15 @@ class SingleContextBuilder implements ContextBuilderInterface
         );
 
         // Inner voice — advisor/conscience/muse as [[inner_voice]]
-        $voiceBlock = $this->voiceEnricher->enrich($preset, $context);
-        $this->shortcodeManager->registerShortcode(
-            'inner_voice',
-            'Inner voice: advice, doubt or intuition injected before each request',
-            fn () => $voiceBlock ?? ''
-        );
+        $voiceBlock = $this->voiceEnricher->enrich($preset, $context, 'single');
+        if ($voiceBlock->getResponse()) {
+            $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getVoicePreset());
+            $this->shortcodeManager->registerShortcode(
+                'inner_voice',
+                'Inner voice: advice, doubt or intuition injected before each request',
+                fn () => $voiceText
+            );
+        }
 
         // Ensure conversation ends with user message for AI API compatibility
         if (!empty($context)) {
@@ -87,4 +90,26 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         return $context;
     }
+
+    /**
+     * Format text for placeholders before injecting into system prompt.
+     *
+     * @param string|null $text
+     * @param AiPreset $preset
+     * @return string
+     */
+    protected function formatForPlaceholder(?string $text, AiPreset $preset): string
+    {
+        if (empty($text)) {
+            return '';
+        }
+
+        $cleanText = trim($text);
+
+        $start = '[' . $preset->getName() . "]\r\n";
+        $end   = "[END OF " . $preset->getName() . "]\r\n";
+
+        return $start . $cleanText . "\r\n" . $end;
+    }
+
 }

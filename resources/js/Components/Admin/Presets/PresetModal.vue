@@ -73,7 +73,7 @@
 
                 <!-- Agent Settings Component -->
                 <PresetAgentSettings v-model="form" :is-dark="isDark" :errors="errors"
-                    :available-plugins="availablePlugins" />
+                    :available-plugins="availablePlugins" :available-presets="availablePresets" />
 
                 <!-- Logic & Handoff Component -->
                 <PresetLogicInfo v-model="form" :is-dark="isDark" :errors="errors" :available-presets="availablePresets"
@@ -147,6 +147,7 @@ const form = ref({
     description: props.preset?.description || '',
     engine_name: props.preset?.engine_name || '',
     system_prompt: props.preset?.system_prompt || '',
+    input_mode: props.preset?.input_mode || 'single',
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
     default_call_message: props.preset?.default_call_message || '',
@@ -160,7 +161,10 @@ const form = ref({
     allow_handoff_to: props.preset?.allow_handoff_to ?? true,
     allow_handoff_from: props.preset?.allow_handoff_from ?? true,
     is_active: props.preset?.is_active ?? true,
-    is_default: props.preset?.is_default || false
+    is_default: props.preset?.is_default || false,
+    rag_preset_id: props.preset?.rag_preset_id || null,
+    voice_preset_id: props.preset?.voice_preset_id || null,
+    cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
 });
 
 // Computed

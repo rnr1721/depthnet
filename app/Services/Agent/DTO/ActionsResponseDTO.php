@@ -12,6 +12,7 @@ class ActionsResponseDTO implements AiActionsResponseInterface
     public function __construct(
         private string $result = '',
         private string $role = '',
+        private bool $hasCommands,
         private bool $isVisibleForUser = false,
         private ?string $systemMessage = null,
         private ?array $handoff = null
@@ -32,6 +33,14 @@ class ActionsResponseDTO implements AiActionsResponseInterface
     public function getRole(): string
     {
         return $this->role;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function hasCommands(): bool
+    {
+        return $this->hasCommands;
     }
 
     /**

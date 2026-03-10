@@ -65,7 +65,7 @@ class MemoryPlugin implements CommandPluginInterface
             return [
                 'Add consciousness module: [memory]def survival_check(self): return self.vitality > 0.5[/memory]',
                 'Add memory note: [memory]Completed task: Created users table successfully[/memory]',
-                'Delete specific memory item: [memory delete]3[/memory]',
+                'To delete specific memory item: first use [memory search]keyword[/memory] to find the item number, then [memory delete]N[/memory]',
                 'Show current memory: [memory show][/memory]',
                 'Search memory: [memory search]database[/memory]',
                 'Get memory stats: [memory stats][/memory]'
@@ -73,7 +73,7 @@ class MemoryPlugin implements CommandPluginInterface
         }
         return [
             'Add new memory item: [memory]Completed task: Created users table successfully[/memory]',
-            'Delete specific memory item: [memory delete]3[/memory]',
+            'To delete specific memory item: first use [memory search]keyword[/memory] to find the item number, then [memory delete]N[/memory]',
             'Show current memory: [memory show][/memory]',
             'Search memory: [memory search]database[/memory]',
             'Get memory stats: [memory stats][/memory]'

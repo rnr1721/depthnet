@@ -44,7 +44,21 @@ class PresetController extends Controller
         return Inertia::render('Admin/Presets/Index', [
             'presets' => PresetResource::collection($presets)->toArray(request()),
             'engines' => $engines,
-            'placeholders' => $placeholders
+            'placeholders' => $placeholders,
+            'availablePresets' => $presets->map(fn ($preset) => [
+                'id'                  => $preset->id,
+                'name'                => $preset->name,
+                'description'         => $preset->description,
+                'engine_name'         => $preset->engine_name,
+                'engine_display_name' => $preset->engine_display_name ?? $preset->engine_name,
+                'is_default'          => $preset->is_default,
+                'model'               => $preset->engine_config['model'] ?? null,
+                'metadata'            => $preset->metadata ?? [],
+                'preset_code'         => $preset->preset_code,
+                'rag_preset_id'       => $preset->rag_preset_id,
+                'voice_preset_id' => $preset->voice_preset_id,
+                'cycle_prompt_preset_id' => $preset->cycle_prompt_preset_id,
+            ])->toArray(),
         ]);
     }
 

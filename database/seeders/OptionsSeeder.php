@@ -36,6 +36,31 @@ class OptionsSeeder extends Seeder
                 'description' => 'Default agent command parser',
                 'is_system' => true,
             ],
+
+            [
+                'key' => 'agent_cycle_start_instruction',
+                'value' => 'Please start thinking',
+                'type' => 'string',
+                'description' => 'Agent cycle start instruction',
+                'is_system' => true,
+            ],
+
+            [
+                'key' => 'agent_cycle_continue_instruction',
+                'value' => 'Please continue thinking',
+                'type' => 'string',
+                'description' => 'Agent cycle continue instruction',
+                'is_system' => true,
+            ],
+
+            [
+                'key' => 'agent_rag_vector_memory_mode',
+                'value' => 'associative',
+                'type' => 'string',
+                'description' => 'Default agent vector memory mode for RAG',
+                'is_system' => true,
+            ],
+
             [
                 'key' => 'model_default',
                 'value' => 'mock',

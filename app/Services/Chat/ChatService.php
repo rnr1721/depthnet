@@ -8,6 +8,7 @@ use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
+use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
 use App\Models\User;
@@ -30,6 +31,7 @@ class ChatService implements ChatServiceInterface
         protected PresetRegistryInterface $presetRegistry,
         protected PluginRegistryInterface $pluginRegistry,
         protected ChatStatusServiceInterface $chatStatusService,
+        protected InputPoolServiceInterface $inputPoolService,
         protected Message $messageModel,
     ) {
     }
@@ -183,22 +185,57 @@ class ChatService implements ChatServiceInterface
     /**
      * @inheritDoc
      */
-    public function sendUserMessage(User $user, int $presetId, string $content): Message
+    public function sendUserMessage(User $user, int $presetId, string $content, bool $dispatch = false): Message
     {
         $messageFromUserLabel = $this->optionsService->get('model_message_from_user', 'message_from_user');
-        $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
 
+        $preset = $this->presetRegistry->getPreset($presetId);
+        if ($this->inputPoolService->isEnabled($preset)) {
+            $sourceName = "$messageFromUserLabel {$user->name}:";
+            $this->inputPoolService->add($presetId, $sourceName, $content);
+
+            if (!$dispatch) {
+                // The pool has been accumulated but not sent - returning an unsaved stub
+                return $this->messageModel->make([
+                    'role'               => 'user',
+                    'content'            => $content,
+                    'from_user_id'       => $user->id,
+                    'preset_id'          => $presetId,
+                    'is_visible_to_user' => false,
+                ]);
+            }
+
+            // dispatch=true — flush the pool and send everything at once
+            $formattedContent = $this->inputPoolService->flush($presetId) ?? $content;
+        } else {
+            // Pool off - the old way
+            $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
+        }
+
+        return $this->createMessage($user, $presetId, $formattedContent);
+    }
+
+    /**
+     * Create a user message, run commands if needed, trigger agent.
+     *
+     * @param User $user
+     * @param int $presetId
+     * @param string $content
+     * @return Message
+     */
+    protected function createMessage(User $user, int $presetId, string $content): Message
+    {
         $finalContent = null;
         if ($this->optionsService->get('user_can_run_commands', false)) {
-            $finalContent = $user->is_admin ? $this->runCommands($formattedContent, $presetId) : $formattedContent;
+            $finalContent = $user->is_admin ? $this->runCommands($content, $presetId) : null;
         }
 
         $message = $this->messageModel->create([
-            'role' => 'user',
-            'content' => $formattedContent . $finalContent ?? '',
-            'from_user_id' => $user->id,
-            'preset_id' => $presetId,
-            'is_visible_to_user' => true
+            'role'               => 'user',
+            'content'            => $content . ($finalContent ?? ''),
+            'from_user_id'       => $user->id,
+            'preset_id'          => $presetId,
+            'is_visible_to_user' => true,
         ]);
 
         if (!$this->chatStatusService->getChatStatus()) {
@@ -206,6 +243,29 @@ class ChatService implements ChatServiceInterface
         }
 
         return $message;
+    }
+
+    /**
+     * Flush current pool and send as a single message (e.g. from a UI "send pool" button)
+     *
+     * @param User $user
+     * @param int $presetId
+     * @return Message|null
+     */
+    public function dispatchPool(User $user, int $presetId): ?Message
+    {
+        $preset = $this->presetRegistry->getPreset($presetId);
+        if (!$this->inputPoolService->isEnabled($preset)) {
+            return null;
+        }
+
+        $content = $this->inputPoolService->flush($presetId);
+
+        if (!$content) {
+            return null;
+        }
+
+        return $this->createMessage($user, $presetId, $content);
     }
 
     /**

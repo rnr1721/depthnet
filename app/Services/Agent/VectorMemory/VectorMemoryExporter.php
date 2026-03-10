@@ -25,38 +25,42 @@ class VectorMemoryExporter implements VectorMemoryExporterInterface
         try {
             $exportData = [
                 'preset' => [
-                    'id' => $preset->id,
+                    'id'   => $preset->id,
                     'name' => $preset->name,
                 ],
-                'export_date' => now()->toISOString(),
-                'total_memories' => $memories->count(),
-                'memories' => $memories->map(function ($memory) {
+                'export_date'     => now()->toISOString(),
+                'export_version'  => 2, // версия формата для совместимости
+                'total_memories'  => $memories->count(),
+                'memories'        => $memories->map(function ($memory) {
                     return [
-                        'id' => $memory->id,
-                        'content' => $memory->content,
-                        'keywords' => $memory->keywords,
-                        'importance' => $memory->importance,
-                        'vector_size' => count($memory->tfidf_vector ?? []),
-                        'created_at' => $memory->created_at->toISOString(),
+                        'id'               => $memory->id,
+                        'content'          => $memory->content,
+                        'keywords'         => $memory->keywords,
+                        'importance'       => $memory->importance,
+                        'access_count'     => $memory->access_count ?? 0,
+                        'last_accessed_at' => $memory->last_accessed_at?->toISOString(),
+                        'vector_size'      => count($memory->tfidf_vector ?? []),
+                        'created_at'       => $memory->created_at->toISOString(),
+                        'updated_at'       => $memory->updated_at->toISOString(),
                     ];
                 })->toArray()
             ];
 
-            $filename = $this->generateFilename($preset);
+            $filename    = $this->generateFilename($preset);
             $jsonContent = json_encode($exportData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
             return [
-                'success' => true,
-                'content' => $jsonContent,
+                'success'  => true,
+                'content'  => $jsonContent,
                 'filename' => $filename,
-                'headers' => [
-                    'Content-Type' => 'application/json',
+                'headers'  => [
+                    'Content-Type'        => 'application/json',
                     'Content-Disposition' => "attachment; filename=\"{$filename}\""
                 ]
             ];
 
         } catch (\Throwable $e) {
-            $this->logger->error("VectorMemoryExporter::exportAsJsonDownload error: " . $e->getMessage());
+            $this->logger->error("VectorMemoryExporter::export error: " . $e->getMessage());
             return [
                 'success' => false,
                 'message' => "Export failed: " . $e->getMessage()
@@ -73,7 +77,7 @@ class VectorMemoryExporter implements VectorMemoryExporterInterface
     protected function generateFilename(AiPreset $preset): string
     {
         $sanitizedName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $preset->name);
-        $timestamp = date('Y-m-d_H-i-s');
+        $timestamp     = date('Y-m-d_H-i-s');
 
         return "vector_memory_preset_{$preset->id}_{$sanitizedName}_{$timestamp}.json";
     }

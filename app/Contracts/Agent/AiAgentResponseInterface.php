@@ -20,6 +20,13 @@ interface AiAgentResponseInterface
     public function getMessage(): Message;
 
     /**
+     * Get the string result of any actions executed during thinking
+     *
+     * @return string|null String result of executed actions
+     */
+    public function getSystemMessage(): ?string;
+
+    /**
      * Get handoff delegation data if present
      *
      * @return array|null Handoff data containing:
@@ -28,6 +35,13 @@ interface AiAgentResponseInterface
      *   - error_behavior: string - How to handle errors (stop|continue|fallback)
      */
     public function getHandoffData(): ?array;
+
+    /**
+     * Agent response includes executable commands
+     *
+     * @return AiActionsResponseInterface Result of executed commands
+     */
+    public function hasCommands(): bool;
 
     /**
      * Check if response contains handoff delegation

@@ -74,7 +74,7 @@ class MemoryService implements MemoryServiceInterface
         $formatted = [];
         foreach ($items as $index => $item) {
             $number = $index + 1;
-            $formatted[] = "{$number}. {$item->content}";
+            $formatted[] = "[{$number}] {$item->content}";
         }
 
         return implode("\n", $formatted);

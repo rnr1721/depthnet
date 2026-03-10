@@ -27,13 +27,17 @@ class VectorMemory extends Model
         'content',
         'tfidf_vector',
         'keywords',
-        'importance'
+        'importance',
+        'access_count',
+        'last_accessed_at'
     ];
 
     protected $casts = [
         'tfidf_vector' => 'array',
         'keywords' => 'array',
         'importance' => 'float',
+        'access_count'     => 'integer',
+        'last_accessed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime'
     ];
@@ -68,6 +72,22 @@ class VectorMemory extends Model
     public function scopeImportant($query, float $threshold = 1.5)
     {
         return $query->where('importance', '>=', $threshold);
+    }
+
+    /**
+     * Scope to get memories containing a keyword
+     */
+    public function scopeFrequentlyAccessed($query, int $minCount = 5)
+    {
+        return $query->where('access_count', '>=', $minCount);
+    }
+
+    /**
+     * Scope to get recently accessed memories
+     */
+    public function scopeRecentlyAccessed($query, int $days = 7)
+    {
+        return $query->where('last_accessed_at', '>=', now()->subDays($days));
     }
 
     /**

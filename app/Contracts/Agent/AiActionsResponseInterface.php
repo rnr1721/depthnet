@@ -20,6 +20,13 @@ interface AiActionsResponseInterface
     public function getRole(): string;
 
     /**
+     * Actions contains commands to execute
+     *
+     * @return boolean
+     */
+    public function hasCommands(): bool;
+
+    /**
      * Message will be visible for user
      *
      * @return boolean

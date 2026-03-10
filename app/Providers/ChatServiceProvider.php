@@ -6,6 +6,7 @@ use App\Contracts\Chat\ChatExporterRegistryInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
+use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Services\Chat\ChatExporterRegistry;
 use App\Services\Chat\ChatExporterService;
 use App\Services\Chat\ChatService;
@@ -13,6 +14,7 @@ use App\Services\Chat\ChatStatusService;
 use App\Services\Chat\Exporters\JsonChatExporter;
 use App\Services\Chat\Exporters\MarkdownChatExporter;
 use App\Services\Chat\Exporters\TxtChatExporter;
+use App\Services\Chat\InputPoolService;
 use Illuminate\Support\ServiceProvider;
 
 class ChatServiceProvider extends ServiceProvider
@@ -32,6 +34,7 @@ class ChatServiceProvider extends ServiceProvider
         });
         $this->app->bind(ChatExporterServiceInterface::class, ChatExporterService::class);
 
+        $this->app->singleton(InputPoolServiceInterface::class, InputPoolService::class);
         $this->app->singleton(ChatServiceInterface::class, ChatService::class);
     }
 

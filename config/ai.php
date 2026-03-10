@@ -1753,11 +1753,13 @@ return [
             'shell',
             'memory',
             'vectormemory',
+            'person',
             'dopamine',
             'node',
             'python',
             'codecraft',
             'browser',
+            'goal',
             'mood'
         ],
 
@@ -1830,6 +1832,7 @@ return [
 
             'vectormemory' => [
                 'enabled' => true,
+                'memory_mode' => 'default',
                 'max_entries' => 1000,
                 'similarity_threshold' => 0.1,
                 'search_limit' => 5,
@@ -1842,6 +1845,14 @@ return [
                 'language_mode' => 'auto',
                 'custom_stop_words_ru' => '',
                 'custom_stop_words_en' => ''
+            ],
+
+            'person' => [
+                'enabled' => true,
+            ],
+
+            'goal' => [
+                'enabled' => true,
             ],
 
             'dopamine' => [

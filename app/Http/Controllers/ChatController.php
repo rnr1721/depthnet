@@ -8,7 +8,7 @@ use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
-use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
+use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
@@ -94,6 +94,10 @@ class ChatController extends Controller
                     'is_default' => $preset->is_default,
                     'model' => $preset->engine_config['model'] ?? null,
                     'metadata' => $preset->metadata ?? [],
+                    'preset_code'   => $preset->preset_code,
+                    'rag_preset_id' => $preset->rag_preset_id,
+                    'voice_preset_id' => $preset->voice_preset_id,
+                    'cycle_prompt_preset_id' => $preset->cycle_prompt_preset_id,
                 ])->toArray(),
                 'chatActive' => $chatActive,
                 'exportFormats' => array_values($chatExporterService->getAvailableFormats()),
@@ -122,15 +126,22 @@ class ChatController extends Controller
      */
     public function sendMessage(
         SendMessageRequest $request,
-        AuthServiceInterface $authService
+        AuthServiceInterface $authService,
+        ChatStatusServiceInterface $chatStatusService
     ) {
         $user = $authService->getCurrentUser();
+
+        $dispatch = true;
+        if ($chatStatusService->getChatStatus()) {
+            $dispatch = false;
+        }
 
         $currentPreset = $this->presetService->getDefaultPreset();
         $this->chatService->sendUserMessage(
             $user,
             $currentPreset->getId(),
-            $request->validated()['content']
+            $request->validated()['content'],
+            $dispatch
         );
 
         return back();
@@ -141,13 +152,13 @@ class ChatController extends Controller
      *
      * @param \Illuminate\Http\Request $request
      * @param MemoryServiceInterface $memoryService
-     * @param VectorMemoryServiceInterface $vectorMemoryService
+     * @param VectorMemoryFactoryInterface $vectorMemoryFactory
      * @return RedirectResponse|JsonResponse
      */
     public function clearHistory(
         Request $request,
         MemoryServiceInterface $memoryService,
-        VectorMemoryServiceInterface $vectorMemoryService
+        VectorMemoryFactoryInterface $vectorMemoryFactory
     ): JsonResponse|RedirectResponse {
         try {
             $currentPreset = $this->presetService->getDefaultPreset();
@@ -167,6 +178,7 @@ class ChatController extends Controller
             }
 
             if ($request->boolean('clear_vector_memory')) {
+                $vectorMemoryService = $vectorMemoryFactory->make();
                 $vectorMemoryService->clearVectorMemories($currentPreset);
                 $cleared[] = 'vector_memory';
             }

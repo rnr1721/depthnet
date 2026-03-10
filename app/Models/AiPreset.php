@@ -18,8 +18,12 @@ class AiPreset extends Model
         'description',
         'engine_name',
         'system_prompt',
+        'input_mode',
         'preset_code',
         'preset_code_next',
+        'rag_preset_id',
+        'voice_preset_id',
+        'cycle_prompt_preset_id',
         'default_call_message',
         'before_execution_wait',
         'plugins_disabled',
@@ -42,6 +46,9 @@ class AiPreset extends Model
         'metadata' => 'array',
         'plugin_configs' => 'array',
         'loop_interval' => 'integer',
+        'rag_preset_id' => 'integer',
+        'voice_preset_id' => 'integer',
+        'cycle_prompt_preset_id' => 'integer',
         'max_context_limit' => 'integer',
         'before_execution_wait' => 'integer',
         'allow_handoff_to' => 'boolean',
@@ -53,6 +60,7 @@ class AiPreset extends Model
     ];
 
     protected $attributes = [
+        'input_mode' => 'single',
         'is_active' => true,
         'is_default' => false,
         'allow_handoff_to' => true,
@@ -99,6 +107,34 @@ class AiPreset extends Model
     }
 
     /**
+     * RAG preset: if set, this preset will receive associative memory
+     * context from the RAG preset's vector memory before each thinking cycle.
+     */
+    public function ragPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'rag_preset_id');
+    }
+
+    /**
+     * Whether a dynamic cycle prompt is enabled for this preset.
+     * True when cycle_prompt_preset_id is set.
+     */
+    public function hasCyclePrompt(): bool
+    {
+        return !is_null($this->cycle_prompt_preset_id);
+    }
+
+    /**
+     * Cycle prompt preset: if set, this preset will use another preset to generate
+     * a dynamic continuation prompt instead of the static "[Continue your thinking cycle]".
+     * Useful for breaking resonance loops with critics, motivators, provocateurs etc.
+     */
+    public function cyclePromptPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'cycle_prompt_preset_id');
+    }
+
+    /**
      * Boot method to handle default preset logic
      */
     protected static function boot()
@@ -111,6 +147,32 @@ class AiPreset extends Model
                     ->update(['is_default' => false]);
             }
         });
+    }
+
+    /**
+     * Whether RAG enrichment is enabled for this preset.
+     * True when rag_preset_id is set and points to an existing preset.
+     */
+    public function hasRag(): bool
+    {
+        return !is_null($this->rag_preset_id);
+    }
+
+    /**
+     * Voice preset: if set, this preset will receive hints from another preset that is optimized for voice interactions
+     */
+    public function voicePreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'voice_preset_id');
+    }
+
+    /**
+     * Whether Internal Voice enrichment is enabled for this preset.
+     * True when voice_preset_id is set and points to an existing preset.
+     */
+    public function hasVoice(): bool
+    {
+        return !is_null($this->voice_preset_id);
     }
 
     /**
@@ -151,6 +213,17 @@ class AiPreset extends Model
     public function getSystemPrompt(): string
     {
         return $this->system_prompt ?? '';
+    }
+
+    /**
+     * Get input mode for this preset (single or pool)
+     * Multiple input sources or classicl single input
+     *
+     * @return string
+     */
+    public function getInputMode(): string
+    {
+        return $this->input_mode;
     }
 
     public function getPluginsDisabled(): string
@@ -413,6 +486,16 @@ class AiPreset extends Model
     public function getBeforeExecutionWait(): int
     {
         return $this->before_execution_wait;
+    }
+
+    /**
+     * Get cycle prompt preset ID
+     *
+     * @return int|null
+     */
+    public function getCyclePromptPresetId(): ?int
+    {
+        return $this->cycle_prompt_preset_id;
     }
 
     public function allowsHandoffTo(): bool

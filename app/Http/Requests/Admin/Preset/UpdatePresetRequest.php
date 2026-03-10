@@ -18,6 +18,7 @@ class UpdatePresetRequest extends FormRequest
         return [
             'name' => ['string', 'max:255', "unique:ai_presets,name,{$presetId}"],
             'system_prompt' => ['nullable', 'string', 'max:10000'],
+            'input_mode' => ['required', 'in:single,pool'],
             'preset_code' => ['nullable', 'string', 'max:50', "unique:ai_presets,preset_code,{$presetId}"],
             'plugins_disabled' => ['nullable','string','max:255'],
             'description' => ['nullable', 'string', 'max:1000'],
@@ -27,6 +28,9 @@ class UpdatePresetRequest extends FormRequest
             'max_context_limit' => ['required','integer','min:0','max:50'],
             'agent_result_mode' => ['required','string'],
             'preset_code_next' => ['nullable', 'string', 'max:50'],
+            'rag_preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'default_call_message' => ['nullable', 'string', 'max:1000'],
             'before_execution_wait' => ['required', 'integer', 'min:1', 'max:60'],
             'error_behavior' => ['required','in:stop,continue,fallback'],
@@ -34,6 +38,7 @@ class UpdatePresetRequest extends FormRequest
             'allow_handoff_from' => ['boolean'],
             'is_active' => ['boolean'],
             'is_default' => ['boolean'],
+
         ];
     }
 }

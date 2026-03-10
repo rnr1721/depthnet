@@ -103,7 +103,28 @@
                         {{ t('p_modal_click_to_toggle_plugins') }}
                     </p>
                 </div>
+
             </div>
+
+
+            <!-- Input Mode -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_input_mode') }}
+                </label>
+                <select :value="modelValue.input_mode" @input="updateField('input_mode', $event.target.value)"
+                    :class="inputClass">
+                    <option value="single">{{ t('p_modal_input_mode_single') }}</option>
+                    <option value="pool">{{ t('p_modal_input_mode_pool') }}</option>
+                </select>
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_input_mode_desc') }}
+                </p>
+                <div v-if="errors.input_mode" class="text-red-500 text-xs mt-1">
+                    {{ errors.input_mode }}
+                </div>
+            </div>
+
         </div>
     </div>
 </template>
@@ -128,6 +149,10 @@ const props = defineProps({
         default: () => ({})
     },
     availablePlugins: {
+        type: Array,
+        default: () => []
+    },
+    availablePresets: {
         type: Array,
         default: () => []
     }

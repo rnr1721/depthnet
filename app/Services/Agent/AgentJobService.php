@@ -22,7 +22,7 @@ class AgentJobService implements AgentJobServiceInterface
     private string $queue = 'ai';
 
     /**
-     * Lock ket in database options
+     * Lock key in database options
      */
     private const LOCK_KEY = 'task_lock';
 
@@ -196,6 +196,7 @@ class AgentJobService implements AgentJobServiceInterface
             $iterationCount = 0;
             $maxIterations = 20;
 
+            $handoffData = null;
             while ($iterationCount < $maxIterations) {
                 $iterationCount++;
 

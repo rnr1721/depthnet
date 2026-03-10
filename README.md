@@ -7,9 +7,10 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Local-purple?style=flat-square)
 ![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20CodeCraft%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
 
-**Advanced AI Agent Platform with Autonomous Reasoning**
+**Advanced AI Agent Platform with Autonomous Reasoning** | v0.7.3
 
-DepthNet is a Laravel-based research platform for autonomous AI agent with continuous (in loops) "thinking" capabilities. Unlike traditional chatbots that only respond to input, DepthNet agents can execute real code, maintain persistent memory, and operate in self-directed thinking loops, allowing for advanced autonomous decision making and actions. The product is designed as a website where an administrator can manage users. The LLM model runs in a loop and leads the thinking, and all users can observe the course of thinking, interfering with the process. The project is like an operating system for the LLM model. It has a very flexible, modular, extensible architecture. It is possible to create multiple presets of settings, on different providers, and switch between these presets. The project is written in PHP, but allows models to execute code not only in PHP, but also in NodeJS and Python. The project can be quickly expanded with other plugins or providers.
+DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, maintain persistent and semantic memory, and make autonomous decisions.
+The platform supports multiple AI providers and presets that can be switched instantly, a plugin system for code execution (PHP, Python, Node.js), agent-to-agent handoff, RAG, and multi-source input. All of this runs within a web interface where administrators manage configurations and users observe or interact with the agent's reasoning process in real time.
 
 <a href="docs/screenshots/welcome.png">
   <img src="docs/screenshots/welcome.png" alt="Main Interface" height="300">
@@ -52,6 +53,7 @@ Built-in support for multiple AI engines with easy preset management:
 - **Claude** (3.5 Sonnet, Opus, Haiku)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
 - **Novita Ai** (Cheap fast models)
+- **Fireworks** (Fast inference provider)
 - **Gemini** (from Google) experimental
 - **Local Models** (Ollama, LM Studio, any OpenAI-compatible API)
 - **Mock Engine** (for testing and development)
@@ -65,6 +67,10 @@ DepthNet enables autonomous AI agents through:
 - **Continuous Reasoning**: Agents operate in persistent thinking loops beyond simple request-response
 - **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
+- **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context)
+- **RAG (Retrieval-Augmented Generation)**: Built-in RAG support with configurable preset, provider, and retrieval mode (standard or associative). RAG data is injected into the system prompt via placeholder
+- **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
+- **Inner Voice**: A secondary preset (on any supported provider) can run alongside the main one. Its output is injected via placeholder (request-response mode) or added to the input pool as an additional source (loop mode)
 - **Self-Motivation**: Internal reward system for goal-oriented behavior
 - **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
 - **Sandbox Isolation**: Code execution in isolated Docker containers for enhanced security
@@ -76,6 +82,10 @@ The platform provides an extensible command system where agents use special tags
 - **Looped Mode**: Continuous autonomous thinking and action execution
 - **Single Mode**: Traditional request-response chatbot interaction
 
+## Input Modes
+- **Single**: Classic single-message input from the user
+- **Pool**: Aggregates messages from multiple sources (user input, inner voice, external signals) into a JSON payload. The pool is cleared after each send. In loop mode, all sources accumulate between cycles
+
 The agent can work both in a cycle and in the usual "question-answer" mode. Naturally, it is better to adjust the system prompt for each use case. You can create presets for different modes.
 
 ## Advanced Plugin System
@@ -86,7 +96,7 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Python Plugin**: Run Python scripts with virtual environment support in local instance
 - **Node.js Plugin**: Execute JavaScript with async/await and npm packages in local instance
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
-- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability. Can be exported and imported
+- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability. Supports two retrieval modes: standard (relevance-based) and associative (finds the most relevant memory, then expands to related ones). Can be exported and imported
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions (use local instance)
 - **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
@@ -337,6 +347,8 @@ The core innovation is the continuous thinking loop powered by Laravel's queue s
   - `[[notepad_content]]` - Persistent memory content (2000 char limit)
   - `[[current_datetime]]` - Real-time timestamp
   - `[[command_instructions]]` - Auto-generated plugin documentation
+  - `[[rag_context]]` - RAG retrieval results injected into the prompt
+  - `[[inner_voice]]` - Output from the inner voice preset (request-response mode)
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -370,6 +382,8 @@ The goal isn't to compete with specialized AI research frameworks, but to provid
 Whether you're a developer curious about AI behavior, a researcher needing a quick experimental environment, or just someone who wants to see what happens when AI can execute real code autonomously - this tool aims to make that accessible. The modular plugin system means you can easily add capabilities I haven't thought of.
 
 If the project helps advance understanding of autonomous AI systems, that's fantastic. If it just satisfies curiosity about how AI agents behave when given real tools - that's valuable too.
+
+What started as a personal experiment has grown into a full-featured platform with RAG, multi-agent workflows, and associative memory
 
 ## Contributing
 

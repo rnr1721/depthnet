@@ -16,6 +16,7 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use Psr\Log\LoggerInterface;
+use Illuminate\Contracts\Cache\Repository as Cache;
 
 class Agent implements AgentInterface
 {
@@ -32,6 +33,7 @@ class Agent implements AgentInterface
         protected ContextBuilderFactoryInterface $contextBuilderFactory,
         protected ChatStatusServiceInterface $chatStatusService,
         protected PluginMetadataServiceInterface $pluginMetadataService,
+        protected Cache $cache,
         protected LoggerInterface $logger
     ) {
     }
@@ -120,6 +122,18 @@ class Agent implements AgentInterface
     {
         $this->pluginRegistry->setCurrentPreset($preset);
         $this->shortcodeManagerService->setDefaultShortcodes();
+        if ($preset->getAgentResultMode() !== 'internal') {
+            return;
+        }
+        $internalAgentResponseCacheKey = sprintf(
+            AgentActionsHandlerInterface::CACHE_KEY,
+            $preset->getId()
+        );
+        $this->shortcodeManagerService->registerShortcode(
+            'agent_command_results',
+            '',
+            fn () => $this->cache->get($internalAgentResponseCacheKey, '')
+        );
     }
 
 }

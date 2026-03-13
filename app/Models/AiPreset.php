@@ -63,6 +63,7 @@ class AiPreset extends Model
         'input_mode' => 'single',
         'is_active' => true,
         'is_default' => false,
+        'agent_result_mode' => 'internal',
         'allow_handoff_to' => true,
         'allow_handoff_from' => true,
         'error_behavior' => 'stop',
@@ -173,6 +174,12 @@ class AiPreset extends Model
     public function hasVoice(): bool
     {
         return !is_null($this->voice_preset_id);
+    }
+
+    public function commandResults(): HasMany
+    {
+        return $this->hasMany(PresetCommandResult::class, 'preset_id')
+                    ->orderBy('created_at', 'asc');
     }
 
     /**

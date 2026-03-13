@@ -6,6 +6,7 @@ use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
+use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
@@ -33,6 +34,7 @@ class Agent implements AgentInterface
         protected ContextBuilderFactoryInterface $contextBuilderFactory,
         protected ChatStatusServiceInterface $chatStatusService,
         protected PluginMetadataServiceInterface $pluginMetadataService,
+        protected CommandResultPoolInterface $commandResultPool,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -125,14 +127,10 @@ class Agent implements AgentInterface
         if ($preset->getAgentResultMode() !== 'internal') {
             return;
         }
-        $internalAgentResponseCacheKey = sprintf(
-            AgentActionsHandlerInterface::CACHE_KEY,
-            $preset->getId()
-        );
         $this->shortcodeManagerService->registerShortcode(
             'agent_command_results',
             '',
-            fn () => $this->cache->get($internalAgentResponseCacheKey, '')
+            fn () => $this->commandResultPool->getFormatted($preset)
         );
     }
 

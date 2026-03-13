@@ -14,8 +14,6 @@ use App\Models\AiPreset;
  */
 interface AgentActionsHandlerInterface
 {
-    public const CACHE_KEY = 'agent:results:preset:%d';
-
     /**
      * Handle successful or error response
      *

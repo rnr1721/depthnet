@@ -15,6 +15,7 @@ use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
+use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
@@ -49,6 +50,7 @@ use App\Services\Agent\CommandLinter;
 use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
+use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\EnvironmentInfoService;
@@ -104,6 +106,7 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->singleton(CommandResultPoolInterface::class, CommandResultPoolService::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
         $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
@@ -135,6 +138,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);
         $this->app->singleton(ShortcodeManagerServiceInterface::class, ShortcodeManagerService::class);
         $this->app->bind(EnvironmentInfoServiceInterface::class, EnvironmentInfoService::class);
+
         $this->app->singleton(AgentJobServiceInterface::class, AgentJobService::class);
         $this->app->singleton(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
         $this->app->bind(CommandPreProcessorInterface::class, CommandPreProcessor::class);

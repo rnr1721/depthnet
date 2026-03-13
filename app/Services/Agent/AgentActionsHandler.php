@@ -10,12 +10,14 @@ use App\Models\Message;
 use App\Services\Agent\DTO\ActionsResponseDTO;
 use App\Services\Agent\DTO\AgentResponseDTO;
 use Psr\Log\LoggerInterface;
+use Illuminate\Contracts\Cache\Repository as Cache;
 
 class AgentActionsHandler implements AgentActionsHandlerInterface
 {
     public function __construct(
         protected Message $messageModel,
         protected AgentActionsInterface $agentActions,
+        protected Cache $cache,
         protected LoggerInterface $logger
     ) {
     }
@@ -92,7 +94,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
 
         $method = $preset->getAgentResultMode();
 
-        $messageContent = $method === 'separate' ? $response->getResponse() : $response->getResponse() . "\n" . $actionsResult->getResult();
+        $messageContent = $method === 'separate' || $method === 'internal' ? $response->getResponse() : $response->getResponse() . "\n" . $actionsResult->getResult();
 
         $message = $this->messageModel->create([
             'role' => $actionsResult->getRole(),
@@ -113,6 +115,17 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             ]);
         }
 
+        if ($method === 'internal' && !empty(trim($actionsResult->getResult()))) {
+            $this->storeResultsToCache($preset, $actionsResult->getResult());
+            $this->messageModel->create([
+                'role' => 'system',
+                'content' => $actionsResult->getResult(),
+                'from_user_id' => null,
+                'preset_id' => $preset->getId(),
+                'is_visible_to_user' => true,
+            ]);
+        }
+
         if ($actionsResult->getSystemMessage()) {
             $this->createSystemMessage(
                 $actionsResult->getSystemMessage(),
@@ -125,6 +138,12 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             'message' => $message
         ];
 
+    }
+
+    protected function storeResultsToCache(AiPreset $preset, string $content): void
+    {
+        $keyName = sprintf(self::CACHE_KEY, $preset->getId());
+        $this->cache->forever($keyName, $content);
     }
 
     /**

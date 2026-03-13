@@ -26,6 +26,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setEnvironmentInfo();
         $this->setRagContext();
         $this->setInnerVoice();
+        $this->setAgentCommandResults();
     }
 
     /**
@@ -97,6 +98,26 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'inner_voice',
             'Inner voice: advice, doubt or intuition from a dedicated preset (requires Voice preset to be configured)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register a stub for the "agent_command_results" shortcode.
+     *
+     * This placeholder acts as a **stub** so that editors and UIs
+     * can recognize the shortcode exists, even before the agent runs.
+     *
+     * The actual value is injected dynamically during the agent's
+     * internal execution cycle. Until then, it resolves to an empty string.
+     *
+     * @return void
+     */
+    private function setAgentCommandResults(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'agent_command_results',
+            'Placeholder for agent command results (filled during internal agent execution)',
             fn () => ''
         );
     }

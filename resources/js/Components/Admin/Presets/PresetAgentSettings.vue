@@ -16,6 +16,7 @@
                 </label>
                 <select :value="modelValue.agent_result_mode"
                     @input="updateField('agent_result_mode', $event.target.value)" :class="inputClass">
+                    <option value="internal">{{ t('p_modal_agent_result_internal') }}</option>
                     <option value="separate">{{ t('p_modal_agent_result_separate') }}</option>
                     <option value="attached">{{ t('p_modal_agent_result_attached') }}</option>
                 </select>

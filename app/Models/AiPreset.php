@@ -22,8 +22,11 @@ class AiPreset extends Model
         'preset_code',
         'preset_code_next',
         'rag_preset_id',
+        'rag_context_limit',
         'voice_preset_id',
+        'voice_context_limit',
         'cycle_prompt_preset_id',
+        'cp_context_limit',
         'default_call_message',
         'before_execution_wait',
         'plugins_disabled',
@@ -47,8 +50,11 @@ class AiPreset extends Model
         'plugin_configs' => 'array',
         'loop_interval' => 'integer',
         'rag_preset_id' => 'integer',
+        'rag_context_limit' => 'integer',
         'voice_preset_id' => 'integer',
+        'voice_context_limit' => 'integer',
         'cycle_prompt_preset_id' => 'integer',
+        'cp_context_limit' => 'integer',
         'max_context_limit' => 'integer',
         'before_execution_wait' => 'integer',
         'allow_handoff_to' => 'boolean',
@@ -72,7 +78,10 @@ class AiPreset extends Model
         'metadata' => '{}',
         'plugin_configs' => '{}',
         'system_prompt' => '',
-        'plugins_disabled' => ''
+        'plugins_disabled' => '',
+        'rag_context_limit' => 5,
+        'voice_context_limit' => 4,
+        'cp_context_limit' => 5,
     ];
 
     /**
@@ -397,6 +406,36 @@ class AiPreset extends Model
     public function getMaxContextLimit(): int
     {
         return $this->max_context_limit;
+    }
+
+    /**
+     * Context limit for RAG
+     *
+     * @return integer
+     */
+    public function getRagContextLimit(): int
+    {
+        return $this->rag_context_limit;
+    }
+
+    /**
+     * Context limit for Inner Voice in single mode
+     *
+     * @return integer
+     */
+    public function getVoiceContextLimit(): int
+    {
+        return $this->voice_context_limit;
+    }
+
+    /**
+     * Context limit for Inner Voice in loop mode
+     *
+     * @return integer
+     */
+    public function getCpContextLimit(): int
+    {
+        return $this->cp_context_limit;
     }
 
     /**

@@ -48,14 +48,16 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
      */
     private bool $debug = false;
 
-    private array $allowedTargets = [
+    private const ALLOWED_TARGETS = [
         'single' => [
             'field' => 'voice_preset_id',
-            'check_method' => 'hasVoice'
+            'check_method' => 'hasVoice',
+            'context_limit_method' => 'getVoiceContextLimit'
         ],
         'cycle' => [
             'field' => 'cycle_prompt_preset_id',
-            'check_method' => 'hasCyclePrompt'
+            'check_method' => 'hasCyclePrompt',
+            'context_limit_method' => 'getCpContextLimit'
         ]
     ];
 
@@ -78,7 +80,7 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
     {
         try {
 
-            if (!isset($this->allowedTargets[$target])) {
+            if (!isset(self::ALLOWED_TARGETS[$target])) {
                 throw new InvalidArgumentException('Invalid internal voice target');
             }
 
@@ -105,7 +107,7 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
                 return $this->generateEmptyResponse($preset, $voicePreset);
             }
 
-            $voice = $this->callVoice($voicePreset, $context);
+            $voice = $this->callVoice($voicePreset, $preset, $context, $target);
 
             $this->logger->debug('InnerVoice enrichment (' . $dbField . ')', [
                 'voice_preset' => $voicePreset->getName(),
@@ -141,20 +143,26 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
      */
     protected function getDbField(string $target): string
     {
-        return $this->allowedTargets[$target]['field'];
+        return self::ALLOWED_TARGETS[$target]['field'];
     }
 
     /**
      * Call the voice preset's engine with recent conversation context
      * and return its raw response as the voice content.
+     *
+     * @param AiPreset $voicePreset Voice preset
+     * @param AiPreset $mainPreset Main (source) preset
+     * @param array $context
+     * @param string $target
+     * @return string|null
      */
-    protected function callVoice(AiPreset $voicePreset, array $context): ?string
+    protected function callVoice(AiPreset $voicePreset, AiPreset $mainPreset, array $context, string $target): ?string
     {
+        $contextLimit = $this->getPresetLimit($mainPreset, $target);
         try {
             $recentMessages = collect($context)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command'], true))
-                ->values()
-                ->slice(-4)
+                ->slice(-$contextLimit)
                 ->values();
 
             $this->debugLog('recent messages for voice', ['count' => $recentMessages->count()]);
@@ -220,9 +228,34 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
         }
     }
 
+    /**
+     * Get context limit for process
+     *
+     * @param AiPreset $mainPreset Main (source) preset
+     * @param string $target
+     * @return int
+     */
+    private function getPresetLimit(AiPreset $mainPreset, string $target): int
+    {
+        $method = self::ALLOWED_TARGETS[$target]['context_limit_method'];
+
+        if (!method_exists($mainPreset, $method)) {
+            return 1;
+        }
+
+        return max(1, $mainPreset->$method());
+    }
+
+    /**
+     * Has voice?
+     *
+     * @param AiPreset $mainPreset Main (source) preset
+     * @param string $target
+     * @return boolean
+     */
     private function hasVoice(AiPreset $preset, string $target): bool
     {
-        $method = $this->allowedTargets[$target]['check_method'];
+        $method = self::ALLOWED_TARGETS[$target]['check_method'];
 
         if (!method_exists($preset, $method)) {
             return false;

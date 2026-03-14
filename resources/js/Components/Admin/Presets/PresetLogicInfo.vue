@@ -231,6 +231,22 @@
                 </Transition>
             </div>
 
+            <!-- Rag context limit -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_rag_context_limit') }}
+                </label>
+                <input :value="modelValue.rag_context_limit"
+                    @input="updateField('rag_context_limit', parseNumber($event.target.value))" type="number" min="4"
+                    max="20" step="1" :class="inputClass" :placeholder="t('p_modal_rag_context_limit_placeholder')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_rag_context_limit_desc') }}
+                </p>
+                <div v-if="errors.rag_context_limit" class="text-red-500 text-xs mt-1">
+                    {{ errors.rag_context_limit }}
+                </div>
+            </div>
+
             <!-- Inner Voice -->
             <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
                 <div class="flex items-center justify-between mb-1">
@@ -310,6 +326,22 @@
                 </Transition>
             </div>
 
+            <!-- Voice context limit -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_voice_context_limit') }}
+                </label>
+                <input :value="modelValue.voice_context_limit"
+                    @input="updateField('voice_context_limit', parseNumber($event.target.value))" type="number" min="4"
+                    max="20" step="1" :class="inputClass" :placeholder="t('p_modal_voice_context_limit_placeholder')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_voice_context_limit_desc') }}
+                </p>
+                <div v-if="errors.voice_context_limit" class="text-red-500 text-xs mt-1">
+                    {{ errors.voice_context_limit }}
+                </div>
+            </div>
+
             <!-- Cycle Inner Voice -->
             <div class="mt-6">
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
@@ -328,6 +360,22 @@
                 </p>
                 <div v-if="errors.cycle_prompt_preset_id" class="text-red-500 text-xs mt-1">
                     {{ errors.cycle_prompt_preset_id }}
+                </div>
+            </div>
+
+            <!-- Cycle prompt context limit -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_cp_context_limit') }}
+                </label>
+                <input :value="modelValue.cp_context_limit"
+                    @input="updateField('cp_context_limit', parseNumber($event.target.value))" type="number" min="4"
+                    max="20" step="1" :class="inputClass" :placeholder="t('p_modal_cp_context_limit_placeholder')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_cp_context_limit_desc') }}
+                </p>
+                <div v-if="errors.cp_context_limit" class="text-red-500 text-xs mt-1">
+                    {{ errors.cp_context_limit }}
                 </div>
             </div>
 

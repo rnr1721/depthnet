@@ -56,7 +56,7 @@ class RagContextEnricher implements RagContextEnricherInterface
                 return null;
             }
 
-            $query = $this->formulateQuery($ragPreset, $context);
+            $query = $this->formulateQuery($ragPreset, $preset, $context);
 
             if (empty($query)) {
                 $this->debugLog('empty query, skipping search');
@@ -97,13 +97,22 @@ class RagContextEnricher implements RagContextEnricherInterface
         }
     }
 
-    protected function formulateQuery(AiPreset $ragPreset, array $context): ?string
+    /**
+     * Formulate query
+     *
+     * @param AiPreset $ragPreset Preset for RAG
+     * @param AiPreset $mainPreset Main preset
+     * @param array $context Context
+     * @return string|null
+     */
+    protected function formulateQuery(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?string
     {
         try {
+            $contextLimit = max(1, (int) $mainPreset->getRagContextLimit());
             $recentMessages = collect($context)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command']))
                 ->values()
-                ->slice(-4)
+                ->slice(-$contextLimit)
                 ->values();
 
             $this->debugLog('recent messages for query', ['count' => $recentMessages->count()]);

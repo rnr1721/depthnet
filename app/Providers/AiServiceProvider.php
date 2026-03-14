@@ -39,6 +39,7 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
+use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
@@ -82,6 +83,7 @@ use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
+use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetSandboxService;
@@ -97,6 +99,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
 use App\Services\Agent\Voice\InnerVoiceEnricher;
+use App\Services\Agent\Workspace\WorkspaceService;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -128,6 +131,8 @@ class AiServiceProvider extends ServiceProvider
                 $app->make(VectorMemoryAssociativeService::class),
             );
         });
+
+        $this->app->bind(WorkspaceServiceInterface::class, WorkspaceService::class);
 
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
 
@@ -254,6 +259,7 @@ class AiServiceProvider extends ServiceProvider
             DopaminePlugin::class,
             MoodPlugin::class,
             PuppeteerBrowserPlugin::class,
+            WorkspacePlugin::class,
             GoalPlugin::class,
             CodeCraftPlugin::class,
         ];

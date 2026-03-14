@@ -27,6 +27,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setRagContext();
         $this->setInnerVoice();
         $this->setAgentCommandResults();
+        $this->setWorkspace();
     }
 
     /**
@@ -98,6 +99,21 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'inner_voice',
             'Inner voice: advice, doubt or intuition from a dedicated preset (requires Voice preset to be configured)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register the [[workspace]] placeholder with an empty stub.
+     * The real implementation is provided by WorkspacePlugin::pluginReady()
+     * when the plugin is active. This stub ensures the placeholder is always
+     * defined even if the plugin is disabled or not registered.
+     */
+    private function setWorkspace(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'workspace',
+            'Persistent key-value scratchpad contents for this preset. Updated each cycle via [workspace] commands.',
             fn () => ''
         );
     }

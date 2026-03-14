@@ -73,4 +73,12 @@ interface GoalServiceInterface
      * @return string
      */
     public function getActiveGoalsForContext(AiPreset $preset): string;
+
+    /**
+     * Clear all goals for preset
+     *
+     * @param AiPreset $preset Preset
+     * @return void
+     */
+    public function clear(AiPreset $preset);
 }

@@ -90,7 +90,43 @@
                                 {{ t('chat_clear_vector_memory') || 'Clear vector memory' }}
                             </span>
                         </label>
+
+                        <!-- Clear workspace -->
+                        <label class="flex items-center space-x-3 cursor-pointer">
+                            <input type="checkbox" v-model="clearWorkspace" :class="[
+                                'w-4 h-4 rounded border-2 transition-colors',
+                                'focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                isDark
+                                    ? 'bg-gray-700 border-gray-600 text-indigo-600 focus:ring-offset-gray-800'
+                                    : 'bg-white border-gray-300 text-indigo-600'
+                            ]">
+                            <span :class="[
+                                'text-sm font-medium',
+                                isDark ? 'text-gray-200' : 'text-gray-700'
+                            ]">
+                                {{ t('chat_clear_workspace') || 'Clear workspace' }}
+                            </span>
+                        </label>
+
+                        <!-- Clear goals -->
+                        <label class="flex items-center space-x-3 cursor-pointer">
+                            <input type="checkbox" v-model="clearGoals" :class="[
+                                'w-4 h-4 rounded border-2 transition-colors',
+                                'focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                isDark
+                                    ? 'bg-gray-700 border-gray-600 text-indigo-600 focus:ring-offset-gray-800'
+                                    : 'bg-white border-gray-300 text-indigo-600'
+                            ]">
+                            <span :class="[
+                                'text-sm font-medium',
+                                isDark ? 'text-gray-200' : 'text-gray-700'
+                            ]">
+                                {{ t('chat_clear_goals') || 'Clear goals' }}
+                            </span>
+                        </label>
+
                     </div>
+
 
                     <!-- Warning -->
                     <div v-if="hasAnySelected" :class="[
@@ -137,7 +173,8 @@
                         <span v-if="isClearing" class="flex items-center space-x-2">
                             <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
-                                    stroke-width="4"></circle>
+                                    stroke-width="4">
+                                </circle>
                                 <path class="opacity-75" fill="currentColor"
                                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
                                 </path>
@@ -171,9 +208,11 @@ const emit = defineEmits(['close', 'confirm']);
 const clearMessages = ref(true);
 const clearMemory = ref(true);
 const clearVectorMemory = ref(true);
+const clearWorkspace = ref(true);
+const clearGoals = ref(true);
 
 const hasAnySelected = computed(() =>
-    clearMessages.value || clearMemory.value || clearVectorMemory.value
+    clearMessages.value || clearMemory.value || clearVectorMemory.value || clearWorkspace.value || clearGoals.value
 );
 
 /**
@@ -186,6 +225,8 @@ function closeModal() {
         clearMessages.value = true;
         clearMemory.value = true;
         clearVectorMemory.value = true;
+        clearWorkspace.value = true;
+        clearGoals.value = true;
     }, 300);
 }
 
@@ -198,7 +239,9 @@ function confirmClear() {
     emit('confirm', {
         clearMessages: clearMessages.value,
         clearMemory: clearMemory.value,
-        clearVectorMemory: clearVectorMemory.value
+        clearVectorMemory: clearVectorMemory.value,
+        clearWorkspace: clearWorkspace.value,
+        clearGoals: clearGoals.value
     });
 }
 

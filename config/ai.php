@@ -1758,6 +1758,7 @@ return [
             'node',
             'python',
             'codecraft',
+            'workspace',
             'browser',
             'goal',
             'mood'
@@ -1883,6 +1884,10 @@ return [
 
             'codecraft' => [
                 'enabled' => false,
+            ],
+
+            'workspace' => [
+                'enabled' => true,
             ],
 
             'browser' => [

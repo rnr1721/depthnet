@@ -97,6 +97,8 @@ export default {
   chat_clear_messages: "Очистить сообщения чата",
   chat_clear_memory: "Очистить память",
   chat_clear_vector_memory: "Очистить векторную память",
+  chat_clear_workspace: "Очистить workspace",
+  chat_clear_goals: "Очистить цели",
   chat_clear_warning: "Это действие нельзя отменить.",
   chat_clear_selected: "Очистить выбранное",
   chat_clearing: "Очищаем...",

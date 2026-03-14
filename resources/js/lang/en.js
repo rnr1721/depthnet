@@ -97,6 +97,8 @@ export default {
   chat_clear_messages: "Clear chat messages",
   chat_clear_memory: "Clear memory",
   chat_clear_vector_memory: "Clear vector memory",
+  chat_clear_workspace: "Clear workspace",
+  chat_clear_goals: "Clear goals",
   chat_clear_warning: "This action cannot be undone.",
   chat_clear_selected: "Clear Selected",
   chat_clearing: "Clearing...",

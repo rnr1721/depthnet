@@ -13,7 +13,11 @@ trait AiModelPromptTrait
         if (empty($initialMessage)) {
             $initialMessage = $this->config['system_prompt'] ?? '';
         }
-        $finalMessage = $request->getShortcodeManager()->processShortcodes($initialMessage);
+        $finalMessage = $request->getShortcodeManager()
+        ->processShortcodes(
+            $initialMessage,
+            $request->getPreset()->getId()
+        );
         return $finalMessage;
     }
 }

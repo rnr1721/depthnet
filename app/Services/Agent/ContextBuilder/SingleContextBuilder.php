@@ -56,7 +56,8 @@ class SingleContextBuilder implements ContextBuilderInterface
         // If the preset doesn't use [[rag_context]], nothing happens.
         $ragBlock = $this->ragEnricher->enrich($preset, $context);
 
-        $this->shortcodeManager->registerShortcode(
+        $this->shortcodeManager->registerShortcodeForPreset(
+            $preset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this request',
             fn () => $ragBlock ?? ''
@@ -66,7 +67,8 @@ class SingleContextBuilder implements ContextBuilderInterface
         $voiceBlock = $this->voiceEnricher->enrich($preset, $context, 'single');
         if ($voiceBlock->getResponse()) {
             $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getVoicePreset());
-            $this->shortcodeManager->registerShortcode(
+            $this->shortcodeManager->registerShortcodeForPreset(
+                $preset->getId(),
                 'inner_voice',
                 'Inner voice: advice, doubt or intuition injected before each request',
                 fn () => $voiceText

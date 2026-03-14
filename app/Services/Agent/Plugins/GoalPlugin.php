@@ -5,6 +5,7 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -36,6 +37,7 @@ class GoalPlugin implements CommandPluginInterface
 
     public function __construct(
         protected GoalServiceInterface $goalService,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
@@ -236,12 +238,14 @@ class GoalPlugin implements CommandPluginInterface
 
     public function pluginReady(): void
     {
+        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
         $this->placeholderService->registerDynamic(
             'active_goals',
             'Currently active goals with last progress note',
             function () {
                 return $this->goalService->getActiveGoalsForContext($this->preset);
-            }
+            },
+            $scope
         );
     }
 

@@ -61,7 +61,8 @@ class CycleContextBuilder implements ContextBuilderInterface
         // If the preset doesn't use [[rag_context]], nothing happens.
         $ragBlock = $this->ragEnricher->enrich($preset, $context);
 
-        $this->shortcodeManager->registerShortcode(
+        $this->shortcodeManager->registerShortcodeForPreset(
+            $preset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this thinking cycle',
             fn () => $ragBlock ?? ''

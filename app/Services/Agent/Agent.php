@@ -127,7 +127,8 @@ class Agent implements AgentInterface
         if ($preset->getAgentResultMode() !== 'internal') {
             return;
         }
-        $this->shortcodeManagerService->registerShortcode(
+        $this->shortcodeManagerService->registerShortcodeForPreset(
+            $preset->getId(),
             'agent_command_results',
             '',
             fn () => $this->commandResultPool->getFormatted($preset)

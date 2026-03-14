@@ -5,6 +5,7 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -28,6 +29,7 @@ class MemoryPlugin implements CommandPluginInterface
 
     public function __construct(
         protected MemoryServiceInterface $memoryService,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
@@ -437,9 +439,10 @@ class MemoryPlugin implements CommandPluginInterface
      */
     public function pluginReady(): void
     {
+        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
         $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () {
             return $this->memoryService->getFormattedMemory($this->preset);
-        });
+        }, $scope);
 
     }
 

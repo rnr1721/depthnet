@@ -5,12 +5,14 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 
 class ShortcodeManagerService implements ShortcodeManagerServiceInterface
 {
     public function __construct(
         protected PlaceholderServiceInterface $placeholderService,
+        protected ShortcodeScopeResolverServiceInterface $scopeResolver,
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
         protected EnvironmentInfoServiceInterface $environmentInfoService
     ) {
@@ -32,8 +34,6 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
 
     /**
      * Register current date and time shortcode
-     *
-     * @return void
      */
     private function setDateTime(): void
     {
@@ -44,8 +44,6 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
 
     /**
      * Register plugin command instructions shortcode
-     *
-     * @return void
      */
     private function setCommandBuilderInstructions(): void
     {
@@ -56,8 +54,6 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
 
     /**
      * Register environment information shortcode
-     *
-     * @return void
      */
     private function setEnvironmentInfo(): void
     {
@@ -67,15 +63,9 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     }
 
     /**
-     * Register RAG context placeholder.
-     *
-     * Registered here so the system knows it exists and shows it in the
-     * available placeholders UI. The actual content is injected by
-     * CycleContextBuilder / SingleContextBuilder before each request
-     * via registerShortcode('rag_context', ...) which overwrites this stub.
-     * If the preset has no RAG configured the placeholder resolves to ''.
-     *
-     * @return void
+     * Register RAG context placeholder stub (global).
+     * The actual content is injected per-preset by CycleContextBuilder
+     * via registerShortcodeForPreset() which places it in the preset scope.
      */
     private function setRagContext(): void
     {
@@ -87,12 +77,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     }
 
     /**
-     * Register inner voice placeholder.
-     *
-     * Similar to RAG context, this is a stub registered by default and meant to be overwritten by presets that support it.
-     * The actual content is injected before each request by the preset's CycleContextBuilder if the preset has inner voice enabled.
-     *
-     * @return void
+     * Register inner voice placeholder stub (global).
+     * Actual content is injected per-preset when the preset has inner voice enabled.
      */
     private function setInnerVoice(): void
     {
@@ -104,10 +90,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     }
 
     /**
-     * Register the [[workspace]] placeholder with an empty stub.
-     * The real implementation is provided by WorkspacePlugin::pluginReady()
-     * when the plugin is active. This stub ensures the placeholder is always
-     * defined even if the plugin is disabled or not registered.
+     * Register the [[workspace]] placeholder stub (global).
+     * The real implementation is provided per-preset by WorkspacePlugin::pluginReady().
      */
     private function setWorkspace(): void
     {
@@ -119,15 +103,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     }
 
     /**
-     * Register a stub for the "agent_command_results" shortcode.
-     *
-     * This placeholder acts as a **stub** so that editors and UIs
-     * can recognize the shortcode exists, even before the agent runs.
-     *
-     * The actual value is injected dynamically during the agent's
-     * internal execution cycle. Until then, it resolves to an empty string.
-     *
-     * @return void
+     * Register a stub for the "agent_command_results" shortcode (global).
+     * The actual value is injected dynamically during the agent's execution cycle.
      */
     private function setAgentCommandResults(): void
     {
@@ -149,45 +126,84 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     /**
      * @inheritDoc
      */
-    public function unregisterShortcode(string $key): bool
+    public function registerShortcodeForPreset(
+        int $presetId,
+        string $key,
+        string $description,
+        callable $callback
+    ): void {
+        $scope = $this->scopeResolver->preset($presetId);
+        $this->placeholderService->registerDynamic($key, $description, $callback, $scope);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function unregisterShortcode(string $key, ?int $presetId = null): bool
     {
-        $this->placeholderService->removePlaceholder($key);
+        $scope = $presetId !== null
+            ? $this->scopeResolver->preset($presetId)
+            : $this->scopeResolver->global();
+
+        $this->placeholderService->removePlaceholder($key, $scope);
+
         return true;
     }
 
     /**
      * @inheritDoc
      */
-    public function getRegisteredShortcodes(): array
+    public function getRegisteredShortcodes(?int $presetId = null): array
     {
-        return $this->placeholderService->getPlaceholders();
+        return $this->placeholderService->getPlaceholders(
+            $this->scopeResolver->buildScopes($presetId)
+        );
     }
 
     /**
      * @inheritDoc
      */
-    public function hasShortcode(string $key): bool
+    public function hasShortcode(string $key, ?int $presetId = null): bool
     {
-        return $this->placeholderService->hasPlaceholder($key);
+        return $this->placeholderService->hasPlaceholder(
+            $key,
+            $this->scopeResolver->buildScopes($presetId)
+        );
     }
 
     /**
      * @inheritDoc
      */
-    public function processShortcodes(string $text): string
+    public function processShortcodes(string $text, ?int $presetId = null): string
     {
-        return $this->placeholderService->processContentWithDynamic($text);
+        return $this->placeholderService->processContentWithDynamic(
+            $text,
+            $this->scopeResolver->buildScopes($presetId)
+        );
     }
 
     /**
      * @inheritDoc
      */
-    public function getShortcodeValue(string $key): ?string
+    public function getShortcodeValue(string $key, ?int $presetId = null): ?string
     {
         try {
-            return $this->placeholderService->getPlaceholderContent($key);
+            return $this->placeholderService->getPlaceholderContent(
+                $key,
+                $this->scopeResolver->buildScopes($presetId)
+            );
         } catch (\Exception $e) {
             return null;
         }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function clearPresetShortcodes(int $presetId): void
+    {
+        $this->placeholderService->clear(
+            $this->scopeResolver->preset($presetId)
+        );
     }
 }

@@ -35,6 +35,7 @@ use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\Rag\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
@@ -93,6 +94,7 @@ use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\Rag\RagContextEnricher;
 use App\Services\Agent\ShortcodeManagerService;
+use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
 use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
@@ -140,6 +142,7 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
+        $this->app->singleton(ShortcodeScopeResolverServiceInterface::class, ShortcodeScopeResolverService::class);
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);
         $this->app->singleton(ShortcodeManagerServiceInterface::class, ShortcodeManagerService::class);
         $this->app->bind(EnvironmentInfoServiceInterface::class, EnvironmentInfoService::class);

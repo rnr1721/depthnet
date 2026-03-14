@@ -4,6 +4,7 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
@@ -40,6 +41,7 @@ class WorkspacePlugin implements CommandPluginInterface
 
     public function __construct(
         protected WorkspaceServiceInterface $workspaceService,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
@@ -123,10 +125,12 @@ class WorkspacePlugin implements CommandPluginInterface
 
     public function pluginReady(): void
     {
+        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
         $this->placeholderService->registerDynamic(
             'workspace',
             'Current workspace — all persistent key-value entries for this preset',
-            fn () => $this->workspaceService->getFormatted($this->preset)
+            fn () => $this->workspaceService->getFormatted($this->preset),
+            $scope
         );
     }
 

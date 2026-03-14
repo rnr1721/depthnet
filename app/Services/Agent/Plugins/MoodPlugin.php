@@ -5,6 +5,7 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -97,6 +98,7 @@ class MoodPlugin implements CommandPluginInterface
     public const PLUGIN_NAME = 'mood';
 
     public function __construct(
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected PluginMetadataServiceInterface $pluginMetadataService
     ) {
@@ -524,9 +526,10 @@ class MoodPlugin implements CommandPluginInterface
 
     public function pluginReady(): void
     {
+        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
         $this->placeholderService->registerDynamic('mood', 'Mood state', function () {
             return $this->getMeta('current', 'neutral');
-        });
+        }, $scope);
 
     }
 

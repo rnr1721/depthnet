@@ -6,6 +6,7 @@ use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -32,6 +33,7 @@ class AgentPlugin implements CommandPluginInterface
     public function __construct(
         protected Container $container,
         protected LoggerInterface $logger,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected PresetServiceInterface $presetService
     ) {
@@ -465,10 +467,10 @@ class AgentPlugin implements CommandPluginInterface
 
     public function pluginReady(): void
     {
+        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
         $this->placeholderService->registerDynamic('agent', 'Agent status', function () {
             return $this->status('');
-        });
-
+        }, $scope);
     }
 
     public function getSelfClosingTags(): array

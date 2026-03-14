@@ -5,6 +5,7 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -29,6 +30,7 @@ class DopaminePlugin implements CommandPluginInterface
 
     public function __construct(
         protected LoggerInterface $logger,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected PluginMetadataServiceInterface $pluginMetadata
     ) {
@@ -422,10 +424,10 @@ class DopaminePlugin implements CommandPluginInterface
 
     public function pluginReady(): void
     {
+        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
         $this->placeholderService->registerDynamic('dopamine_level', 'Level of model dopamine', function () {
             return $this->getCurrentLevel();
-        });
-
+        }, $scope);
     }
 
     private function setCurrentLevel(int $newLevel): void

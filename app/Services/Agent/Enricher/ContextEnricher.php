@@ -1,21 +1,20 @@
 <?php
 
-namespace App\Services\Agent\Voice;
+namespace App\Services\Agent\Enricher;
 
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\Enricher\ContextEnricherInterface;
+use App\Contracts\Agent\Enricher\EnricherResponseInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
-use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
-use App\Contracts\Agent\Voice\InnerVoiceResponseInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
-use App\Services\Agent\Voice\DTO\InnerVoiceDTO;
 use Nette\InvalidArgumentException;
 use Psr\Log\LoggerInterface;
 
@@ -42,7 +41,7 @@ use Psr\Log\LoggerInterface;
  * The voice preset can use any engine — a cheap fast model works well
  * since the output is short by design.
  */
-class InnerVoiceEnricher implements InnerVoiceEnricherInterface
+class ContextEnricher implements ContextEnricherInterface
 {
     /**
      * Enable verbose debug logging.
@@ -80,7 +79,7 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
     /**
      * @inheritDoc
      */
-    public function enrich(AiPreset $preset, array $context, string $target): InnerVoiceResponseInterface
+    public function enrich(AiPreset $preset, array $context, ?string $target = null): EnricherResponseInterface
     {
         try {
 
@@ -118,7 +117,7 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
                 'length'       => mb_strlen($voice ?? ''),
             ]);
 
-            return new InnerVoiceDTO($preset, $voicePreset, $voice);
+            return new EnricherResponse($preset, $voicePreset, $voice);
 
         } catch (\Throwable $e) {
             // Voice errors must never crash the main agent cycle
@@ -164,6 +163,17 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
     {
         $contextLimit = $this->getPresetLimit($mainPreset, $target);
         try {
+            $this->pluginRegistry->applyPreset($voicePreset);
+
+            if ($voicePreset->getAgentResultMode() === 'internal') {
+                $this->shortcodeManagerService->registerShortcodeForPreset(
+                    $voicePreset->getId(),
+                    'agent_command_results',
+                    '',
+                    fn () => $this->commandResultPool->getFormatted($voicePreset)
+                );
+            }
+
             $recentMessages = collect($context)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command'], true))
                 ->slice(-$contextLimit)
@@ -178,15 +188,6 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
             $conversationText = $recentMessages
                 ->map(fn ($m) => strtoupper($m['role']) . ': ' . mb_substr($m['content'] ?? '', 0, 500))
                 ->implode("\n");
-
-            if ($voicePreset->getAgentResultMode() === 'internal') {
-                $this->shortcodeManagerService->registerShortcodeForPreset(
-                    $voicePreset->getId(),
-                    'agent_command_results',
-                    '',
-                    fn () => $this->commandResultPool->getFormatted($voicePreset)
-                );
-            }
 
             $engine = $this->presetRegistry->createInstance($voicePreset->getId());
 
@@ -222,15 +223,10 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
                 return null;
             }
 
-            $this->pluginRegistry->applyPreset($voicePreset);
-            try {
-                $actionResult = $this->agentActionsHandler->handleResponse($response, $voicePreset);
-                $result = $actionResult->hasCommands()
-                    ? ($actionResult->getSystemMessage() ?? '')
-                    : $voice;
-            } finally {
-                $this->pluginRegistry->applyPreset($mainPreset);
-            }
+            $actionResult = $this->agentActionsHandler->handleResponse($response, $voicePreset);
+            $result = $actionResult->hasCommands()
+                ? ($actionResult->getSystemMessage() ?? '')
+                : $voice;
 
             $this->debugLog('Internal Voice response:'. $result);
 
@@ -241,6 +237,8 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
                 'trace' => $e->getTraceAsString(),
             ]);
             return null;
+        } finally {
+            $this->pluginRegistry->applyPreset($mainPreset);
         }
     }
 
@@ -280,9 +278,9 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
         return (bool) $preset->$method();
     }
 
-    private function generateEmptyResponse(AiPreset $mainPreset, ?AiPreset $voicePreset = null): InnerVoiceResponseInterface
+    private function generateEmptyResponse(AiPreset $mainPreset, ?AiPreset $voicePreset = null): EnricherResponseInterface
     {
-        return new InnerVoiceDTO($mainPreset, $voicePreset);
+        return new EnricherResponse($mainPreset, $voicePreset);
     }
 
     private function debugLog(string $message, array $context = []): void

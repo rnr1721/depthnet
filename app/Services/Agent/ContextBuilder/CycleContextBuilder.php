@@ -3,9 +3,9 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
-use App\Contracts\Agent\Rag\RagContextEnricherInterface;
+use App\Contracts\Agent\Enricher\ContextEnricherInterface;
+use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
-use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
@@ -28,7 +28,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected Message $messageModel,
         protected OptionsServiceInterface $optionsService,
         protected RagContextEnricherInterface $ragEnricher,
-        protected InnerVoiceEnricherInterface $innerVoiceEnricher,
+        protected ContextEnricherInterface $contextEnricher,
         protected InputPoolServiceInterface $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
         protected AuthServiceInterface $authService,
@@ -116,7 +116,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         $source = $this->getCycleStartInstruction();
         // If pool mode, flush everything that has accumulated (both self_signal and from the user)
         if ($preset->input_mode === 'pool') {
-            $voicePreset = $this->innerVoiceEnricher->getVoicePreset($preset, 'cycle');
+            $voicePreset = $this->contextEnricher->getVoicePreset($preset, 'cycle');
 
             if ($voicePreset) {
                 $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), '');
@@ -140,10 +140,10 @@ class CycleContextBuilder implements ContextBuilderInterface
     protected function resolveContinueInstruction(AiPreset $preset, array $context): string
     {
         // First, put self_signal into the pool if there is a cycle prompt
-        $dynamic = $this->innerVoiceEnricher->enrich($preset, $context, 'cycle');
-        $voicePreset = $dynamic->getVoicePreset();
+        $dynamic = $this->contextEnricher->enrich($preset, $context, 'cycle');
+        $voicePreset = $dynamic->getPreset();
         if ($dynamic->getResponse() !== null && $preset->input_mode === 'pool' && $voicePreset) {
-            $this->inputPoolService->add($preset->getId(), $dynamic->getVoicePreset()->getName(), $dynamic->getResponse());
+            $this->inputPoolService->add($preset->getId(), $dynamic->getPreset()->getName(), $dynamic->getResponse());
         }
 
         // If pool mode, flush everything that has accumulated (both self_signal and from the user)

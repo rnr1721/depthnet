@@ -17,6 +17,8 @@ use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\Enricher\ContextEnricherInterface;
+use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
@@ -33,13 +35,11 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
-use App\Contracts\Agent\Rag\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
-use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
@@ -55,6 +55,8 @@ use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
+use App\Services\Agent\Enricher\ContextEnricher;
+use App\Services\Agent\Enricher\RagContextEnricher;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
 use App\Services\Agent\Providers\ClaudeModel;
@@ -92,7 +94,6 @@ use App\Services\Agent\PresetService;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
-use App\Services\Agent\Rag\RagContextEnricher;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
@@ -100,7 +101,6 @@ use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
-use App\Services\Agent\Voice\InnerVoiceEnricher;
 use App\Services\Agent\Workspace\WorkspaceService;
 use Illuminate\Cache\CacheManager;
 
@@ -138,7 +138,7 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
 
-        $this->app->singleton(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
+        $this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);

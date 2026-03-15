@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Services\Agent\Voice\DTO;
+namespace App\Services\Agent\Enricher;
 
-use App\Contracts\Agent\Voice\InnerVoiceResponseInterface;
+use App\Contracts\Agent\Enricher\EnricherResponseInterface;
 use App\Models\AiPreset;
 
-class InnerVoiceDTO implements InnerVoiceResponseInterface
+class EnricherResponse implements EnricherResponseInterface
 {
     public function __construct(
         private AiPreset $mainPreset,
@@ -25,7 +25,7 @@ class InnerVoiceDTO implements InnerVoiceResponseInterface
     /**
      * @inheritDoc
      */
-    public function getVoicePreset(): ?AiPreset
+    public function getPreset(): ?AiPreset
     {
         return $this->voicePreset;
     }

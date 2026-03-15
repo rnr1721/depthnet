@@ -6,10 +6,10 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Carbon\Carbon;
 
 /**
@@ -25,7 +25,6 @@ use Carbon\Carbon;
 class MoodPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -140,7 +139,7 @@ class MoodPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Mood plugin is disabled.";
@@ -151,7 +150,7 @@ class MoodPlugin implements CommandPluginInterface
         $command = $parts[0] ?? 'get';
         $args = $parts[1] ?? '';
 
-        return $this->callMethod($command, $args);
+        return $this->callMethod($command, $args, $preset);
     }
 
     /**
@@ -274,17 +273,7 @@ class MoodPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            // Test basic functionality
-            $currentMood = $this->getMeta('current', 'neutral');
-            return isset(self::MOODS[$currentMood]);
-        } catch (\Exception $e) {
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     // ============================================
@@ -295,9 +284,10 @@ class MoodPlugin implements CommandPluginInterface
      * Set the mood
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function set(string $content): string
+    public function set(string $content, AiPreset $preset): string
     {
         $mood = strtolower(trim($content));
 
@@ -309,18 +299,21 @@ class MoodPlugin implements CommandPluginInterface
             return "Unknown mood: '{$mood}'. Available moods:\n" . $this->formatMoodList();
         }
 
-        $previousMood = $this->getMeta('current', 'neutral');
+        $previousMood = $this->getMeta($preset, 'current', 'neutral');
         $now = Carbon::now();
 
         // Maintaining the new mood
-        $this->updateMeta([
+        $this->updateMeta(
+            $preset,
+            [
             'current' => $mood,
             'changed_at' => $now->toISOString(),
             'previous' => $previousMood
-        ]);
+        ]
+        );
 
         // Add to history
-        $this->addToHistory($mood, $previousMood, $now);
+        $this->addToHistory($preset, $mood, $previousMood, $now);
 
         $moodData = self::MOODS[$mood];
         return "🎭 Mood set to: **{$moodData['name']}** {$moodData['emoji']}\n" .
@@ -332,12 +325,13 @@ class MoodPlugin implements CommandPluginInterface
      * Get current mood
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function get(string $content): string
+    public function get(string $content, AiPreset $preset): string
     {
-        $currentMood = $this->getMeta('current', 'neutral');
-        $changedAt = $this->getMeta('changed_at');
+        $currentMood = $this->getMeta($preset, 'current', 'neutral');
+        $changedAt = $this->getMeta($preset, 'changed_at');
 
         $moodData = self::MOODS[$currentMood];
 
@@ -357,11 +351,12 @@ class MoodPlugin implements CommandPluginInterface
      * List of available moods
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function list(string $content): string
+    public function list(string $content, AiPreset $preset): string
     {
-        $currentMood = $this->getMeta('current', 'neutral');
+        $currentMood = $this->getMeta($preset, 'current', 'neutral');
 
         $response = "🎭 **Available Moods:**\n\n";
 
@@ -379,24 +374,28 @@ class MoodPlugin implements CommandPluginInterface
      * Reset mood
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function reset(string $content): string
+    public function reset(string $content, AiPreset $preset): string
     {
-        $previousMood = $this->getMeta('current', 'neutral');
+        $previousMood = $this->getMeta($preset, 'current', 'neutral');
         $now = Carbon::now();
 
         if ($previousMood === 'neutral') {
             return "🎭 Mood is already neutral " . self::MOODS['neutral']['emoji'];
         }
 
-        $this->updateMeta([
+        $this->updateMeta(
+            $preset,
+            [
             'current' => 'neutral',
             'changed_at' => $now->toISOString(),
             'previous' => $previousMood
-        ]);
+            ]
+        );
 
-        $this->addToHistory('neutral', $previousMood, $now);
+        $this->addToHistory($preset, 'neutral', $previousMood, $now);
 
         return "🎭 Mood reset to: **Neutral** " . self::MOODS['neutral']['emoji'] . "\n" .
                "Previous mood: " . self::MOODS[$previousMood]['name'];
@@ -406,11 +405,12 @@ class MoodPlugin implements CommandPluginInterface
      * History of mood changes
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function history(string $content): string
+    public function history(string $content, AiPreset $preset): string
     {
-        $history = $this->getMeta('history', []);
+        $history = $this->getMeta($preset, 'history', []);
 
         if (empty($history)) {
             return "🎭 No mood history available";
@@ -437,13 +437,14 @@ class MoodPlugin implements CommandPluginInterface
      * Usage statistics
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function stats(string $content): string
+    public function stats(string $content, AiPreset $preset): string
     {
-        $currentMood = $this->getMeta('current', 'neutral');
+        $currentMood = $this->getMeta($preset, 'current', 'neutral');
         //$changedAt = $this->getMeta('changed_at');
-        $history = $this->getMeta('history', []);
+        $history = $this->getMeta($preset, 'history', []);
 
         // Counting sentiment usage
         $moodUsage = [];
@@ -493,9 +494,9 @@ class MoodPlugin implements CommandPluginInterface
     /**
      * Add entry to history
      */
-    protected function addToHistory(string $toMood, string $fromMood, Carbon $timestamp): void
+    protected function addToHistory(AiPreset $preset, string $toMood, string $fromMood, Carbon $timestamp): void
     {
-        $history = $this->getMeta('history', []);
+        $history = $this->getMeta($preset, 'history', []);
 
         $history[] = [
             'from' => $fromMood,
@@ -509,7 +510,7 @@ class MoodPlugin implements CommandPluginInterface
             $history = array_slice($history, -$limit);
         }
 
-        $this->setMeta('history', $history);
+        $this->setMeta($preset, 'history', $history);
     }
 
     /**
@@ -524,38 +525,38 @@ class MoodPlugin implements CommandPluginInterface
         return $list;
     }
 
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
-        $this->placeholderService->registerDynamic('mood', 'Mood state', function () {
-            return $this->getMeta('current', 'neutral');
+        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $this->placeholderService->registerDynamic('mood', 'Mood state', function () use ($preset) {
+            return $this->getMeta($preset, 'current', 'neutral');
         }, $scope);
 
     }
 
-    private function updateMeta(array $data): void
+    private function updateMeta(AiPreset $preset, array $data): void
     {
         $this->pluginMetadataService->update(
-            $this->preset,
+            $preset,
             self::PLUGIN_NAME,
             $data
         );
     }
 
-    private function setMeta(string $key, mixed $value): void
+    private function setMeta(AiPreset $preset, string $key, mixed $value): void
     {
         $this->pluginMetadataService->set(
-            $this->preset,
+            $preset,
             self::PLUGIN_NAME,
             $key,
             $value
         );
     }
 
-    private function getMeta(string $key, mixed $default = null)
+    private function getMeta(AiPreset $preset, string $key, mixed $default = null)
     {
         return $this->pluginMetadataService->get(
-            $this->preset,
+            $preset,
             self::PLUGIN_NAME,
             $key
         );

@@ -2,6 +2,8 @@
 
 namespace App\Services\Agent\Plugins\Traits;
 
+use App\Models\AiPreset;
+
 trait PluginMethodTrait
 {
     /**
@@ -12,16 +14,19 @@ trait PluginMethodTrait
      */
     public function hasMethod(string $method): bool
     {
-        // Exclude main interface and configuration methods
         $excludedMethods = [
-            'getName', 'getDescription', 'execute', 'hasMethod', 'callMethod',
-            'getAvailableMethods', 'setCurrentPreset', 'getInstructions',
-            'getMergeSeparator', 'getConfigFields', 'validateConfig',
-            'updateConfig', 'getConfig', 'getDefaultConfig', 'testConnection',
-            'isEnabled', 'setEnabled', 'initializeConfig'
+            'getName', 'getDescription', 'execute', 'pluginReady',
+            'hasMethod', 'callMethod', 'getAvailableMethods',
+            'getInstructions', 'getMergeSeparator', 'getSelfClosingTags',
+            'getConfigFields', 'validateConfig', 'updateConfig',
+            'getConfig', 'getDefaultConfig', 'testConnection',
+            'isEnabled', 'setEnabled', 'initializeConfig',
+            'getCustomSuccessMessage', 'getCustomErrorMessage',
+            'canBeMerged', 'getPluginExecutionMeta',
         ];
 
-        return method_exists($this, $method) && !in_array($method, $excludedMethods);
+        return method_exists($this, $method)
+            && !in_array($method, $excludedMethods);
     }
 
     /**
@@ -29,15 +34,18 @@ trait PluginMethodTrait
      *
      * @param string $method The method name to call.
      * @param string $content The content to pass to the method.
+     * @return AiPreset $preset Preset for work
      * @return string The result of the method call.
      * @throws \BadMethodCallException If the method does not exist.
      */
-    public function callMethod(string $method, string $content): string
+    public function callMethod(string $method, string $content, AiPreset $preset): string
     {
         if (!$this->hasMethod($method)) {
-            throw new \BadMethodCallException("Method '$method' does not exist in " . static::class);
+            throw new \BadMethodCallException(
+                "Method '{$method}' does not exist in " . static::class
+            );
         }
-        return $this->$method($content);
+        return $this->{$method}($content, $preset);
     }
 
     /**
@@ -49,15 +57,19 @@ trait PluginMethodTrait
     {
         $methods = get_class_methods($this);
         $excludedMethods = [
-            'getName', 'getDescription', 'execute', 'hasMethod', 'callMethod',
-            'getAvailableMethods', 'setCurrentPreset', 'getInstructions',
-            'getMergeSeparator', 'getConfigFields', 'validateConfig',
-            'updateConfig', 'getConfig', 'getDefaultConfig', 'testConnection',
-            'isEnabled', 'setEnabled', 'initializeConfig'
+            'getName', 'getDescription', 'execute', 'pluginReady',
+            'hasMethod', 'callMethod', 'getAvailableMethods',
+            'getInstructions', 'getMergeSeparator', 'getSelfClosingTags',
+            'getConfigFields', 'validateConfig', 'updateConfig',
+            'getConfig', 'getDefaultConfig', 'testConnection',
+            'isEnabled', 'setEnabled', 'initializeConfig',
+            'getCustomSuccessMessage', 'getCustomErrorMessage',
+            'canBeMerged', 'getPluginExecutionMeta',
         ];
 
-        return array_filter($methods, function ($method) use ($excludedMethods) {
-            return !in_array($method, $excludedMethods);
-        });
+        return array_values(array_filter(
+            $methods,
+            fn ($m) => !in_array($m, $excludedMethods) && !str_starts_with($m, '__')
+        ));
     }
 }

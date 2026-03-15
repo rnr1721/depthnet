@@ -122,7 +122,7 @@ class Agent implements AgentInterface
      */
     protected function setupPresetEnvironment(AiPreset $preset): void
     {
-        $this->pluginRegistry->setCurrentPreset($preset);
+        $this->pluginRegistry->applyPreset($preset);
         $this->shortcodeManagerService->setDefaultShortcodes();
         if ($preset->getAgentResultMode() !== 'internal') {
             return;

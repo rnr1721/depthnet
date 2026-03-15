@@ -3,10 +3,10 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
 /**
  * ShellPlugin class
@@ -17,7 +17,6 @@ use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 class ShellPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -88,7 +87,7 @@ class ShellPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         $shellPrompt = $this->buildPrompt();
         if (str_starts_with($content, $shellPrompt) && !empty($shellPrompt)) {
@@ -325,17 +324,7 @@ class ShellPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            $this->isTesting = true; // Set flag to indicate testing mode
-            $result = $this->execute('echo "Shell plugin test successful"');
-            return str_contains($result, 'Shell plugin test successful');
-        } catch (\Exception $e) {
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
@@ -469,7 +458,7 @@ class ShellPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
         // Nothing to do here
     }

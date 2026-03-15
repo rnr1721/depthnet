@@ -6,10 +6,10 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Contracts\Sandbox\SandboxServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
 /**
  * SandboxPlugin class
@@ -21,7 +21,6 @@ use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 class SandboxPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -129,7 +128,7 @@ class SandboxPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Sandbox plugin is disabled.";
@@ -150,7 +149,7 @@ class SandboxPlugin implements CommandPluginInterface
                 return "Error: {$language} execution is disabled in plugin configuration.";
             }
 
-            $sandboxId = $this->getAssignedSandbox();
+            $sandboxId = $this->getAssignedSandbox($preset);
             if (!$sandboxId) {
                 return "Error: No sandbox assigned to current preset or sandbox is stopped. Please assign a sandbox before code execution.";
             }
@@ -201,13 +200,13 @@ class SandboxPlugin implements CommandPluginInterface
      *
      * @return string|null
      */
-    private function getAssignedSandbox(): ?string
+    private function getAssignedSandbox(AiPreset $preset): ?string
     {
         if (!isset($this->preset)) {
             return null;
         }
 
-        $assignedSandbox = $this->presetSandboxService->getAssignedSandbox($this->preset->id);
+        $assignedSandbox = $this->presetSandboxService->getAssignedSandbox($preset->getId());
 
         if (!$assignedSandbox || $assignedSandbox['sandbox']->status !== 'running') {
             return null;
@@ -514,27 +513,7 @@ class SandboxPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        // Check if sandbox is assigned
-        $sandboxId = $this->getAssignedSandbox();
-        if (!$sandboxId) {
-            return false;
-        }
-
-        try {
-            // Test with simple shell command if enabled
-            if ($this->isLanguageEnabled('shell')) {
-                $result = $this->execute("shell\necho 'Run plugin test successful'");
-                return str_contains($result, 'Run plugin test successful');
-            }
-
-            return true; // If shell is disabled but sandbox is assigned, consider it working
-        } catch (\Exception $e) {
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
@@ -556,7 +535,7 @@ class SandboxPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
         // Nothing to do here since we don't create temporary sandboxes
     }
@@ -567,9 +546,9 @@ class SandboxPlugin implements CommandPluginInterface
      * @param string $content
      * @return string
      */
-    public function shell(string $content): string
+    public function shell(string $content, AiPreset $preset): string
     {
-        return $this->execute("shell\n" . $content);
+        return $this->execute("shell\n" . $content, $preset);
     }
 
     /**
@@ -578,9 +557,9 @@ class SandboxPlugin implements CommandPluginInterface
      * @param string $content
      * @return string
      */
-    public function php(string $content): string
+    public function php(string $content, AiPreset $preset): string
     {
-        return $this->execute("php\n" . $content);
+        return $this->execute("php\n" . $content, $preset);
     }
 
     /**
@@ -589,9 +568,9 @@ class SandboxPlugin implements CommandPluginInterface
      * @param string $content
      * @return string
      */
-    public function python(string $content): string
+    public function python(string $content, AiPreset $preset): string
     {
-        return $this->execute("python\n" . $content);
+        return $this->execute("python\n" . $content, $preset);
     }
 
     /**
@@ -600,9 +579,9 @@ class SandboxPlugin implements CommandPluginInterface
      * @param string $content
      * @return string
      */
-    public function node(string $content): string
+    public function node(string $content, AiPreset $preset): string
     {
-        return $this->execute("node\n" . $content);
+        return $this->execute("node\n" . $content, $preset);
     }
 
     /**

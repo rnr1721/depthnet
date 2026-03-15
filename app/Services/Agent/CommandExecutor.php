@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 use App\Services\Agent\Plugins\DTO\CommandResult;
 use App\Services\Agent\Plugins\DTO\ParsedCommand;
@@ -22,14 +23,14 @@ class CommandExecutor implements CommandExecutorInterface
     /**
      * @inheritDoc
      */
-    public function executeCommands(array $commands): CommandExecutionResult
+    public function executeCommands(array $commands, AiPreset $preset): CommandExecutionResult
     {
         $results = [];
         $hasErrors = false;
-
         $pluginExecutionMeta = [];
+
         foreach ($commands as $command) {
-            $result = $this->executeCommand($command);
+            $result = $this->executeCommand($command, $preset);
             $results[] = $result;
             $pluginExecutionMeta = $this->mergeExecutionMetaStrings($pluginExecutionMeta, $result->executionMeta);
 
@@ -44,30 +45,11 @@ class CommandExecutor implements CommandExecutorInterface
     }
 
     /**
-     * Merges execution meta strings from base and override arrays.
-     *
-     * @param array $base Base execution meta
-     * @param array $override Override execution meta
-     * @return array Merged execution meta
-     */
-    private function mergeExecutionMetaStrings(array $base, array $override): array
-    {
-        foreach ($override as $key => $value) {
-            if (isset($base[$key]) && is_string($base[$key]) && is_string($value)) {
-                $base[$key] .= ' ' . $value;
-            } else {
-                $base[$key] = $value;
-            }
-        }
-        return $base;
-    }
-
-    /**
      * Execute single command with proper plugin configuration
      *
      * @inheritDoc
      */
-    protected function executeCommand(ParsedCommand $command): CommandResult
+    protected function executeCommand(ParsedCommand $command, AiPreset $preset): CommandResult
     {
         try {
             // Check if plugin exists in registry
@@ -105,10 +87,10 @@ class CommandExecutor implements CommandExecutorInterface
             $pluginExecutionMeta = [];
             // Execute command method
             if ($command->method === 'execute') {
-                $result = $plugin->execute($command->content);
+                $result = $plugin->execute($command->content, $preset);
                 $pluginExecutionMeta = $plugin->getPluginExecutionMeta();
             } elseif ($plugin->hasMethod($command->method)) {
-                $result = $plugin->callMethod($command->method, $command->content);
+                $result = $plugin->callMethod($command->method, $command->content, $preset);
                 $pluginExecutionMeta = $plugin->getPluginExecutionMeta();
             } else {
                 return new CommandResult(
@@ -196,4 +178,24 @@ class CommandExecutor implements CommandExecutorInterface
 
         return $formatted . '```';
     }
+
+    /**
+     * Merges execution meta strings from base and override arrays.
+     *
+     * @param array $base Base execution meta
+     * @param array $override Override execution meta
+     * @return array Merged execution meta
+     */
+    private function mergeExecutionMetaStrings(array $base, array $override): array
+    {
+        foreach ($override as $key => $value) {
+            if (isset($base[$key]) && is_string($base[$key]) && is_string($value)) {
+                $base[$key] .= ' ' . $value;
+            } else {
+                $base[$key] = $value;
+            }
+        }
+        return $base;
+    }
+
 }

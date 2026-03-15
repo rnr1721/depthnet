@@ -4,9 +4,11 @@ namespace App\Services\Agent\Voice;
 
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
+use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
@@ -65,8 +67,10 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
         protected PresetServiceInterface             $presetService,
         protected PresetRegistryInterface            $presetRegistry,
         protected MemoryServiceInterface             $memoryService,
+        protected CommandResultPoolInterface         $commandResultPool,
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
         protected ShortcodeManagerServiceInterface   $shortcodeManagerService,
+        protected PluginRegistryInterface            $pluginRegistry,
         protected PluginMetadataServiceInterface     $pluginMetadataService,
         protected AgentActionsHandlerInterface       $agentActionsHandler,
         protected LoggerInterface                    $logger,
@@ -175,6 +179,15 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
                 ->map(fn ($m) => strtoupper($m['role']) . ': ' . mb_substr($m['content'] ?? '', 0, 500))
                 ->implode("\n");
 
+            if ($voicePreset->getAgentResultMode() === 'internal') {
+                $this->shortcodeManagerService->registerShortcodeForPreset(
+                    $voicePreset->getId(),
+                    'agent_command_results',
+                    '',
+                    fn () => $this->commandResultPool->getFormatted($voicePreset)
+                );
+            }
+
             $engine = $this->presetRegistry->createInstance($voicePreset->getId());
 
             $dto = new ModelRequestDTO(
@@ -209,11 +222,14 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
                 return null;
             }
 
-            $actionResult = $this->agentActionsHandler->handleResponse($response, $voicePreset);
-            if ($actionResult->hasCommands()) {
-                $result = $actionResult->getSystemMessage() ?? '';
-            } else {
-                $result = $voice;
+            $this->pluginRegistry->applyPreset($voicePreset);
+            try {
+                $actionResult = $this->agentActionsHandler->handleResponse($response, $voicePreset);
+                $result = $actionResult->hasCommands()
+                    ? ($actionResult->getSystemMessage() ?? '')
+                    : $voice;
+            } finally {
+                $this->pluginRegistry->applyPreset($mainPreset);
             }
 
             $this->debugLog('Internal Voice response:'. $result);

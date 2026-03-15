@@ -3,10 +3,10 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
 /**
  * PHPPlugin class
@@ -18,7 +18,6 @@ use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 class PHPPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -76,7 +75,7 @@ class PHPPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         // Check if plugin is enabled
         if (!$this->isEnabled()) {
@@ -257,17 +256,7 @@ class PHPPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            $testCode = "echo 'PHP plugin test successful';";
-            $result = $this->execute($testCode);
-            return str_contains($result, 'PHP plugin test successful');
-        } catch (\Exception $e) {
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
@@ -435,7 +424,7 @@ class PHPPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
         // Nothing to do here
     }

@@ -6,10 +6,10 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -33,7 +33,6 @@ use Psr\Log\LoggerInterface;
 class WorkspacePlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -123,13 +122,13 @@ class WorkspacePlugin implements CommandPluginInterface
     // Plugin lifecycle
     // -------------------------------------------------------------------------
 
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
         $this->placeholderService->registerDynamic(
             'workspace',
             'Current workspace — all persistent key-value entries for this preset',
-            fn () => $this->workspaceService->getFormatted($this->preset),
+            fn () => $this->workspaceService->getFormatted($preset),
             $scope
         );
     }
@@ -141,15 +140,15 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * Default execute — alias for set, so [workspace]key: value[/workspace] also works.
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
-        return $this->set($content);
+        return $this->set($content, $preset);
     }
 
     /**
      * [workspace set]key: value[/workspace]
      */
-    public function set(string $content): string
+    public function set(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return 'Error: Workspace plugin is disabled.';
@@ -160,7 +159,7 @@ class WorkspacePlugin implements CommandPluginInterface
             return 'Error: Format must be "key: value".';
         }
 
-        $this->workspaceService->set($this->preset, $key, $value);
+        $this->workspaceService->set($preset, $key, $value);
 
         return "Workspace key [{$key}] set successfully.";
     }
@@ -168,7 +167,7 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace append]key: additional text[/workspace]
      */
-    public function append(string $content): string
+    public function append(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return 'Error: Workspace plugin is disabled.';
@@ -179,7 +178,7 @@ class WorkspacePlugin implements CommandPluginInterface
             return 'Error: Format must be "key: value".';
         }
 
-        $this->workspaceService->append($this->preset, $key, $value);
+        $this->workspaceService->append($preset, $key, $value);
 
         return "Workspace key [{$key}] updated (appended).";
     }
@@ -187,14 +186,14 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace get]key[/workspace]
      */
-    public function get(string $content): string
+    public function get(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return 'Error: Workspace plugin is disabled.';
         }
 
         $key   = trim($content);
-        $value = $this->workspaceService->get($this->preset, $key);
+        $value = $this->workspaceService->get($preset, $key);
 
         if ($value === null) {
             return "Workspace key [{$key}] does not exist.";
@@ -206,14 +205,14 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace delete]key[/workspace]
      */
-    public function delete(string $content): string
+    public function delete(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return 'Error: Workspace plugin is disabled.';
         }
 
         $key     = trim($content);
-        $deleted = $this->workspaceService->delete($this->preset, $key);
+        $deleted = $this->workspaceService->delete($preset, $key);
 
         return $deleted
             ? "Workspace key [{$key}] deleted."
@@ -223,13 +222,13 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace clear][/workspace]
      */
-    public function clear(string $content): string
+    public function clear(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return 'Error: Workspace plugin is disabled.';
         }
 
-        $this->workspaceService->clear($this->preset);
+        $this->workspaceService->clear($preset);
 
         return 'Workspace cleared.';
     }
@@ -237,13 +236,13 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace list][/workspace]
      */
-    public function list(string $content): string
+    public function list(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return 'Error: Workspace plugin is disabled.';
         }
 
-        $entries = $this->workspaceService->all($this->preset);
+        $entries = $this->workspaceService->all($preset);
 
         if (empty($entries)) {
             return 'Workspace is empty.';

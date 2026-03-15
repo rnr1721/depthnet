@@ -278,7 +278,7 @@ class ChatService implements ChatServiceInterface
     protected function runCommands(string $formattedContent, int $presetId)
     {
         $currentPreset = $this->presetRegistry->getPreset($presetId);
-        $this->pluginRegistry->setCurrentPreset($currentPreset);
+        $this->pluginRegistry->applyPreset($currentPreset);
         $actionResult = $this->agentActions->runActions($formattedContent, $currentPreset, true);
         return $actionResult->getResult();
     }

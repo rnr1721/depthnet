@@ -81,7 +81,7 @@ class ChatController extends Controller
             // Get available presets (only active ones for regular use)
             $availablePresets = $this->presetService->getActivePresets();
 
-            $pluginRegistry->setCurrentPreset($defaultPreset);
+            $pluginRegistry->applyPreset($defaultPreset);
             $shortcodeManager->setDefaultShortcodes();
             $placeholders = $shortcodeManager->getRegisteredShortcodes();
             $engines = $engineRegistry->getAvailableEngines();

@@ -715,7 +715,6 @@ class PluginManager implements PluginManagerInterface
     public function setCurrentPreset(AiPreset $preset): void
     {
         $this->currentPreset = $preset;
-        $this->registry->setCurrentPreset($preset);
 
         // Re-apply configurations for the new preset
         $plugins = $this->registry->allRegistered();

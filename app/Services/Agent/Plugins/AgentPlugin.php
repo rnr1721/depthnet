@@ -7,10 +7,10 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 use Illuminate\Contracts\Container\Container;
 
@@ -23,7 +23,6 @@ use Illuminate\Contracts\Container\Container;
 class AgentPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -202,27 +201,13 @@ class AgentPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            // Test if we can get agent service without hanging
-            $service = $this->getAgentJobService();
-
-            // Quick test - just check if service is available
-            return $service !== null;
-
-        } catch (\Exception $e) {
-            $this->logger->error("AgentPlugin::testConnection error: " . $e->getMessage());
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Agent control plugin is disabled.";
@@ -465,9 +450,9 @@ class AgentPlugin implements CommandPluginInterface
         return false;
     }
 
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($this->preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
         $this->placeholderService->registerDynamic('agent', 'Agent status', function () {
             return $this->status('');
         }, $scope);

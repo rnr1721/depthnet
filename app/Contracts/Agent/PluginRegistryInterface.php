@@ -61,15 +61,15 @@ interface PluginRegistryInterface
     public function getAvailablePluginNames(): array;
 
     /**
-     * Set current AI preset for all available plugins
+     * Apply a preset to the registry:
      *
-     * Only affects plugins that are currently available (not disabled).
-     * Each plugin will receive the preset and can use it to configure its behavior.
+     * - Updates the list of disabled plugins from the preset settings
+     * - Calls pluginReady($preset) for each enabled plugin
      *
      * @param AiPreset $preset AI preset to set for plugins
      * @return void
      */
-    public function setCurrentPreset(AiPreset $preset): void;
+    public function applyPreset(AiPreset $preset): void;
 
     /**
      * Set plugins to be temporarily disabled

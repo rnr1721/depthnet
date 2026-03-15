@@ -7,97 +7,43 @@ use App\Models\AiPreset;
 interface CommandPluginInterface
 {
     /**
-     * Set current model preset
-     *
-     * @param AiPreset $preset
-     * @return void
-     */
-    public function setCurrentPreset(AiPreset $preset): void;
-
-    /**
-     * Get plugin (command) name
+     * Get plugin name (used as command tag, e.g. "memory" → [memory]...[/memory])
      *
      * @return string Command name
      */
     public function getName(): string;
 
     /**
-     * Get command description
+     * Get plugin description for instructions
      *
      * @return string Command description
      */
     public function getDescription(): string;
 
     /**
-     * Get message for agent when command is executed successfully
-     * You can use {command} placeholder in the message
-     *
-     * @return string Icon URL or path
-     */
-    public function getCustomSuccessMessage(): ?string;
-
-    /**
-     * Get message for agent when command execution fails
-     * You can use {command} placeholder in the message
-     *
-     * @return string Icon URL or path
-     */
-    public function getCustomErrorMessage(): ?string;
-
-    /**
-     * Execute command
-     *
-     * @param string $content Content to execute
-     * @return string Result of command execution
-     */
-    public function execute(string $content): string;
-
-    /**
-     * Check if plugin has specific method
-     *
-     * @param string $method Method name
-     * @return boolean Method exists?
-     */
-    public function hasMethod(string $method): bool;
-
-    /**
-     * Call specific method on plugin
-     *
-     * @param string $method Method name
-     * @param string $content Content to pass to the method
-     * @return string
-     */
-    public function callMethod(string $method, string $content): string;
-
-    /**
-     * Get available methods for this plugin
-     *
-     * @return array List of available methods
-     */
-    public function getAvailableMethods(): array;
-
-    /**
-     * Instructions for model
+     * Get usage instructions shown to the AI
      *
      * @return array Instructions
      */
     public function getInstructions(): array;
 
     /**
-     * Separator for merge similar commands
-     * Used in smart command parser
+     * Execute default command.
+     * Preset is passed explicitly — plugin does not store it internally.
      *
-     * @return string|null Null will be "\n"
+     * @param string $content Content to execute
+     * @return string Result of command execution
      */
-    public function getMergeSeparator(): ?string;
+    public function execute(string $content, AiPreset $preset): string;
 
     /**
-     * Check if this plugin command data can be merged with others
-     * Used in smart command parser to group similar commands
+     * Called when a preset is applied to the registry.
+     * Use to register placeholders/shortcodes scoped to this preset.
+     * Preset is passed explicitly — no internal storage needed.
      *
-     * @return bool True if can be merged, false otherwise
+     * @return void
      */
-    public function canBeMerged(): bool;
+    public function pluginReady(AiPreset $preset): void;
 
     /**
      * Get configuration fields for the plugin
@@ -116,29 +62,22 @@ interface CommandPluginInterface
     public function validateConfig(array $config): array;
 
     /**
-     * Update plugin configuration
-     *
-     * @param array $newConfig New configuration values
-     * @return void
-     */
-    public function updateConfig(array $newConfig): void;
-
-    /**
-     * Get current plugin configuration
-     *
-     * @return array Current configuration
-     */
-    public function getConfig(): array;
-
-    /**
-     * Get default configuration for the plugin
+     * Get default config values for the plugin
      *
      * @return array Default configuration values
      */
     public function getDefaultConfig(): array;
 
     /**
-     * Test if plugin is properly configured and working
+     * Update plugin config at runtime
+     *
+     * @param array $newConfig New configuration values
+     * @return void
+     */
+    public function updateConfig(array $config): void;
+
+    /**
+     * Test plugin connectivity / availability
      *
      * @return bool True if plugin is working
      */
@@ -160,20 +99,61 @@ interface CommandPluginInterface
     public function setEnabled(bool $enabled): void;
 
     /**
-     * Here it is possible to return some data that may affect the agent's work.
-     * This is system things
+     * Check if plugin has specific method
      *
-     * @return array
+     * @param string $method Method name
+     * @return boolean Method exists?
      */
-    public function getPluginExecutionMeta(): array;
+    public function hasMethod(string $method): bool;
 
     /**
-     * This method can be used for make placeholders for plugin or some things,
-     * that need to do, when plugin will initialized
+     * Call specific method on plugin
      *
-     * @return void
+     * @param string $method Method name
+     * @param string $content Content to pass to the method
+     * @param AiPreset $preset
+     * @return string
      */
-    public function pluginReady(): void;
+    public function callMethod(string $method, string $content, AiPreset $preset): string;
+
+    /**
+     * Get available method names for this plugin
+     *
+     * @return array List of available methods
+     */
+    public function getAvailableMethods(): array;
+
+    /**
+     * Get message for agent when command is executed successfully
+     * You can use {command} placeholder in the message
+     *
+     * @return string Icon URL or path
+     */
+    public function getCustomSuccessMessage(): ?string;
+
+    /**
+     * Get message for agent when command execution fails
+     * You can use {command} placeholder in the message
+     *
+     * @return string Icon URL or path
+     */
+    public function getCustomErrorMessage(): ?string;
+
+    /**
+     * Check if this plugin command data can be merged with others
+     * Used in smart command parser to group similar commands
+     *
+     * @return bool True if can be merged, false otherwise
+     */
+    public function canBeMerged(): bool;
+
+    /**
+     * Separator for merge similar commands
+     * Used in smart command parser
+     *
+     * @return string|null Null will be "\n"
+     */
+    public function getMergeSeparator(): ?string;
 
     /**
      * Get list of self-closing tags for this plugin
@@ -183,4 +163,20 @@ interface CommandPluginInterface
      * @return array List of method names that are self-closing
      */
     public function getSelfClosingTags(): array;
+
+    /**
+     * Here it is possible to return some data that may affect the agent's work.
+     * This is system things
+     *
+     * @return array
+     */
+    public function getPluginExecutionMeta(): array;
+
+    /**
+     * Get current plugin configuration
+     *
+     * @return array Current configuration
+     */
+    public function getConfig(): array;
+
 }

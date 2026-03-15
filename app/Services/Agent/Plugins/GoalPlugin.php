@@ -5,10 +5,11 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -30,12 +31,12 @@ use Psr\Log\LoggerInterface;
 class GoalPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
     public function __construct(
         protected GoalServiceInterface $goalService,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
@@ -107,7 +108,7 @@ class GoalPlugin implements CommandPluginInterface
      * Default execute — create a new goal
      * Format: "title | motivation: why"
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Goal plugin is disabled.";
@@ -123,7 +124,7 @@ class GoalPlugin implements CommandPluginInterface
             $motivation = preg_replace('/^motivation:\s*/i', '', $mot);
         }
 
-        $result = $this->goalService->addGoal($this->preset, $title, $motivation);
+        $result = $this->goalService->addGoal($preset, $title, $motivation);
         return $result['message'];
     }
 
@@ -131,7 +132,7 @@ class GoalPlugin implements CommandPluginInterface
      * Add progress note to a goal
      * Format: "goalNumber | progress note"
      */
-    public function progress(string $content): string
+    public function progress(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Goal plugin is disabled.";
@@ -145,63 +146,63 @@ class GoalPlugin implements CommandPluginInterface
         $goalNumber = (int) trim($parts[0]);
         $note = trim($parts[1]);
 
-        $result = $this->goalService->addProgress($this->preset, $goalNumber, $note);
+        $result = $this->goalService->addProgress($preset, $goalNumber, $note);
         return $result['message'];
     }
 
     /**
      * Mark goal as done
      */
-    public function done(string $content): string
+    public function done(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->setStatus($this->preset, $goalNumber, 'done');
+        $result = $this->goalService->setStatus($preset, $goalNumber, 'done');
         return $result['message'];
     }
 
     /**
      * Pause a goal
      */
-    public function pause(string $content): string
+    public function pause(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->setStatus($this->preset, $goalNumber, 'paused');
+        $result = $this->goalService->setStatus($preset, $goalNumber, 'paused');
         return $result['message'];
     }
 
     /**
      * Resume a paused goal
      */
-    public function resume(string $content): string
+    public function resume(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->setStatus($this->preset, $goalNumber, 'active');
+        $result = $this->goalService->setStatus($preset, $goalNumber, 'active');
         return $result['message'];
     }
 
     /**
      * Show full goal details with progress history
      */
-    public function show(string $content): string
+    public function show(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->showGoal($this->preset, $goalNumber);
+        $result = $this->goalService->showGoal($preset, $goalNumber);
         return $result['message'];
     }
 
@@ -209,7 +210,7 @@ class GoalPlugin implements CommandPluginInterface
      * List goals
      * Default: active only. Pass "all" for everything.
      */
-    public function list(string $content): string
+    public function list(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Goal plugin is disabled.";
@@ -220,7 +221,7 @@ class GoalPlugin implements CommandPluginInterface
             $status = 'active';
         }
 
-        $result = $this->goalService->listGoals($this->preset, $status);
+        $result = $this->goalService->listGoals($preset, $status);
         return $result['message'];
     }
 
@@ -234,14 +235,16 @@ class GoalPlugin implements CommandPluginInterface
         return false;
     }
 
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
+        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
         $this->placeholderService->registerDynamic(
             'active_goals',
             'Currently active goals with last progress note',
-            function () {
-                return $this->goalService->getActiveGoalsForContext($this->preset);
-            }
+            function () use ($preset) {
+                return $this->goalService->getActiveGoalsForContext($preset);
+            },
+            $scope
         );
     }
 

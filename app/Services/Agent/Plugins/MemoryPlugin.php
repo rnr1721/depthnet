@@ -5,10 +5,11 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -22,12 +23,12 @@ use Psr\Log\LoggerInterface;
 class MemoryPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
     public function __construct(
         protected MemoryServiceInterface $memoryService,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
@@ -210,116 +211,91 @@ class MemoryPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            // Test basic memory operations using the service
-            $testContent = 'Memory test - ' . time();
-
-            // Test add
-            $result = $this->memoryService->addMemoryItem($this->preset, $testContent, $this->config);
-            if (!$result['success']) {
-                return false;
-            }
-
-            // Test read
-            $formatted = $this->memoryService->getFormattedMemory($this->preset);
-
-            // Test delete (clean up test data)
-            $deleteResult = $this->memoryService->deleteMemoryItem($this->preset, 1, $this->config);
-
-            return $result['success'] && $deleteResult['success'] && str_contains($formatted, $testContent);
-
-        } catch (\Exception $e) {
-            $this->logger->error("MemoryPlugin::testConnection error: " . $e->getMessage());
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
         }
 
-        return $this->append($content);
+        return $this->append($content, $preset);
     }
 
     /**
      * Replace memory content entirely
      */
-    public function replace(string $content): string
+    public function replace(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
         }
 
-        $result = $this->memoryService->replaceMemory($this->preset, $content, $this->config);
+        $result = $this->memoryService->replaceMemory($preset, $content, $this->config);
         return $result['message'];
     }
 
     /**
      * Add new item to memory as numbered list item
      */
-    public function append(string $content): string
+    public function append(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
         }
 
-        $result = $this->memoryService->addMemoryItem($this->preset, $content, $this->config);
+        $result = $this->memoryService->addMemoryItem($preset, $content, $this->config);
         return $result['message'];
     }
 
     /**
      * Delete specific memory item by number
      */
-    public function delete(string $content): string
+    public function delete(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
         }
 
         $itemNumber = (int) trim($content);
-        $result = $this->memoryService->deleteMemoryItem($this->preset, $itemNumber, $this->config);
+        $result = $this->memoryService->deleteMemoryItem($preset, $itemNumber, $this->config);
         return $result['message'];
     }
 
     /**
      * Clear memory content
      */
-    public function clear(string $content): string
+    public function clear(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
         }
 
-        $result = $this->memoryService->clearMemory($this->preset, $this->config);
+        $result = $this->memoryService->clearMemory($preset, $this->config);
         return $result['message'];
     }
 
     /**
      * Get current memory content
      */
-    public function show(string $content): string
+    public function show(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
         }
 
         try {
-            $formatted = $this->memoryService->getFormattedMemory($this->preset);
+            $formatted = $this->memoryService->getFormattedMemory($preset);
 
             if (empty($formatted)) {
                 return "Memory is empty.";
             }
 
-            $stats = $this->memoryService->getMemoryStats($this->preset, $this->config);
+            $stats = $this->memoryService->getMemoryStats($preset, $this->config);
 
             return "Current memory content ({$stats['total_items']} items, {$stats['total_length']}/{$stats['limit']} chars):\n" . $formatted;
 
@@ -332,7 +308,7 @@ class MemoryPlugin implements CommandPluginInterface
     /**
      * Search memory items by content
      */
-    public function search(string $content): string
+    public function search(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
@@ -344,7 +320,7 @@ class MemoryPlugin implements CommandPluginInterface
                 return "Error: Search query cannot be empty.";
             }
 
-            $results = $this->memoryService->searchMemory($this->preset, $query);
+            $results = $this->memoryService->searchMemory($preset, $query);
 
             if ($results->isEmpty()) {
                 return "No memory items found matching '{$query}'.";
@@ -368,14 +344,14 @@ class MemoryPlugin implements CommandPluginInterface
     /**
      * Get memory statistics
      */
-    public function stats(string $content): string
+    public function stats(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Memory plugin is disabled.";
         }
 
         try {
-            $stats = $this->memoryService->getMemoryStats($this->preset, $this->config);
+            $stats = $this->memoryService->getMemoryStats($preset, $this->config);
 
             $status = 'Normal';
             if ($stats['is_over_limit']) {
@@ -399,13 +375,13 @@ class MemoryPlugin implements CommandPluginInterface
     /**
      * Get memory content for AI context (public method for external use)
      */
-    public function getMemoryForContext(?int $maxLength = null): string
+    public function getMemoryForContext(?int $maxLength = null, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return '';
         }
 
-        return $this->memoryService->getMemoryForContext($this->preset, $maxLength);
+        return $this->memoryService->getMemoryForContext($preset, $maxLength);
     }
 
     /**
@@ -435,11 +411,12 @@ class MemoryPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
-        $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () {
-            return $this->memoryService->getFormattedMemory($this->preset);
-        });
+        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () use ($preset) {
+            return $this->memoryService->getFormattedMemory($preset);
+        }, $scope);
 
     }
 

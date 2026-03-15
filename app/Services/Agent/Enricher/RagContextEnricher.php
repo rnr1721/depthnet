@@ -1,18 +1,20 @@
 <?php
 
-namespace App\Services\Agent\Rag;
+namespace App\Services\Agent\Enricher;
 
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
+use App\Contracts\Agent\Enricher\EnricherResponseInterface;
+use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
-use App\Contracts\Agent\Rag\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
+use App\Services\Agent\Enricher\EnricherResponse;
 use Psr\Log\LoggerInterface;
 
 class RagContextEnricher implements RagContextEnricherInterface
@@ -36,31 +38,31 @@ class RagContextEnricher implements RagContextEnricherInterface
     ) {
     }
 
-    public function enrich(AiPreset $preset, array $context): ?string
+    public function enrich(AiPreset $preset, array $context, ?string $target = null): EnricherResponseInterface
     {
         try {
             if (!$preset->hasRag()) {
                 $this->debugLog('skipped — rag_preset_id not set', ['preset_id' => $preset->getId()]);
-                return null;
+                return $this->generateEmptyResponse($preset);
             }
 
             $ragPreset = $this->presetService->findById($preset->rag_preset_id);
 
             if (!$ragPreset) {
                 $this->logger->warning('RAG: preset not found', ['rag_preset_id' => $preset->rag_preset_id]);
-                return null;
+                return $this->generateEmptyResponse($preset);
             }
 
             if (!$ragPreset->isActive()) {
                 $this->logger->warning('RAG: preset inactive', ['rag_preset_id' => $preset->rag_preset_id]);
-                return null;
+                return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
-            $query = $this->formulateQuery($ragPreset, $context);
+            $query = $this->formulateQuery($ragPreset, $preset, $context);
 
             if (empty($query)) {
                 $this->debugLog('empty query, skipping search');
-                return null;
+                return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
             $memoryMode = $this->optionsService->get('agent_rag_vector_memory_mode', 'generic');
@@ -82,28 +84,37 @@ class RagContextEnricher implements RagContextEnricherInterface
             ]);
 
             if (!$searchResult['success'] || empty($searchResult['results'])) {
-                return null;
+                return $this->generateEmptyResponse($preset);
             }
 
-            return $this->formatResults($searchResult['results'], $query);
+            $result = $this->formatResults($searchResult['results'], $query);
+            return new EnricherResponse($preset, $ragPreset, $result);
 
         } catch (\Throwable $e) {
             $this->logger->error('RagContextEnricher::enrich error: ' . $e->getMessage(), [
                 'main_preset_id' => $preset->getId(),
-                'rag_preset_id'  => $preset->rag_preset_id,
                 'trace'          => $e->getTraceAsString(),
             ]);
-            return null;
+            return $this->generateEmptyResponse($preset);
         }
     }
 
-    protected function formulateQuery(AiPreset $ragPreset, array $context): ?string
+    /**
+     * Formulate query
+     *
+     * @param AiPreset $ragPreset Preset for RAG
+     * @param AiPreset $mainPreset Main preset
+     * @param array $context Context
+     * @return string|null
+     */
+    protected function formulateQuery(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?string
     {
         try {
+            $contextLimit = max(1, (int) $mainPreset->getRagContextLimit());
             $recentMessages = collect($context)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command']))
                 ->values()
-                ->slice(-4)
+                ->slice(-$contextLimit)
                 ->values();
 
             $this->debugLog('recent messages for query', ['count' => $recentMessages->count()]);
@@ -174,6 +185,11 @@ class RagContextEnricher implements RagContextEnricherInterface
         $lines[] = '[END RAG CONTEXT]';
 
         return implode("\n", $lines);
+    }
+
+    private function generateEmptyResponse(AiPreset $mainPreset, ?AiPreset $voicePreset = null): EnricherResponseInterface
+    {
+        return new EnricherResponse($mainPreset, $voicePreset);
     }
 
     /**

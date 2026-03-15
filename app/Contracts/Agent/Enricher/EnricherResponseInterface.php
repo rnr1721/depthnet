@@ -1,24 +1,24 @@
 <?php
 
-namespace App\Contracts\Agent\Voice;
+namespace App\Contracts\Agent\Enricher;
 
 use App\Models\AiPreset;
 
-interface InnerVoiceResponseInterface
+interface EnricherResponseInterface
 {
     /**
-     * Inner voice response
+     * Enricher response
      *
      * @return string|null
      */
     public function getResponse(): ?string;
 
     /**
-    * Inner Voice preset
+    * Enricher preset
     *
     * @return AiPreset|null
     */
-    public function getVoicePreset(): ?AiPreset;
+    public function getPreset(): ?AiPreset;
 
     /**
      * Main preset

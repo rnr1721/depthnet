@@ -9,8 +9,8 @@ use App\Models\AiPreset;
 class PluginRegistry implements PluginRegistryInterface
 {
     public const PLUGIN_READY_METHOD = 'pluginReady';
+
     protected array $disabledForNow = [];
-    protected AiPreset $defaultPreset;
 
     /**
      * @var CommandPluginInterface[]
@@ -77,18 +77,13 @@ class PluginRegistry implements PluginRegistryInterface
         return array_keys($this->all());
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function setCurrentPreset(AiPreset $preset): void
+    public function applyPreset(AiPreset $preset): void
     {
-        $disabledPlugins = $preset->getPluginsDisabled();
-        $this->setDisabledForNow($disabledPlugins);
-        $allPlugins = $this->allRegistered();
-        foreach ($allPlugins as $plugin) {
-            $plugin->setCurrentPreset($preset);
+        $this->setDisabledForNow($preset->getPluginsDisabled());
+
+        foreach ($this->allRegistered() as $plugin) {
             if (method_exists($plugin, self::PLUGIN_READY_METHOD) && $plugin->isEnabled()) {
-                $plugin->{self::PLUGIN_READY_METHOD}();
+                $plugin->{self::PLUGIN_READY_METHOD}($preset);
             }
         }
     }

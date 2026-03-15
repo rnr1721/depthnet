@@ -4,10 +4,10 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -26,7 +26,6 @@ use Psr\Log\LoggerInterface;
 class PersonPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -129,7 +128,7 @@ class PersonPlugin implements CommandPluginInterface
      * Default execute — add a fact.
      * Format: "PersonName | fact content"
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Person memory plugin is disabled.";
@@ -148,14 +147,14 @@ class PersonPlugin implements CommandPluginInterface
             return "Error: Person name cannot be empty.";
         }
 
-        $result = $this->personMemoryService->addFact($this->preset, $personName, $fact);
+        $result = $this->personMemoryService->addFact($preset, $personName, $fact);
         return $result['message'];
     }
 
     /**
      * Recall all facts about a person
      */
-    public function recall(string $content): string
+    public function recall(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Person memory plugin is disabled.";
@@ -166,7 +165,7 @@ class PersonPlugin implements CommandPluginInterface
             return "Error: Person name cannot be empty.";
         }
 
-        $result = $this->personMemoryService->recallPerson($this->preset, $personName);
+        $result = $this->personMemoryService->recallPerson($preset, $personName);
         return $result['message'];
     }
 
@@ -174,7 +173,7 @@ class PersonPlugin implements CommandPluginInterface
      * Delete a specific fact about a person
      * Format: "PersonName|factNumber"
      */
-    public function delete(string $content): string
+    public function delete(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Person memory plugin is disabled.";
@@ -197,14 +196,14 @@ class PersonPlugin implements CommandPluginInterface
             return "Error: Fact number must be a positive integer.";
         }
 
-        $result = $this->personMemoryService->deleteFact($this->preset, $personName, $factNumber);
+        $result = $this->personMemoryService->deleteFact($preset, $personName, $factNumber);
         return $result['message'];
     }
 
     /**
      * Forget all facts about a person
      */
-    public function forget(string $content): string
+    public function forget(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Person memory plugin is disabled.";
@@ -215,20 +214,20 @@ class PersonPlugin implements CommandPluginInterface
             return "Error: Person name cannot be empty.";
         }
 
-        $result = $this->personMemoryService->forgetPerson($this->preset, $personName);
+        $result = $this->personMemoryService->forgetPerson($preset, $personName);
         return $result['message'];
     }
 
     /**
      * List all people in memory
      */
-    public function list(string $content): string
+    public function list(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Person memory plugin is disabled.";
         }
 
-        $result = $this->personMemoryService->listPeople($this->preset);
+        $result = $this->personMemoryService->listPeople($preset);
         return $result['message'];
     }
 
@@ -251,7 +250,7 @@ class PersonPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
         // No placeholders needed
     }

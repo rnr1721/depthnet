@@ -3,9 +3,9 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
-use App\Contracts\Agent\Rag\RagContextEnricherInterface;
+use App\Contracts\Agent\Enricher\ContextEnricherInterface;
+use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
-use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -26,7 +26,7 @@ class SingleContextBuilder implements ContextBuilderInterface
         protected Message $messageModel,
         protected OptionsServiceInterface $optionsService,
         protected RagContextEnricherInterface $ragEnricher,
-        protected InnerVoiceEnricherInterface      $voiceEnricher,
+        protected ContextEnricherInterface     $voiceEnricher,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
     ) {
     }
@@ -56,17 +56,19 @@ class SingleContextBuilder implements ContextBuilderInterface
         // If the preset doesn't use [[rag_context]], nothing happens.
         $ragBlock = $this->ragEnricher->enrich($preset, $context);
 
-        $this->shortcodeManager->registerShortcode(
+        $this->shortcodeManager->registerShortcodeForPreset(
+            $preset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this request',
-            fn () => $ragBlock ?? ''
+            fn () => $ragBlock->getResponse() ?? ''
         );
 
         // Inner voice — advisor/conscience/muse as [[inner_voice]]
         $voiceBlock = $this->voiceEnricher->enrich($preset, $context, 'single');
         if ($voiceBlock->getResponse()) {
-            $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getVoicePreset());
-            $this->shortcodeManager->registerShortcode(
+            $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getPreset());
+            $this->shortcodeManager->registerShortcodeForPreset(
+                $preset->getId(),
                 'inner_voice',
                 'Inner voice: advice, doubt or intuition injected before each request',
                 fn () => $voiceText

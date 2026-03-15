@@ -5,10 +5,11 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -20,7 +21,6 @@ use Psr\Log\LoggerInterface;
 class DopaminePlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -29,6 +29,7 @@ class DopaminePlugin implements CommandPluginInterface
 
     public function __construct(
         protected LoggerInterface $logger,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected PluginMetadataServiceInterface $pluginMetadata
     ) {
@@ -229,33 +230,13 @@ class DopaminePlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            // Test basic dopamine operations
-            $originalLevel = $this->getCurrentLevel();
-
-            // Test setting level
-            $this->setCurrentLevel($this->config['default_level']);
-
-            // Test reading level
-            $testLevel = $this->getCurrentLevel(true);
-
-            // Restore original level
-            $this->setCurrentLevel($originalLevel);
-
-            return $testLevel === $this->config['default_level'];
-        } catch (\Exception $e) {
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Dopamine plugin is disabled.";
@@ -270,21 +251,21 @@ class DopaminePlugin implements CommandPluginInterface
      * @param string $content
      * @return string
      */
-    public function reward(string $content): string
+    public function reward(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Dopamine plugin is disabled.";
         }
 
         try {
-            $currentLevel = $this->getCurrentLevel();
+            $currentLevel = $this->getCurrentLevel($preset);
             $rewardAmount = $this->config['reward_amount'] ?? 1;
             $maxLevel = $this->config['max_level'] ?? 10;
 
             $newLevel = min($maxLevel, $currentLevel + $rewardAmount);
-            $this->setCurrentLevel($newLevel);
+            $this->setCurrentLevel($preset, $newLevel);
 
-            $this->logChange('reward', $currentLevel, $newLevel, $rewardAmount);
+            $this->logChange($preset, 'reward', $currentLevel, $newLevel, $rewardAmount);
 
             return "Dopamine level increased from {$currentLevel} to {$newLevel} (+{$rewardAmount})";
         } catch (\Throwable $e) {
@@ -297,23 +278,24 @@ class DopaminePlugin implements CommandPluginInterface
      * Apply penalty (decrease dopamine)
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function penalty(string $content): string
+    public function penalty(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Dopamine plugin is disabled.";
         }
 
         try {
-            $currentLevel = $this->getCurrentLevel();
+            $currentLevel = $this->getCurrentLevel($preset);
             $penaltyAmount = $this->config['penalty_amount'] ?? 1;
             $minLevel = $this->config['min_level'] ?? 0;
 
             $newLevel = max($minLevel, $currentLevel - $penaltyAmount);
-            $this->setCurrentLevel($newLevel);
+            $this->setCurrentLevel($preset, $newLevel);
 
-            $this->logChange('penalty', $currentLevel, $newLevel, $penaltyAmount);
+            $this->logChange($preset, 'penalty', $currentLevel, $newLevel, $penaltyAmount);
 
             return "Dopamine level decreased from {$currentLevel} to {$newLevel} (-{$penaltyAmount})";
         } catch (\Throwable $e) {
@@ -325,7 +307,7 @@ class DopaminePlugin implements CommandPluginInterface
     /**
      * Set specific dopamine level
      */
-    public function set(string $content): string
+    public function set(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Dopamine plugin is disabled.";
@@ -340,10 +322,10 @@ class DopaminePlugin implements CommandPluginInterface
                 return "Error: Dopamine level must be between {$minLevel} and {$maxLevel}";
             }
 
-            $currentLevel = $this->getCurrentLevel();
-            $this->setCurrentLevel($targetLevel);
+            $currentLevel = $this->getCurrentLevel($preset);
+            $this->setCurrentLevel($preset, $targetLevel);
 
-            $this->logChange('set', $currentLevel, $targetLevel, abs($targetLevel - $currentLevel));
+            $this->logChange($preset, 'set', $currentLevel, $targetLevel, abs($targetLevel - $currentLevel));
 
             return "Dopamine level set from {$currentLevel} to {$targetLevel}";
         } catch (\Throwable $e) {
@@ -356,16 +338,17 @@ class DopaminePlugin implements CommandPluginInterface
      * Show current dopamine level
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function show(string $content): string
+    public function show(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Dopamine plugin is disabled.";
         }
 
         try {
-            $currentLevel = $this->getCurrentLevel();
+            $currentLevel = $this->getCurrentLevel($preset);
             // $minLevel = $this->config['min_level'] ?? 0;
             $maxLevel = $this->config['max_level'] ?? 10;
 
@@ -382,20 +365,21 @@ class DopaminePlugin implements CommandPluginInterface
     /**
      * Log dopamine level changes
      *
+     * @param AiPreset $preset
      * @param string $action
      * @param integer $oldLevel
      * @param integer $newLevel
      * @param integer $amount
      * @return void
      */
-    private function logChange(string $action, int $oldLevel, int $newLevel, int $amount): void
+    private function logChange(AiPreset $preset, string $action, int $oldLevel, int $newLevel, int $amount): void
     {
         if (!($this->config['enable_logging'] ?? true)) {
             return;
         }
 
         $this->logger->info("Dopamine level changed", [
-            'preset_id' => $this->preset->id,
+            'preset_id' => $preset->getId(),
             'action' => $action,
             'old_level' => $oldLevel,
             'new_level' => $newLevel,
@@ -420,27 +404,27 @@ class DopaminePlugin implements CommandPluginInterface
         return true;
     }
 
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
-        $this->placeholderService->registerDynamic('dopamine_level', 'Level of model dopamine', function () {
-            return $this->getCurrentLevel();
-        });
-
+        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $this->placeholderService->registerDynamic('dopamine_level', 'Level of model dopamine', function () use ($preset) {
+            return $this->getCurrentLevel($preset);
+        }, $scope);
     }
 
-    private function setCurrentLevel(int $newLevel): void
+    private function setCurrentLevel(AiPreset $preset, int $newLevel): void
     {
         $this->pluginMetadata->set(
-            $this->preset,
+            $preset,
             self::PLUGIN_NAME,
             'current_level',
             $newLevel
         );
     }
-    private function getCurrentLevel(bool $fresh = false): int
+    private function getCurrentLevel(AiPreset $preset, bool $fresh = false): int
     {
         return $this->pluginMetadata->get(
-            $fresh ? $this->preset->fresh() : $this->preset,
+            $fresh ? $preset->fresh() : $preset,
             self::PLUGIN_NAME,
             self::CURRENT_LEVEL,
             $this->config['default_level']

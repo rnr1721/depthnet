@@ -232,4 +232,16 @@ class GoalService implements GoalServiceInterface
 
         return $goals[$number - 1] ?? null;
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function clear(AiPreset $preset): bool
+    {
+        $this->goalModel
+            ->where('preset_id', $preset->getId())
+            ->delete();
+
+        return true;
+    }
 }

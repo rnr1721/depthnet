@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use rnr1721\CodeCraft\Interfaces\CodeCraftInterface;
 use Psr\Log\LoggerInterface;
 
@@ -21,7 +21,6 @@ use Psr\Log\LoggerInterface;
 class CodeCraftPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -117,7 +116,7 @@ class CodeCraftPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: CodeCraft plugin is disabled.";
@@ -402,17 +401,7 @@ class CodeCraftPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            // Test basic CodeCraft functionality
-            $supportedExtensions = $this->codeCraft->getSupportedExtensions();
-            return !empty($supportedExtensions);
-        } catch (\Exception $e) {
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
@@ -819,7 +808,7 @@ class CodeCraftPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
         // Nothing to do here
     }

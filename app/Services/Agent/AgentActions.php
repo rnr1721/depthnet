@@ -59,7 +59,7 @@ class AgentActions implements AgentActionsInterface
         $role = $isUser ? self::ROLE_USER : self::ROLE_THINKING;
 
         // Step 4: Execute commands
-        $executionResult = $this->executeCommands($commands);
+        $executionResult = $this->executeCommands($commands, $preset);
         if ($executionResult) {
             $role = self::ROLE_COMMAND;
             $output .= $executionResult->formattedMessage;
@@ -136,13 +136,13 @@ class AgentActions implements AgentActionsInterface
      * @param array $commands
      * @return CommandExecutionResult|null
      */
-    private function executeCommands(array $commands): ?CommandExecutionResult
+    private function executeCommands(array $commands, AiPreset $preset): ?CommandExecutionResult
     {
         if (empty($commands)) {
             return null;
         }
 
-        return $this->commandExecutor->executeCommands($commands);
+        return $this->commandExecutor->executeCommands($commands, $preset);
     }
 
     /**

@@ -7,12 +7,12 @@ use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
+use App\Models\AiPreset;
 use Psr\Log\LoggerInterface;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 
 /**
  * VectorMemoryPlugin class
@@ -24,7 +24,6 @@ use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 class VectorMemoryPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -292,45 +291,36 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     public function testConnection(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            $result = $this->vectorMemoryService->testConnection($this->preset);
-            return $result['success'];
-        } catch (\Exception $e) {
-            $this->logger->error("VectorMemoryPlugin::testConnection error: " . $e->getMessage());
-            return false;
-        }
+        return $this->isEnabled();
     }
 
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Vector memory plugin is disabled.";
         }
 
-        return $this->store($content);
+        return $this->store($content, $preset);
     }
 
     /**
      * Store content in vector memory
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function store(string $content): string
+    public function store(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
-            $result = $this->vectorMemoryService->storeVectorMemory($this->preset, $content, $this->config);
+            $result = $this->vectorMemoryService->storeVectorMemory($preset, $content, $this->config);
 
             if (!$result['success']) {
                 return $result['message'];
@@ -340,7 +330,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
             // Add to regular memory if integration is enabled
             if ($this->config['integrate_with_memory'] ?? false) {
-                $memoryLinkResult = $this->addToRegularMemory($result['memory']);
+                $memoryLinkResult = $this->addToRegularMemory($result['memory'], $preset);
                 if ($memoryLinkResult) {
                     $message .= " " . $memoryLinkResult;
                 }
@@ -358,16 +348,17 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Search memories by semantic similarity
      *
      * @param string $query
+     * @param AiPreset $preset
      * @return string
      */
-    public function search(string $query): string
+    public function search(string $query, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
-            $result = $this->vectorMemoryService->searchVectorMemories($this->preset, $query, $this->config);
+            $result = $this->vectorMemoryService->searchVectorMemories($preset, $query, $this->config);
 
             if (!$result['success']) {
                 return $result['message'];
@@ -402,7 +393,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * @param string $limitStr
      * @return string
      */
-    public function recent(string $limitStr): string
+    public function recent(string $limitStr, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Vector memory plugin is disabled.";
@@ -410,7 +401,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
         try {
             $limit = $limitStr !== '' ? max(1, min((int) $limitStr, 20)) : 5;
-            $result = $this->vectorMemoryService->getRecentVectorMemories($this->preset, $limit);
+            $result = $this->vectorMemoryService->getRecentVectorMemories($preset, $limit);
 
             if (!$result['success']) {
                 return $result['message'];
@@ -441,7 +432,14 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
     }
 
-    public function show(string $memoryId): string
+    /**
+     * Show vector memory content for preset
+     *
+     * @param string $memoryId
+     * @param AiPreset $preset
+     * @return string
+     */
+    public function show(string $memoryId, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Vector memory plugin is disabled.";
@@ -449,7 +447,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
         try {
             $id = (int) $memoryId;
-            $memory = $this->vectorMemoryService->getVectorMemoryById($this->preset, $id);
+            $memory = $this->vectorMemoryService->getVectorMemoryById($preset, $id);
 
             if (!$memory) {
                 return "Memory with ID {$id} not found.";
@@ -473,16 +471,17 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Clear all vector memories
      *
      * @param string $content
+     * @param AiPreset $preset
      * @return string
      */
-    public function clear(string $content): string
+    public function clear(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
-            $result = $this->vectorMemoryService->clearVectorMemories($this->preset);
+            $result = $this->vectorMemoryService->clearVectorMemories($preset);
             return $result['message'];
 
         } catch (\Throwable $e) {
@@ -495,9 +494,10 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Delete specific vector memory by ID or content search
      *
      * @param string $identifier Memory ID or content fragment to search for
+     * @param AiPreset $preset
      * @return string
      */
-    public function delete(string $identifier): string
+    public function delete(string $identifier, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Vector memory plugin is disabled.";
@@ -514,13 +514,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
             if (is_numeric($identifier)) {
                 $id = (int) $identifier;
                 if ($id > 0) {
-                    $result = $this->vectorMemoryService->deleteVectorMemory($this->preset, $id);
+                    $result = $this->vectorMemoryService->deleteVectorMemory($preset, $id);
                     return $result['message'];
                 }
             }
 
             // If not a valid ID, search by content
-            $searchResult = $this->vectorMemoryService->searchVectorMemories($this->preset, $identifier, [
+            $searchResult = $this->vectorMemoryService->searchVectorMemories($preset, $identifier, [
                 'search_limit' => 1,
                 'similarity_threshold' => 0.3
             ]);
@@ -532,7 +532,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $memory = $searchResult['results'][0]['memory'];
             $similarity = round($searchResult['results'][0]['similarity'] * 100, 1);
 
-            $deleteResult = $this->vectorMemoryService->deleteVectorMemory($this->preset, $memory->id);
+            $deleteResult = $this->vectorMemoryService->deleteVectorMemory($preset, $memory->id);
 
             if ($deleteResult['success']) {
                 $preview = $this->truncateContent($memory->content, 60);
@@ -561,9 +561,10 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Add reference to regular memory plugin
      *
      * @param \App\Models\VectorMemory $vectorMemory
+     * @param AiPreset $preset
      * @return string|null
      */
-    private function addToRegularMemory($vectorMemory): ?string
+    private function addToRegularMemory($vectorMemory, AiPreset $preset): ?string
     {
         try {
             // Get memory plugin instance
@@ -583,7 +584,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $link = $this->formatMemoryLink($vectorMemory, $limitedKeywords, $format);
 
             // Add to memory using the memory service
-            $result = $this->memoryService->addMemoryItem($this->preset, $link);
+            $result = $this->memoryService->addMemoryItem($preset, $link);
 
             return "Added reference to regular memory.";
 
@@ -601,9 +602,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     private function getMemoryPlugin(): ?MemoryPlugin
     {
         /* @var MemoryPlugin $memoryPlugin */
-        $memoryPlugin = app(PluginRegistryInterface::class)->get('memory');
-        $memoryPlugin?->setCurrentPreset($this->preset);
-        return $memoryPlugin;
+        return app(PluginRegistryInterface::class)->get('memory');
     }
 
     /**
@@ -677,7 +676,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
         $mode = $this->config['memory_mode'] ?? 'default';
         $driver = $mode === 'associative'

@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
+use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
@@ -79,7 +81,7 @@ class ChatController extends Controller
             // Get available presets (only active ones for regular use)
             $availablePresets = $this->presetService->getActivePresets();
 
-            $pluginRegistry->setCurrentPreset($defaultPreset);
+            $pluginRegistry->applyPreset($defaultPreset);
             $shortcodeManager->setDefaultShortcodes();
             $placeholders = $shortcodeManager->getRegisteredShortcodes();
             $engines = $engineRegistry->getAvailableEngines();
@@ -158,7 +160,9 @@ class ChatController extends Controller
     public function clearHistory(
         Request $request,
         MemoryServiceInterface $memoryService,
-        VectorMemoryFactoryInterface $vectorMemoryFactory
+        VectorMemoryFactoryInterface $vectorMemoryFactory,
+        WorkspaceServiceInterface $workspaceService,
+        GoalServiceInterface $goalService
     ): JsonResponse|RedirectResponse {
         try {
             $currentPreset = $this->presetService->getDefaultPreset();
@@ -181,6 +185,16 @@ class ChatController extends Controller
                 $vectorMemoryService = $vectorMemoryFactory->make();
                 $vectorMemoryService->clearVectorMemories($currentPreset);
                 $cleared[] = 'vector_memory';
+            }
+
+            if ($request->boolean('clear_workspace')) {
+                $workspaceService->clear($currentPreset);
+                $cleared[] = 'workspace';
+            }
+
+            if ($request->boolean('clear_goals')) {
+                $goalService->clear($currentPreset);
+                $cleared[] = 'goals';
             }
 
             if (empty($cleared)) {

@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
+use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ActionsResponseDTO;
@@ -17,6 +18,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     public function __construct(
         protected Message $messageModel,
         protected AgentActionsInterface $agentActions,
+        protected CommandResultPoolInterface $commandResultPool,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -116,7 +118,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         }
 
         if ($method === 'internal' && !empty(trim($actionsResult->getResult()))) {
-            $this->storeResultsToCache($preset, $actionsResult->getResult());
+            $this->commandResultPool->push($preset, $message, $actionsResult->getResult());
             $this->messageModel->create([
                 'role' => 'system',
                 'content' => $actionsResult->getResult(),
@@ -138,12 +140,6 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             'message' => $message
         ];
 
-    }
-
-    protected function storeResultsToCache(AiPreset $preset, string $content): void
-    {
-        $keyName = sprintf(self::CACHE_KEY, $preset->getId());
-        $this->cache->forever($keyName, $content);
     }
 
     /**

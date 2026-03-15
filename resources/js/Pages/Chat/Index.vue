@@ -73,8 +73,8 @@
     </div>
 
     <!-- Preset Modal -->
-    <PresetModal v-if="showEditPresetModal" :placeholders="placeholders" :preset="editingPreset" :engines="engines"
-      :available-presets="availablePresets" @close="closeEditModal" @save="saveAnyPreset" />
+    <PresetModal v-if="showEditPresetModal" :placeholders="currentPlaceholders" :preset="editingPreset"
+      :engines="engines" :available-presets="availablePresets" @close="closeEditModal" @save="saveAnyPreset" />
 
     <!-- About Modal -->
     <AboutModal v-if="showAboutModal" :isDark="isDark" :available-presets="availablePresets"
@@ -190,6 +190,7 @@ const {
   exportChat,
   editCurrentPreset,
   closeEditModal,
+  currentPlaceholders,
 } = usePresets(props, isAdmin);
 
 /**
@@ -328,6 +329,8 @@ async function handleClearHistory(options) {
     if (options.clearMessages) requestData.clear_messages = true;
     if (options.clearMemory) requestData.clear_memory = true;
     if (options.clearVectorMemory) requestData.clear_vector_memory = true;
+    if (options.clearWorkspace) requestData.clear_workspace = true;
+    if (options.clearGoals) requestData.clear_goals = true;
 
     await router.post(route('chat.clear'), requestData, {
       preserveScroll: true,
@@ -422,11 +425,13 @@ async function loadAndEditPreset(presetId) {
     const response = await axios.get(route('admin.presets.show', presetId));
 
     if (response.data && response.data.success && response.data.data) {
-      const fullPresetData = response.data.data;
+      const fullPresetData = response.data.data.preset;
+      const presetPlaceholders = response.data.data.placeholders;
       console.log('Loaded full preset data:', fullPresetData);
 
       // Use the full data (same as admin panel)
       editingPreset.value = fullPresetData;
+      currentPlaceholders.value = response.data.data.placeholders ?? props.placeholders;
       showEditPresetModal.value = true;
     } else {
       console.error('Invalid response format:', response.data);

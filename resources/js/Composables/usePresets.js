@@ -17,6 +17,7 @@ export function usePresets(props, isAdmin) {
   const showEditPresetModal = ref(false);
   const editingPreset = ref(null);
   const engines = ref(props.engines || {});
+  const currentPlaceholders = ref(props.placeholders || {});
 
   /**
    * Update preset settings
@@ -94,7 +95,8 @@ export function usePresets(props, isAdmin) {
       const response = await axios.get(route('admin.presets.show', props.currentPreset.id));
 
       if (response.data.success) {
-        editingPreset.value = response.data.data;
+        editingPreset.value = response.data.data.preset;
+        currentPlaceholders.value = response.data.data.placeholders ?? props.placeholders;
         engines.value = props.engines;
         showEditPresetModal.value = true;
       } else {
@@ -111,6 +113,7 @@ export function usePresets(props, isAdmin) {
   const closeEditModal = () => {
     showEditPresetModal.value = false;
     editingPreset.value = null;
+    currentPlaceholders.value = props.placeholders || {};
   };
 
   /**
@@ -162,6 +165,7 @@ export function usePresets(props, isAdmin) {
     showEditPresetModal,
     editingPreset,
     engines,
+    currentPlaceholders,
     updatePresetSettings,
     exportChat,
     editCurrentPreset,

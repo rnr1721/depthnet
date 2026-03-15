@@ -15,7 +15,10 @@ use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
+use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\Enricher\ContextEnricherInterface;
+use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
@@ -32,12 +35,12 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
-use App\Contracts\Agent\Rag\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
-use App\Contracts\Agent\Voice\InnerVoiceEnricherInterface;
+use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
@@ -49,8 +52,11 @@ use App\Services\Agent\CommandLinter;
 use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
+use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
+use App\Services\Agent\Enricher\ContextEnricher;
+use App\Services\Agent\Enricher\RagContextEnricher;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
 use App\Services\Agent\Providers\ClaudeModel;
@@ -80,6 +86,7 @@ use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
+use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetSandboxService;
@@ -87,14 +94,14 @@ use App\Services\Agent\PresetService;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
-use App\Services\Agent\Rag\RagContextEnricher;
 use App\Services\Agent\ShortcodeManagerService;
+use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
 use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
-use App\Services\Agent\Voice\InnerVoiceEnricher;
+use App\Services\Agent\Workspace\WorkspaceService;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -104,6 +111,7 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->singleton(CommandResultPoolInterface::class, CommandResultPoolService::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
         $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
@@ -126,15 +134,19 @@ class AiServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->bind(WorkspaceServiceInterface::class, WorkspaceService::class);
+
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
 
-        $this->app->singleton(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
+        $this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
+        $this->app->singleton(ShortcodeScopeResolverServiceInterface::class, ShortcodeScopeResolverService::class);
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);
         $this->app->singleton(ShortcodeManagerServiceInterface::class, ShortcodeManagerService::class);
         $this->app->bind(EnvironmentInfoServiceInterface::class, EnvironmentInfoService::class);
+
         $this->app->singleton(AgentJobServiceInterface::class, AgentJobService::class);
         $this->app->singleton(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
         $this->app->bind(CommandPreProcessorInterface::class, CommandPreProcessor::class);
@@ -250,6 +262,7 @@ class AiServiceProvider extends ServiceProvider
             DopaminePlugin::class,
             MoodPlugin::class,
             PuppeteerBrowserPlugin::class,
+            WorkspacePlugin::class,
             GoalPlugin::class,
             CodeCraftPlugin::class,
         ];

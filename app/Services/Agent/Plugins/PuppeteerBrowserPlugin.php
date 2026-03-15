@@ -3,10 +3,10 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use App\Services\Agent\Plugins\Traits\PluginPresetTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -19,7 +19,6 @@ use Psr\Log\LoggerInterface;
 class PuppeteerBrowserPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
-    use PluginPresetTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
@@ -292,7 +291,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function execute(string $content): string
+    public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Browser plugin is disabled.";
@@ -978,7 +977,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(): void
+    public function pluginReady(AiPreset $preset): void
     {
         $screenshotPath = storage_path('app/' . ($this->config['screenshot_path'] ?? 'screenshots'));
         if (!is_dir($screenshotPath)) {

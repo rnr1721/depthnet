@@ -37,7 +37,7 @@ class PresetController extends Controller
         $engines = $this->engineRegistry->getAvailableEngines();
 
         $defaultPreset = $this->presetService->getDefaultPreset();
-        $this->pluginRegistry->setCurrentPreset($defaultPreset);
+        $this->pluginRegistry->applyPreset($defaultPreset);
         $this->shortcodeManager->setDefaultShortcodes();
         $placeholders = $this->shortcodeManager->getRegisteredShortcodes();
 
@@ -74,10 +74,18 @@ class PresetController extends Controller
                 return $this->errorResponse('Preset not found', 404);
             }
 
+            $this->pluginRegistry->applyPreset($preset);
+            $this->shortcodeManager->setDefaultShortcodes();
+
             $engineFields = $this->engineRegistry->getEngineConfigFields($preset->engine_name);
             $preset->engine_config_fields = $engineFields; // Add fields to model for resource
 
-            return $this->successResponse(new PresetDetailResource($preset));
+            $placeholders = $this->shortcodeManager->getRegisteredShortcodes($preset->getId());
+
+            return $this->successResponse([
+                'preset' => new PresetDetailResource($preset),
+                'placeholders' => $placeholders,
+            ]);
 
         } catch (\Exception $e) {
             return $this->errorResponse('Failed to retrieve preset');

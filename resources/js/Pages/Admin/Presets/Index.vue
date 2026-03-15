@@ -78,11 +78,11 @@
                                 ? 'bg-gray-700 hover:bg-gray-800 text-white focus:ring-gray-500 focus:ring-offset-gray-900'
                                 : 'bg-gray-200 hover:bg-gray-300 text-gray-800 focus:ring-gray-400'
                         ]">
-                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7">
-                            </path>
-                        </svg>
-                        {{ t('p_modal_engines') }}
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7">
+                                </path>
+                            </svg>
+                            {{ t('p_modal_engines') }}
                         </Link>
                     </div>
                 </div>
@@ -247,8 +247,9 @@
         </main>
 
         <!-- Create/Edit Modal -->
-        <PresetModal v-if="showCreateModal || editingPreset" :placeholders="placeholders" :preset="editingPreset"
-            :engines="engines" @close="closeModal" :available-presets="availablePresets" @save="savePreset" />
+        <PresetModal v-if="showCreateModal || editingPreset"
+            :placeholders="editingPreset ? presetPlaceholders : placeholders" :preset="editingPreset" :engines="engines"
+            @close="closeModal" :available-presets="availablePresets" @save="savePreset" />
     </div>
 </template>
 
@@ -266,6 +267,7 @@ const isDark = ref(false);
 const showCreateModal = ref(false);
 const editingPreset = ref(null);
 
+
 const props = defineProps({
     presets: Array,
     engines: Object,
@@ -275,6 +277,8 @@ const props = defineProps({
         default: () => []
     }
 });
+
+const presetPlaceholders = ref(props.placeholders);
 
 // Engine colors mapping based on engines data
 const engineColors = computed(() => {
@@ -326,7 +330,20 @@ const getEngineDisplayName = (engineName) => {
     return engineName.charAt(0).toUpperCase() + engineName.slice(1);
 };
 
-const editPreset = (preset) => {
+const editPreset = async (preset) => {
+    try {
+        const response = await fetch(route('admin.presets.show', preset.id));
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            presetPlaceholders.value = result.data.placeholders ?? props.placeholders;
+        } else {
+            presetPlaceholders.value = props.placeholders;
+        }
+    } catch {
+        presetPlaceholders.value = props.placeholders;
+    }
+
     editingPreset.value = preset;
 };
 
@@ -347,6 +364,7 @@ const deletePreset = (preset) => {
 const closeModal = () => {
     showCreateModal.value = false;
     editingPreset.value = null;
+    presetPlaceholders.value = props.placeholders;
 };
 
 const savePreset = (data) => {

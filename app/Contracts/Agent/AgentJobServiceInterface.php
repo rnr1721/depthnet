@@ -5,120 +5,94 @@ namespace App\Contracts\Agent;
 /**
  * Interface for managing agent job lifecycle and execution control.
  *
- * This service provides methods to control the agent's thinking process,
- * including starting, stopping, and monitoring the execution state.
- * The agent can operate in different modes (single/looped) and uses
- * locking mechanism to prevent concurrent executions.
+ * Each preset runs its own independent thinking loop.
+ * All methods that were previously global now accept a $presetId.
+ * The old zero-argument signatures are kept as nullable/default overloads
+ * only where strictly needed for backward compatibility.
  */
 interface AgentJobServiceInterface
 {
     /**
-     * Check if the agent is currently active and enabled for processing.
+     * Check if a specific preset is currently active (loop enabled).
      *
-     * This method checks the global agent activation state, typically
-     * controlled by the 'model_active' configuration option.
-     *
-     * @return bool True if the agent is active and can potentially run
+     * @param int $presetId
+     * @return bool
      */
-    public function isActive(): bool;
+    public function isActive(int $presetId): bool;
 
     /**
-     * Determine if the agent thinking process can be started.
+     * Determine if the thinking loop for a preset can be started.
+     * Returns true when the preset is active and not currently locked.
      *
-     * Checks all preconditions for starting the agent:
-     * - Agent must be active (isActive() returns true)
-     * - Agent must be in 'looped' mode (not 'single')
-     * - No active lock should be present (not currently running)
-     *
-     * @return bool True if all conditions are met to start the process
+     * @param int $presetId
+     * @return bool
      */
-    public function canStart(): bool;
+    public function canStart(int $presetId): bool;
 
     /**
-     * Determine if the agent thinking process can be stopped.
+     * Determine if the thinking loop for a preset can be stopped.
+     * Returns true when a lock is held for the preset.
      *
-     * The agent can be stopped if it's currently running, which is
-     * indicated by the presence of an active lock.
-     *
-     * @return bool True if the agent is currently running and can be stopped
+     * @param int $presetId
+     * @return bool
      */
-    public function canStop(): bool;
+    public function canStop(int $presetId): bool;
 
     /**
-     * Start the agent thinking process.
+     * Dispatch the first thinking job for a preset.
      *
-     * Initiates the agent's thinking cycle by dispatching the first job.
-     * This method will only succeed if canStart() returns true.
-     *
-     * @return bool True if the process was successfully started, false otherwise
+     * @param int $presetId
+     * @param bool $singleMode - If single, not loop mode
+     * @return bool
      */
-    public function start(): bool;
+    public function start(int $presetId, bool $singleMode = false): bool;
 
     /**
-     * Stop the agent thinking process.
+     * Release the lock for a preset, preventing the next cycle from starting.
      *
-     * Stops the current thinking cycle by releasing the lock.
-     * This prevents the next cycle from being scheduled.
-     * Note: This doesn't immediately terminate a currently executing job,
-     * but prevents new cycles from starting.
-     *
-     * @return bool True if the process was successfully stopped, false otherwise
+     * @param int $presetId
+     * @return bool
      */
-    public function stop(): bool;
+    public function stop(int $presetId): bool;
 
     /**
-     * Check if the agent thinking process is currently locked/running.
+     * Check whether the thinking process for a preset is currently locked/running.
      *
-     * The lock mechanism prevents multiple instances of the thinking
-     * process from running simultaneously. When locked, it indicates
-     * that a thinking cycle is currently in progress.
-     *
-     * @return bool True if the process is currently locked/running
+     * @param int $presetId
+     * @return bool
      */
-    public function isLocked(): bool;
+    public function isLocked(int $presetId): bool;
 
     /**
-     * Execute a single thinking cycle.
+     * Execute a single thinking cycle for the given preset.
+     * Called by ProcessAgentThinking job — do not call directly.
      *
-     * This is the main method that handles the core logic of the agent's
-     * thinking process. It:
-     * - Checks preconditions (active state, mode, lock status)
-     * - Acquires a lock to prevent concurrent execution
-     * - Calls the agent's think() method
-     * - Schedules the next cycle (if in looped mode)
-     * - Handles errors and ensures proper cleanup
-     *
-     * This method is typically called by the ProcessAgentThinking job
-     * and should not be called directly from application code.
-     *
+     * @param int $presetId
      * @return void
-     * @throws \Throwable If the thinking process encounters an error
      */
-    public function processThinkingCycle(): void;
+    public function processThinkingCycle(int $presetId): void;
 
     /**
-     * Update model settings and manage agent state accordingly.
+     * Update active/inactive status for a specific preset and manage its loop.
      *
-     * Updates the default model and active state, then:
-     * - Restarts the queue to apply new settings
-     * - Starts the agent if it was activated
-     * - Stops the agent if it was deactivated
-     *
-     * @param int $presetId The ID of the preset to set as default
-     * @param bool $isActive Whether the agent should be active
-     * @return bool True if settings were updated successfully
+     * @param int  $presetId
+     * @param bool $isActive
+     * @return bool
      */
     public function updateModelSettings(int $presetId, bool $isActive): bool;
 
     /**
-     * Get current model settings.
+     * Get current settings for a specific preset.
      *
-     * Returns the current model configuration including:
-     * - Default model name
-     * - Active state
-     * - Current mode
-     *
-     * @return array Current model settings
+     * @param int $presetId
+     * @return array{preset_id: int, chat_active: bool, is_locked: bool, can_start: bool, can_stop: bool}
      */
-    public function getModelSettings(): array;
+    public function getModelSettings(int $presetId): array;
+
+    /**
+     * Get settings for ALL presets (for status overview / artisan command).
+     *
+     * @return array<int, array>
+     */
+    public function getAllModelSettings(): array;
 }

@@ -27,13 +27,12 @@
 
         <!-- Theme toggle + Mobile menu button -->
         <div class="flex items-center space-x-3">
-          <!-- Theme toggle -->
           <button @click="toggleTheme" :class="[
             'p-2 rounded-xl transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
             isDark
               ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600 focus:ring-offset-gray-800'
               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          ]" :title="isDark ? 'Переключить на светлую тему' : 'Переключить на темную тему'">
+          ]">
             <svg v-if="isDark" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd"
                 d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
@@ -44,7 +43,6 @@
             </svg>
           </button>
 
-          <!-- Mobile menu button -->
           <button @click="mobileMenuOpen = !mobileMenuOpen" :class="[
             'sm:hidden p-2 rounded-xl transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
             isDark
@@ -76,32 +74,17 @@
           </div>
 
           <div class="flex items-center space-x-1">
-            <Link :href="route('chat.index')" :class="[
-              'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
-            ]">
-            <span>{{ $t('chat') }}</span>
+            <Link :href="route('chat.index')" :class="navLinkClass">
+              <span>{{ $t('chat') }}</span>
             </Link>
 
-            <Link :href="route('profile.show')" :class="[
-              'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
-            ]">
-            <span>{{ $t('profile') }}</span>
+            <Link :href="route('profile.show')" :class="navLinkClass">
+              <span>{{ $t('profile') }}</span>
             </Link>
 
             <!-- Dropdown Menu -->
             <div v-if="isAdmin" class="relative" ref="dropdownRef">
-              <button @click="dropdownOpen = !dropdownOpen" :class="[
-                'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
-                isDark
-                  ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
-                  : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500'
-              ]">
+              <button @click="dropdownOpen = !dropdownOpen" :class="navLinkClass">
                 <span>{{ $t('admin') }}</span>
                 <svg :class="[
                   'w-4 h-4 transition-transform duration-200',
@@ -111,7 +94,6 @@
                 </svg>
               </button>
 
-              <!-- Dropdown content with Teleport -->
               <Teleport to="body">
                 <Transition enter-active-class="transition ease-out duration-200"
                   enter-from-class="transform opacity-0 scale-95" enter-to-class="transform opacity-100 scale-100"
@@ -125,91 +107,50 @@
                   ]" style="z-index: 9999;">
                     <div class="py-2">
 
-
-                      <Link :href="route('admin.memory.index')" @click="dropdownOpen = false" :class="[
-                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                        isDark
-                          ? 'text-gray-200 hover:bg-gray-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('memory') }}</span>
+                      <!-- Preset-aware links -->
+                      <Link :href="memoryLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('memory') }}</span>
                       </Link>
 
-                      <Link :href="route('admin.vector-memory.index')" @click="dropdownOpen = false" :class="[
-                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                        isDark
-                          ? 'text-gray-200 hover:bg-gray-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('vm_vector_memory') }}</span>
+                      <Link :href="vectorMemoryLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('vm_vector_memory') }}</span>
                       </Link>
 
-                      <Link :href="route('admin.presets.index')" @click="dropdownOpen = false" :class="[
-                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                        isDark
-                          ? 'text-gray-200 hover:bg-gray-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('presets') }}</span>
+                      <Link :href="route('admin.presets.index')" @click="dropdownOpen = false"
+                        :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('presets') }}</span>
                       </Link>
 
-                      <Link :href="route('admin.plugins.index')" @click="dropdownOpen = false" :class="[
-                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                        isDark
-                          ? 'text-gray-200 hover:bg-gray-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('plugins') }}</span>
+                      <Link :href="pluginsLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('plugins') }}</span>
                       </Link>
 
-                      <Link :href="route('admin.engines.index')" @click="dropdownOpen = false" :class="[
-                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                        isDark
-                          ? 'text-gray-200 hover:bg-gray-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('engines') }}</span>
+                      <Link :href="route('admin.engines.index')" @click="dropdownOpen = false"
+                        :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('engines') }}</span>
                       </Link>
 
                       <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')"
-                        @click="dropdownOpen = false" :class="[
-                          'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                          isDark
-                            ? 'text-gray-200 hover:bg-gray-700'
-                            : 'text-gray-700 hover:bg-gray-100'
-                        ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('hypervisor') }}</span>
+                        @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('hypervisor') }}</span>
                       </Link>
 
-                      <div :class="[
-                        'border-t my-2',
-                        isDark ? 'border-gray-700' : 'border-gray-200'
-                      ]"></div>
+                      <div :class="['border-t my-2', isDark ? 'border-gray-700' : 'border-gray-200']"></div>
 
-                      <Link :href="route('admin.users.index')" @click="dropdownOpen = false" :class="[
-                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                        isDark
-                          ? 'text-gray-200 hover:bg-gray-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('users') }}</span>
+                      <Link :href="route('admin.users.index')" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('users') }}</span>
                       </Link>
 
-                      <Link :href="route('admin.settings')" @click="dropdownOpen = false" :class="[
-                        'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
-                        isDark
-                          ? 'text-gray-200 hover:bg-gray-700'
-                          : 'text-gray-700 hover:bg-gray-100'
-                      ]">
-                      <span class="mr-3"></span>
-                      <span>{{ $t('settings') }}</span>
+                      <Link :href="route('admin.settings')" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('settings') }}</span>
                       </Link>
 
                     </div>
@@ -224,7 +165,7 @@
                 ? 'text-red-400 hover:text-red-300 hover:bg-red-900 hover:bg-opacity-20 focus:ring-red-500 focus:ring-offset-gray-800'
                 : 'text-red-600 hover:text-red-800 hover:bg-red-50 focus:ring-red-500'
             ]">
-            <span>{{ $t('logout') }}</span>
+              <span>{{ $t('logout') }}</span>
             </Link>
           </div>
         </nav>
@@ -240,47 +181,25 @@
             ? 'bg-gray-800 bg-opacity-50 border-gray-700'
             : 'bg-gray-50 bg-opacity-50 border-gray-200'
         ]">
-          <!-- User info mobile -->
-          <div :class="[
-            'flex items-center space-x-3 p-3 rounded-xl',
-            isDark ? 'bg-gray-700' : 'bg-white'
-          ]">
+          <div :class="['flex items-center space-x-3 p-3 rounded-xl', isDark ? 'bg-gray-700' : 'bg-white']">
             <div
               class="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
               <span class="text-white font-bold">{{ $page.props.auth.user.name.charAt(0).toUpperCase() }}</span>
             </div>
             <div>
-              <p :class="[
-                'font-medium',
-                isDark ? 'text-white' : 'text-gray-900'
-              ]">{{ $page.props.auth.user.name }}</p>
-              <p :class="[
-                'text-sm',
-                isDark ? 'text-gray-400' : 'text-gray-500'
-              ]">{{ isAdmin ? $t('admin') : $t('user') }}</p>
+              <p :class="['font-medium', isDark ? 'text-white' : 'text-gray-900']">{{ $page.props.auth.user.name }}</p>
+              <p :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">{{ isAdmin ? $t('admin') : $t('user')
+              }}</p>
             </div>
           </div>
 
-          <!-- Navigation links mobile -->
           <div class="space-y-2">
-            <Link :href="route('chat.index')" :class="[
-              'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
-            ]" @click="mobileMenuOpen = false">
-            <span class="text-lg"></span>
-            <span>{{ $t('chat') }}</span>
+            <Link :href="route('chat.index')" :class="mobileLinkClass" @click="mobileMenuOpen = false">
+              <span class="text-lg"></span><span>{{ $t('chat') }}</span>
             </Link>
 
-            <Link :href="route('profile.show')" :class="[
-              'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-              isDark
-                ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
-                : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
-            ]" @click="mobileMenuOpen = false">
-            <span class="text-lg"></span>
-            <span>{{ $t('profile') }}</span>
+            <Link :href="route('profile.show')" :class="mobileLinkClass" @click="mobileMenuOpen = false">
+              <span class="text-lg"></span><span>{{ $t('profile') }}</span>
             </Link>
 
             <!-- Mobile Admin Section -->
@@ -292,18 +211,14 @@
                   : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
               ]">
                 <div class="flex items-center space-x-3">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('admin') }}</span>
+                  <span class="text-lg"></span><span>{{ $t('admin') }}</span>
                 </div>
-                <svg :class="[
-                  'w-4 h-4 transition-transform duration-200',
-                  mobileAdminOpen ? 'rotate-180' : ''
-                ]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg :class="['w-4 h-4 transition-transform duration-200', mobileAdminOpen ? 'rotate-180' : '']"
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                 </svg>
               </button>
 
-              <!-- Mobile Admin Submenu -->
               <Transition enter-active-class="transition ease-out duration-200"
                 enter-from-class="transform opacity-0 scale-95 -translate-y-2"
                 enter-to-class="transform opacity-100 scale-100 translate-y-0"
@@ -311,84 +226,45 @@
                 leave-from-class="transform opacity-100 scale-100 translate-y-0"
                 leave-to-class="transform opacity-0 scale-95 -translate-y-2">
                 <div v-if="mobileAdminOpen" class="ml-6 space-y-2">
-                  <Link :href="route('admin.presets.index')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('presets') }}</span>
+                  <Link :href="route('admin.presets.index')" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('presets') }}</span>
                   </Link>
 
-                  <Link :href="route('admin.memory.index')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('memory') }}</span>
+                  <!-- Preset-aware links (mobile) -->
+                  <Link :href="memoryLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('memory') }}</span>
                   </Link>
 
-                  <Link :href="route('admin.vector-memory.index')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('vm_vector_memory') }}</span>
+                  <Link :href="vectorMemoryLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('vm_vector_memory') }}</span>
                   </Link>
 
-                  <Link :href="route('admin.plugins.index')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('plugins') }}</span>
+                  <Link :href="pluginsLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('plugins') }}</span>
                   </Link>
 
-                  <Link :href="route('admin.engines.index')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('engines') }}</span>
+                  <Link :href="route('admin.engines.index')" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('engines') }}</span>
                   </Link>
 
-                  <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('hypervisor') }}</span>
+                  <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')"
+                    :class="mobileSubLinkClass" @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('hypervisor') }}</span>
                   </Link>
 
-                  <Link :href="route('admin.users.index')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('users') }}</span>
+                  <Link :href="route('admin.users.index')" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('users') }}</span>
                   </Link>
 
-                  <Link :href="route('admin.settings')" :class="[
-                    'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
-                    isDark
-                      ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
-                      : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50'
-                  ]" @click="mobileMenuOpen = false; mobileAdminOpen = false">
-                  <span class="text-lg"></span>
-                  <span>{{ $t('settings') }}</span>
+                  <Link :href="route('admin.settings')" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('settings') }}</span>
                   </Link>
                 </div>
               </Transition>
@@ -400,8 +276,7 @@
                 ? 'text-red-400 hover:text-red-300 hover:bg-red-900 hover:bg-opacity-20'
                 : 'text-red-600 hover:text-red-800 hover:bg-red-50'
             ]" @click="mobileMenuOpen = false">
-            <span class="text-lg"></span>
-            <span>{{ $t('logout') }}</span>
+              <span class="text-lg"></span><span>{{ $t('logout') }}</span>
             </Link>
           </div>
         </div>
@@ -411,63 +286,72 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
-import { Link, usePage } from '@inertiajs/vue3'
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { Link, usePage } from '@inertiajs/vue3';
+import { useSelectedPreset } from '@/Composables/useSelectedPreset';
 
 const page = usePage();
+const { routeWithPreset, routeWithPresetParam } = useSelectedPreset();
 
 const props = defineProps({
-  title: {
-    type: String,
-    required: true
-  },
-  isAdmin: {
-    type: Boolean,
-    default: false
-  }
-})
+  title: { type: String, required: true },
+  isAdmin: { type: Boolean, default: false },
+});
 
-const mobileMenuOpen = ref(false)
-const mobileAdminOpen = ref(false)
-const dropdownOpen = ref(false)
-const dropdownRef = ref(null)
-const isDark = ref(false)
+const mobileMenuOpen = ref(false);
+const mobileAdminOpen = ref(false);
+const dropdownOpen = ref(false);
+const dropdownRef = ref(null);
+const isDark = ref(false);
 
-/**
- * Calculate dropdown position for Teleport
- */
+// Preset-aware computed links — read saved preset from localStorage
+const memoryLink = computed(() => routeWithPreset(route('admin.memory.index')));
+const vectorMemoryLink = computed(() => routeWithPreset(route('admin.vector-memory.index')));
+const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
+
+// Shared link class helpers
+const navLinkClass = computed(() => [
+  'inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
+  isDark.value
+    ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700 focus:ring-indigo-500 focus:ring-offset-gray-800'
+    : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 focus:ring-indigo-500',
+]);
+
+const dropdownLinkClass = computed(() => [
+  'flex items-center px-4 py-3 text-sm transition-colors hover:bg-opacity-50',
+  isDark.value ? 'text-gray-200 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-100',
+]);
+
+const mobileLinkClass = computed(() => [
+  'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+  isDark.value
+    ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
+    : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50',
+]);
+
+const mobileSubLinkClass = computed(() => [
+  'flex items-center space-x-3 w-full p-3 rounded-xl text-sm font-medium transition-all',
+  isDark.value
+    ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700'
+    : 'text-gray-600 hover:text-indigo-800 hover:bg-indigo-50',
+]);
+
 const dropdownStyle = computed(() => {
-  if (!dropdownRef.value || !dropdownOpen.value) return {}
-
-  const rect = dropdownRef.value.getBoundingClientRect()
+  if (!dropdownRef.value || !dropdownOpen.value) return {};
+  const rect = dropdownRef.value.getBoundingClientRect();
   return {
     top: `${rect.bottom + 8}px`,
-    right: `${window.innerWidth - rect.right}px`
-  }
-})
+    right: `${window.innerWidth - rect.right}px`,
+  };
+});
 
-/**
- * Toggle theme between light and dark
- */
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   localStorage.setItem('chat-theme', isDark.value ? 'dark' : 'light');
-
-  if (isDark.value) {
-    document.documentElement.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-  }
-
-  // Dispatch custom event for other components to listen
-  window.dispatchEvent(new CustomEvent('theme-changed', {
-    detail: { isDark: isDark.value }
-  }));
+  document.documentElement.classList.toggle('dark', isDark.value);
+  window.dispatchEvent(new CustomEvent('theme-changed', { detail: { isDark: isDark.value } }));
 };
 
-/**
- * Close dropdown when clicking outside
- */
 const handleClickOutside = (event) => {
   if (dropdownRef.value && !dropdownRef.value.contains(event.target)) {
     dropdownOpen.value = false;
@@ -475,30 +359,22 @@ const handleClickOutside = (event) => {
 };
 
 onMounted(() => {
-  // Load theme from localStorage
   const savedTheme = localStorage.getItem('chat-theme');
   if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     isDark.value = true;
     document.documentElement.classList.add('dark');
   }
 
-  // Listen for theme changes from other components
-  window.addEventListener('theme-changed', (event) => {
-    isDark.value = event.detail.isDark;
-  });
-
-  // Add click outside listener for dropdown
+  window.addEventListener('theme-changed', (e) => { isDark.value = e.detail.isDark; });
   document.addEventListener('click', handleClickOutside);
 });
 
 onUnmounted(() => {
-  // Remove click outside listener
   document.removeEventListener('click', handleClickOutside);
 });
 </script>
 
 <style scoped>
-/* Custom scrollbar for mobile menu */
 .overflow-y-auto::-webkit-scrollbar {
   width: 4px;
 }
@@ -508,58 +384,28 @@ onUnmounted(() => {
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background-color: rgba(156, 163, 175, 0.5);
+  background-color: rgba(156, 163, 175, .5);
   border-radius: 9999px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(156, 163, 175, 0.7);
+  background-color: rgba(156, 163, 175, .7);
 }
 
-/* Backdrop blur fallback */
 .backdrop-blur-sm {
   backdrop-filter: blur(4px);
 }
 
 @supports not (backdrop-filter: blur(4px)) {
   .backdrop-blur-sm {
-    background-color: rgba(255, 255, 255, 0.95);
+    background-color: rgba(255, 255, 255, .95);
   }
 
   .dark .backdrop-blur-sm {
-    background-color: rgba(31, 41, 55, 0.95);
+    background-color: rgba(31, 41, 55, .95);
   }
 }
 
-/* Focus styles for better accessibility */
-.focus\:outline-none:focus {
-  outline: 2px solid transparent;
-  outline-offset: 2px;
-}
-
-/* Transition improvements */
-.transition-all {
-  transition-property: all;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 200ms;
-}
-
-/* Hover effects */
-.hover\:scale-105:hover {
-  transform: scale(1.05);
-}
-
-/* Button active states */
-.active\:scale-95:active {
-  transform: scale(0.95);
-}
-
-/* Dropdown z-index fix */
-.z-50 {
-  z-index: 50;
-}
-
-/* Dropdown specific styles */
 div[style*="z-index: 9999"] {
   position: fixed !important;
   z-index: 9999 !important;

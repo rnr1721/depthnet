@@ -17,7 +17,7 @@ class ProcessAgentThinking implements ShouldQueue
     use SerializesModels;
 
     /**
-     * Maximum task execution time in seconds
+     * Maximum task execution time in seconds (0 = unlimited)
      */
     public $timeout = 0;
 
@@ -27,11 +27,18 @@ class ProcessAgentThinking implements ShouldQueue
     public $tries = 1;
 
     /**
+     * The preset this thinking cycle belongs to.
+     */
+    public function __construct(
+        public readonly int $presetId
+    ) {
+    }
+
+    /**
      * Execute the job.
      */
     public function handle(AgentJobServiceInterface $agentJobService): void
     {
-        $agentJobService->processThinkingCycle();
+        $agentJobService->processThinkingCycle($this->presetId);
     }
-
 }

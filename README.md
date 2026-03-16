@@ -7,7 +7,7 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Local-purple?style=flat-square)
 ![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20CodeCraft%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
 
-**Advanced AI Agent Platform with Autonomous Reasoning** | v0.7.3
+**Advanced AI Agent Platform with Autonomous Reasoning** | v0.8.0
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, maintain persistent and semantic memory, and make autonomous decisions.
 The platform supports multiple AI providers and presets that can be switched instantly, a plugin system for code execution (PHP, Python, Node.js), agent-to-agent handoff, RAG, and multi-source input. All of this runs within a web interface where administrators manage configurations and users observe or interact with the agent's reasoning process in real time.
@@ -58,7 +58,7 @@ Built-in support for multiple AI engines with easy preset management:
 - **Local Models** (Ollama, LM Studio, any OpenAI-compatible API)
 - **Mock Engine** (for testing and development)
 
-Each provider supports custom presets with individual settings. Switch between presets instantly without restarting. All providers implement AIModelEngineInterface, which makes it easy to add your own providers. You can create own provider packages using composer.
+Each provider supports custom presets with individual settings. Each preset has an independent cycle, switching in the UI does not affect the execution. All providers implement AIModelEngineInterface, which makes it easy to add your own providers. You can create own provider packages using composer.
 
 ## Core Concept
 
@@ -75,11 +75,12 @@ DepthNet enables autonomous AI agents through:
 - **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
 - **Sandbox Isolation**: Code execution in isolated Docker containers for enhanced security
 - **Agent Handoff**: Seamless delegation between specialized AI presets within single workflows
+- **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
 ## Agent Operating Modes
-- **Looped Mode**: Continuous autonomous thinking and action execution
+- **Looped Mode**: Continuous autonomous per-preset thinking and action execution
 - **Single Mode**: Traditional request-response chatbot interaction
 
 ## Input Modes
@@ -271,7 +272,7 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 ### Administrators
 - Configure agent behavior and personality via system prompts
 - Manage AI presets and provider configurations
-- Control thinking loop activation and timing
+- Control per-preset thinking loop activation and timing
 - Plugin configuration and security settings
 - User management and system monitoring
 - Conversation export and data management
@@ -327,10 +328,19 @@ The core innovation is the continuous thinking loop powered by Laravel's queue s
 10. **Loop Continuation**: Next thinking cycle scheduled with configurable delay
 
 **Key Technical Components:**
-- **Agent Locking**: Prevents multiple simultaneous thinking cycles
+- **Agent Locking**: Prevents multiple simultaneous per-preset thinking cycles
 - **Error Handling**: Malformed commands generate helpful error messages for the AI
 - **Smart Parsing**: Can merge consecutive commands of same type for efficiency
 - **Plugin Health**: Continuous monitoring of plugin availability and performance
+
+**CLI Management:**
+```bash
+php artisan agent start 1      # Start loop for preset ID 1
+php artisan agent stop 2       # Stop loop for preset ID 2
+php artisan agent status       # Status of all active presets
+php artisan agent status 1     # Status of specific preset
+php artisan agent status 1 --json
+```
 
 ## Known Challenges & Observations
 

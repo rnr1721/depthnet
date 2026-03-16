@@ -202,7 +202,7 @@ class SandboxPlugin implements CommandPluginInterface
      */
     private function getAssignedSandbox(AiPreset $preset): ?string
     {
-        if (!isset($this->preset)) {
+        if (!isset($preset)) {
             return null;
         }
 

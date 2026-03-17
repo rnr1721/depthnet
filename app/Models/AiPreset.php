@@ -78,7 +78,6 @@ class AiPreset extends Model
         'engine_config' => '{}',
         'metadata' => '{}',
         'plugin_configs' => '{}',
-        'system_prompt' => '',
         'plugins_disabled' => '',
         'rag_context_limit' => 5,
         'voice_context_limit' => 4,

@@ -164,9 +164,9 @@ const form = ref({
     rag_preset_id: props.preset?.rag_preset_id || null,
     voice_preset_id: props.preset?.voice_preset_id || null,
     cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
-    rag_context_limit: props.preset?.rag_context_limit || null,
-    voice_context_limit: props.preset?.voice_context_limit || null,
-    cp_context_limit: props.preset?.cp_context_limit || null,
+    rag_context_limit: props.preset?.rag_context_limit || 5,
+    voice_context_limit: props.preset?.voice_context_limit || 4,
+    cp_context_limit: props.preset?.cp_context_limit || 5,
 });
 
 // Computed

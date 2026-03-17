@@ -1753,6 +1753,7 @@ return [
             'shell',
             'memory',
             'vectormemory',
+            'mode',
             'person',
             'dopamine',
             'node',
@@ -1846,6 +1847,11 @@ return [
                 'language_mode' => 'auto',
                 'custom_stop_words_ru' => '',
                 'custom_stop_words_en' => ''
+            ],
+
+            'mode' => [
+                'enabled' => false,
+                'log_switches' => false,
             ],
 
             'person' => [

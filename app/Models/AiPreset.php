@@ -17,7 +17,7 @@ class AiPreset extends Model
         'name',
         'description',
         'engine_name',
-        'system_prompt',
+        'active_prompt_id',
         'input_mode',
         'preset_code',
         'preset_code_next',
@@ -49,6 +49,7 @@ class AiPreset extends Model
         'metadata' => 'array',
         'plugin_configs' => 'array',
         'loop_interval' => 'integer',
+        'active_prompt_id' => 'integer',
         'rag_preset_id' => 'integer',
         'rag_context_limit' => 'integer',
         'voice_preset_id' => 'integer',
@@ -83,6 +84,22 @@ class AiPreset extends Model
         'voice_context_limit' => 4,
         'cp_context_limit' => 5,
     ];
+
+    /**
+     * All prompts for this preset
+     */
+    public function prompts(): HasMany
+    {
+        return $this->hasMany(PresetPrompt::class, 'preset_id')->orderBy('created_at', 'asc');
+    }
+
+    /**
+     * Current active prompt
+     */
+    public function activePrompt(): BelongsTo
+    {
+        return $this->belongsTo(PresetPrompt::class, 'active_prompt_id');
+    }
 
     /**
      * User who created this preset
@@ -222,13 +239,48 @@ class AiPreset extends Model
     }
 
     /**
-     * Get system prompt for this preset
+     * Get active system prompt for this preset
+     * Compatible with the previous interface - all agent code continues to work.
      *
      * @return string
      */
     public function getSystemPrompt(): string
     {
-        return $this->system_prompt ?? '';
+        // If the relation is already loaded, we use it, otherwise we make a request.
+        if ($this->relationLoaded('activePrompt')) {
+            return $this->activePrompt?->getContent() ?? '';
+        }
+
+        return $this->activePrompt()->value('content') ?? '';
+    }
+
+    /**
+     * Toggles the active prompt by code.
+     * Used by the agent team.
+     *
+     * @throws \InvalidArgumentException if a prompt with this code is not found
+     */
+    public function switchPrompt(string $code): bool
+    {
+        $prompt = $this->prompts()->where('code', $code)->first();
+
+        if (!$prompt) {
+            throw new \InvalidArgumentException(
+                "Prompt with code '{$code}' not found for preset '{$this->name}'"
+            );
+        }
+
+        $this->active_prompt_id = $prompt->getId();
+        return $this->save();
+    }
+
+    /**
+     * Returns all available prompt codes for this preset.
+     * Used by the agent to make selections when switching.
+     */
+    public function getAvailablePromptCodes(): array
+    {
+        return $this->prompts()->pluck('code')->toArray();
     }
 
     /**

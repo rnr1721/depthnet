@@ -316,15 +316,17 @@ const editPreset = async (preset) => {
         const result = await response.json();
 
         if (result.success && result.data) {
+            // Use the full API response so editingPreset includes prompts
+            editingPreset.value = result.data.preset;
             presetPlaceholders.value = result.data.placeholders ?? props.placeholders;
         } else {
+            editingPreset.value = preset;
             presetPlaceholders.value = props.placeholders;
         }
     } catch {
+        editingPreset.value = preset;
         presetPlaceholders.value = props.placeholders;
     }
-
-    editingPreset.value = preset;
 };
 
 const duplicatePreset = (preset) => {

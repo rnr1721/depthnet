@@ -77,6 +77,8 @@ class PresetController extends Controller
             $this->pluginRegistry->applyPreset($preset);
             $this->shortcodeManager->setDefaultShortcodes();
 
+            $preset->load('prompts'); // eager load for PresetDetailResource
+
             $engineFields = $this->engineRegistry->getEngineConfigFields($preset->engine_name);
             $preset->engine_config_fields = $engineFields; // Add fields to model for resource
 

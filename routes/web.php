@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\EngineController;
 use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetController;
+use App\Http\Controllers\Admin\PresetPromptController;
 use App\Http\Controllers\Admin\PresetSandboxController;
 use App\Http\Controllers\Admin\SandboxController;
 use App\Http\Controllers\Admin\SettingsController;
@@ -94,6 +95,15 @@ Route::middleware('auth')->group(function () {
                 });
             }
 
+            // Preset Prompts
+            Route::prefix('/{id}/prompts')->name('prompts.')->group(function () {
+                Route::get('/', [PresetPromptController::class, 'index'])->name('index');
+                Route::post('/', [PresetPromptController::class, 'store'])->name('store');
+                Route::put('/{promptId}', [PresetPromptController::class, 'update'])->name('update');
+                Route::delete('/{promptId}', [PresetPromptController::class, 'destroy'])->name('destroy');
+                Route::patch('/{promptId}/activate', [PresetPromptController::class, 'activate'])->name('activate');
+                Route::post('/{promptId}/duplicate', [PresetPromptController::class, 'duplicate'])->name('duplicate');
+            });
         });
 
         // AI Engines management routes

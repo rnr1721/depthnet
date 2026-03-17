@@ -71,6 +71,9 @@
           <Link :href="vectorMemoryLink" :class="linkClass">
             {{ t('vm_vector_memory') }}
           </Link>
+          <Link :href="skillsLink" :class="linkClass">
+            {{ t('skills') }}
+          </Link>
           <Link :href="route('admin.users.index')" :class="linkClass">
             {{ t('chat_users') }}
           </Link>
@@ -208,6 +211,9 @@ const memoryLink = computed(() =>
 );
 const vectorMemoryLink = computed(() =>
   routeWithPreset(route('admin.vector-memory.index'), props.currentPresetId)
+);
+const skillsLink = computed(() =>
+  routeWithPreset(route('admin.skills.index'), props.currentPresetId)
 );
 const pluginsLink = computed(() =>
   routeWithPresetParam('admin.plugins.index', props.currentPresetId)

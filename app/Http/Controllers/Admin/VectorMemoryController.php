@@ -92,14 +92,14 @@ class VectorMemoryController extends Controller
 
                 if ($searchResult['success']) {
                     $searchResults = collect($searchResult['results'])->map(function ($result) {
-                        $memory = $result['memory'];
+                        $memory = $result['document'] ?? $result['memory'];
                         return [
                             'id' => $memory->id,
-                            'content' => $memory->content,
+                            'content' => $memory->getTextContent(),
                             'keywords' => $memory->keywords ?? [],
                             'importance' => $memory->importance,
-                            'vector_size' => count($memory->tfidf_vector ?? []),
-                            'created_at' => $memory->created_at,
+                            'vector_size' => count($memory->getTfIdfVector()),
+                            'created_at' => $memory->getCreatedAt(),
                             'similarity' => $result['similarity'],
                             'similarity_percent' => round($result['similarity'] * 100, 1),
                         ];

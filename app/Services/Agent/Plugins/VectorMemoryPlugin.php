@@ -371,11 +371,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $output = "Found " . count($result['results']) . " similar memories for '{$query}':\n\n";
 
             foreach ($result['results'] as $searchResult) {
+                $memory = $searchResult['document'] ?? $searchResult['memory'];
                 $similarity = round($searchResult['similarity'] * 100, 1);
-                $date = $searchResult['memory']->created_at->format('M j, H:i');
+                $date = $memory->getCreatedAt()->format('M j, H:i');
                 $truncateLength = $this->config['display_content_length'] ?? 500;
-                $content = $this->truncateContent($searchResult['memory']->content, $truncateLength);
-                $id = $searchResult['memory']->id;
+                $content = $this->truncateContent($memory->getTextContent(), $truncateLength);
+                $id = $memory->id;
                 $output .= "• [ID:{$id}, {$similarity}% match, {$date}] {$content}\n";
             }
 

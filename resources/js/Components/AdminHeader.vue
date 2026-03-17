@@ -118,6 +118,11 @@
                         <span>{{ $t('vm_vector_memory') }}</span>
                       </Link>
 
+                      <Link :href="skillsLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('skills') }}</span>
+                      </Link>
+
                       <Link :href="route('admin.presets.index')" @click="dropdownOpen = false"
                         :class="dropdownLinkClass">
                         <span class="mr-3"></span>
@@ -189,7 +194,7 @@
             <div>
               <p :class="['font-medium', isDark ? 'text-white' : 'text-gray-900']">{{ $page.props.auth.user.name }}</p>
               <p :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">{{ isAdmin ? $t('admin') : $t('user')
-              }}</p>
+                }}</p>
             </div>
           </div>
 
@@ -240,6 +245,11 @@
                   <Link :href="vectorMemoryLink" :class="mobileSubLinkClass"
                     @click="mobileMenuOpen = false; mobileAdminOpen = false">
                     <span class="text-lg"></span><span>{{ $t('vm_vector_memory') }}</span>
+                  </Link>
+
+                  <Link :href="skillsLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('skills') }}</span>
                   </Link>
 
                   <Link :href="pluginsLink" :class="mobileSubLinkClass"
@@ -307,6 +317,7 @@ const isDark = ref(false);
 // Preset-aware computed links — read saved preset from localStorage
 const memoryLink = computed(() => routeWithPreset(route('admin.memory.index')));
 const vectorMemoryLink = computed(() => routeWithPreset(route('admin.vector-memory.index')));
+const skillsLink = computed(() => routeWithPreset(route('admin.skills.index')));
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
 
 // Shared link class helpers

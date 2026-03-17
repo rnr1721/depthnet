@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Contracts\Agent\Plugins\TfIdfDocumentInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Illuminate\Support\Carbon $created_at
  * @property \Illuminate\Support\Carbon $updated_at
  */
-class VectorMemory extends Model
+class VectorMemory extends Model implements TfIdfDocumentInterface
 {
     use HasFactory;
 
@@ -131,6 +132,31 @@ class VectorMemory extends Model
         }
 
         return trim($truncated) . '...';
+    }
+
+    /**
+     * @inheritDoc  TfIdfDocumentInterface
+     */
+    public function getTfIdfVector(): array
+    {
+        // $this->tfidf_vector is already cast to array via $casts on the model
+        return $this->tfidf_vector ?? [];
+    }
+
+    /**
+     * @inheritDoc  TfIdfDocumentInterface
+     */
+    public function getTextContent(): string
+    {
+        return $this->content ?? '';
+    }
+
+    /**
+     * @inheritDoc  TfIdfDocumentInterface
+     */
+    public function getCreatedAt(): ?\Carbon\Carbon
+    {
+        return $this->created_at;
     }
 
     /**

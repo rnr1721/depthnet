@@ -23,7 +23,7 @@ class RagContextEnricher implements RagContextEnricherInterface
      * Enable verbose debug logging for RAG pipeline.
      * Set to true temporarily when diagnosing issues.
      */
-    private bool $debug = true;
+    private bool $debug = false;
 
     public function __construct(
         protected PresetServiceInterface             $presetService,
@@ -110,7 +110,7 @@ class RagContextEnricher implements RagContextEnricherInterface
     protected function formulateQuery(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?string
     {
         try {
-            $contextLimit = max(1, (int) $mainPreset->getRagContextLimit());
+            $contextLimit   = max(1, (int) $mainPreset->getRagContextLimit());
             $recentMessages = collect($context)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command']))
                 ->values()
@@ -173,10 +173,13 @@ class RagContextEnricher implements RagContextEnricherInterface
         $lines = ["[RAG CONTEXT — query: \"{$query}\"]", ''];
 
         foreach ($results as $i => $result) {
-            $memory  = $result['memory'];
+            // 'document' is the key from TfIdfServiceInterface::findSimilar().
+            // VectorMemoryAssociativeService also re-adds a 'memory' alias,
+            // so we fall back to it for backwards compatibility.
+            $memory  = $result['document'] ?? $result['memory'];
             $score   = round(($result['composite_score'] ?? $result['similarity']) * 100, 1);
-            $date    = $memory->created_at->format('Y-m-d');
-            $content = mb_substr($memory->content, 0, 600);
+            $date    = $memory->getCreatedAt()->format('Y-m-d');
+            $content = mb_substr($memory->getTextContent(), 0, 600);
 
             $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $date, $score, $content);
         }

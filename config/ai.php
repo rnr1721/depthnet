@@ -1761,6 +1761,7 @@ return [
             'codecraft',
             'workspace',
             'browser',
+            'skill',
             'goal',
             'mood'
         ],
@@ -1856,6 +1857,11 @@ return [
 
             'person' => [
                 'enabled' => true,
+            ],
+
+            'skill' => [
+                'enabled' => false,
+                'search_limit' => 5
             ],
 
             'goal' => [

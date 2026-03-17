@@ -109,14 +109,6 @@
                                             'font-bold text-lg',
                                             isDark ? 'text-white' : 'text-gray-900'
                                         ]">{{ preset.name }}</h3>
-                                        <span v-if="preset.is_default" :class="[
-                                            'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium',
-                                            isDark
-                                                ? 'bg-indigo-600 text-indigo-200'
-                                                : 'bg-indigo-100 text-indigo-800'
-                                        ]">
-                                            {{ t('presets_default') }}
-                                        </span>
                                         <span :class="[
                                             'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium',
                                             preset.is_active
@@ -178,18 +170,6 @@
                                     </button>
                                 </div>
                                 <div class="flex space-x-2">
-                                    <button v-if="!preset.is_default" @click="setAsDefault(preset)" :class="[
-                                        'inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium transition-all hover:scale-105',
-                                        isDark
-                                            ? 'bg-green-900 bg-opacity-50 text-green-200 hover:bg-opacity-70'
-                                            : 'bg-green-100 text-green-800 hover:bg-green-200'
-                                    ]">
-                                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M5 13l4 4L19 7"></path>
-                                        </svg>
-                                        {{ t('presets_set_default') }}
-                                    </button>
                                     <button v-if="!preset.is_default" @click="deletePreset(preset)" :class="[
                                         'inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium transition-all hover:scale-105',
                                         isDark
@@ -336,23 +316,21 @@ const editPreset = async (preset) => {
         const result = await response.json();
 
         if (result.success && result.data) {
+            // Use the full API response so editingPreset includes prompts
+            editingPreset.value = result.data.preset;
             presetPlaceholders.value = result.data.placeholders ?? props.placeholders;
         } else {
+            editingPreset.value = preset;
             presetPlaceholders.value = props.placeholders;
         }
     } catch {
+        editingPreset.value = preset;
         presetPlaceholders.value = props.placeholders;
     }
-
-    editingPreset.value = preset;
 };
 
 const duplicatePreset = (preset) => {
     router.get(route('admin.presets.duplicate', preset.id));
-};
-
-const setAsDefault = (preset) => {
-    router.post(route('admin.presets.set-default', preset.id));
 };
 
 const deletePreset = (preset) => {

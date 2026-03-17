@@ -34,6 +34,7 @@ use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
+use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
@@ -80,6 +81,7 @@ use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\NodePlugin;
 use App\Services\Agent\Plugins\PersonPlugin;
 use App\Services\Agent\Plugins\PHPPlugin;
+use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
@@ -88,6 +90,7 @@ use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
+use App\Services\Agent\PresetPromptService;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetSandboxService;
 use App\Services\Agent\PresetService;
@@ -187,6 +190,7 @@ class AiServiceProvider extends ServiceProvider
             return $registry;
         });
 
+        $this->app->singleton(PresetPromptServiceInterface::class, PresetPromptService::class);
         $this->app->bind(PresetServiceInterface::class, PresetService::class);
         $this->app->singleton(PresetRegistryInterface::class, PresetRegistry::class);
 
@@ -255,6 +259,7 @@ class AiServiceProvider extends ServiceProvider
             MemoryPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
+            PromptPlugin::class,
             ShellPlugin::class,
             PHPPlugin::class,
             NodePlugin::class,

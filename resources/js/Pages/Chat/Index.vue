@@ -18,17 +18,19 @@
         isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
       ]">
         <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
-          :isDark="isDark" :presetMetadata="presetMetadata" :user="user" @mentionUser="handleMobileMention"
-          @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" />
+          :isDark="isDark" :presetMetadata="presetMetadata" :user="user" :presetActiveMap="presetActiveMap"
+          @mentionUser="handleMobileMention" @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect"
+          @editPreset="handleEditPreset" @togglePresetActive="handleTogglePresetActive" />
       </div>
     </div>
 
     <!-- Sidebar -->
     <ChatSidebar :mobileMenuOpen="mobileMenuOpen" :isDark="isDark" :appName="page.props.app_name" :user="user"
-      :isAdmin="isAdmin" :currentPreset="currentPreset" v-model:isChatActive="isChatActive"
-      v-model:selectedExportFormat="selectedExportFormat" :exportFormats="exportFormats" :isExporting="isExporting"
-      @closeMobileMenu="mobileMenuOpen = false" @clearHistory="showClearHistory" @editPreset="editCurrentPreset"
-      @toggleTheme="toggleTheme" @exportChat="exportChat" />
+      :isAdmin="isAdmin" :currentPreset="currentPreset" :currentPresetId="selectedPresetId"
+      v-model:isChatActive="isChatActive" v-model:selectedExportFormat="selectedExportFormat"
+      :exportFormats="exportFormats" :isExporting="isExporting" @closeMobileMenu="mobileMenuOpen = false"
+      @clearHistory="showClearHistory" @editPreset="editCurrentPreset" @toggleTheme="toggleTheme"
+      @exportChat="exportChat" />
 
     <!-- Main chat area -->
     <div class="flex-1 flex flex-col overflow-hidden lg:ml-0">
@@ -68,8 +70,9 @@
     <!-- Tabs panel (desktop) -->
     <div class="hidden lg:flex lg:w-80 flex-col border-l">
       <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
-        :isDark="isDark" :presetMetadata="presetMetadata" :user="user" @mentionUser="mentionUser"
-        @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" />
+        :isDark="isDark" :presetMetadata="presetMetadata" :user="user" :presetActiveMap="presetActiveMap"
+        @mentionUser="mentionUser" @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect"
+        @editPreset="handleEditPreset" @togglePresetActive="handleTogglePresetActive" />
     </div>
 
     <!-- Preset Modal -->
@@ -106,6 +109,7 @@ import ClearHistoryModal from '@/Components/Chat/ClearHistoryModal.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useChat } from '@/Composables/useChat';
 import { usePresets } from '@/Composables/usePresets';
+import { useSelectedPreset } from '@/Composables/useSelectedPreset';
 
 const { t } = useI18n();
 const page = usePage();
@@ -116,7 +120,7 @@ const props = defineProps({
   availablePresets: Array,
   currentPresetId: Number,
   currentPreset: Object,
-  chatActive: Boolean,
+  chatActive: Boolean,      // legacy global flag (kept for back-compat)
   exportFormats: Array,
   mode: String,
   engines: Object,
@@ -130,20 +134,19 @@ const props = defineProps({
 });
 
 const { isDark, toggleTheme } = useTheme();
+const { savePresetId } = useSelectedPreset();
 
 const mobileMenuOpen = ref(false);
 const mobileTabsOpen = ref(false);
 
-const form = useForm({
-  content: '',
-});
+const form = useForm({ content: '' });
 
 const isAdmin = computed(() => props.user && props.user.is_admin);
 
-// Get current preset from availablePresets based on selectedPresetId
+// Derive current preset object from availablePresets
 const currentPreset = computed(() => {
   if (props.availablePresets && selectedPresetId.value) {
-    const found = props.availablePresets.find(preset => preset.id === selectedPresetId.value);
+    const found = props.availablePresets.find(p => p.id === selectedPresetId.value);
     if (found) return found;
   }
   return props.currentPreset || null;
@@ -175,81 +178,60 @@ const {
   loadOlderMessages,
   switchPreset,
   resetChatState,
-  cleanup: cleanupChat
+  cleanup: cleanupChat,
 } = useChat(props);
 
 const {
   selectedPresetId,
-  isChatActive,
+  isChatActive,         // computed: loop active for currently selected preset
+  presetActiveMap,      // reactive map { presetId: bool }
+  setPresetActive,      // (presetId, value) — toggle loop for any preset
   selectedExportFormat,
   isExporting,
   showEditPresetModal,
   editingPreset,
   engines,
-  updatePresetSettings,
+  updatePresetSettings, // no-op kept for compat
   exportChat,
   editCurrentPreset,
   closeEditModal,
   currentPlaceholders,
 } = usePresets(props, isAdmin);
 
-/**
- * Handle preset selection with chat reload
- */
+// -------------------------------------------------------------------------
+// Preset selection — UI only, no effect on running loops
+// -------------------------------------------------------------------------
+
 async function handlePresetSelect(presetId) {
   if (presetId === selectedPresetId.value) return;
 
   selectedPresetId.value = presetId;
+  savePresetId(presetId); // persist for admin page links
 
-  // Switch to new preset and reload messages
-  const success = await switchPreset(presetId);
+  // Load messages for the newly selected preset
+  await switchPreset(presetId);
 
-  if (success && isAdmin.value) {
-    updatePresetSettings();
-  }
-
-  // Scroll to bottom after loading
   setTimeout(() => {
-    if (messagesComponent.value) {
-      messagesComponent.value.scrollToBottom();
-    }
+    messagesComponent.value?.scrollToBottom();
   }, 100);
 }
 
-/**
- * Handle load older messages request
- */
-function handleLoadOlder() {
-  loadOlderMessages();
-}
+// -------------------------------------------------------------------------
+// Loop toggle — independent from selection
+// -------------------------------------------------------------------------
 
 /**
- * Handle scroll updates from messages component
+ * Toggle the thinking loop for any preset (called from TabsPanel or Sidebar).
  */
-function handleScrollUpdate(scrollData) {
-  if (scrollData.isAtBottom !== undefined) {
-    isUserAtBottom.value = scrollData.isAtBottom;
-  }
-  if (scrollData.shouldAutoRefresh !== undefined) {
-    shouldAutoRefresh.value = scrollData.shouldAutoRefresh;
-  }
-  if (scrollData.hasUnreadMessages !== undefined) {
-    hasUnreadMessages.value = scrollData.hasUnreadMessages;
-  }
+function handleTogglePresetActive(presetId, value) {
+  if (!isAdmin.value) return;
+  setPresetActive(presetId, value);
 }
 
-/**
- * Force scroll to bottom
- */
-function scrollToBottomForced() {
-  if (messagesComponent.value) {
-    messagesComponent.value.scrollToBottomForced();
-  }
-}
+// -------------------------------------------------------------------------
+// Message sending — must include preset_id
+// -------------------------------------------------------------------------
 
-/**
- * Send message
- */
 function sendMessage(content) {
   if (!content.trim() || form.processing || isProcessing.value) return;
 
@@ -261,7 +243,12 @@ function sendMessage(content) {
   shouldAutoRefresh.value = true;
 
   form.content = content;
-  form.post(route('chat.message'), {
+
+  // Send to the currently displayed preset
+  form.transform(data => ({
+    ...data,
+    preset_id: selectedPresetId.value,
+  })).post(route('chat.message'), {
     preserveScroll: true,
     onSuccess: () => {
       form.reset();
@@ -270,62 +257,64 @@ function sendMessage(content) {
       startFrequentRefresh();
 
       requestAnimationFrame(() => {
-        if (messagesComponent.value) {
-          messagesComponent.value.scrollToBottom();
-        }
-        if (messageInputComponent.value) {
-          messageInputComponent.value.focusInput();
-        }
+        messagesComponent.value?.scrollToBottom();
+        messageInputComponent.value?.focusInput();
       });
     },
     onError: (errors) => {
       console.error('Send message error:', errors);
       isProcessing.value = false;
-      if (messageInputComponent.value) {
-        messageInputComponent.value.focusInput();
-      }
-    }
+      messageInputComponent.value?.focusInput();
+    },
   });
 }
 
-/**
- * Delete message
- */
+// -------------------------------------------------------------------------
+// Scroll / older messages
+// -------------------------------------------------------------------------
+
+function handleLoadOlder() {
+  loadOlderMessages();
+}
+
+function handleScrollUpdate(scrollData) {
+  if (scrollData.isAtBottom !== undefined) isUserAtBottom.value = scrollData.isAtBottom;
+  if (scrollData.shouldAutoRefresh !== undefined) shouldAutoRefresh.value = scrollData.shouldAutoRefresh;
+  if (scrollData.hasUnreadMessages !== undefined) hasUnreadMessages.value = scrollData.hasUnreadMessages;
+}
+
+function scrollToBottomForced() {
+  messagesComponent.value?.scrollToBottomForced();
+}
+
+// -------------------------------------------------------------------------
+// Delete / clear history
+// -------------------------------------------------------------------------
+
 function deleteMessage(messageId) {
   if (confirm(t('chat_delete_message_confirm') || 'Are you sure you want to delete this message?')) {
     router.delete(route('chat.delete-message', messageId), {
       preserveScroll: true,
       onSuccess: () => {
         const index = localMessages.value.findIndex(msg => msg.id === messageId);
-        if (index !== -1) {
-          localMessages.value.splice(index, 1);
-        }
+        if (index !== -1) localMessages.value.splice(index, 1);
       },
-      onError: (errors) => {
-        console.error('Error deleting message:', errors);
-      }
+      onError: (errors) => console.error('Error deleting message:', errors),
     });
   }
 }
 
-/**
- * Show clear history modal
- */
 function showClearHistory() {
   showClearHistoryModal.value = true;
 }
 
-/**
- * Handle clear history confirmation
- */
 async function handleClearHistory(options) {
   if (isClearingHistory.value) return;
 
   try {
     isClearingHistory.value = true;
 
-    // Build request data based on selected options
-    const requestData = {};
+    const requestData = { preset_id: selectedPresetId.value };
     if (options.clearMessages) requestData.clear_messages = true;
     if (options.clearMemory) requestData.clear_memory = true;
     if (options.clearVectorMemory) requestData.clear_vector_memory = true;
@@ -337,19 +326,13 @@ async function handleClearHistory(options) {
       onSuccess: () => {
         if (options.clearMessages) {
           resetChatState();
-
           stopFrequentRefresh();
 
           setTimeout(async () => {
             try {
               await loadLatestMessages(null, false);
               startFrequentRefresh();
-
-              setTimeout(() => {
-                if (messagesComponent.value) {
-                  messagesComponent.value.scrollToBottom();
-                }
-              }, 100);
+              setTimeout(() => messagesComponent.value?.scrollToBottom(), 100);
             } catch (error) {
               console.error('Failed to reload messages after clear:', error);
             }
@@ -358,9 +341,7 @@ async function handleClearHistory(options) {
 
         showClearHistoryModal.value = false;
       },
-      onError: (errors) => {
-        console.error('Error clearing history:', errors);
-      }
+      onError: (errors) => console.error('Error clearing history:', errors),
     });
   } catch (error) {
     console.error('Failed to clear history:', error);
@@ -369,105 +350,68 @@ async function handleClearHistory(options) {
   }
 }
 
-/**
- * Mention user in input
- */
+// -------------------------------------------------------------------------
+// Preset editing
+// -------------------------------------------------------------------------
+
 function mentionUser(userName) {
   const mention = `${props.toLabel} ${userName}`;
   const currentContent = form.content.toLowerCase();
-  const mentionLower = mention.toLowerCase();
 
-  if (currentContent.includes(mentionLower)) {
-    if (messageInputComponent.value) {
-      messageInputComponent.value.focusInput();
-    }
+  if (currentContent.includes(mention.toLowerCase())) {
+    messageInputComponent.value?.focusInput();
     return;
   }
 
   const mentionPattern = new RegExp(`^${props.toLabel}\\s+\\w+,\\s*`, 'i');
+  const newContent = mentionPattern.test(form.content)
+    ? form.content.replace(mentionPattern, `${mention}, `)
+    : `${mention}, ${form.content}`;
 
-  let newContent;
-  if (mentionPattern.test(form.content)) {
-    newContent = form.content.replace(mentionPattern, `${mention}, `);
-  } else {
-    newContent = `${mention}, ${form.content}`;
-  }
-
-  if (messageInputComponent.value) {
-    messageInputComponent.value.setContent(newContent);
-  }
+  messageInputComponent.value?.setContent(newContent);
 }
 
-/**
- * Handle preset editing from tabs panel (can edit any preset)
- * @param {number} presetId - ID of preset to edit, if not provided uses current
- */
 async function handleEditPreset(presetId = null) {
   if (!isAdmin.value) return;
 
   if (presetId) {
-    // Load full preset data before editing
     await loadAndEditPreset(presetId);
   } else {
     editCurrentPreset();
   }
 }
 
-/**
- * Load full preset data and open for editing
- * @param {number} presetId 
- */
 async function loadAndEditPreset(presetId) {
   try {
-    console.log('Loading full preset data for ID:', presetId);
-
-    // Use admin route to get full preset data
     const response = await axios.get(route('admin.presets.show', presetId));
 
-    if (response.data && response.data.success && response.data.data) {
-      const fullPresetData = response.data.data.preset;
-      const presetPlaceholders = response.data.data.placeholders;
-      console.log('Loaded full preset data:', fullPresetData);
-
-      // Use the full data (same as admin panel)
-      editingPreset.value = fullPresetData;
+    if (response.data?.success && response.data.data) {
+      editingPreset.value = response.data.data.preset;
       currentPlaceholders.value = response.data.data.placeholders ?? props.placeholders;
       showEditPresetModal.value = true;
     } else {
-      console.error('Invalid response format:', response.data);
       throw new Error('Invalid response format');
     }
   } catch (error) {
     console.error('Failed to load preset data:', error);
-
-    // Fallback to using available data if API fails
-    const presetToEdit = props.availablePresets.find(p => p.id === presetId);
+    const presetToEdit = props.availablePresets?.find(p => p.id === presetId);
     if (presetToEdit) {
-      console.log('Using fallback preset data:', presetToEdit);
       editingPreset.value = presetToEdit;
       showEditPresetModal.value = true;
     }
   }
 }
 
-/**
- * Save any preset using existing chat route
- */
 async function saveAnyPreset(presetData) {
-  if (!presetData.id) {
-    console.error('No preset ID provided for saving');
-    return;
-  }
+  if (!presetData.id) return;
 
   try {
-
     const response = await axios.put(route('chat.preset.update', presetData.id), presetData);
 
     if (response.data.success) {
-
-      const presetIndex = props.availablePresets.findIndex(p => p.id === presetData.id);
-      if (presetIndex !== -1) {
-        Object.assign(props.availablePresets[presetIndex], {
+      const idx = props.availablePresets?.findIndex(p => p.id === presetData.id);
+      if (idx !== -1) {
+        Object.assign(props.availablePresets[idx], {
           name: presetData.name,
           description: presetData.description,
           engine_name: presetData.engine_name,
@@ -475,17 +419,13 @@ async function saveAnyPreset(presetData) {
           engine_config: presetData.engine_config,
           model: presetData.engine_config?.model || null,
           is_active: presetData.is_active,
-          is_default: presetData.is_default
+          is_default: presetData.is_default,
         });
       }
 
       if (presetData.id === selectedPresetId.value) {
         setTimeout(async () => {
-          try {
-            await refreshMessages();
-          } catch (error) {
-            console.error('Failed to refresh after preset update:', error);
-          }
+          try { await refreshMessages(); } catch { }
         }, 100);
       }
 
@@ -496,80 +436,69 @@ async function saveAnyPreset(presetData) {
   } catch (error) {
     console.error('Error updating preset:', error);
 
-    if (error.response?.status === 422) {
-      console.error('Validation errors:', error.response.data);
-
-      if (error.response.data.errors) {
-        console.error('Field errors:', error.response.data.errors);
-        Object.entries(error.response.data.errors).forEach(([field, messages]) => {
-          console.error(`Field "${field}":`, messages);
-        });
-      }
+    if (error.response?.status === 422 && error.response.data.errors) {
+      Object.entries(error.response.data.errors).forEach(([field, messages]) => {
+        console.error(`Field "${field}":`, messages);
+      });
     }
   }
 }
 
-/**
- * Handle mobile mention (closes mobile panel)
- */
 function handleMobileMention(userName) {
   mentionUser(userName);
   mobileTabsOpen.value = false;
 }
 
-watch([selectedPresetId, isChatActive], () => {
-  if (isAdmin.value) {
-    updatePresetSettings();
-  }
+// -------------------------------------------------------------------------
+// Watchers
+// -------------------------------------------------------------------------
+
+// Sync selectedPresetId from server-side prop changes
+watch(() => props.currentPresetId, (newValue) => {
+  selectedPresetId.value = newValue;
 });
+
+// Sync availablePresets chat_active flags when server re-renders
+watch(() => props.availablePresets, (newPresets) => {
+  if (!newPresets) return;
+  for (const p of newPresets) {
+    presetActiveMap.value[p.id] = !!p.chat_active;
+  }
+}, { deep: true });
 
 watch(() => props.users, (newUsers) => {
   localUsers.value = [...newUsers];
 }, { deep: true });
 
-watch(() => props.currentPresetId, (newValue) => {
-  selectedPresetId.value = newValue;
-});
-
-watch(() => props.chatActive, (newValue) => {
-  isChatActive.value = newValue;
-});
-
+// Auto-scroll when new messages arrive
 watch(() => localMessages.value.length, (newLength, oldLength) => {
   if (newLength > oldLength && shouldAutoRefresh.value) {
     requestAnimationFrame(() => {
-      setTimeout(() => {
-        if (messagesComponent.value) {
-          messagesComponent.value.scrollToBottom();
-        }
-      }, 50); // Reduced delay for better responsiveness
+      setTimeout(() => messagesComponent.value?.scrollToBottom(), 50);
     });
   }
 });
 
-watch(selectedPresetId, (newPresetId, oldPresetId) => {
-  if (newPresetId !== oldPresetId && isAdmin.value) {
-    isChatActive.value = false;
-  }
-});
+// -------------------------------------------------------------------------
+// Lifecycle
+// -------------------------------------------------------------------------
 
 onMounted(async () => {
   localUsers.value = [...props.users];
 
-  try {
-    await loadLatestMessages();
+  // Persist the selected preset (restored or default) so admin links open the right one
+  savePresetId(selectedPresetId.value);
 
-    if (messagesComponent.value) {
-      messagesComponent.value.scrollToBottom();
-    }
+  try {
+    // Load messages for the restored/selected preset (may differ from server default)
+    await loadLatestMessages(selectedPresetId.value);
+    messagesComponent.value?.scrollToBottom();
   } catch (error) {
     console.error('Failed to load initial messages:', error);
   }
 
   refreshInterval = setInterval(() => {
-    refreshMessages().catch(error => {
-      console.error('Periodic refresh failed:', error);
-    });
+    refreshMessages().catch(err => console.error('Periodic refresh failed:', err));
   }, 5000);
 
   startUsersRefresh();
@@ -584,8 +513,7 @@ onBeforeUnmount(() => {
   cleanupChat();
 
   if (typeof window !== 'undefined') {
-    let id = requestAnimationFrame(() => { });
-    cancelAnimationFrame(id);
+    cancelAnimationFrame(requestAnimationFrame(() => { }));
   }
 });
 

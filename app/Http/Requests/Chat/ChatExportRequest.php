@@ -22,7 +22,8 @@ class ChatExportRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'format' => 'required|string'
+            'format' => 'required|string',
+            'preset_id' => 'nullable|integer|exists:ai_presets,id',
         ];
     }
 }

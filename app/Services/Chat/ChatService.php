@@ -15,12 +15,10 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
- * Service for managing a general chat
+ * Service for managing a general chat.
  *
- * This service handles the exchange of messages in a general chat, where:
- * - Different users can send messages
- * - All messages are visible to all chat participants
- * - The AI model receives formatted messages and can "think" (generate internal thoughts)
+ * Each preset has its own independent message history and agent loop.
+ * The loop for a preset is started only when that specific preset is active.
  */
 class ChatService implements ChatServiceInterface
 {
@@ -87,38 +85,31 @@ class ChatService implements ChatServiceInterface
     }
 
     /**
-     * Get latest messages with pagination metadata
-     *
-     * @param int $presetId
-     * @param int $perPage
-     * @return array
+     * Get latest messages with pagination metadata.
      */
     public function getLatestMessagesWithPagination(int $presetId, int $perPage = 30): array
     {
-        $messages = $this->getRecentMessages($presetId, $perPage);
+        $messages      = $this->getRecentMessages($presetId, $perPage);
         $totalMessages = $this->getMessagesCount($presetId);
 
-        $loadedCount = count($messages);
+        $loadedCount       = count($messages);
         $remainingMessages = max(0, $totalMessages - $loadedCount);
-
-        $totalPages = max(1, ceil($totalMessages / $perPage));
+        $totalPages        = max(1, ceil($totalMessages / $perPage));
         $currentVirtualPage = $totalPages;
 
-        $hasMorePages = $remainingMessages > 0;
-
         return [
-            'messages' => $messages,
+            'messages'   => $messages,
             'pagination' => [
-                'current_page' => $currentVirtualPage,
-                'last_page' => $totalPages,
-                'total' => $totalMessages,
-                'per_page' => $perPage,
-                'has_more_pages' => $hasMorePages,
-                'loaded_count' => $loadedCount,
+                'current_page'   => $currentVirtualPage,
+                'last_page'      => $totalPages,
+                'total'          => $totalMessages,
+                'per_page'       => $perPage,
+                'has_more_pages' => $remainingMessages > 0,
+                'loaded_count'   => $loadedCount,
                 'remaining_count' => $remainingMessages,
-                'from' => max(1, $totalMessages - $loadedCount + 1),
-                'to' => $totalMessages
-            ]
+                'from'           => max(1, $totalMessages - $loadedCount + 1),
+                'to'             => $totalMessages,
+            ],
         ];
     }
 
@@ -127,11 +118,7 @@ class ChatService implements ChatServiceInterface
      */
     public function hasMoreMessages(int $presetId, int $loadedCount): bool
     {
-        $totalCount = $this->messageModel
-            ->forPreset($presetId)
-            ->count();
-
-        return $totalCount > $loadedCount;
+        return $this->messageModel->forPreset($presetId)->count() > $loadedCount;
     }
 
     /**
@@ -146,14 +133,14 @@ class ChatService implements ChatServiceInterface
             ->paginate($perPage, ['*'], 'page', $page);
 
         return [
-            'data' => $paginator->items(),
-            'current_page' => $paginator->currentPage(),
-            'last_page' => $paginator->lastPage(),
-            'total' => $paginator->total(),
-            'per_page' => $paginator->perPage(),
+            'data'           => $paginator->items(),
+            'current_page'   => $paginator->currentPage(),
+            'last_page'      => $paginator->lastPage(),
+            'total'          => $paginator->total(),
+            'per_page'       => $paginator->perPage(),
             'has_more_pages' => $paginator->hasMorePages(),
-            'from' => $paginator->firstItem(),
-            'to' => $paginator->lastItem(),
+            'from'           => $paginator->firstItem(),
+            'to'             => $paginator->lastItem(),
         ];
     }
 
@@ -169,16 +156,16 @@ class ChatService implements ChatServiceInterface
             ->paginate($perPage, ['*'], 'page', $page);
 
         return [
-            'messages' => $paginator->items(),
+            'messages'   => $paginator->items(),
             'pagination' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'total' => $paginator->total(),
-                'per_page' => $paginator->perPage(),
+                'current_page'   => $paginator->currentPage(),
+                'last_page'      => $paginator->lastPage(),
+                'total'          => $paginator->total(),
+                'per_page'       => $paginator->perPage(),
                 'has_more_pages' => $paginator->hasMorePages(),
-                'from' => $paginator->firstItem(),
-                'to' => $paginator->lastItem(),
-            ]
+                'from'           => $paginator->firstItem(),
+                'to'             => $paginator->lastItem(),
+            ],
         ];
     }
 
@@ -195,7 +182,6 @@ class ChatService implements ChatServiceInterface
             $this->inputPoolService->add($presetId, $sourceName, $content);
 
             if (!$dispatch) {
-                // The pool has been accumulated but not sent - returning an unsaved stub
                 return $this->messageModel->make([
                     'role'               => 'user',
                     'content'            => $content,
@@ -205,10 +191,8 @@ class ChatService implements ChatServiceInterface
                 ]);
             }
 
-            // dispatch=true — flush the pool and send everything at once
             $formattedContent = $this->inputPoolService->flush($presetId) ?? $content;
         } else {
-            // Pool off - the old way
             $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
         }
 
@@ -238,19 +222,14 @@ class ChatService implements ChatServiceInterface
             'is_visible_to_user' => true,
         ]);
 
-        if (!$this->chatStatusService->getChatStatus()) {
-            $this->agentJobService->start();
-        }
+        $isActive = $this->chatStatusService->getPresetStatus($presetId);
+        $this->agentJobService->start($presetId, !$isActive);
 
         return $message;
     }
 
     /**
-     * Flush current pool and send as a single message (e.g. from a UI "send pool" button)
-     *
-     * @param User $user
-     * @param int $presetId
-     * @return Message|null
+     * Flush current pool and send as a single message.
      */
     public function dispatchPool(User $user, int $presetId): ?Message
     {
@@ -269,13 +248,9 @@ class ChatService implements ChatServiceInterface
     }
 
     /**
-     * Run commands from messages
-     *
-     * @param string $formattedContent
-     * @param int $presetId
-     * @return string
+     * Run commands from message content.
      */
-    protected function runCommands(string $formattedContent, int $presetId)
+    protected function runCommands(string $formattedContent, int $presetId): string
     {
         $currentPreset = $this->presetRegistry->getPreset($presetId);
         $this->pluginRegistry->applyPreset($currentPreset);

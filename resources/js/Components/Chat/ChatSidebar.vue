@@ -30,13 +30,11 @@
               ? 'text-yellow-400 hover:bg-gray-700 hover:text-yellow-300'
               : 'text-gray-600 hover:bg-gray-100 hover:text-yellow-600'
           ]" :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'">
-            <!-- Sun icon for dark mode -->
             <svg v-if="isDark" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd"
                 d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
                 clip-rule="evenodd" />
             </svg>
-            <!-- Moon icon for light mode -->
             <svg v-else class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
               <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
             </svg>
@@ -51,32 +49,33 @@
         </button>
       </div>
 
-      <!-- User info -->
+      <!-- User info + nav links -->
       <div class="mt-4 flex flex-wrap gap-2">
         <Link :href="route('profile.show')" :class="linkClass">
-        {{ user.name }}
+          {{ user.name }}
         </Link>
         <template v-if="isAdmin">
           <Link :href="route('admin.settings')" :class="linkClass">
-          {{ t('chat_settings') }}
+            {{ t('chat_settings') }}
           </Link>
           <Link :href="route('admin.presets.index')" :class="linkClass">
-          {{ t('chat_presets') }}
+            {{ t('chat_presets') }}
           </Link>
-          <Link :href="route('admin.plugins.index')" :class="linkClass">
-          {{ t('plugins') }}
+          <Link :href="pluginsLink" :class="linkClass">
+            {{ t('plugins') }}
           </Link>
-          <Link :href="route('admin.memory.index')" :class="linkClass">
-          {{ t('memory') }}
+          <!-- Preset-aware links: carry current preset_id -->
+          <Link :href="memoryLink" :class="linkClass">
+            {{ t('memory') }}
           </Link>
-          <Link :href="route('admin.vector-memory.index')" :class="linkClass">
-          {{ t('vm_vector_memory') }}
+          <Link :href="vectorMemoryLink" :class="linkClass">
+            {{ t('vm_vector_memory') }}
           </Link>
           <Link :href="route('admin.users.index')" :class="linkClass">
-          {{ t('chat_users') }}
+            {{ t('chat_users') }}
           </Link>
           <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')" :class="linkClass">
-          {{ t('hypervisor') }}
+            {{ t('hypervisor') }}
           </Link>
         </template>
       </div>
@@ -140,7 +139,7 @@
         </div>
       </div>
 
-      <!-- Model active toggle -->
+      <!-- Model active toggle (for currently selected preset) -->
       <ModelActiveToggle v-if="isAdmin" :isChatActive="isChatActive" :isDark="isDark"
         @update:isChatActive="$emit('update:isChatActive', $event)" />
 
@@ -161,7 +160,7 @@
           ? 'text-gray-300 hover:text-white hover:bg-gray-700'
           : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
       ]">
-      {{ t('chat_logout') }}
+        {{ t('chat_logout') }}
       </Link>
     </div>
   </div>
@@ -173,8 +172,10 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ModelActiveToggle from './ModelActiveToggle.vue';
 import ChatExport from './ChatExport.vue';
+import { useSelectedPreset } from '@/Composables/useSelectedPreset';
 
 const { t } = useI18n();
+const { routeWithPreset, routeWithPresetParam } = useSelectedPreset();
 
 const props = defineProps({
   mobileMenuOpen: Boolean,
@@ -186,7 +187,9 @@ const props = defineProps({
   selectedExportFormat: String,
   exportFormats: Array,
   isExporting: Boolean,
-  currentPreset: Object
+  currentPreset: Object,
+  // Current preset ID — used to build preset-aware admin links
+  currentPresetId: Number,
 });
 
 defineEmits([
@@ -196,13 +199,24 @@ defineEmits([
   'update:isChatActive',
   'toggleTheme',
   'update:selectedExportFormat',
-  'exportChat'
+  'exportChat',
 ]);
+
+// Preset-aware links: carry the currently selected preset_id
+const memoryLink = computed(() =>
+  routeWithPreset(route('admin.memory.index'), props.currentPresetId)
+);
+const vectorMemoryLink = computed(() =>
+  routeWithPreset(route('admin.vector-memory.index'), props.currentPresetId)
+);
+const pluginsLink = computed(() =>
+  routeWithPresetParam('admin.plugins.index', props.currentPresetId)
+);
 
 const linkClass = computed(() => [
   'inline-block text-sm px-3 py-2 rounded-md transition-colors',
   props.isDark
     ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700'
-    : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
+    : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50',
 ]);
 </script>

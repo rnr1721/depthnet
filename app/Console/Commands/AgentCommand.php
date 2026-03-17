@@ -3,98 +3,126 @@
 namespace App\Console\Commands;
 
 use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\Models\PresetServiceInterface;
 use Illuminate\Console\Command;
 
 class AgentCommand extends Command
 {
-    private const CHAT_ACTIVE_KEY = 'chat_active';
-    private const PRESET_ID_KEY = 'preset_id';
-    private const IS_LOCKED_KEY = 'is_locked';
+    protected $signature = 'agent
+        {action : start|stop|status}
+        {preset? : Preset ID (required for start/stop; omit for status of all)}
+        {--json : Output as JSON (status only)}';
 
-    protected $signature = 'agent {action : start|stop|status} {--json : Output as JSON (status only)}';
+    protected $description = 'Manage per-preset agent thinking loops (start|stop|status)';
 
-    protected $description = 'Manage agent thinking process (start|stop|status)';
-
-    public function handle(AgentJobServiceInterface $agentJobService)
-    {
+    public function handle(
+        AgentJobServiceInterface $agentJobService,
+        PresetServiceInterface $presetService
+    ): int {
         $action = $this->argument('action');
 
-        return match($action) {
-            'start' => $this->handleStart($agentJobService),
-            'stop' => $this->handleStop($agentJobService),
-            'status' => $this->handleStatus($agentJobService),
-            default => $this->handleInvalidAction()
+        return match ($action) {
+            'start'  => $this->handleStart($agentJobService, $presetService),
+            'stop'   => $this->handleStop($agentJobService, $presetService),
+            'status' => $this->handleStatus($agentJobService, $presetService),
+            default  => $this->handleInvalidAction(),
         };
     }
 
-    private function handleStart(AgentJobServiceInterface $agentJobService): int
-    {
-        $this->info('Starting agent thinking process...');
+    // -------------------------------------------------------------------------
 
-        $settings = $agentJobService->getModelSettings();
-        $this->displayStatusTable($settings);
-
-        $this->info('Force starting agent (ensuring it works)...');
-
-        $success = $agentJobService->updateModelSettings(
-            $settings[self::PRESET_ID_KEY],
-            true
-        );
-
-        if (!$success) {
-            $this->error('Failed to start agent thinking process');
+    private function handleStart(
+        AgentJobServiceInterface $agentJobService,
+        PresetServiceInterface $presetService
+    ): int {
+        $presetId = $this->resolvePresetId($presetService);
+        if ($presetId === null) {
             return 1;
         }
 
-        $this->info('Agent thinking process started successfully!');
-        $this->info('Monitor logs for thinking cycle activity');
+        $this->info("Starting thinking loop for preset {$presetId}...");
+        $this->displayPresetStatus($agentJobService, $presetId);
+
+        $success = $agentJobService->updateModelSettings($presetId, true);
+
+        if (!$success) {
+            $this->error("Failed to start thinking loop for preset {$presetId}");
+            return 1;
+        }
+
+        $this->info("Thinking loop started for preset {$presetId}!");
         return 0;
     }
 
-    private function handleStop(AgentJobServiceInterface $agentJobService): int
-    {
-        $this->info('Stopping agent thinking process...');
+    private function handleStop(
+        AgentJobServiceInterface $agentJobService,
+        PresetServiceInterface $presetService
+    ): int {
+        $presetId = $this->resolvePresetId($presetService);
+        if ($presetId === null) {
+            return 1;
+        }
 
-        $settings = $agentJobService->getModelSettings();
-        $this->displayStatusTable($settings);
+        $this->info("Stopping thinking loop for preset {$presetId}...");
+        $settings = $agentJobService->getModelSettings($presetId);
+        $this->displayPresetStatus($agentJobService, $presetId);
 
-        if (!$settings[self::CHAT_ACTIVE_KEY]) {
-            $this->info('Agent is already inactive');
+        if (!$settings['chat_active']) {
+            $this->info("Preset {$presetId} is already inactive.");
             return 0;
         }
 
-        $this->info('Force stopping agent (complete shutdown)...');
-
-        $success = $agentJobService->updateModelSettings(
-            $settings[self::PRESET_ID_KEY],
-            false
-        );
+        $success = $agentJobService->updateModelSettings($presetId, false);
 
         if (!$success) {
-            $this->error('Failed to stop agent thinking process');
+            $this->error("Failed to stop thinking loop for preset {$presetId}");
             return 1;
         }
 
-        $this->info('Agent thinking process stopped successfully!');
+        $this->info("Thinking loop stopped for preset {$presetId}!");
         return 0;
     }
 
-    private function handleStatus(AgentJobServiceInterface $agentJobService): int
-    {
-        $settings = $agentJobService->getModelSettings();
+    private function handleStatus(
+        AgentJobServiceInterface $agentJobService,
+        PresetServiceInterface $presetService
+    ): int {
+        $presetIdArg = $this->argument('preset');
+
+        if ($presetIdArg !== null) {
+            // Single-preset status
+            $presetId = (int) $presetIdArg;
+            $settings = $agentJobService->getModelSettings($presetId);
+
+            if ($this->option('json')) {
+                $this->line(json_encode($settings, JSON_PRETTY_PRINT));
+                return 0;
+            }
+
+            $this->info("Agent Status — Preset {$presetId}");
+            $this->newLine();
+            $this->displayStatusTable([$settings]);
+            $this->displayRecommendations($settings);
+            return 0;
+        }
+
+        // All-presets status
+        $allSettings = $agentJobService->getAllModelSettings();
 
         if ($this->option('json')) {
-            $this->line(json_encode($settings, JSON_PRETTY_PRINT));
+            $this->line(json_encode($allSettings, JSON_PRETTY_PRINT));
             return 0;
         }
 
-        $this->info('Agent Thinking Status');
+        $this->info('Agent Status — All Presets');
         $this->newLine();
 
-        $this->displayStatusTable($settings);
-        $this->displayActionsTable($settings);
-        $this->displayRecommendations($settings);
+        if (empty($allSettings)) {
+            $this->warn('No presets are currently active or running.');
+            return 0;
+        }
 
+        $this->displayStatusTable(array_values($allSettings));
         return 0;
     }
 
@@ -102,46 +130,73 @@ class AgentCommand extends Command
     {
         $this->error('Invalid action. Use: start, stop, or status');
         $this->info('Examples:');
-        $this->info(' php artisan agent start');
-        $this->info(' php artisan agent stop');
-        $this->info(' php artisan agent status --json');
+        $this->info('  php artisan agent start 1');
+        $this->info('  php artisan agent stop 2');
+        $this->info('  php artisan agent status');
+        $this->info('  php artisan agent status 1 --json');
         return 1;
     }
 
-    private function displayStatusTable(array $settings): void
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resolve preset ID from argument or default preset.
+     *
+     * @param PresetServiceInterface $presetService
+     * @return integer|null
+     */
+    private function resolvePresetId(PresetServiceInterface $presetService): ?int
     {
-        $this->table(['Setting', 'Value', 'Status'], [
-            ['Model Active', $settings[self::CHAT_ACTIVE_KEY] ? 'Yes' : 'No', $settings[self::CHAT_ACTIVE_KEY] ? '+' : '-'],
-            ['Current Model', $settings['preset_id'], ''],
-            ['Is Locked', $settings[self::IS_LOCKED_KEY] ? 'Yes' : 'No', $settings[self::IS_LOCKED_KEY] ? '+' : '-'],
-        ]);
+        $arg = $this->argument('preset');
+
+        if ($arg !== null) {
+            return (int) $arg;
+        }
+
+        $this->error('Preset ID is required for this action.');
+        $this->info('Example: php artisan agent start 1');
+        return null;
     }
 
-    private function displayActionsTable(array $settings): void
+    private function displayPresetStatus(AgentJobServiceInterface $agentJobService, int $presetId): void
     {
-        $this->newLine();
-        $this->info('Available Actions:');
+        $s = $agentJobService->getModelSettings($presetId);
+        $this->table(
+            ['Setting', 'Value'],
+            [
+                ['Preset ID',   $s['preset_id']],
+                ['Active',      $s['chat_active'] ? 'Yes' : 'No'],
+                ['Locked',      $s['is_locked'] ? 'Yes (running)' : 'No'],
+                ['Can Start',   $s['can_start'] ? 'Yes' : 'No'],
+                ['Can Stop',    $s['can_stop'] ? 'Yes' : 'No'],
+            ]
+        );
+    }
 
-        $actions = [
-            [$settings['can_start'] ? 'Can Start' : 'Cannot Start',
-             $settings['can_start'] ? 'php artisan agent start' : 'Conditions not met'],
-            [$settings['can_stop'] ? 'Can Stop' : 'Cannot Stop',
-             $settings['can_stop'] ? 'php artisan agent stop' : 'Not running'],
-        ];
+    private function displayStatusTable(array $allSettings): void
+    {
+        $rows = array_map(fn ($s) => [
+            $s['preset_id'],
+            $s['chat_active'] ? '✓ Active' : '— Inactive',
+            $s['is_locked'] ? '✓ Running' : '— Idle',
+            $s['can_start'] ? 'Yes' : 'No',
+            $s['can_stop'] ? 'Yes' : 'No',
+        ], $allSettings);
 
-        $this->table(['Action', 'Command/Reason'], $actions);
+        $this->table(
+            ['Preset ID', 'Status', 'Lock', 'Can Start', 'Can Stop'],
+            $rows
+        );
     }
 
     private function displayRecommendations(array $settings): void
     {
-        if (!$settings[self::CHAT_ACTIVE_KEY]) {
-            $this->warn('Model is inactive. Use "agent start" to begin thinking cycles.');
+        if (!$settings['chat_active']) {
+            $this->warn("Preset {$settings['preset_id']} is inactive. Use \"agent start {$settings['preset_id']}\".");
         } elseif ($settings['is_locked']) {
-            $this->info('Agent is currently thinking...');
-        } elseif (!$settings['can_start']) {
-            $this->warn('Model is active but cannot start. Check configuration.');
+            $this->info("Preset {$settings['preset_id']} is currently thinking...");
         } else {
-            $this->info('Agent is ready and can start thinking cycles.');
+            $this->info("Preset {$settings['preset_id']} is active and ready.");
         }
     }
 }

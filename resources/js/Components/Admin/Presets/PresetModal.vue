@@ -62,10 +62,9 @@
                 <PresetBasicInfo v-model="form" :engines="engines" :is-dark="isDark" :errors="errors"
                     :hide-default-option="preset?.is_default" @engine-changed="onEngineChange" />
 
-                <!-- System Prompt Component -->
-                <PresetSystemPrompt v-model="form" :is-dark="isDark" :errors="errors" :placeholders="placeholders"
-                    :default-system-prompt="currentEngineData?.default_system_prompt" @success="showNotification"
-                    @error="showError" />
+                <!-- Prompts Component -->
+                <PresetPrompts v-model="form" :is-dark="isDark" :errors="errors" :placeholders="placeholders"
+                    @success="showNotification" @error="showError" />
 
                 <!-- Sandbox Management Component -->
                 <PresetSandboxManager :preset="preset" :is-dark="isDark" @error="showError"
@@ -109,7 +108,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import PresetBasicInfo from './PresetBasicInfo.vue';
-import PresetSystemPrompt from './PresetSystemPrompt.vue';
+import PresetPrompts from './PresetPrompts.vue';
 import PresetSandboxManager from './PresetSandboxManager.vue';
 import PresetLogicInfo from './PresetLogicInfo.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
@@ -146,7 +145,7 @@ const form = ref({
     name: props.preset?.name || '',
     description: props.preset?.description || '',
     engine_name: props.preset?.engine_name || '',
-    system_prompt: props.preset?.system_prompt || '',
+    prompts: props.preset?.prompts ?? [],
     input_mode: props.preset?.input_mode || 'single',
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
@@ -165,9 +164,9 @@ const form = ref({
     rag_preset_id: props.preset?.rag_preset_id || null,
     voice_preset_id: props.preset?.voice_preset_id || null,
     cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
-    rag_context_limit: props.preset?.rag_context_limit || null,
-    voice_context_limit: props.preset?.voice_context_limit || null,
-    cp_context_limit: props.preset?.cp_context_limit || null,
+    rag_context_limit: props.preset?.rag_context_limit || 5,
+    voice_context_limit: props.preset?.voice_context_limit || 4,
+    cp_context_limit: props.preset?.cp_context_limit || 5,
 });
 
 // Computed
@@ -236,11 +235,6 @@ const submit = async () => {
     }
 
     // Length validations
-    if (form.value.system_prompt && form.value.system_prompt.length > 10000) {
-        errors.value.system_prompt = t('p_modal_sys_mess_to_long');
-        return;
-    }
-
     if (form.value.plugins_disabled && form.value.plugins_disabled.length > 255) {
         errors.value.plugins_disabled = t('p_modal_plugins_disabled_to_long');
         return;

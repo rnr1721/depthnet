@@ -15,7 +15,6 @@ class CreatePresetRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255', 'unique:ai_presets,name'],
-            'system_prompt' => ['nullable', 'string', 'max:10000'],
             'input_mode' => ['required', 'in:single,pool'],
             'preset_code' => ['nullable', 'string', 'max:50', 'unique:ai_presets,preset_code'],
             'description' => ['nullable', 'string', 'max:1000'],
@@ -39,6 +38,14 @@ class CreatePresetRequest extends FormRequest
             'allow_handoff_from' => ['boolean'],
             'is_active' => ['boolean'],
             'is_default' => ['boolean'],
+            'prompts' => ['nullable', 'array'],
+            'prompts.*.id' => ['nullable', 'integer', 'exists:preset_prompts,id'],
+            'prompts.*.code' => ['required_with:prompts', 'string', 'max:50', 'regex:/^[a-zA-Z0-9_\-]+$/'],
+            'prompts.*.content' => ['nullable', 'string', 'max:10000'],
+            'prompts.*.description' => ['nullable', 'string', 'max:500'],
+            'prompts.*.is_active' => ['nullable', 'boolean'],
+            'deleted_prompt_ids' => ['nullable', 'array'],
+            'deleted_prompt_ids.*' => ['integer', 'exists:preset_prompts,id'],
 
         ];
     }

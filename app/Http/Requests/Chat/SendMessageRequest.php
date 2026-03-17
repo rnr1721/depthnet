@@ -15,6 +15,7 @@ class SendMessageRequest extends FormRequest
     {
         return [
             'content' => 'required|string',
+            'preset_id' => 'nullable|integer|exists:ai_presets,id',
         ];
     }
 

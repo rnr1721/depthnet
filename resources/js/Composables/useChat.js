@@ -206,6 +206,7 @@ export function useChat(props) {
                 }
             }
         } catch (error) {
+            if (error.code === 'ECONNABORTED' || error.name === 'CanceledError') return;
             console.error('Error refreshing messages:', error);
 
             // If refresh fails completely, try to reload latest messages as fallback

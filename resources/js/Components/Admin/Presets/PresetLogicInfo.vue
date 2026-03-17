@@ -236,7 +236,7 @@
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_rag_context_limit') }}
                 </label>
-                <input :value="modelValue.rag_context_limit"
+                <input :value="modelValue.rag_context_limit ?? 5"
                     @input="updateField('rag_context_limit', parseNumber($event.target.value))" type="number" min="4"
                     max="20" step="1" :class="inputClass" :placeholder="t('p_modal_rag_context_limit_placeholder')" />
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
@@ -331,7 +331,7 @@
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_voice_context_limit') }}
                 </label>
-                <input :value="modelValue.voice_context_limit"
+                <input :value="modelValue.voice_context_limit ?? 5"
                     @input="updateField('voice_context_limit', parseNumber($event.target.value))" type="number" min="4"
                     max="20" step="1" :class="inputClass" :placeholder="t('p_modal_voice_context_limit_placeholder')" />
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
@@ -368,7 +368,7 @@
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_cp_context_limit') }}
                 </label>
-                <input :value="modelValue.cp_context_limit"
+                <input :value="modelValue.cp_context_limit ?? 5"
                     @input="updateField('cp_context_limit', parseNumber($event.target.value))" type="number" min="4"
                     max="20" step="1" :class="inputClass" :placeholder="t('p_modal_cp_context_limit_placeholder')" />
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">

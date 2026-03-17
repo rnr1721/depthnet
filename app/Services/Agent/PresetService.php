@@ -44,7 +44,6 @@ class PresetService implements PresetServiceInterface
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
                 'engine_name' => $data['engine_name'],
-                'system_prompt' => $data['system_prompt'] ?? '',
                 'input_mode' => $data['input_mode'] ?? 'single',
                 'preset_code' => $data['preset_code'] ?? null,
                 'plugins_disabled' => $data['plugins_disabled'] ?? '',
@@ -68,6 +67,9 @@ class PresetService implements PresetServiceInterface
                 'is_default' => $data['is_default'] ?? false,
                 'created_by' => $data['created_by'] ?? $this->authService->getCurrentUserId(),
             ]);
+
+            // Sync prompts (create initial 'default' prompt or process prompts array)
+            $this->syncPrompts($preset, $data);
 
             // If this is set as default, ensure only one default exists
             if ($preset->is_default) {
@@ -111,7 +113,6 @@ class PresetService implements PresetServiceInterface
                 'name' => $data['name'] ?? $preset->name,
                 'description' => $data['description'] ?? $preset->description,
                 'engine_name' => $data['engine_name'] ?? $preset->engine_name,
-                'system_prompt' => array_key_exists('system_prompt', $data) ? $data['system_prompt'] : $preset->system_prompt,
                 'input_mode' => array_key_exists('input_mode', $data) ? $data['input_mode'] : $preset->input_mode,
                 'preset_code' => array_key_exists('preset_code', $data) ? $data['preset_code'] : $preset->preset_code,
                 'plugins_disabled' => array_key_exists('plugins_disabled', $data) ? $data['plugins_disabled'] : $preset->plugins_disabled,
@@ -134,6 +135,9 @@ class PresetService implements PresetServiceInterface
                 'is_active' => $data['is_active'] ?? $preset->is_active,
                 'is_default' => $data['is_default'] ?? $preset->is_default,
             ]);
+
+            // Sync prompts if provided
+            $this->syncPrompts($preset, $data);
 
             // If this is set as default, ensure only one default exists
             if (isset($data['is_default']) && $data['is_default']) {
@@ -272,7 +276,6 @@ class PresetService implements PresetServiceInterface
             'name' => $newName,
             'description' => $originalPreset->description,
             'engine_name' => $originalPreset->engine_name,
-            'system_prompt' => $originalPreset->system_prompt,
             'input_mode' => $originalPreset->input_mode,
             'plugins_disabled' => $originalPreset->plugins_disabled,
             'engine_config' => $originalPreset->engine_config,
@@ -572,6 +575,107 @@ class PresetService implements PresetServiceInterface
     // Helper Methods
     // ============================================
 
+
+    /**
+     * Sync prompts for a preset from request data.
+     *
+     * Accepts two formats from the frontend:
+     *   - $data['prompts']  — array of {id?, code, content, description, is_active?}
+     *   - legacy $data['system_prompt'] — plain string (backward compat for importRecommendedPreset etc.)
+     *
+     * Rules:
+     *   - Prompts present in the array are upserted (update if id exists, insert if not).
+     *   - Prompts NOT in the array but belonging to the preset are left untouched
+     *     (deletion is only via the dedicated PresetPromptController).
+     *   - After sync, active_prompt_id is set to the prompt marked is_active,
+     *     or falls back to the current active_prompt_id, or the first prompt.
+     */
+    protected function syncPrompts(AiPreset $preset, array $data): void
+    {
+        $promptsData = $data['prompts'] ?? null;
+
+        // Legacy path: no prompts array but system_prompt string provided
+        if ($promptsData === null) {
+            $legacyContent = $data['system_prompt'] ?? null;
+
+            // For a brand-new preset with no prompts yet, always create a default prompt
+            if ($preset->prompts()->count() === 0) {
+                $prompt = $preset->prompts()->create([
+                    'code'    => 'default',
+                    'content' => $legacyContent ?? '',
+                ]);
+                $preset->active_prompt_id = $prompt->id;
+                $preset->saveQuietly();
+            }
+            return;
+        }
+
+        // Delete prompts explicitly removed by the user
+        $deletedIds = $data['deleted_prompt_ids'] ?? [];
+        if (!empty($deletedIds)) {
+            // Safety: only delete prompts that belong to this preset and are not the last one
+            $remaining = $preset->prompts()->count() - count($deletedIds);
+            if ($remaining >= 1) {
+                $preset->prompts()
+                    ->whereIn('id', $deletedIds)
+                    ->delete();
+
+                // If active prompt was deleted, will be resolved below
+                if (in_array($preset->active_prompt_id, $deletedIds)) {
+                    $preset->active_prompt_id = null;
+                }
+            }
+        }
+
+        if (empty($promptsData)) {
+            return;
+        }
+
+        $activePromptId = $preset->active_prompt_id;
+        $newActiveId    = null;
+
+        foreach ($promptsData as $promptData) {
+            if (!empty($promptData['id'])) {
+                // Update existing prompt that belongs to this preset
+                $prompt = $preset->prompts()->find($promptData['id']);
+                if ($prompt) {
+                    $prompt->update([
+                        'code'        => $promptData['code']        ?? $prompt->code,
+                        'content'     => $promptData['content']     ?? $prompt->content,
+                        'description' => $promptData['description'] ?? $prompt->description,
+                    ]);
+                }
+            } else {
+                // Create new prompt
+                $prompt = $preset->prompts()->create([
+                    'code'        => $promptData['code']        ?? 'default',
+                    'content'     => $promptData['content']     ?? '',
+                    'description' => $promptData['description'] ?? null,
+                ]);
+            }
+
+            if (!empty($promptData['is_active'])) {
+                $newActiveId = $prompt->id;
+            }
+        }
+
+        // Ensure preset always has at least one prompt
+        if ($preset->prompts()->count() === 0) {
+            $prompt = $preset->prompts()->create(['code' => 'default', 'content' => '']);
+            $newActiveId = $prompt->id;
+        }
+
+        // Update active_prompt_id if needed
+        $resolvedActiveId = $newActiveId
+            ?? $activePromptId
+            ?? $preset->prompts()->orderBy('created_at')->value('id');
+
+        if ($resolvedActiveId && $resolvedActiveId !== $preset->active_prompt_id) {
+            $preset->active_prompt_id = $resolvedActiveId;
+            $preset->saveQuietly();
+        }
+    }
+
     /**
      * Validate preset data
      *
@@ -585,7 +689,6 @@ class PresetService implements PresetServiceInterface
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'engine_name' => 'required|string|max:100',
-            'system_prompt' => 'nullable|string|max:10000',
             'input_mode' => ['required', 'in:single,pool'],
             'preset_code' => 'nullable|string|max:50',
             'plugins_disabled' => 'nullable|string|max:255',

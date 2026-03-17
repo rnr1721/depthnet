@@ -40,8 +40,10 @@
             <div v-if="activeTab === 'presets' && isAdmin" ref="presetsContainer"
                 class="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
                 <PresetItem v-for="preset in availablePresets" :key="preset.id" :ref="el => setPresetRef(el, preset.id)"
-                    :preset="preset" :isActive="selectedPresetId === preset.id" :isDark="isDark"
-                    @select="$emit('selectPreset', preset.id)" @edit="handleEditPreset" />
+                    :preset="preset" :isActive="selectedPresetId === preset.id" :loopActive="getPresetActive(preset.id)"
+                    :isDark="isDark" :isAdmin="isAdmin" @select="$emit('selectPreset', preset.id)"
+                    @edit="handleEditPreset"
+                    @toggleActive="(presetId, value) => $emit('togglePresetActive', presetId, value)" />
             </div>
 
             <!-- Users Tab -->
@@ -54,7 +56,6 @@
                         : 'hover:bg-gray-100 active:bg-gray-200'
                 ]">
                     <div class="flex items-center space-x-3">
-                        <!-- Avatar/Status -->
                         <div class="relative">
                             <div :class="[
                                 'w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm',
@@ -65,16 +66,12 @@
                                 {{ user.name.charAt(0).toUpperCase() }}
                             </div>
                         </div>
-
-                        <!-- User info -->
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center space-x-2">
                                 <span :class="[
                                     'font-medium text-sm truncate',
                                     isDark ? 'text-gray-200' : 'text-gray-900'
-                                ]">
-                                    {{ user.name }}
-                                </span>
+                                ]">{{ user.name }}</span>
                                 <span v-if="user.is_admin" :class="[
                                     'text-xs px-2 py-0.5 rounded-full font-medium',
                                     'bg-gradient-to-r from-purple-500 to-indigo-600 text-white'
@@ -83,8 +80,6 @@
                                 </span>
                             </div>
                         </div>
-
-                        <!-- Hover indicator -->
                         <div :class="[
                             'opacity-0 group-hover:opacity-100 transition-opacity',
                             'w-5 h-5 rounded-full flex items-center justify-center',
@@ -129,46 +124,39 @@ import PresetItem from './PresetItem.vue';
 const { t } = useI18n();
 
 const props = defineProps({
-    users: {
-        type: Array,
-        required: true
-    },
-    availablePresets: {
-        type: Array,
-        default: () => []
-    },
-    selectedPresetId: {
-        type: Number,
-        default: null
-    },
-    isDark: {
-        type: Boolean,
-        required: true
-    },
-    presetMetadata: {
-        type: Object,
-        default: () => ({})
-    },
-    user: {
-        type: Object,
-        default: null
-    }
+    users: { type: Array, required: true },
+    availablePresets: { type: Array, default: () => [] },
+    selectedPresetId: { type: Number, default: null },
+    isDark: { type: Boolean, required: true },
+    presetMetadata: { type: Object, default: () => ({}) },
+    user: { type: Object, default: null },
+    /**
+     * Map of { presetId: bool } for loop-active status.
+     * Passed down from Index.vue / usePresets.
+     */
+    presetActiveMap: { type: Object, default: () => ({}) },
 });
 
-const emit = defineEmits(['mentionUser', 'showAbout', 'selectPreset', 'editPreset']);
+const emit = defineEmits([
+    'mentionUser',
+    'showAbout',
+    'selectPreset',
+    'editPreset',
+    'togglePresetActive',   // (presetId, value)
+]);
 
 const isAdmin = computed(() => props.user && props.user.is_admin);
-
-// Set the active tab depending on user rights
 const activeTab = ref(isAdmin.value ? 'presets' : 'users');
 const presetsContainer = ref(null);
 const presetRefs = ref(new Map());
 
 /**
- * Set reference to preset component
- * @param {Object} el - Vue component instance
- * @param {number} presetId - Preset ID
+ * Proxy to read loop-active status for a given preset.
  */
+function getPresetActive(presetId) {
+    return !!props.presetActiveMap[presetId];
+}
+
 function setPresetRef(el, presetId) {
     if (el) {
         presetRefs.value.set(presetId, el);
@@ -177,84 +165,44 @@ function setPresetRef(el, presetId) {
     }
 }
 
-/**
- * Scroll to active preset
- */
 function scrollToActivePreset() {
-    if (!isAdmin.value || !props.selectedPresetId || !presetsContainer.value || activeTab.value !== 'presets') {
-        return;
-    }
+    if (!isAdmin.value || !props.selectedPresetId || !presetsContainer.value || activeTab.value !== 'presets') return;
 
     nextTick(() => {
         const activePresetRef = presetRefs.value.get(props.selectedPresetId);
         if (activePresetRef && activePresetRef.$el) {
             const container = presetsContainer.value;
             const element = activePresetRef.$el;
-
-            // We receive positions
             const containerRect = container.getBoundingClientRect();
             const elementRect = element.getBoundingClientRect();
-
-            // Checking if the element is fully visible
-            const isVisible = (
-                elementRect.top >= containerRect.top &&
-                elementRect.bottom <= containerRect.bottom
-            );
+            const isVisible = elementRect.top >= containerRect.top && elementRect.bottom <= containerRect.bottom;
 
             if (!isVisible) {
-                // Calculate the position to center the element
-                const containerScrollTop = container.scrollTop;
-                const containerHeight = container.clientHeight;
-                const elementOffsetTop = element.offsetTop;
-                const elementHeight = element.offsetHeight;
-
-                // Center the selected preset in the container
-                const scrollTo = elementOffsetTop - (containerHeight / 2) + (elementHeight / 2);
-
-                container.scrollTo({
-                    top: Math.max(0, scrollTo),
-                    behavior: 'smooth'
-                });
+                const scrollTo = element.offsetTop - (container.clientHeight / 2) + (element.offsetHeight / 2);
+                container.scrollTo({ top: Math.max(0, scrollTo), behavior: 'smooth' });
             }
         }
     });
 }
 
-/**
- * Handle preset editing with specific preset ID
- */
 function handleEditPreset(presetId) {
-    if (isAdmin.value) {
-        emit('editPreset', presetId);
-    }
+    if (isAdmin.value) emit('editPreset', presetId);
 }
 
-// Monitor the change of the selected preset (for admins only)
 watch(() => props.selectedPresetId, () => {
-    if (isAdmin.value && activeTab.value === 'presets') {
-        scrollToActivePreset();
-    }
+    if (isAdmin.value && activeTab.value === 'presets') scrollToActivePreset();
 }, { flush: 'post' });
 
-// Monitor changes in active tab (for admins only)
 watch(activeTab, (newTab) => {
-    if (isAdmin.value && newTab === 'presets') {
-        // A small delay to allow the DOM to update
-        setTimeout(scrollToActivePreset, 100);
-    }
+    if (isAdmin.value && newTab === 'presets') setTimeout(scrollToActivePreset, 100);
 });
 
-// Scroll to active preset when mounting (admins only)
 onMounted(() => {
-    if (isAdmin.value) {
-        // Wait until all components are loaded
-        setTimeout(scrollToActivePreset, 200);
-    }
+    if (isAdmin.value) setTimeout(scrollToActivePreset, 200);
 });
 </script>
 
 <style scoped>
-/* Custom scrollbar for tab content */
 .overflow-y-auto::-webkit-scrollbar {
     width: 4px;
 }
@@ -264,11 +212,11 @@ onMounted(() => {
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb {
-    background-color: rgba(156, 163, 175, 0.5);
+    background-color: rgba(156, 163, 175, .5);
     border-radius: 2px;
 }
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(156, 163, 175, 0.8);
+    background-color: rgba(156, 163, 175, .8);
 }
 </style>

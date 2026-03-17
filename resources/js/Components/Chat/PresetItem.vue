@@ -11,10 +11,8 @@
         <div class="flex items-start justify-between mb-2">
             <div class="flex-1 min-w-0">
                 <div class="flex items-center space-x-2">
-                    <!-- Active indicator -->
-                    <div v-if="isActive" :class="[
-                        'w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0'
-                    ]"></div>
+                    <!-- Selected indicator (green pulse) -->
+                    <div v-if="isActive" class="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0"></div>
 
                     <!-- Preset name -->
                     <h4 :class="[
@@ -26,15 +24,6 @@
                         {{ preset.name }}
                     </h4>
 
-                    <!-- Default badge -->
-                    <span v-if="preset.is_default" :class="[
-                        'text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0',
-                        isActive
-                            ? 'bg-white bg-opacity-20 text-green-700'
-                            : (isDark ? 'bg-yellow-900 bg-opacity-50 text-yellow-300' : 'bg-yellow-100 text-yellow-800')
-                    ]">
-                        {{ t('chat_current_preset') || 'Default' }}
-                    </span>
                 </div>
 
                 <!-- Description -->
@@ -68,7 +57,7 @@
             </button>
         </div>
 
-        <!-- Engine and model info -->
+        <!-- Engine, model, and loop-active toggle -->
         <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2 min-w-0 flex-1">
                 <!-- Engine badge -->
@@ -91,6 +80,33 @@
                     {{ preset.model }}
                 </span>
             </div>
+
+            <!-- Loop-active toggle (admin only, visible on hover or when active) -->
+            <button v-if="isAdmin" @click.stop="$emit('toggleActive', preset.id, !loopActive)"
+                :title="loopActive ? (t('chat_model_processing') || 'Loop active — click to stop') : (t('chat_model_paused') || 'Loop stopped — click to start')"
+                :class="[
+                    'flex-shrink-0 ml-2 p-1 rounded-full transition-all duration-200',
+                    'opacity-0 group-hover:opacity-100',
+                    loopActive ? 'opacity-100' : '',
+                ]">
+                <!-- Active: orange spinning stop icon -->
+                <span v-if="loopActive"
+                    class="flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 animate-pulse">
+                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <rect x="5" y="5" width="10" height="10" rx="1" />
+                    </svg>
+                </span>
+                <!-- Inactive: grey play icon -->
+                <span v-else :class="[
+                    'flex items-center justify-center w-5 h-5 rounded-full',
+                    isDark ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-600'
+                ]">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                            d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                    </svg>
+                </span>
+            </button>
         </div>
     </div>
 </template>
@@ -105,15 +121,23 @@ defineProps({
         type: Object,
         required: true
     },
-    isActive: {
+    isActive: {        // currently selected in chat UI
+        type: Boolean,
+        default: false
+    },
+    loopActive: {      // loop is running for this preset
         type: Boolean,
         default: false
     },
     isDark: {
         type: Boolean,
         required: true
+    },
+    isAdmin: {
+        type: Boolean,
+        default: false
     }
 });
 
-defineEmits(['select', 'edit']);
+defineEmits(['select', 'edit', 'toggleActive']);
 </script>

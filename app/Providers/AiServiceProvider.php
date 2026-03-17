@@ -38,6 +38,7 @@ use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
+use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
@@ -87,6 +88,7 @@ use App\Services\Agent\Plugins\PythonPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
+use App\Services\Agent\Plugins\SkillPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
@@ -99,6 +101,7 @@ use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
+use App\Services\Agent\Skills\SkillService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
 use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
@@ -140,6 +143,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(WorkspaceServiceInterface::class, WorkspaceService::class);
 
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
+        $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
         $this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
 
@@ -269,6 +273,7 @@ class AiServiceProvider extends ServiceProvider
             PuppeteerBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,
+            SkillPlugin::class,
             CodeCraftPlugin::class,
         ];
     }

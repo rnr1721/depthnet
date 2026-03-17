@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\PresetPromptController;
 use App\Http\Controllers\Admin\PresetSandboxController;
 use App\Http\Controllers\Admin\SandboxController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\SkillController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
 use App\Http\Controllers\Auth\AuthController;
@@ -159,6 +160,17 @@ Route::middleware('auth')->group(function () {
             Route::get('/export', [VectorMemoryController::class, 'export'])->name('export');
             Route::post('/import', [VectorMemoryController::class, 'import'])->name('import');
             Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
+        });
+
+        // Skills Management routes
+        Route::prefix('skills')->name('skills.')->group(function () {
+            Route::get('/', [SkillController::class, 'index'])->name('index');
+            Route::post('/', [SkillController::class, 'store'])->name('store');
+            Route::get('/{number}', [SkillController::class, 'show'])->name('show');
+            Route::post('/add-item', [SkillController::class, 'addItem'])->name('add-item');
+            Route::post('/update-item', [SkillController::class, 'updateItem'])->name('update-item');
+            Route::delete('/item', [SkillController::class, 'destroyItem'])->name('destroy-item');
+            Route::delete('/{number}', [SkillController::class, 'destroy'])->name('destroy');
         });
 
         if (config('sandbox.enabled', false)) {

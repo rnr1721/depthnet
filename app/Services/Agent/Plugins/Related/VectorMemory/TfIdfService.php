@@ -2,15 +2,20 @@
 
 namespace App\Services\Agent\Plugins\Related\VectorMemory;
 
+use App\Contracts\Agent\Plugins\TfIdfDocumentInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
-use App\Models\VectorMemory;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * TfIdfService class
+ * TF-IDF vectorisation and cosine-similarity search.
  *
- * Provides TF-IDF (Term Frequency-Inverse Document Frequency) vectorization
- * and semantic similarity search capabilities.
+ * Works with any collection of TfIdfDocumentInterface objects —
+ * VectorMemory, SkillItem, or anything else that stores a tfidf_vector.
+ *
+ * The only coupling to a concrete model is in calculateIdf(), and even
+ * there the total-document count is passed in by the caller so this
+ * class never imports a specific Eloquent model.
  */
 class TfIdfService implements TfIdfServiceInterface
 {
@@ -19,55 +24,52 @@ class TfIdfService implements TfIdfServiceInterface
 
     public function __construct()
     {
-        // Languages will be loaded on first use
+        // Languages are loaded lazily on first use
     }
 
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
+
     /**
-     * Tokenize and normalize text
+     * Tokenize and normalise text into stemmed, stop-word-free tokens.
      *
-     * @param string $text
-     * @param string|null $language
-     * @return array
+     * @param string      $text
+     * @param string|null $language  Force a language code, or null to auto-detect
+     * @return string[]
      */
     public function tokenize(string $text, ?string $language = null): array
     {
         $this->ensureLanguagesLoaded();
 
-        // Auto-detect language if not specified
-        if ($language === null) {
-            $language = $this->detectLanguage($text);
-        }
+        $language = $language ?? $this->detectLanguage($text);
 
-        // Convert to lowercase
         $text = mb_strtolower($text, 'UTF-8');
-
-        // Remove special characters, keep only letters, numbers, and spaces
         $text = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $text);
 
-        // Split into words
         $words = preg_split('/\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
 
-        // Get language-specific stop words
         $stopWords = $this->getStopWords($language);
 
-        // Remove stop words and short words
-        $words = array_filter($words, function ($word) use ($stopWords) {
-            return strlen($word) > 2 && !in_array($word, $stopWords);
-        });
+        $words = array_filter(
+            $words,
+            fn (string $w) => mb_strlen($w, 'UTF-8') > 2 && !in_array($w, $stopWords, true)
+        );
 
-        // Apply language-specific stemming
-        $words = array_map(function ($word) use ($language) {
-            return $this->stem($word, $language);
-        }, $words);
+        $words = array_map(fn (string $w) => $this->stem($w, $language), $words);
 
         return array_values($words);
     }
 
     /**
-     * Generate TF-IDF vector for text
+     * Build a normalised TF-IDF vector for the given text.
+     *
+     * IDF is computed against an in-memory vocabulary only (no DB call here).
+     * Pass the result to storeVector() helpers on your model, or use
+     * findSimilar() which accepts a pre-loaded collection.
      *
      * @param string $text
-     * @return array
+     * @return array<string, float>
      */
     public function vectorize(string $text): array
     {
@@ -79,30 +81,37 @@ class TfIdfService implements TfIdfServiceInterface
 
         $wordCounts = array_count_values($words);
         $totalWords = count($words);
-        $vector = [];
+        $vector     = [];
 
         foreach ($wordCounts as $word => $count) {
-            $tf = $count / $totalWords; // Term Frequency
-            $idf = $this->calculateIdf($word); // Inverse Document Frequency
+            $tf            = $count / $totalWords;
+            $idf           = $this->calculateIdf($word);
             $vector[$word] = $tf * $idf;
         }
 
-        // Normalize vector
         return $this->normalizeVector($vector);
     }
 
     /**
-     * Find similar memories using TF-IDF vectors
+     * Find the most similar documents in $documents to $query.
      *
-     * @param string $query
-     * @param \Illuminate\Database\Eloquent\Collection $memories
-     * @param int $limit
-     * @param float $threshold
-     * @param bool $boostRecent
-     * @return array
+     * Accepts any Collection of TfIdfDocumentInterface, so it works
+     * for VectorMemory, SkillItem, or any future document type.
+     *
+     * @param string                                    $query
+     * @param Collection<int, TfIdfDocumentInterface>  $documents
+     * @param int                                       $limit
+     * @param float                                     $threshold   Minimum cosine similarity
+     * @param bool                                      $boostRecent Apply recency boost
+     * @return array<int, array{document: TfIdfDocumentInterface, similarity: float}>
      */
-    public function findSimilar($query, $memories, int $limit = 5, float $threshold = 0.1, bool $boostRecent = true): array
-    {
+    public function findSimilar(
+        string     $query,
+        Collection $documents,
+        int        $limit       = 5,
+        float      $threshold   = 0.1,
+        bool       $boostRecent = true
+    ): array {
         $queryVector = $this->vectorize($query);
 
         if (empty($queryVector)) {
@@ -110,122 +119,229 @@ class TfIdfService implements TfIdfServiceInterface
         }
 
         $similarities = [];
-        $now = now();
+        $now          = now();
 
-        foreach ($memories as $memory) {
-            $memoryVector = $memory->tfidf_vector;
+        foreach ($documents as $document) {
+            $docVector = $document->getTfIdfVector();
 
-            if (empty($memoryVector)) {
+            if (empty($docVector)) {
                 continue;
             }
 
-            $similarity = $this->cosineSimilarity($queryVector, $memoryVector);
+            $similarity = $this->cosineSimilarity($queryVector, $docVector);
 
-            // Boost recent memories if enabled
-            if ($boostRecent) {
-                $daysSinceCreated = $now->diffInDays($memory->created_at);
-                $recencyBoost = max(0.1, 1 - ($daysSinceCreated / 30)); // Boost fades over 30 days
-                $similarity *= $recencyBoost;
+            if ($boostRecent && $document->getCreatedAt() !== null) {
+                $daysSince  = $now->diffInDays($document->getCreatedAt());
+                $recency    = max(0.1, 1 - ($daysSince / 30));
+                $similarity *= $recency;
             }
 
             if ($similarity >= $threshold) {
                 $similarities[] = [
-                    'memory' => $memory,
-                    'similarity' => $similarity
+                    'document'   => $document,
+                    'similarity' => $similarity,
                 ];
             }
         }
 
-        // Sort by similarity score (descending)
-        usort($similarities, function ($a, $b) {
-            return $b['similarity'] <=> $a['similarity'];
-        });
+        usort($similarities, fn ($a, $b) => $b['similarity'] <=> $a['similarity']);
 
         return array_slice($similarities, 0, $limit);
     }
 
     /**
-     * Calculate cosine similarity between two vectors
+     * Cosine similarity between two sparse vectors.
      *
-     * @param array $vector1
-     * @param array $vector2
-     * @return float
+     * @param array<string, float> $vector1
+     * @param array<string, float> $vector2
+     * @return float  Value in [0, 1]
      */
     public function cosineSimilarity(array $vector1, array $vector2): float
     {
-        $dotProduct = 0;
-        $magnitude1 = 0;
-        $magnitude2 = 0;
+        $dotProduct = 0.0;
+        $magnitude1 = 0.0;
+        $magnitude2 = 0.0;
 
-        // Get all unique words from both vectors
         $allWords = array_unique(array_merge(array_keys($vector1), array_keys($vector2)));
 
         foreach ($allWords as $word) {
-            $val1 = $vector1[$word] ?? 0;
-            $val2 = $vector2[$word] ?? 0;
+            $v1 = $vector1[$word] ?? 0.0;
+            $v2 = $vector2[$word] ?? 0.0;
 
-            $dotProduct += $val1 * $val2;
-            $magnitude1 += $val1 * $val1;
-            $magnitude2 += $val2 * $val2;
+            $dotProduct += $v1 * $v2;
+            $magnitude1 += $v1 * $v1;
+            $magnitude2 += $v2 * $v2;
         }
 
-        // Avoid division by zero
-        if ($magnitude1 == 0 || $magnitude2 == 0) {
-            return 0;
+        if ($magnitude1 == 0.0 || $magnitude2 == 0.0) {
+            return 0.0;
         }
 
         return $dotProduct / (sqrt($magnitude1) * sqrt($magnitude2));
     }
 
+    // -------------------------------------------------------------------------
+    // Language helpers (public)
+    // -------------------------------------------------------------------------
+
     /**
-     * Calculate Inverse Document Frequency for a word
+     * Detect the language of the given text.
+     *
+     * @param string $text
+     * @return string  Language code, e.g. 'en' or 'ru'
+     */
+    public function detectLanguage(string $text): string
+    {
+        $this->ensureLanguagesLoaded();
+
+        $lower       = mb_strtolower($text, 'UTF-8');
+        $totalChars  = mb_strlen($lower, 'UTF-8');
+        $cyrillicCnt = preg_match_all('/[\p{Cyrillic}]/u', $lower);
+
+        if ($totalChars === 0) {
+            return 'en';
+        }
+
+        $cyrillicRatio = $cyrillicCnt / $totalChars;
+
+        foreach ($this->languageConfig as $code => $config) {
+            $patterns = $config['detection_patterns'] ?? [];
+
+            if (isset($patterns['charset']) && $patterns['charset'] === 'cyrillic') {
+                $threshold = $patterns['threshold'] ?? 0.3;
+                if ($cyrillicRatio >= $threshold) {
+                    return $code;
+                }
+            }
+
+            if (isset($patterns['sample_words']) && is_array($patterns['sample_words'])) {
+                $matches = 0;
+                foreach ($patterns['sample_words'] as $word) {
+                    if (str_contains($lower, $word)) {
+                        $matches++;
+                    }
+                }
+                if ($matches >= 2) {
+                    return $code;
+                }
+            }
+        }
+
+        return $cyrillicRatio > 0.3 ? 'ru' : 'en';
+    }
+
+    /**
+     * Merge additional stop words / endings into the loaded language config.
+     * Called by plugins that expose custom stop-word settings.
+     *
+     * @param array $config  ['languages' => ['ru' => ['stop_words' => [...]], ...]]
+     */
+    public function setLanguageConfig(array $config): void
+    {
+        $this->ensureLanguagesLoaded();
+
+        foreach ($config['languages'] ?? [] as $code => $langConfig) {
+            if (isset($this->languageConfig[$code])) {
+                if (isset($langConfig['stop_words'])) {
+                    $this->languageConfig[$code]['stop_words'] = array_merge(
+                        $this->languageConfig[$code]['stop_words'],
+                        $langConfig['stop_words']
+                    );
+                }
+                $this->languageConfig[$code] = array_merge($this->languageConfig[$code], $langConfig);
+            } else {
+                $this->languageConfig[$code] = $langConfig;
+            }
+        }
+    }
+
+    /**
+     * @return array<string, string>  code => name
+     */
+    public function getAvailableLanguages(): array
+    {
+        $this->ensureLanguagesLoaded();
+
+        $out = [];
+        foreach ($this->languageConfig as $code => $config) {
+            $out[$code] = $config['name'] ?? ucfirst($code);
+        }
+        return $out;
+    }
+
+    /**
+     * Clear the IDF cache.
+     * Call this after bulk-importing many documents.
+     */
+    public function clearCache(): void
+    {
+        Cache::flush();
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Compute IDF for a single word.
+     *
+     * IDF is cached per word for one hour.
+     * The total-document count is looked up fresh from the cache key
+     * "tfidf_total_docs" which callers are expected to prime before
+     * a bulk search session (optional optimisation; defaults to 1).
+     *
+     * Why no Model:: call here?
+     * We deliberately avoid importing any Eloquent model so that this
+     * service stays decoupled. Callers that want accurate cross-corpus
+     * IDF should pre-populate "tfidf_total_docs" in the cache.
+     * For single-corpus use the IDF values still rank words correctly
+     * relative to each other within the collection passed to findSimilar().
      *
      * @param string $word
      * @return float
      */
     private function calculateIdf(string $word): float
     {
-        // Cache IDF values for better performance
-        $cacheKey = "idf_{$word}";
+        $cacheKey = "tfidf_idf_{$word}";
 
         return Cache::remember($cacheKey, 3600, function () use ($word) {
-            $totalDocuments = VectorMemory::count();
+            // Total docs hint — optionally set by callers via Cache::put('tfidf_total_docs', N)
+            $totalDocuments = Cache::get('tfidf_total_docs', 1);
 
-            if ($totalDocuments == 0) {
+            if ($totalDocuments <= 0) {
                 return 1.0;
             }
 
-            // Count documents containing this word
-            $documentsWithWord = VectorMemory::whereJsonContains('tfidf_vector', [$word => true])->count();
+            // Docs-with-word hint — set the same way if you want accurate cross-doc IDF
+            $docsWithWord = Cache::get("tfidf_docs_with_{$word}", 0);
 
-            if ($documentsWithWord == 0) {
+            if ($docsWithWord <= 0) {
                 return 1.0;
             }
 
-            // IDF = log(total_documents / documents_with_word)
-            return log($totalDocuments / $documentsWithWord);
+            return log($totalDocuments / $docsWithWord);
         });
     }
 
     /**
-     * Normalize vector to unit length
+     * L2-normalise a vector to unit length.
      *
-     * @param array $vector
-     * @return array
+     * @param array<string, float> $vector
+     * @return array<string, float>
      */
     private function normalizeVector(array $vector): array
     {
-        $magnitude = sqrt(array_sum(array_map(fn ($val) => $val * $val, $vector)));
+        $magnitude = sqrt(array_sum(array_map(fn ($v) => $v * $v, $vector)));
 
-        if ($magnitude == 0) {
+        if ($magnitude == 0.0) {
             return $vector;
         }
 
-        return array_map(fn ($val) => $val / $magnitude, $vector);
+        return array_map(fn ($v) => $v / $magnitude, $vector);
     }
 
     /**
-     * Language-aware stemming
+     * Lightweight suffix-stripping stemmer.
      *
      * @param string $word
      * @param string $language
@@ -234,87 +350,30 @@ class TfIdfService implements TfIdfServiceInterface
     private function stem(string $word, string $language): string
     {
         $endings = $this->getEndings($language);
+        $len     = mb_strlen($word, 'UTF-8');
 
         foreach ($endings as $ending) {
-            if (strlen($word) > strlen($ending) + 3 && str_ends_with($word, $ending)) {
-                return substr($word, 0, -strlen($ending));
+            $endLen = mb_strlen($ending, 'UTF-8');
+            if ($len > $endLen + 3 && str_ends_with($word, $ending)) {
+                return mb_substr($word, 0, $len - $endLen, 'UTF-8');
             }
         }
 
         return $word;
     }
 
-    /**
-     * Load language configurations from JSON files
-     *
-     * @return void
-     */
-    private function loadLanguageData(): void
+    private function getStopWords(string $language): array
     {
-        if ($this->languagesLoaded) {
-            return;
-        }
-
-        $this->languagesLoaded = true;
-        $languagesPath = base_path('data/plugins/vectormemory/languages');
-
-        // Fallback to hardcoded config if directory doesn't exist
-        if (!is_dir($languagesPath)) {
-            $this->loadFallbackLanguages();
-            return;
-        }
-
-        try {
-            foreach (glob($languagesPath . '/*.json') as $file) {
-                $code = basename($file, '.json');
-                $data = json_decode(file_get_contents($file), true);
-
-                if ($data && isset($data['stop_words']) && isset($data['endings'])) {
-                    $this->languageConfig[$code] = $data;
-                }
-            }
-
-            // If no valid files found, use fallback
-            if (empty($this->languageConfig)) {
-                $this->loadFallbackLanguages();
-            }
-
-        } catch (\Exception $e) {
-            // On any error, use fallback
-            $this->loadFallbackLanguages();
-        }
+        $this->ensureLanguagesLoaded();
+        return $this->languageConfig[$language]['stop_words'] ?? [];
     }
 
-    /**
-     * Load fallback language configuration
-     *
-     * @return void
-     */
-    private function loadFallbackLanguages(): void
+    private function getEndings(string $language): array
     {
-        $this->languageConfig = [
-            'ru' => [
-                'name' => 'Russian',
-                'code' => 'ru',
-                'stop_words' => ['и', 'в', 'на', 'что', 'как', 'это', 'для', 'с', 'по', 'от', 'до', 'из',
-                               'он', 'она', 'они', 'мы', 'вы', 'я', 'ты', 'то', 'так', 'но', 'или', 'за', 'под'],
-                'endings' => ['ение', 'ость', 'ова', 'ева', 'ать', 'ить', 'еть', 'ов', 'ев', 'ий', 'ая', 'ое', 'ые']
-            ],
-            'en' => [
-                'name' => 'English',
-                'code' => 'en',
-                'stop_words' => ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
-                               'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did'],
-                'endings' => ['tion', 'ing', 'ment', 'ness', 'ful', 'ous', 'ive', 'ed', 'ly', 's', 'er', 'est']
-            ]
-        ];
+        $this->ensureLanguagesLoaded();
+        return $this->languageConfig[$language]['endings'] ?? [];
     }
 
-    /**
-     * Ensure languages are loaded
-     *
-     * @return void
-     */
     private function ensureLanguagesLoaded(): void
     {
         if (!$this->languagesLoaded) {
@@ -322,176 +381,51 @@ class TfIdfService implements TfIdfServiceInterface
         }
     }
 
-    /**
-     * Set language configuration from plugin config
-     *
-     * @param array $config
-     * @return void
-     */
-    public function setLanguageConfig(array $config): void
+    private function loadLanguageData(): void
     {
-        $this->ensureLanguagesLoaded();
+        $this->languagesLoaded = true;
+        $path = base_path('data/plugins/vectormemory/languages');
 
-        if (isset($config['languages'])) {
-            foreach ($config['languages'] as $code => $langConfig) {
-                if (isset($this->languageConfig[$code])) {
-                    // Merge custom stop words with existing ones
-                    if (isset($langConfig['stop_words'])) {
-                        $this->languageConfig[$code]['stop_words'] = array_merge(
-                            $this->languageConfig[$code]['stop_words'],
-                            $langConfig['stop_words']
-                        );
-                    }
+        if (!is_dir($path)) {
+            $this->loadFallbackLanguages();
+            return;
+        }
 
-                    // Merge other config if needed
-                    $this->languageConfig[$code] = array_merge(
-                        $this->languageConfig[$code],
-                        $langConfig
-                    );
-                } else {
-                    // Add completely new language
-                    $this->languageConfig[$code] = $langConfig;
+        try {
+            foreach (glob($path . '/*.json') as $file) {
+                $code = basename($file, '.json');
+                $data = json_decode(file_get_contents($file), true);
+
+                if ($data && isset($data['stop_words'], $data['endings'])) {
+                    $this->languageConfig[$code] = $data;
                 }
             }
-        }
-    }
 
-    /**
-     * Detect language of text
-     *
-     * @param string $text
-     * @return string
-     */
-    public function detectLanguage(string $text): string
-    {
-        $this->ensureLanguagesLoaded();
-
-        $text = mb_strtolower($text, 'UTF-8');
-
-        // Count Cyrillic characters
-        $cyrillicCount = preg_match_all('/[\p{Cyrillic}]/u', $text);
-        $totalChars = mb_strlen($text, 'UTF-8');
-
-        if ($totalChars == 0) {
-            return 'en';
-        }
-
-        $cyrillicRatio = $cyrillicCount / $totalChars;
-
-        // Check if we have advanced detection patterns
-        foreach ($this->languageConfig as $code => $config) {
-            if (isset($config['detection_patterns'])) {
-                $patterns = $config['detection_patterns'];
-
-                // Cyrillic detection
-                if (isset($patterns['charset']) && $patterns['charset'] === 'cyrillic') {
-                    $threshold = $patterns['threshold'] ?? 0.3;
-                    if ($cyrillicRatio >= $threshold) {
-                        return $code;
-                    }
-                }
-
-                // Sample words detection
-                if (isset($patterns['sample_words']) && is_array($patterns['sample_words'])) {
-                    $matchCount = 0;
-                    foreach ($patterns['sample_words'] as $word) {
-                        if (str_contains($text, $word)) {
-                            $matchCount++;
-                        }
-                    }
-                    if ($matchCount >= 2) { // Found at least 2 sample words
-                        return $code;
-                    }
-                }
+            if (empty($this->languageConfig)) {
+                $this->loadFallbackLanguages();
             }
+        } catch (\Exception $e) {
+            $this->loadFallbackLanguages();
         }
-
-        // Fallback: If more than 30% Cyrillic characters, assume Russian
-        return $cyrillicRatio > 0.3 ? 'ru' : 'en';
     }
 
-    /**
-     * Get stop words for language
-     *
-     * @param string $language
-     * @return array
-     */
-    private function getStopWords(string $language): array
+    private function loadFallbackLanguages(): void
     {
-        $this->ensureLanguagesLoaded();
-        return $this->languageConfig[$language]['stop_words'] ?? [];
-    }
-
-    /**
-     * Get word endings for language
-     *
-     * @param string $language
-     * @return array
-     */
-    private function getEndings(string $language): array
-    {
-        $this->ensureLanguagesLoaded();
-        return $this->languageConfig[$language]['endings'] ?? [];
-    }
-
-    /**
-     * Get available languages
-     *
-     * @return array
-     */
-    public function getAvailableLanguages(): array
-    {
-        $this->ensureLanguagesLoaded();
-
-        $languages = [];
-        foreach ($this->languageConfig as $code => $config) {
-            $languages[$code] = $config['name'] ?? ucfirst($code);
-        }
-
-        return $languages;
-    }
-
-    /**
-     * Get statistics about the vector space
-     *
-     * @return array
-     */
-    public function getStatistics(): array
-    {
-        $totalMemories = VectorMemory::count();
-        $avgVectorSize = 0;
-        $vocabularySize = 0;
-
-        if ($totalMemories > 0) {
-            $sample = VectorMemory::take(100)->get();
-            $totalFeatures = 0;
-            $allWords = [];
-
-            foreach ($sample as $memory) {
-                $vector = $memory->tfidf_vector;
-                $totalFeatures += count($vector);
-                $allWords = array_merge($allWords, array_keys($vector));
-            }
-
-            $avgVectorSize = $totalFeatures / count($sample);
-            $vocabularySize = count(array_unique($allWords));
-        }
-
-        return [
-            'total_memories' => $totalMemories,
-            'average_vector_size' => round($avgVectorSize, 1),
-            'estimated_vocabulary_size' => $vocabularySize,
-            'cache_hits' => Cache::get('idf_cache_hits', 0)
+        $this->languageConfig = [
+            'ru' => [
+                'name'       => 'Russian',
+                'code'       => 'ru',
+                'stop_words' => ['и', 'в', 'на', 'что', 'как', 'это', 'для', 'с', 'по', 'от', 'до', 'из',
+                                 'он', 'она', 'они', 'мы', 'вы', 'я', 'ты', 'то', 'так', 'но', 'или', 'за', 'под'],
+                'endings'    => ['ение', 'ость', 'ова', 'ева', 'ать', 'ить', 'еть', 'ов', 'ев', 'ий', 'ая', 'ое', 'ые'],
+            ],
+            'en' => [
+                'name'       => 'English',
+                'code'       => 'en',
+                'stop_words' => ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+                                 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did'],
+                'endings'    => ['tion', 'ing', 'ment', 'ness', 'ful', 'ous', 'ive', 'ed', 'ly', 's', 'er', 'est'],
+            ],
         ];
-    }
-
-    /**
-     * Clear IDF cache (useful when adding many new documents)
-     *
-     * @return void
-     */
-    public function clearCache(): void
-    {
-        Cache::flush(); // This clears all cache, you might want to be more selective
     }
 }

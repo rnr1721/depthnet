@@ -108,7 +108,7 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 // Apply composite scoring and collect results
                 foreach ($stepResults as $result) {
                     /** @var VectorMemory $memory */
-                    $memory = $result['memory'];
+                    $memory = $result['document']; // TfIdfDocumentInterface key
 
                     if (in_array($memory->id, $visitedIds)) {
                         continue;
@@ -122,6 +122,7 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                     );
 
                     $chainResults[] = array_merge($result, [
+                        'memory'          => $memory, // keep 'memory' alias for external callers
                         'composite_score' => $compositeScore,
                         'chain_step'      => $step,
                     ]);
@@ -130,8 +131,8 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 }
 
                 // The top result of this step seeds the next associative hop
-                $topResult    = $stepResults[0]['memory'];
-                $currentQuery = $topResult->content;
+                $topResult    = $stepResults[0]['document']; // TfIdfDocumentInterface key
+                $currentQuery = $topResult->getTextContent(); // use interface method
             }
 
             if (empty($chainResults)) {
@@ -149,6 +150,7 @@ class VectorMemoryAssociativeService extends VectorMemoryService
             $finalResults = array_slice($chainResults, 0, $searchLimit);
 
             // Update access stats for all touched memories
+            // 'memory' alias is present in every $chainResults entry (added above)
             $this->updateAccessStats(
                 collect($finalResults)->pluck('memory')->all()
             );
@@ -211,12 +213,11 @@ class VectorMemoryAssociativeService extends VectorMemoryService
             $timeWeight = max(0.1, $timeWeight);
         }
 
-        $ageInDays = $createdAt ? max(1, $createdAt->diffInDays(now())) : 1;
-        $accessRate = ($accessCount ?? 0) / $ageInDays;
+        $ageInDays         = $createdAt ? max(1, $createdAt->diffInDays(now())) : 1;
+        $accessRate        = ($accessCount ?? 0) / $ageInDays;
         $saturationPenalty = 1.0 / (1.0 + ($accessRate * self::SATURATION_PENALTY_FACTOR));
 
         return $tfidfScore * $accessWeight * $timeWeight * $saturationPenalty;
-
     }
 
     /**
@@ -237,9 +238,9 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 );
 
                 $memory->update([
-                    'access_count'    => ($memory->access_count ?? 0) + 1,
+                    'access_count'     => ($memory->access_count ?? 0) + 1,
                     'last_accessed_at' => now(),
-                    'importance'      => $newImportance,
+                    'importance'       => $newImportance,
                 ]);
             } catch (\Throwable $e) {
                 $this->logger->warning(

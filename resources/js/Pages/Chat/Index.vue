@@ -320,6 +320,7 @@ async function handleClearHistory(options) {
     if (options.clearVectorMemory) requestData.clear_vector_memory = true;
     if (options.clearWorkspace) requestData.clear_workspace = true;
     if (options.clearGoals) requestData.clear_goals = true;
+    if (options.clearSkills) requestData.clear_skills = true;
 
     await router.post(route('chat.clear'), requestData, {
       preserveScroll: true,

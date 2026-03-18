@@ -46,6 +46,8 @@ Choose your preferred installation method:
 - **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
+- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - Browser setup for voice input and text-to-speech
+
 ## AI Provider Support
 
 Built-in support for multiple AI engines with easy preset management:

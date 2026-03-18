@@ -33,7 +33,8 @@
     <!-- Messages -->
     <ChatMessage v-for="message in filteredMessages" :key="message.id" :message="message" :isDark="isDark"
       :appName="appName" @delete="$emit('deleteMessage', message.id)" :showAgentResults="showAgentResults"
-      :showCommandResults="showCommandResults" />
+      :showCommandResults="showCommandResults" :hasTTS="hasTTS" :speakingMessageId="speakingMessageId"
+      @speak="$emit('speakMessage', $event)" />
 
     <!-- Background refresh indicator for non-empty state -->
     <div v-if="isBackgroundRefreshing && filteredMessages.length > 0" :class="[
@@ -64,9 +65,11 @@ const props = defineProps({
   showCommandResults: Boolean,
   pagination: Object,
   isBackgroundRefreshing: Boolean,
+  hasTTS: { type: Boolean, default: false },
+  speakingMessageId: { type: [Number, String, null], default: null },
 });
 
-const emit = defineEmits(['deleteMessage', 'scrollUpdate', 'loadOlder']);
+const emit = defineEmits(['deleteMessage', 'scrollUpdate', 'speakMessage']);
 
 const messagesContainer = ref(null);
 

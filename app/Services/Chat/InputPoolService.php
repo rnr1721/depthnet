@@ -89,6 +89,7 @@ class InputPoolService implements InputPoolServiceInterface
         $sources = $items->map(fn ($item) => [
             'source'  => $item->source_name,
             'content' => $item->content,
+            'timestamp' => $item->created_at->toIso8601String(),
         ])->values()->all();
 
         return json_encode(['sources' => $sources], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);

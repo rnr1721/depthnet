@@ -105,6 +105,7 @@ export default {
   chat_cancel: "Отмена",
   chat_refreshing: "Обновление",
   chat_checking_messages: "Проверка новых сообщений",
+  chat_clear_skills: "Очистить скиллы",
   settings_user_can_run_commands: "Пользователь может выполнять команды как модель",
   settings_user_can_run_commands_desc: "При включении администраторы смогут выполнять команды в чате аналогично модели.",
   settings_header: "Конфигурация системы и настройки ИИ",

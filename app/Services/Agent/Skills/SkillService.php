@@ -13,6 +13,8 @@ class SkillService implements SkillServiceInterface
 {
     public function __construct(
         protected TfIdfServiceInterface $tfIdfService,
+        protected Skill $skillModel,
+        protected SkillItem $skillItemModel,
         protected LoggerInterface $logger
     ) {
     }
@@ -30,7 +32,7 @@ class SkillService implements SkillServiceInterface
         try {
             $number = $this->nextSkillNumber($preset);
 
-            $skill = Skill::create([
+            $skill = $this->skillModel->create([
                 'preset_id'   => $preset->id,
                 'number'      => $number,
                 'title'       => $title,
@@ -52,6 +54,9 @@ class SkillService implements SkillServiceInterface
         }
     }
 
+    /**
+     * @inheritDoc
+     */
     public function addItem(AiPreset $preset, int $skillNumber, string $content): array
     {
         try {
@@ -73,6 +78,9 @@ class SkillService implements SkillServiceInterface
         }
     }
 
+    /**
+     * @inheritDoc
+     */
     public function updateItem(AiPreset $preset, int $skillNumber, int $itemNumber, string $content): array
     {
         try {
@@ -81,7 +89,7 @@ class SkillService implements SkillServiceInterface
                 return ['success' => false, 'message' => "Skill #{$skillNumber} not found."];
             }
 
-            $item = SkillItem::where('skill_id', $skill->id)
+            $item = $this->skillItemModel->where('skill_id', $skill->id)
                              ->where('number', $itemNumber)
                              ->first();
 
@@ -105,6 +113,9 @@ class SkillService implements SkillServiceInterface
         }
     }
 
+    /**
+     * @inheritDoc
+     */
     public function deleteItem(AiPreset $preset, int $skillNumber, int $itemNumber): array
     {
         try {
@@ -113,7 +124,7 @@ class SkillService implements SkillServiceInterface
                 return ['success' => false, 'message' => "Skill #{$skillNumber} not found."];
             }
 
-            $deleted = SkillItem::where('skill_id', $skill->id)
+            $deleted = $this->skillItemModel->where('skill_id', $skill->id)
                                 ->where('number', $itemNumber)
                                 ->delete();
 
@@ -132,6 +143,9 @@ class SkillService implements SkillServiceInterface
         }
     }
 
+    /**
+     * @inheritDoc
+     */
     public function deleteSkill(AiPreset $preset, int $skillNumber): array
     {
         try {
@@ -151,6 +165,9 @@ class SkillService implements SkillServiceInterface
         }
     }
 
+    /**
+     * @inheritDoc
+     */
     public function showSkill(AiPreset $preset, int $skillNumber): array
     {
         try {
@@ -184,10 +201,13 @@ class SkillService implements SkillServiceInterface
         }
     }
 
+    /**
+     * @inheritDoc
+     */
     public function listSkills(AiPreset $preset): array
     {
         try {
-            $skills = Skill::where('preset_id', $preset->id)
+            $skills = $this->skillModel->where('preset_id', $preset->id)
                            ->withCount('items')
                            ->orderBy('number')
                            ->get();
@@ -212,6 +232,9 @@ class SkillService implements SkillServiceInterface
         }
     }
 
+    /**
+     * @inheritDoc
+     */
     public function searchItems(AiPreset $preset, string $query, int $limit = 5): array
     {
         try {
@@ -221,7 +244,7 @@ class SkillService implements SkillServiceInterface
             }
 
             // Load all items for this preset (via JOIN)
-            $items = SkillItem::whereHas('skill', fn ($q) => $q->where('preset_id', $preset->id))
+            $items = $this->skillItemModel->whereHas('skill', fn ($q) => $q->where('preset_id', $preset->id))
                               ->with('skill')
                               ->get();
 
@@ -254,11 +277,11 @@ class SkillService implements SkillServiceInterface
     }
 
     /**
-     * Return skills as structured array for the admin UI.
+     * @inheritDoc
      */
     public function listSkillsData(AiPreset $preset): array
     {
-        return Skill::where('preset_id', $preset->id)
+        return $this->skillModel->where('preset_id', $preset->id)
             ->withCount('items')
             ->orderBy('number')
             ->get()
@@ -272,7 +295,7 @@ class SkillService implements SkillServiceInterface
     }
 
     /**
-     * Return skill with items as structured array for the admin UI.
+     * @inheritDoc
      */
     public function showSkillData(AiPreset $preset, int $skillNumber): array
     {
@@ -295,7 +318,7 @@ class SkillService implements SkillServiceInterface
     }
 
     /**
-     * Return search results as structured array for the admin UI.
+     * @inheritDoc
      */
     public function searchItemsData(AiPreset $preset, string $query, int $limit = 5): array
     {
@@ -304,7 +327,7 @@ class SkillService implements SkillServiceInterface
             return [];
         }
 
-        $items = SkillItem::whereHas('skill', fn ($q) => $q->where('preset_id', $preset->id))
+        $items = $this->skillItemModel->whereHas('skill', fn ($q) => $q->where('preset_id', $preset->id))
                           ->with('skill')
                           ->get();
 
@@ -329,9 +352,12 @@ class SkillService implements SkillServiceInterface
         })->toArray();
     }
 
+    /**
+     * @inheritDoc
+     */
     public function getSkillsForContext(AiPreset $preset): string
     {
-        $skills = Skill::where('preset_id', $preset->id)
+        $skills = $this->skillModel->where('preset_id', $preset->id)
                        ->withCount('items')
                        ->orderBy('number')
                        ->get();
@@ -349,13 +375,55 @@ class SkillService implements SkillServiceInterface
         return "Skills: " . $parts->implode(' | ');
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function deleteAllSkills(AiPreset $preset): array
+    {
+        try {
+            $count = $this->skillModel->where('preset_id', $preset->id)->count();
+
+            if ($count === 0) {
+                return [
+                    'success' => true,
+                    'message' => 'No skills to delete.',
+                ];
+            }
+
+            $this->skillModel->where('preset_id', $preset->id)->delete(); // items удалятся по cascade
+
+            return [
+                'success' => true,
+                'message' => "Deleted {$count} " . ($count === 1 ? 'skill' : 'skills') . ".",
+            ];
+
+        } catch (\Throwable $e) {
+            $this->logger->error("SkillService::deleteAllSkills error: " . $e->getMessage());
+
+            return [
+                'success' => false,
+                'message' => "Error deleting all skills: " . $e->getMessage(),
+            ];
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Find a skill by its number within a preset.
+     *
+     * Optionally loads related items.
+     *
+     * @param AiPreset $preset
+     * @param int $number Skill number (not ID)
+     * @param bool $withItems Whether to eager load items
+     * @return Skill|null
+     */
     private function findSkill(AiPreset $preset, int $number, bool $withItems = false): ?Skill
     {
-        $query = Skill::where('preset_id', $preset->id)->where('number', $number);
+        $query = $this->skillModel->where('preset_id', $preset->id)->where('number', $number);
 
         if ($withItems) {
             $query->with('items');
@@ -364,27 +432,47 @@ class SkillService implements SkillServiceInterface
         return $query->first();
     }
 
+    /**
+     * Get the next sequential skill number for a preset.
+     *
+     * @param AiPreset $preset
+     * @return int
+     */
     private function nextSkillNumber(AiPreset $preset): int
     {
-        $max = Skill::where('preset_id', $preset->id)->max('number');
+        $max = $this->skillModel->where('preset_id', $preset->id)->max('number');
         return ($max ?? 0) + 1;
     }
 
+    /**
+     * Get the next sequential item number within a skill.
+     *
+     * @param Skill $skill
+     * @return int
+     */
     private function nextItemNumber(Skill $skill): int
     {
-        $max = SkillItem::where('skill_id', $skill->id)->max('number');
+        $max = $this->skillItemModel->where('skill_id', $skill->id)->max('number');
         return ($max ?? 0) + 1;
     }
 
+    /**
+     * Create a new skill item with TF-IDF vectorization.
+     *
+     * @param Skill $skill
+     * @param string $content
+     * @return SkillItem
+     */
     private function createItem(Skill $skill, string $content): SkillItem
     {
         $number = $this->nextItemNumber($skill);
 
-        return SkillItem::create([
+        return $this->skillItemModel->create([
             'skill_id'     => $skill->id,
             'number'       => $number,
             'content'      => $content,
             'tfidf_vector' => $this->tfIdfService->vectorize($content),
         ]);
     }
+
 }

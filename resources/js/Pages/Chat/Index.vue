@@ -127,6 +127,7 @@ const {
   isSpeaking,
   currentlySpeakingId,
   lastSpokenMessageId,
+  resetInitialLoad,
   markInitialLoadDone,
   isListening,
   interimText,
@@ -245,6 +246,8 @@ async function handlePresetSelect(presetId) {
 
   selectedPresetId.value = presetId;
   savePresetId(presetId); // persist for admin page links
+
+  resetInitialLoad();
 
   // Load messages for the newly selected preset
   await switchPreset(presetId);

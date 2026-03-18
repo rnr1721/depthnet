@@ -296,6 +296,12 @@ export function useSpeech(options = {}) {
         initialLoadDone = true;
     }
 
+    /** Reset initial load flag — call before switching preset */
+    function resetInitialLoad() {
+        initialLoadDone = false;
+        stopSpeaking();
+    }
+
     function speakNewMessages(messages) {
         if (!hasTTS || !ttsEnabled.value || !messages?.length) return;
 
@@ -479,6 +485,7 @@ export function useSpeech(options = {}) {
         speakMessage,
         speakNewMessages,
         markInitialLoadDone,
+        resetInitialLoad,
         stopSpeaking,
         toggleTTS,
 

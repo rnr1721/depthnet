@@ -49,7 +49,21 @@
       </div>
 
       <!-- Message content -->
-      <div class="message-content leading-relaxed" v-html="formattedContent"></div>
+      <!-- Pool message (multiple sources) -->
+      <div v-if="poolSources" class="flex flex-col gap-2.5">
+        <div v-for="(src, idx) in poolSources" :key="idx">
+          <div class="text-xs text-indigo-200 opacity-75 mb-1">
+            {{ src.source }}
+          </div>
+          <div class="text-sm leading-relaxed">{{ src.content }}</div>
+          <div v-if="src.timestamp" class="text-xs opacity-40 mt-1">
+            {{ formatSourceTime(src.timestamp) }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Regular message content -->
+      <div v-else class="message-content leading-relaxed" v-html="formattedContent"></div>
 
       <!-- Commands -->
       <div v-for="command in extractedCommands" :key="command.id" :class="[
@@ -164,6 +178,36 @@ const commandResults = computed(() => {
     ? props.message.content.substring(lastIndex + marker.length).trim()
     : '';
 });
+
+/**
+ * Parses pool message — JSON with sources array.
+ * Returns array of sources or null if plain text.
+ */
+const poolSources = computed(() => {
+  if (props.message.role !== 'user') return null;
+  const raw = props.message.content?.trim();
+  if (!raw || !raw.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed.sources) && parsed.sources.length > 0) {
+      return parsed.sources;
+    }
+  } catch {
+    // not JSON — render as usual
+  }
+  return null;
+});
+
+function formatSourceTime(timestamp) {
+  if (!timestamp) return '';
+  try {
+    return new Date(timestamp).toLocaleTimeString('ru-RU', {
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+}
 
 const resultsHtml = computed(() => {
   if (!commandResults.value) return '';

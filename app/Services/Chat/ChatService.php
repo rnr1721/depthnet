@@ -200,6 +200,52 @@ class ChatService implements ChatServiceInterface
     }
 
     /**
+     * @inheritDoc
+     */
+    public function sendApiInput(
+        User $user,
+        int $presetId,
+        string $sourceName,
+        string $content,
+        bool $dispatch = false,
+    ): Message|array {
+        $preset = $this->presetRegistry->getPreset($presetId);
+
+        if (!$this->inputPoolService->isEnabled($preset)) {
+            throw new \RuntimeException(
+                "Preset #{$presetId} is not in pool mode. " .
+                "Use the regular message endpoint to send plain-text input."
+            );
+        }
+
+        $this->inputPoolService->add($presetId, $sourceName, $content);
+
+        if ($dispatch) {
+            $formattedContent = $this->inputPoolService->flush($presetId);
+
+            // flush() returns null only if pool was somehow empty after our add()
+            // that should never happen, but guard anyway
+            if ($formattedContent === null) {
+                throw new \RuntimeException("Pool was empty after flush — this should not happen.");
+            }
+
+            return $this->createMessage($user, $presetId, $formattedContent);
+        }
+
+        // Not dispatching — return pool metadata so the caller knows what's waiting
+        $items = $this->inputPoolService->getItems($presetId);
+
+        return [
+            'dispatched' => false,
+            'pool_size'  => $items->count(),
+            'items'      => $items->map(fn ($item) => [
+                'source'     => $item->source_name,
+                'created_at' => $item->created_at->toIso8601String(),
+            ]),
+        ];
+    }
+
+    /**
      * Create a user message, run commands if needed, trigger agent.
      *
      * @param User $user

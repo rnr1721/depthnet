@@ -118,10 +118,17 @@
                                             {{ preset.is_active ? t('presets_active') : t('presets_inactive') }}
                                         </span>
                                     </div>
+
+                                    <p :class="[
+                                        'text-sm mb-3',
+                                        isDark ? 'text-gray-400' : 'text-gray-600'
+                                    ]">ID: {{ preset.id }}</p>
+
                                     <p :class="[
                                         'text-sm mb-3',
                                         isDark ? 'text-gray-400' : 'text-gray-600'
                                     ]">{{ preset.description || t('presets_no_description') }}</p>
+
                                     <div class="flex items-center space-x-2">
                                         <span :class="[
                                             'inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium',

@@ -97,6 +97,38 @@ interface ChatServiceInterface
     public function sendUserMessage(User $user, int $presetId, string $content, bool $dispatch = false): Message;
 
     /**
+     * Add an external input to the preset's pool from a named source (API input).
+     *
+     * Only works when the preset is in pool mode — throws \RuntimeException otherwise.
+     *
+     * When dispatch=false the item is added to the pool and the method returns
+     * an array with pool metadata (no Message is created yet):
+     *   ['dispatched' => false, 'pool_size' => int, 'items' => Collection]
+     *
+     * When dispatch=true the entire pool is flushed and sent to the model as a
+     * single serialised JSON message. Returns the created Message.
+     *
+     * This is different from sendUserMessage() in two ways:
+     *  - The caller supplies an arbitrary source name (sensor, webhook, etc.)
+     *  - It never falls back to plain-text mode — pool mode is required.
+     *
+     * @param User   $user       Authenticated API user (will own the message if dispatched)
+     * @param int    $presetId
+     * @param string $sourceName Arbitrary label, e.g. "Throne room temperature sensor"
+     * @param string $content    Input content from this source
+     * @param bool   $dispatch   true = flush pool now; false = accumulate only
+     * @return Message|array     Message when dispatched, metadata array otherwise
+     * @throws \RuntimeException When the preset is not in pool mode
+     */
+    public function sendApiInput(
+        User $user,
+        int $presetId,
+        string $sourceName,
+        string $content,
+        bool $dispatch = false,
+    ): Message|array;
+
+    /**
      * Flush the current input pool and send it as a single message.
      * Returns null if pool is disabled or empty.
      *

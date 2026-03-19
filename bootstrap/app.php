@@ -16,6 +16,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'ability' => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
             'abilities' => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
+            'api_key'   => \App\Http\Middleware\ApiKeyMiddleware::class,
+            'api_admin' => \App\Http\Middleware\ApiAdminMiddleware::class,
         ]);
 
         $middleware->api([

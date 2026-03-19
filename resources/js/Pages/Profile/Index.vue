@@ -60,7 +60,7 @@
                             <div
                                 class="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center">
                                 <span class="text-white text-2xl font-bold">{{ user.name.charAt(0).toUpperCase()
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div>
                                 <h2 :class="[
@@ -391,6 +391,184 @@
                     </div>
                 </div>
 
+                <!-- API Keys card -->
+                <div :class="[
+                    'backdrop-blur-sm border shadow-xl rounded-2xl overflow-hidden transition-all mt-8',
+                    isDark
+                        ? 'bg-gray-800 bg-opacity-90 border-gray-700'
+                        : 'bg-white bg-opacity-90 border-gray-200'
+                ]">
+                    <!-- Header -->
+                    <div :class="[
+                        'px-6 py-8 border-b',
+                        isDark ? 'border-gray-700' : 'border-gray-200'
+                    ]">
+                        <div class="flex items-center space-x-4">
+                            <div
+                                class="w-12 h-12 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center">
+                                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h2 :class="[
+                                    'text-2xl font-bold',
+                                    isDark ? 'text-white' : 'text-gray-900'
+                                ]">API Keys</h2>
+                                <p :class="[
+                                    'text-sm mt-1',
+                                    isDark ? 'text-gray-400' : 'text-gray-600'
+                                ]">Manage API keys for programmatic access. Up to {{ apiKeyLimit }} active keys.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-6 sm:p-8 space-y-6">
+
+                        <!-- New key revealed banner -->
+                        <Transition enter-active-class="transition ease-out duration-300"
+                            enter-from-class="opacity-0 scale-95" enter-to-class="opacity-100 scale-100"
+                            leave-active-class="transition ease-in duration-200"
+                            leave-from-class="opacity-100 scale-100" leave-to-class="opacity-0 scale-95">
+                            <div v-if="newKeyPlaintext" :class="[
+                                'p-4 rounded-xl border-l-4',
+                                isDark
+                                    ? 'bg-green-900 bg-opacity-40 border-green-400'
+                                    : 'bg-green-50 border-green-400'
+                            ]">
+                                <p
+                                    :class="['text-sm font-semibold mb-2', isDark ? 'text-green-300' : 'text-green-800']">
+                                    ⚠ Copy this key now — it won't be shown again!
+                                </p>
+                                <div class="flex items-center space-x-2">
+                                    <code :class="[
+                                        'flex-1 px-3 py-2 rounded-lg text-sm font-mono break-all',
+                                        isDark ? 'bg-gray-900 text-green-300' : 'bg-white text-gray-900 border border-green-200'
+                                    ]">{{ newKeyPlaintext }}</code>
+                                    <button @click="copyKey(newKeyPlaintext)" :class="[
+                                        'flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                                        keyCopied
+                                            ? 'bg-green-500 text-white'
+                                            : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                                    ]">
+                                        {{ keyCopied ? '✓ Copied' : 'Copy' }}
+                                    </button>
+                                </div>
+                                <button @click="newKeyPlaintext = null; keyCopied = false" :class="[
+                                    'mt-3 text-xs underline',
+                                    isDark ? 'text-green-400' : 'text-green-700'
+                                ]">I've saved it, dismiss</button>
+                            </div>
+                        </Transition>
+
+                        <!-- Error message -->
+                        <div v-if="apiKeyError" :class="[
+                            'p-4 rounded-xl border-l-4',
+                            isDark ? 'bg-red-900 bg-opacity-40 border-red-400 text-red-300' : 'bg-red-50 border-red-400 text-red-700'
+                        ]">
+                            {{ apiKeyError }}
+                        </div>
+
+                        <!-- Create new key form -->
+                        <div v-if="activeKeysCount < apiKeyLimit" class="flex items-center space-x-3">
+                            <input v-model="newKeyName" type="text" placeholder="Key name, e.g. Production bot"
+                                maxlength="64" :class="[
+                                    'flex-1 rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-violet-500 transition-all px-4 py-3 text-sm',
+                                    isDark
+                                        ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600'
+                                        : 'bg-gray-50 text-gray-900 placeholder-gray-500 ring-gray-300'
+                                ]" @keydown.enter.prevent="createKey" />
+                            <button @click="createKey" :disabled="!newKeyName.trim() || apiKeyLoading" :class="[
+                                'flex-shrink-0 px-5 py-3 rounded-xl font-medium transition-all transform',
+                                'disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none',
+                                'enabled:hover:scale-105 enabled:active:scale-95',
+                                'bg-violet-600 hover:bg-violet-700 text-white'
+                            ]">
+                                <span v-if="apiKeyLoading" class="flex items-center">
+                                    <svg class="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                            stroke-width="4" />
+                                        <path class="opacity-75" fill="currentColor"
+                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                    </svg>
+                                    Creating...
+                                </span>
+                                <span v-else>+ Create key</span>
+                            </button>
+                        </div>
+                        <p v-else :class="['text-sm', isDark ? 'text-yellow-400' : 'text-yellow-600']">
+                            You've reached the limit of {{ apiKeyLimit }} active keys. Revoke one to create a new key.
+                        </p>
+
+                        <!-- Keys list -->
+                        <div v-if="apiKeysLoading" class="flex justify-center py-8">
+                            <svg class="w-6 h-6 animate-spin" :class="isDark ? 'text-gray-400' : 'text-gray-500'"
+                                fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                    stroke-width="4" />
+                                <path class="opacity-75" fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                        </div>
+
+                        <div v-else-if="apiKeys.length === 0" :class="[
+                            'text-center py-8 text-sm',
+                            isDark ? 'text-gray-500' : 'text-gray-400'
+                        ]">
+                            No API keys yet. Create one above.
+                        </div>
+
+                        <div v-else class="space-y-3">
+                            <div v-for="key in apiKeys" :key="key.id" :class="[
+                                'flex items-center justify-between p-4 rounded-xl border transition-all',
+                                key.is_active
+                                    ? (isDark ? 'bg-gray-700 bg-opacity-50 border-gray-600' : 'bg-gray-50 border-gray-200')
+                                    : (isDark ? 'bg-gray-800 border-gray-700 opacity-60' : 'bg-gray-100 border-gray-200 opacity-60')
+                            ]">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center space-x-2">
+                                        <span :class="['font-medium text-sm', isDark ? 'text-white' : 'text-gray-900']">
+                                            {{ key.name }}
+                                        </span>
+                                        <span v-if="!key.is_active" :class="[
+                                            'text-xs px-2 py-0.5 rounded-full font-medium',
+                                            isDark ? 'bg-red-900 text-red-300' : 'bg-red-100 text-red-700'
+                                        ]">Revoked</span>
+                                        <span v-else :class="[
+                                            'text-xs px-2 py-0.5 rounded-full font-medium',
+                                            isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-700'
+                                        ]">Active</span>
+                                    </div>
+                                    <div
+                                        :class="['text-xs mt-1 font-mono', isDark ? 'text-gray-400' : 'text-gray-500']">
+                                        {{ key.key_prefix }}••••••••••••
+                                    </div>
+                                    <div :class="['text-xs mt-0.5', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                        Created {{ formatDate(key.created_at) }}
+                                        <span v-if="key.last_used_at"> · Last used {{ formatDate(key.last_used_at)
+                                            }}</span>
+                                        <span v-else> · Never used</span>
+                                        <span v-if="key.revoked_at"> · Revoked {{ formatDate(key.revoked_at) }}</span>
+                                    </div>
+                                </div>
+
+                                <button v-if="key.is_active" @click="revokeKey(key.id, key.name)"
+                                    :disabled="revokingId === key.id" :class="[
+                                        'ml-4 flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                                        'disabled:opacity-50 disabled:cursor-not-allowed',
+                                        isDark
+                                            ? 'bg-red-900 bg-opacity-60 text-red-300 hover:bg-opacity-80'
+                                            : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                                    ]">
+                                    <span v-if="revokingId === key.id">Revoking...</span>
+                                    <span v-else>Revoke</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Security tips card -->
                 <div :class="[
                     'mt-8 p-6 rounded-2xl border backdrop-blur-sm',
@@ -433,6 +611,7 @@
 import { useForm } from '@inertiajs/vue3';
 import { computed, ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
+import axios from 'axios';
 import PageTitle from '@/Components/PageTitle.vue';
 import AdminHeader from '@/Components/AdminHeader.vue';
 
@@ -511,6 +690,97 @@ const resetPasswordForm = () => {
     passwordForm.clearErrors();
 };
 
+// ── API Keys ──────────────────────────────────────────────────────────
+const apiKeys = ref([]);
+const apiKeyLimit = ref(5);
+const apiKeysLoading = ref(false);
+const apiKeyLoading = ref(false);
+const apiKeyError = ref(null);
+const newKeyName = ref('');
+const newKeyPlaintext = ref(null);
+const keyCopied = ref(false);
+const revokingId = ref(null);
+
+const activeKeysCount = computed(() =>
+    apiKeys.value.filter(k => k.is_active).length
+);
+
+async function loadApiKeys() {
+    apiKeysLoading.value = true;
+    apiKeyError.value = null;
+    try {
+        const { data } = await axios.get(route('profile.api-keys.index'));
+        apiKeys.value = data.keys;
+        apiKeyLimit.value = data.limit;
+    } catch {
+        apiKeyError.value = 'Failed to load API keys.';
+    } finally {
+        apiKeysLoading.value = false;
+    }
+}
+
+async function createKey() {
+    if (!newKeyName.value.trim() || apiKeyLoading.value) return;
+    apiKeyLoading.value = true;
+    apiKeyError.value = null;
+    newKeyPlaintext.value = null;
+    keyCopied.value = false;
+    try {
+        const { data } = await axios.post(route('profile.api-keys.store'), {
+            name: newKeyName.value.trim(),
+        });
+        newKeyPlaintext.value = data.key;
+        newKeyName.value = '';
+        await loadApiKeys();
+    } catch (e) {
+        apiKeyError.value = e.response?.data?.error ?? 'Failed to create API key.';
+    } finally {
+        apiKeyLoading.value = false;
+    }
+}
+
+async function revokeKey(id, name) {
+    if (!confirm(`Revoke key "${name}"? This cannot be undone.`)) return;
+    revokingId.value = id;
+    apiKeyError.value = null;
+    try {
+        await axios.delete(route('profile.api-keys.destroy', id));
+        await loadApiKeys();
+        // Dismiss plaintext banner if it belongs to the revoked key
+        if (newKeyPlaintext.value) newKeyPlaintext.value = null;
+    } catch (e) {
+        apiKeyError.value = e.response?.data?.error ?? 'Failed to revoke API key.';
+    } finally {
+        revokingId.value = null;
+    }
+}
+
+async function copyKey(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        keyCopied.value = true;
+        setTimeout(() => { keyCopied.value = false; }, 2000);
+    } catch {
+        // Fallback for older browsers
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        keyCopied.value = true;
+        setTimeout(() => { keyCopied.value = false; }, 2000);
+    }
+}
+
+function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric'
+    });
+}
+// ─────────────────────────────────────────────────────────────────────
+
 onMounted(() => {
     // Load theme from localStorage
     const savedTheme = localStorage.getItem('chat-theme');
@@ -518,6 +788,9 @@ onMounted(() => {
         isDark.value = true;
         document.documentElement.classList.add('dark');
     }
+
+    // Load API keys on mount
+    loadApiKeys();
 
     // Listen for theme changes from other components
     window.addEventListener('theme-changed', (event) => {

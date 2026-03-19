@@ -90,6 +90,33 @@ interface SkillServiceInterface
     public function searchItems(AiPreset $preset, string $query, int $limit = 5): array;
 
     /**
+     * Return skills as structured array for the admin UI.
+     *
+     * @param AiPreset $preset
+     * @return array
+     */
+    public function listSkillsData(AiPreset $preset): array;
+
+    /**
+     * Return skill with items as structured array for the admin UI.
+     *
+     * @param AiPreset $preset
+     * @param integer $skillNumber
+     * @return array
+     */
+    public function showSkillData(AiPreset $preset, int $skillNumber): array;
+
+    /**
+     * Return search results as structured array for the admin UI.
+     *
+     * @param AiPreset $preset
+     * @param string $query
+     * @param integer $limit
+     * @return array
+     */
+    public function searchItemsData(AiPreset $preset, string $query, int $limit = 5): array;
+
+    /**
      * Return a compact skills summary for the context placeholder.
      * Only titles + descriptions — no item content.
      *
@@ -97,4 +124,14 @@ interface SkillServiceInterface
      * @return string
      */
     public function getSkillsForContext(AiPreset $preset): string;
+
+    /**
+     * Delete all skills associated with the given preset.
+     *
+     * All related SkillItem records are removed via database cascade.
+     *
+     * @param AiPreset $preset
+     * @return array{success: bool, message: string}
+     */
+    public function deleteAllSkills(AiPreset $preset): array;
 }

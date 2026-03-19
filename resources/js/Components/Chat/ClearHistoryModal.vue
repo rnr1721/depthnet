@@ -125,8 +125,24 @@
                             </span>
                         </label>
 
-                    </div>
+                        <!-- Clear skills -->
+                        <label class="flex items-center space-x-3 cursor-pointer">
+                            <input type="checkbox" v-model="clearSkills" :class="[
+                                'w-4 h-4 rounded border-2 transition-colors',
+                                'focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                isDark
+                                    ? 'bg-gray-700 border-gray-600 text-indigo-600 focus:ring-offset-gray-800'
+                                    : 'bg-white border-gray-300 text-indigo-600'
+                            ]">
+                            <span :class="[
+                                'text-sm font-medium',
+                                isDark ? 'text-gray-200' : 'text-gray-700'
+                            ]">
+                                {{ t('chat_clear_skills') || 'Clear skills' }}
+                            </span>
+                        </label>
 
+                    </div>
 
                     <!-- Warning -->
                     <div v-if="hasAnySelected" :class="[
@@ -210,9 +226,10 @@ const clearMemory = ref(true);
 const clearVectorMemory = ref(true);
 const clearWorkspace = ref(true);
 const clearGoals = ref(true);
+const clearSkills = ref(true);
 
 const hasAnySelected = computed(() =>
-    clearMessages.value || clearMemory.value || clearVectorMemory.value || clearWorkspace.value || clearGoals.value
+    clearMessages.value || clearMemory.value || clearVectorMemory.value || clearWorkspace.value || clearGoals.value || clearSkills.value
 );
 
 /**
@@ -227,6 +244,7 @@ function closeModal() {
         clearVectorMemory.value = true;
         clearWorkspace.value = true;
         clearGoals.value = true;
+        clearSkills.value = true;
     }, 300);
 }
 
@@ -241,7 +259,8 @@ function confirmClear() {
         clearMemory: clearMemory.value,
         clearVectorMemory: clearVectorMemory.value,
         clearWorkspace: clearWorkspace.value,
-        clearGoals: clearGoals.value
+        clearGoals: clearGoals.value,
+        clearSkills: clearSkills.value
     });
 }
 

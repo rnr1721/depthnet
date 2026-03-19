@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SkillController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
+use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ProfileController;
@@ -57,6 +58,13 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [ProfileController::class, 'show'])->name('show');
         Route::put('/', [ProfileController::class, 'update'])->name('update');
         Route::put('password', [ProfileController::class, 'updatePassword'])->name('password');
+
+        Route::prefix('/api-keys')->name('api-keys.')->group(function () {
+            Route::get('/', [ApiKeyController::class, 'index'])  ->name('index');
+            Route::post('/', [ApiKeyController::class, 'store'])  ->name('store');
+            Route::delete('/{id}', [ApiKeyController::class, 'destroy'])->name('destroy');
+        });
+
     });
 
     // Admin routes

@@ -53,10 +53,10 @@
 
       <!-- Messages -->
       <ChatMessages v-if="!isInitialLoading" ref="messagesComponent" :messages="localMessages" :pagination="pagination"
-        :isDark="isDark" :appName="page.props.app_name" @deleteMessage="deleteMessage"
-        @scrollUpdate="handleScrollUpdate" @loadOlder="handleLoadOlder" :showAgentResults="showAgentResults"
-        :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing"
-        class="pb-24 lg:pb-0" />
+        :isDark="isDark" :appName="page.props.app_name" :showAgentResults="showAgentResults"
+        :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing" :hasTTS="hasTTS"
+        :speakingMessageId="currentlySpeakingId" @deleteMessage="deleteMessage" @scrollUpdate="handleScrollUpdate"
+        @loadOlder="handleLoadOlder" @speakMessage="handleSpeakMessage" class="pb-40 lg:pb-0" />
 
       <!-- Scroll to bottom button -->
       <ScrollToBottomButton v-if="hasUnreadMessages || !isUserAtBottom" :hasUnreadMessages="hasUnreadMessages"
@@ -64,7 +64,8 @@
 
       <!-- Message input -->
       <MessageInput ref="messageInputComponent" :disabled="form.processing" :isProcessing="isProcessing"
-        :isDark="isDark" @send="sendMessage" />
+        :isDark="isDark" :hasSTT="hasSTT" :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS"
+        :ttsEnabled="ttsEnabled" @send="sendMessage" @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
     </div>
 
     <!-- Tabs panel (desktop) -->
@@ -108,11 +109,34 @@ import ClearHistoryModal from '@/Components/Chat/ClearHistoryModal.vue';
 
 import { useTheme } from '@/Composables/useTheme';
 import { useChat } from '@/Composables/useChat';
+import { useSpeech } from '@/Composables/useSpeech';
 import { usePresets } from '@/Composables/usePresets';
 import { useSelectedPreset } from '@/Composables/useSelectedPreset';
 
 const { t } = useI18n();
 const page = usePage();
+
+const localeMap = { ru: 'ru-RU', en: 'en-US', uk: 'uk-UA', de: 'de-DE', fr: 'fr-FR', es: 'es-ES' };
+const appLocale = page.props.locale;
+const sttLang = localeMap[appLocale] || 'en-US';
+
+const {
+  hasTTS,
+  hasSTT,
+  ttsEnabled,
+  isSpeaking,
+  currentlySpeakingId,
+  lastSpokenMessageId,
+  resetInitialLoad,
+  markInitialLoadDone,
+  isListening,
+  interimText,
+  speakMessage,
+  speakNewMessages,
+  stopSpeaking,
+  toggleTTS,
+  toggleListening,
+} = useSpeech({ sttLang });
 
 const props = defineProps({
   messages: Array,
@@ -198,6 +222,21 @@ const {
   currentPlaceholders,
 } = usePresets(props, isAdmin);
 
+async function handleToggleMic() {
+  const text = await toggleListening();
+  if (text && messageInputComponent.value) {
+    messageInputComponent.value.insertRecognizedText(text);
+  }
+}
+
+function handleSpeakMessage(message) {
+  if (currentlySpeakingId.value === message.id) {
+    stopSpeaking();
+    return;
+  }
+  speakMessage(message);
+}
+
 // -------------------------------------------------------------------------
 // Preset selection — UI only, no effect on running loops
 // -------------------------------------------------------------------------
@@ -207,6 +246,8 @@ async function handlePresetSelect(presetId) {
 
   selectedPresetId.value = presetId;
   savePresetId(presetId); // persist for admin page links
+
+  resetInitialLoad();
 
   // Load messages for the newly selected preset
   await switchPreset(presetId);
@@ -320,6 +361,7 @@ async function handleClearHistory(options) {
     if (options.clearVectorMemory) requestData.clear_vector_memory = true;
     if (options.clearWorkspace) requestData.clear_workspace = true;
     if (options.clearGoals) requestData.clear_goals = true;
+    if (options.clearSkills) requestData.clear_skills = true;
 
     await router.post(route('chat.clear'), requestData, {
       preserveScroll: true,
@@ -476,6 +518,12 @@ watch(() => localMessages.value.length, (newLength, oldLength) => {
     requestAnimationFrame(() => {
       setTimeout(() => messagesComponent.value?.scrollToBottom(), 50);
     });
+
+    // Auto-voice for new messages
+    if (ttsEnabled.value && newLength > oldLength) {
+      const newMessages = localMessages.value.slice(oldLength);
+      speakNewMessages(newMessages);
+    }
   }
 });
 
@@ -493,6 +541,7 @@ onMounted(async () => {
     // Load messages for the restored/selected preset (may differ from server default)
     await loadLatestMessages(selectedPresetId.value);
     messagesComponent.value?.scrollToBottom();
+    markInitialLoadDone();
   } catch (error) {
     console.error('Failed to load initial messages:', error);
   }

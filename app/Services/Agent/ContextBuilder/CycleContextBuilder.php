@@ -65,7 +65,7 @@ class CycleContextBuilder implements ContextBuilderInterface
             $preset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this thinking cycle',
-            fn () => $ragBlock ?? ''
+            fn () => $ragBlock->getResponse() ?? ''
         );
 
         // If context is empty, start first cycle

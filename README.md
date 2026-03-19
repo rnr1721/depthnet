@@ -46,6 +46,8 @@ Choose your preferred installation method:
 - **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
+- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - Browser setup for voice input and text-to-speech
+
 ## AI Provider Support
 
 Built-in support for multiple AI engines with easy preset management:
@@ -288,6 +290,83 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 <a href="docs/screenshots/users.png">
   <img src="docs/screenshots/users.png" alt="Main Interface" height="300">
 </a>
+
+## REST API
+
+DepthNet includes a REST API for programmatic access to chat functionality, allowing external applications, bots, sensors, and scripts to interact with agents.
+
+### API Keys
+
+Each user can manage up to 5 personal API keys via **Profile → API Keys**. Keys are shown once at creation and stored as SHA-256 hashes — keep them safe.
+
+Authentication uses a standard Bearer token:
+
+```
+Authorization: Bearer sk-<your-key>
+```
+
+### Endpoints
+
+#### Chat
+
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| `GET` | `/api/v1/chat/presets/{id}/messages` | User | Get messages with pagination |
+| `POST` | `/api/v1/chat/presets/{id}/messages` | User | Send a message to the agent |
+| `POST` | `/api/v1/chat/presets/{id}/pool` | Admin | Add a source to the input pool |
+
+#### Key Management (web, session auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/profile/api-keys` | List your API keys |
+| `POST` | `/profile/api-keys` | Create a new key |
+| `DELETE` | `/profile/api-keys/{id}` | Revoke a key |
+
+### Usage Examples
+
+**Get messages (with pagination):**
+```bash
+curl -X GET "https://your-app/api/v1/chat/presets/1/messages?page=1&per_page=30" \
+  -H "Authorization: Bearer sk-your-key" \
+  -H "Accept: application/json"
+```
+
+**Send a message:**
+```bash
+curl -X POST "https://your-app/api/v1/chat/presets/1/messages" \
+  -H "Authorization: Bearer sk-your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Hello, agent!"}'
+```
+
+**Add to input pool (admin, pool mode presets only):**
+```bash
+# Add a source without dispatching
+curl -X POST "https://your-app/api/v1/chat/presets/1/pool" \
+  -H "Authorization: Bearer sk-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{"source": "Weather sensor", "content": "Sunny, 22°C", "dispatch": false}'
+
+# Add and flush the entire pool to the model
+curl -X POST "https://your-app/api/v1/chat/presets/1/pool" \
+  -H "Authorization: Bearer sk-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{"source": "Inner voice", "content": "Good conditions today", "dispatch": true}'
+```
+
+### Pool Mode API
+
+The pool endpoint is designed for multi-source input scenarios. Different external systems contribute data independently, and one of them (or a scheduler) triggers the dispatch:
+
+```
+Temperature sensor  → POST /pool  {"source": "temp",    "content": "22°C",        "dispatch": false}
+Humidity sensor     → POST /pool  {"source": "humidity","content": "65%",          "dispatch": false}
+Scheduler           → POST /pool  {"source": "trigger", "content": "Report time",  "dispatch": true}
+```
+
+The model receives all accumulated sources as a single structured JSON payload. This only works on presets configured in **pool input mode** — regular presets return a 422 error.
+
 
 ## Real-World Use Cases
 

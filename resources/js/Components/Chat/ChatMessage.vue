@@ -5,30 +5,67 @@
       messageClass,
       message.role === 'user' ? 'ml-auto' : 'mr-auto'
     ]">
-      <!-- Delete message button -->
-      <button @click="$emit('delete')" :class="[
-        'absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity',
-        'w-6 h-6 rounded-full flex items-center justify-center',
-        'hover:bg-red-500 hover:text-white',
-        isDark ? 'text-gray-400 hover:bg-red-600' : 'text-gray-500 hover:bg-red-500'
-      ]" title="Delete message">
-        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-        </svg>
-      </button>
+
+      <!-- Action buttons: delete + speak (shown on hover) -->
+      <div :class="[
+        'absolute top-2 right-2 flex items-center gap-1',
+        'opacity-0 group-hover:opacity-100 transition-opacity'
+      ]">
+
+        <!-- Кнопка озвучки (только для подходящих ролей и если TTS доступен) -->
+        <button v-if="hasTTS && isSpeakable" @click="$emit('speak', message)"
+          :title="isCurrentlySpeaking ? t('chat_tts_stop') : t('chat_tts_speak')" :class="[
+            'w-6 h-6 rounded-full flex items-center justify-center transition-all',
+            isCurrentlySpeaking
+              ? (isDark ? 'bg-indigo-600 text-white' : 'bg-indigo-500 text-white')
+              : (isDark ? 'text-gray-400 hover:bg-indigo-600 hover:text-white' : 'text-gray-500 hover:bg-indigo-500 hover:text-white')
+          ]">
+          <!-- Icon: if currently playing, stop -->
+          <svg v-if="isCurrentlySpeaking" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="1.5" />
+          </svg>
+          <!-- Icon: speaker -->
+          <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0L8 14H5a1 1 0 01-1-1v-2a1 1 0 011-1h3l4-4z" />
+          </svg>
+        </button>
+
+        <!-- Delete button -->
+        <button @click="$emit('delete')" :class="[
+          'w-6 h-6 rounded-full flex items-center justify-center',
+          'hover:bg-red-500 hover:text-white',
+          isDark ? 'text-gray-400 hover:bg-red-600' : 'text-gray-500 hover:bg-red-500'
+        ]" :title="t('chat_delete_message')">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
 
       <!-- Message role label -->
-      <div :class="[
-        'text-xs mb-2 font-medium',
-        messageLabelColor
-      ]">
+      <div :class="['text-xs mb-2 font-medium', messageLabelColor]">
         {{ messageRoleLabel }}
       </div>
 
-      <!-- Message content (without commands) -->
-      <div class="message-content leading-relaxed" v-html="formattedContent"></div>
+      <!-- Message content -->
+      <!-- Pool message (multiple sources) -->
+      <div v-if="poolSources" class="flex flex-col gap-2.5">
+        <div v-for="(src, idx) in poolSources" :key="idx">
+          <div class="text-xs text-indigo-200 opacity-75 mb-1">
+            {{ src.source }}
+          </div>
+          <div class="text-sm leading-relaxed">{{ src.content }}</div>
+          <div v-if="src.timestamp" class="text-xs opacity-40 mt-1">
+            {{ formatSourceTime(src.timestamp) }}
+          </div>
+        </div>
+      </div>
 
-      <!-- Commands as separate Vue components -->
+      <!-- Regular message content -->
+      <div v-else class="message-content leading-relaxed" v-html="formattedContent"></div>
+
+      <!-- Commands -->
       <div v-for="command in extractedCommands" :key="command.id" :class="[
         'border rounded-md mt-2 mb-2',
         isDark ? 'bg-blue-900 border-blue-700' : 'bg-blue-50 border-blue-200'
@@ -55,7 +92,7 @@
         </div>
       </div>
 
-      <!-- Show/hide button (if there are results) -->
+      <!-- Show/hide results -->
       <button v-if="hasCommandResults" @click="isResultsExpanded = !isResultsExpanded" :class="[
         'text-sm mt-2 mb-2 px-2 py-1 rounded transition-colors flex items-center',
         isDark ? 'text-blue-400 hover:text-blue-300 hover:bg-gray-700' : 'text-blue-600 hover:text-blue-800 hover:bg-blue-50'
@@ -65,7 +102,6 @@
         }}
       </button>
 
-      <!-- Animated container for results -->
       <div v-if="hasCommandResults" :class="[
         'overflow-hidden transition-all duration-300 ease-out',
         isResultsExpanded ? 'opacity-100' : 'max-h-0 opacity-0'
@@ -99,33 +135,82 @@ const props = defineProps({
   isDark: Boolean,
   appName: String,
   showAgentResults: Boolean,
-  showCommandResults: Boolean
+  showCommandResults: Boolean,
+  // TTS
+  hasTTS: { type: Boolean, default: false },
+  speakingMessageId: { type: [Number, String, null], default: null },
 });
 
 const isResultsExpanded = ref(props.showAgentResults);
-// Reactiv object for storing command states
 const commandStates = reactive({});
 
-defineEmits(['delete']);
+defineEmits(['delete', 'speak']);
 
-const hasCommandResults = computed(() => {
-  return props.message.content.includes('<system_output_results>');
+// ─── TTS helpers ─────────────────────────────────────────────────────────────
+
+/** Сообщение подходит для озвучки (роль + нет command results) */
+const isSpeakable = computed(() => {
+  const { role, content } = props.message;
+  if (role === 'thinking') return true;
+  if (['system', 'assistant', 'speaking'].includes(role)) {
+    return !content.includes('<system_output_results>');
+  }
+  return false;
 });
+
+/** Сейчас озвучивается именно это сообщение */
+const isCurrentlySpeaking = computed(() =>
+  props.speakingMessageId !== null &&
+  props.speakingMessageId === props.message.id
+);
+
+// ─── Computed ─────────────────────────────────────────────────────────────────
+
+const hasCommandResults = computed(() =>
+  props.message.content.includes('<system_output_results>')
+);
 
 const commandResults = computed(() => {
   const marker = '<system_output_results>';
   if (!props.message.content.includes(marker)) return '';
-
   const lastIndex = props.message.content.lastIndexOf(marker);
-  if (lastIndex !== -1) {
-    return props.message.content.substring(lastIndex + marker.length).trim();
-  }
-  return '';
+  return lastIndex !== -1
+    ? props.message.content.substring(lastIndex + marker.length).trim()
+    : '';
 });
+
+/**
+ * Parses pool message — JSON with sources array.
+ * Returns array of sources or null if plain text.
+ */
+const poolSources = computed(() => {
+  if (props.message.role !== 'user') return null;
+  const raw = props.message.content?.trim();
+  if (!raw || !raw.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed.sources) && parsed.sources.length > 0) {
+      return parsed.sources;
+    }
+  } catch {
+    // not JSON — render as usual
+  }
+  return null;
+});
+
+function formatSourceTime(timestamp) {
+  if (!timestamp) return '';
+  try {
+    return new Date(timestamp).toLocaleTimeString('ru-RU', {
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+}
 
 const resultsHtml = computed(() => {
   if (!commandResults.value) return '';
-
   return DOMPurify.sanitize(`
     <div class="${props.isDark ? 'p-2 bg-slate-800 border-slate-600' : 'bg-gray-50 border-gray-300'} border-t-2 mt-4 pt-4">
       <div class="font-semibold ${props.isDark ? 'text-green-400' : 'text-green-700'} text-sm mb-2 flex items-center">
@@ -138,54 +223,35 @@ const resultsHtml = computed(() => {
 
 const messageClass = computed(() => {
   const baseClasses = 'backdrop-blur-sm';
-
   switch (props.message.role) {
-    case 'user':
-      return `${baseClasses} bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border border-indigo-500`;
-    case 'assistant':
-      return `${baseClasses} ${props.isDark ? 'bg-gray-800 text-gray-100 border border-gray-700' : 'bg-white text-gray-900 border border-gray-200'}`;
-    case 'thinking':
-      return `${baseClasses} ${props.isDark ? 'bg-gray-700 text-gray-300 border border-gray-600' : 'bg-gray-100 text-gray-700 border border-gray-300'}`;
-    case 'speaking':
-      return `${baseClasses} ${props.isDark ? 'bg-yellow-900 text-yellow-200 border border-yellow-800' : 'bg-yellow-50 text-yellow-900 border border-yellow-200'} italic`;
-    case 'command':
-      return `${baseClasses} ${props.isDark ? 'bg-green-900 text-green-200 border border-green-800' : 'bg-green-50 text-gray-800 border border-green-200'}`;
-    default:
-      return `${baseClasses} ${props.isDark ? 'bg-gray-800 text-gray-100 border border-gray-700' : 'bg-white text-gray-900 border border-gray-200'}`;
+    case 'user': return `${baseClasses} bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border border-indigo-500`;
+    case 'assistant': return `${baseClasses} ${props.isDark ? 'bg-gray-800 text-gray-100 border border-gray-700' : 'bg-white text-gray-900 border border-gray-200'}`;
+    case 'thinking': return `${baseClasses} ${props.isDark ? 'bg-gray-700 text-gray-300 border border-gray-600' : 'bg-gray-100 text-gray-700 border border-gray-300'}`;
+    case 'speaking': return `${baseClasses} ${props.isDark ? 'bg-yellow-900 text-yellow-200 border border-yellow-800' : 'bg-yellow-50 text-yellow-900 border border-yellow-200'} italic`;
+    case 'command': return `${baseClasses} ${props.isDark ? 'bg-green-900 text-green-200 border border-green-800' : 'bg-green-50 text-gray-800 border border-green-200'}`;
+    default: return `${baseClasses} ${props.isDark ? 'bg-gray-800 text-gray-100 border border-gray-700' : 'bg-white text-gray-900 border border-gray-200'}`;
   }
 });
 
 const messageLabelColor = computed(() => {
   switch (props.message.role) {
-    case 'user':
-      return 'text-indigo-200';
-    case 'assistant':
-      return props.isDark ? 'text-indigo-400' : 'text-indigo-600';
-    case 'thinking':
-      return props.isDark ? 'text-gray-400' : 'text-gray-600';
-    case 'speaking':
-      return props.isDark ? 'text-yellow-400' : 'text-yellow-700';
-    case 'command':
-      return props.isDark ? 'text-green-400' : 'text-green-700';
-    default:
-      return props.isDark ? 'text-gray-400' : 'text-gray-600';
+    case 'user': return 'text-indigo-200';
+    case 'assistant': return props.isDark ? 'text-indigo-400' : 'text-indigo-600';
+    case 'thinking': return props.isDark ? 'text-gray-400' : 'text-gray-600';
+    case 'speaking': return props.isDark ? 'text-yellow-400' : 'text-yellow-700';
+    case 'command': return props.isDark ? 'text-green-400' : 'text-green-700';
+    default: return props.isDark ? 'text-gray-400' : 'text-gray-600';
   }
 });
 
 const messageRoleLabel = computed(() => {
   switch (props.message.role) {
-    case 'user':
-      return t('chat_user');
-    case 'assistant':
-      return props.appName;
-    case 'thinking':
-      return t('chat_thinking');
-    case 'speaking':
-      return t('chat_speaking');
-    case 'command':
-      return t('chat_thinking');
-    default:
-      return t('chat_system');
+    case 'user': return t('chat_user');
+    case 'assistant': return props.appName;
+    case 'thinking': return t('chat_thinking');
+    case 'speaking': return t('chat_speaking');
+    case 'command': return t('chat_thinking');
+    default: return t('chat_system');
   }
 });
 
@@ -194,39 +260,23 @@ const extractedCommands = computed(() => {
   let commandCounter = 0;
   const content = props.message.content;
 
-  // Remove command results - cut by LAST occurrence of marker
   const commandResultsMarker = '<system_output_results>';
   let userContent = content;
-
   if (content.includes(commandResultsMarker)) {
     const lastIndex = content.lastIndexOf(commandResultsMarker);
-    if (lastIndex !== -1) {
-      userContent = content.substring(0, lastIndex).trim();
-    }
+    if (lastIndex !== -1) userContent = content.substring(0, lastIndex).trim();
   }
 
-  // Extract commands
   const commandRegex = /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1\]/gs;
   let match;
-
   while ((match = commandRegex.exec(userContent)) !== null) {
     const [, plugin, method, commandContent] = match;
     const methodDisplay = method ? ` ${method}` : '';
     const pluginName = `${plugin}${methodDisplay}`;
     const commandId = `cmd_${props.message.id}_${commandCounter++}`;
-
-    // Initialize command state
-    if (!(commandId in commandStates)) {
-      commandStates[commandId] = props.showCommandResults;
-    }
-
-    commands.push({
-      id: commandId,
-      name: pluginName,
-      content: commandContent.trim()
-    });
+    if (!(commandId in commandStates)) commandStates[commandId] = props.showCommandResults;
+    commands.push({ id: commandId, name: pluginName, content: commandContent.trim() });
   }
-
   return commands;
 });
 
@@ -235,51 +285,30 @@ const formattedContent = computed(() => {
   const commandResultsMarker = '<system_output_results>';
   let userContent = content;
 
-  // Remove command results from main content - last marker!
   if (content.includes(commandResultsMarker)) {
     const lastIndex = content.lastIndexOf(commandResultsMarker);
-    if (lastIndex !== -1) {
-      userContent = content.substring(0, lastIndex).trim();
-    }
+    if (lastIndex !== -1) userContent = content.substring(0, lastIndex).trim();
   }
 
-  // Remove commands from content (they are now displayed separately)
-  userContent = userContent.replace(
-    /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1\]/gs,
-    ''
-  );
-
-  // FIRST: Replace fake agent markers with placeholder
-  userContent = userContent.replace(
-    /<system_output_results>/g,
-    '___FAKE_AGENT_MARKER___'
-  );
-
-  // THEN: Escape HTML tags so they don't render as HTML (except markdown)
+  userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1\]/gs, '');
+  userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
   userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // FINALLY: Replace placeholder with styled HTML
   userContent = userContent.replace(
     /___FAKE_AGENT_MARKER___/g,
     `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
       <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
     </span>`
   );
-
-  // Process unclosed commands (leave as is)
   userContent = userContent.replace(
     /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1\])/g,
     (match, plugin, method) => {
       const methodDisplay = method ? ` ${method}` : '';
       const pluginName = `${plugin}${methodDisplay}`;
-
       return `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Unclosed command tag">
         <span class="mr-1">⚠️</span>[${pluginName}]
       </span>`;
     }
   );
-
-  // Highlight all remaining <system_output_results> tags in red (these are fake ones from the model)
   userContent = userContent.replace(
     /<system_output_results>/g,
     `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
@@ -287,37 +316,28 @@ const formattedContent = computed(() => {
     </span>`
   );
 
-  const userHtml = marked.parse(userContent, {
-    breaks: true,
-    gfm: true
-  });
-
+  const userHtml = marked.parse(userContent, { breaks: true, gfm: true });
   return DOMPurify.sanitize(userHtml);
 });
 
-/**
- * Toggles command state
- */
+// ─── Methods ──────────────────────────────────────────────────────────────────
+
 function toggleCommand(commandId) {
   commandStates[commandId] = !commandStates[commandId];
 }
 
 function escapeHtml(unsafe) {
   return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function formatTime(timestamp) {
   if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return new Date(timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 </script>
 

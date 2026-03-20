@@ -191,7 +191,7 @@ class ChatService implements ChatServiceInterface
                 ]);
             }
 
-            $formattedContent = $this->inputPoolService->flush($presetId) ?? $content;
+            $formattedContent = $this->inputPoolService->getAllAsJSON($presetId) ?? $content;
         } else {
             $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
         }
@@ -221,7 +221,7 @@ class ChatService implements ChatServiceInterface
         $this->inputPoolService->add($presetId, $sourceName, $content);
 
         if ($dispatch) {
-            $formattedContent = $this->inputPoolService->flush($presetId);
+            $formattedContent = $this->inputPoolService->getAllAsJSON($presetId);
 
             // flush() returns null only if pool was somehow empty after our add()
             // that should never happen, but guard anyway
@@ -275,7 +275,7 @@ class ChatService implements ChatServiceInterface
     }
 
     /**
-     * Flush current pool and send as a single message.
+     * @inheritDoc
      */
     public function dispatchPool(User $user, int $presetId): ?Message
     {
@@ -295,6 +295,10 @@ class ChatService implements ChatServiceInterface
 
     /**
      * Run commands from message content.
+     *
+     * @param string $formattedContent
+     * @param integer $presetId
+     * @return string
      */
     protected function runCommands(string $formattedContent, int $presetId): string
     {

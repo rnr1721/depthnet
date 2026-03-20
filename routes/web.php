@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\KnownSourceController;
 use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetController;
@@ -179,6 +180,18 @@ Route::middleware('auth')->group(function () {
             Route::post('/update-item', [SkillController::class, 'updateItem'])->name('update-item');
             Route::delete('/item', [SkillController::class, 'destroyItem'])->name('destroy-item');
             Route::delete('/{number}', [SkillController::class, 'destroy'])->name('destroy');
+        });
+
+        // Known Sources Management routes
+        Route::prefix('known-sources')->name('known-sources.')->group(function () {
+            Route::get('/', [KnownSourceController::class, 'index'])->name('index');
+            Route::post('/', [KnownSourceController::class, 'store'])->name('store');
+            Route::post('/reorder', [KnownSourceController::class, 'reorder'])->name('reorder');
+            Route::post('/pool', [KnownSourceController::class, 'poolStore'])->name('pool.store');
+            Route::post('/pool/clear', [KnownSourceController::class, 'poolClear'])->name('pool.clear');
+            Route::delete('/pool/{id}', [KnownSourceController::class, 'poolDestroy'])->name('pool.destroy');
+            Route::put('/{id}', [KnownSourceController::class, 'update'])->name('update');
+            Route::delete('/{id}', [KnownSourceController::class, 'destroy'])->name('destroy');
         });
 
         if (config('sandbox.enabled', false)) {

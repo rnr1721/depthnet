@@ -85,6 +85,24 @@ class AiPreset extends Model
     ];
 
     /**
+     * Known sources for pool input mode.
+     * These sources are routed to the system prompt via [[known_sources]]
+     * instead of the regular JSON payload.
+     */
+    public function knownSources(): HasMany
+    {
+        return $this->hasMany(PresetKnownSource::class, 'preset_id');
+    }
+
+    /**
+     * Whether this preset has any known sources configured.
+     */
+    public function hasKnownSources(): bool
+    {
+        return $this->knownSources()->exists();
+    }
+
+    /**
      * All prompts for this preset
      */
     public function prompts(): HasMany

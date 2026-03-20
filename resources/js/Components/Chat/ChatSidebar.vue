@@ -74,6 +74,9 @@
           <Link :href="skillsLink" :class="linkClass">
             {{ t('skills') }}
           </Link>
+          <Link :href="knownSourcesLink" :class="linkClass">
+            {{ t('known_sources') }}
+          </Link>
           <Link :href="route('admin.users.index')" :class="linkClass">
             {{ t('chat_users') }}
           </Link>
@@ -217,6 +220,10 @@ const skillsLink = computed(() =>
 );
 const pluginsLink = computed(() =>
   routeWithPresetParam('admin.plugins.index', props.currentPresetId)
+);
+
+const knownSourcesLink = computed(() =>
+  routeWithPreset(route('admin.known-sources.index'), props.currentPresetId)
 );
 
 const linkClass = computed(() => [

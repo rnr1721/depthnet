@@ -74,6 +74,18 @@
           <Link :href="skillsLink" :class="linkClass">
             {{ t('skills') }}
           </Link>
+          <Link :href="workspaceLink" :class="linkClass">
+            {{ t('workspace') }}
+          </Link>
+          <Link :href="goalsLink" :class="linkClass">
+            {{ t('goals') }}
+          </Link>
+          <Link :href="personLink" :class="linkClass">
+            {{ t('person_memory') }}
+          </Link>
+          <Link :href="knownSourcesLink" :class="linkClass">
+            {{ t('known_sources') }}
+          </Link>
           <Link :href="route('admin.users.index')" :class="linkClass">
             {{ t('chat_users') }}
           </Link>
@@ -217,6 +229,18 @@ const skillsLink = computed(() =>
 );
 const pluginsLink = computed(() =>
   routeWithPresetParam('admin.plugins.index', props.currentPresetId)
+);
+const workspaceLink = computed(() =>
+  routeWithPreset(route('admin.workspace.index'), props.currentPresetId)
+);
+const goalsLink = computed(() =>
+  routeWithPreset(route('admin.goals.index'), props.currentPresetId)
+);
+const personLink = computed(() =>
+  routeWithPreset(route('admin.person-memory.index'), props.currentPresetId)
+);
+const knownSourcesLink = computed(() =>
+  routeWithPreset(route('admin.known-sources.index'), props.currentPresetId)
 );
 
 const linkClass = computed(() => [

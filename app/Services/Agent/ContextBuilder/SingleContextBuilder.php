@@ -6,6 +6,7 @@ use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\Enricher\ContextEnricherInterface;
 use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -27,6 +28,7 @@ class SingleContextBuilder implements ContextBuilderInterface
         protected OptionsServiceInterface $optionsService,
         protected RagContextEnricherInterface $ragEnricher,
         protected ContextEnricherInterface     $voiceEnricher,
+        protected InputPoolServiceInterface $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
     ) {
     }
@@ -72,6 +74,17 @@ class SingleContextBuilder implements ContextBuilderInterface
                 'inner_voice',
                 'Inner voice: advice, doubt or intuition injected before each request',
                 fn () => $voiceText
+            );
+        }
+
+        // Known sources — [[known_sources]]
+        if ($this->inputPoolService->isEnabled($preset)) {
+            $knownBlock = $this->inputPoolService->getKnownSourcesBlock($preset->getId());
+            $this->shortcodeManager->registerShortcodeForPreset(
+                $preset->getId(),
+                'known_sources',
+                'Data from known sources (sensors, projections, signals)',
+                fn () => $knownBlock ?? ''
             );
         }
 

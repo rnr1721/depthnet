@@ -6,6 +6,7 @@ use App\Contracts\Agent\AiModelRequestInterface;
 use App\Contracts\Agent\AiModelResponseInterface;
 use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Services\Agent\DTO\ModelResponseDTO;
+use App\Services\Agent\Providers\Traits\AiModelPromptTrait;
 use Illuminate\Http\Client\Factory as HttpFactory;
 
 /**
@@ -16,6 +17,8 @@ use Illuminate\Http\Client\Factory as HttpFactory;
  */
 class MockModel implements AIModelEngineInterface
 {
+    use AiModelPromptTrait;
+
     protected array $config = [];
     protected string $serverUrl;
     protected array $scenarios = [];
@@ -315,6 +318,8 @@ class MockModel implements AIModelEngineInterface
         $lastMessage = end($context);
         $content = $lastMessage['content'] ?? '';
         $role = $lastMessage['role'] ?? '';
+
+        \Log::info('output prompt', [$this->prepareMessage($request)]);
 
         // Test various scenarios
 

@@ -57,4 +57,16 @@ interface PersonMemoryServiceInterface
      */
     public function forgetPerson(AiPreset $preset, string $personName): array;
 
+    /**
+     * Get structured people
+     *
+     * @param AiPreset $preset
+     * @return array
+     */
+    public function getStructuredPeople(AiPreset $preset): array;
+
+    /**
+     * Forget all persons per preset
+     */
+    public function clearAll(AiPreset $preset): void;
 }

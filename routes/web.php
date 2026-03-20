@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\GoalController;
+use App\Http\Controllers\Admin\KnownSourceController;
 use App\Http\Controllers\Admin\MemoryController;
+use App\Http\Controllers\Admin\PersonController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\PresetPromptController;
@@ -11,6 +14,7 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SkillController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
+use App\Http\Controllers\Admin\WorkspaceController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ChatController;
@@ -179,6 +183,47 @@ Route::middleware('auth')->group(function () {
             Route::post('/update-item', [SkillController::class, 'updateItem'])->name('update-item');
             Route::delete('/item', [SkillController::class, 'destroyItem'])->name('destroy-item');
             Route::delete('/{number}', [SkillController::class, 'destroy'])->name('destroy');
+        });
+
+        // Known Sources Management routes
+        Route::prefix('known-sources')->name('known-sources.')->group(function () {
+            Route::get('/', [KnownSourceController::class, 'index'])->name('index');
+            Route::post('/', [KnownSourceController::class, 'store'])->name('store');
+            Route::post('/reorder', [KnownSourceController::class, 'reorder'])->name('reorder');
+            Route::post('/pool', [KnownSourceController::class, 'poolStore'])->name('pool.store');
+            Route::post('/pool/clear', [KnownSourceController::class, 'poolClear'])->name('pool.clear');
+            Route::delete('/pool/{id}', [KnownSourceController::class, 'poolDestroy'])->name('pool.destroy');
+            Route::put('/{id}', [KnownSourceController::class, 'update'])->name('update');
+            Route::delete('/{id}', [KnownSourceController::class, 'destroy'])->name('destroy');
+        });
+
+        // Workspace Management routes
+        Route::prefix('workspace')->name('workspace.')->group(function () {
+            Route::get('/', [WorkspaceController::class, 'index'])  ->name('index');
+            Route::post('/', [WorkspaceController::class, 'store'])  ->name('store');
+            Route::put('/{key}', [WorkspaceController::class, 'update']) ->name('update');
+            Route::delete('/{key}', [WorkspaceController::class, 'destroy'])->name('destroy');
+            Route::post('/clear', [WorkspaceController::class, 'clear'])  ->name('clear');
+        });
+
+        // Goal Management routes
+        Route::prefix('goals')->name('goals.')->group(function () {
+            Route::get('/', [GoalController::class, 'index'])       ->name('index');
+            Route::post('/', [GoalController::class, 'store'])       ->name('store');
+            Route::get('/{number}', [GoalController::class, 'show'])        ->name('show');
+            Route::post('/progress', [GoalController::class, 'storeProgress'])->name('progress');
+            Route::patch('/{number}/status', [GoalController::class, 'setStatus'])   ->name('set-status');
+            Route::delete('/{number}', [GoalController::class, 'destroy'])      ->name('destroy');
+            Route::post('/clear', [GoalController::class, 'clear'])        ->name('clear');
+        });
+
+        // Person Memory Management routes
+        Route::prefix('person-memory')->name('person-memory.')->group(function () {
+            Route::get('/', [PersonController::class, 'index'])       ->name('index');
+            Route::post('/fact', [PersonController::class, 'addFact'])     ->name('add-fact');
+            Route::delete('/fact', [PersonController::class, 'deleteFact'])  ->name('delete-fact');
+            Route::delete('/person/{personName}', [PersonController::class, 'forgetPerson'])->name('forget');
+            Route::post('/clear', [PersonController::class, 'clearAll'])    ->name('clear');
         });
 
         if (config('sandbox.enabled', false)) {

@@ -6,6 +6,7 @@ use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ActionsResponseDTO;
@@ -19,6 +20,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected Message $messageModel,
         protected AgentActionsInterface $agentActions,
         protected CommandResultPoolInterface $commandResultPool,
+        protected InputPoolServiceInterface $inputPoolService,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -45,6 +47,11 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                 $response->getResponse()
             );
         }
+
+        // Clear regular pool items now that the cycle is complete.
+        // Known sources are left intact — they represent the last known
+        // sensor state and should persist until overwritten by new data.
+        $this->inputPoolService->clear($preset->getId());
 
         $result = $this->processSuccessfulResponse($response, $preset);
 

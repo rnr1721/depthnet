@@ -220,9 +220,10 @@ class AgentPlugin implements CommandPluginInterface
      * Pause agent thinking cycles
      *
      * @param string $content Optional reason for pausing
+     * @param AiPreset $preset
      * @return string
      */
-    public function pause(string $content): string
+    public function pause(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Agent control plugin is disabled.";
@@ -234,7 +235,7 @@ class AgentPlugin implements CommandPluginInterface
 
         try {
             $service = $this->getAgentJobService();
-            $settings = $service->getModelSettings();
+            $settings = $service->getModelSettings($preset->getId());
 
             if (!$settings['chat_active']) {
                 return "Agent is already paused.";
@@ -268,9 +269,10 @@ class AgentPlugin implements CommandPluginInterface
      * Resume agent thinking cycles
      *
      * @param string $content Optional reason for resuming
+     * @param AiPreset $preset
      * @return string
      */
-    public function resume(string $content): string
+    public function resume(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Agent control plugin is disabled.";
@@ -282,7 +284,7 @@ class AgentPlugin implements CommandPluginInterface
 
         try {
             $service = $this->getAgentJobService();
-            $settings = $service->getModelSettings();
+            $settings = $service->getModelSettings($preset->getId());
 
             if ($settings['chat_active']) {
                 return "Agent is already active.";
@@ -316,9 +318,10 @@ class AgentPlugin implements CommandPluginInterface
      * Get current agent status
      *
      * @param string $content Unused
+     * @param AiPreset $preset
      * @return string
      */
-    public function status(string $content): string
+    public function status(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
             return "Error: Agent control plugin is disabled.";
@@ -326,7 +329,7 @@ class AgentPlugin implements CommandPluginInterface
 
         try {
             $service = $this->getAgentJobService();
-            $settings = $service->getModelSettings();
+            $settings = $service->getModelSettings($preset->getId());
 
             $status = $settings['chat_active'] ? 'ACTIVE' : 'PAUSED';
             $lockInfo = $settings['is_locked'] ? ' (currently thinking)' : '';

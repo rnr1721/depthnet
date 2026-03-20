@@ -30,6 +30,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setInnerVoice();
         $this->setAgentCommandResults();
         $this->setWorkspace();
+        $this->setKnownSources();
     }
 
     /**
@@ -111,6 +112,23 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'agent_command_results',
             'Placeholder for agent command results (filled during internal agent execution)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register known_sources placeholder stub (global).
+     * The actual content is injected per-preset by InputPoolService::flush()
+     * when known pool items are present.
+     *
+     * Add this call inside setDefaultShortcodes():
+     *   $this->setKnownSources();
+     */
+    private function setKnownSources(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'known_sources',
+            'Data from known sources routed directly into context — sensors, body projections, ambient signals (requires pool input mode with known sources configured)',
             fn () => ''
         );
     }

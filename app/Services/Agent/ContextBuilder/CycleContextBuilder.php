@@ -68,6 +68,17 @@ class CycleContextBuilder implements ContextBuilderInterface
             fn () => $ragBlock->getResponse() ?? ''
         );
 
+        // Known sources — [[known_sources]]
+        if ($this->inputPoolService->isEnabled($preset)) {
+            $knownBlock = $this->inputPoolService->getKnownSourcesBlock($preset->getId());
+            $this->shortcodeManager->registerShortcodeForPreset(
+                $preset->getId(),
+                'known_sources',
+                'Data from known sources (sensors, projections, signals)',
+                fn () => $knownBlock ?? ''
+            );
+        }
+
         // If context is empty, start first cycle
         if (empty($context)) {
             return [
@@ -85,7 +96,12 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         // Only add continuation if last message is NOT from user
         if ($lastRole !== 'user') {
-            $content = $this->resolveContinueInstruction($preset, $context);
+            $messageText = $this->resolveContinueInstruction($preset, $context);
+            if ($preset->input_mode === 'pool') {
+                $content = $this->inputPoolService->getAllAsJSON($preset->getId());
+            } else {
+                $content = $messageText;
+            }
             $context[] = [
                 'role' => 'user',
                 'content' => $content,
@@ -119,11 +135,13 @@ class CycleContextBuilder implements ContextBuilderInterface
             $voicePreset = $this->contextEnricher->getVoicePreset($preset, 'cycle');
 
             if ($voicePreset) {
-                $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), '');
+                $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $source);
+            } else {
+                $this->inputPoolService->add($preset->getId(), $preset->getName(), $source);
             }
-            $flushed = $this->inputPoolService->flush($preset->getId());
-            if ($flushed !== null) {
-                return $flushed;
+            $result = $this->inputPoolService->getAllAsJSON($preset->getId());
+            if ($result !== null) {
+                return $result;
             }
         }
         return $source;
@@ -144,14 +162,8 @@ class CycleContextBuilder implements ContextBuilderInterface
         $voicePreset = $dynamic->getPreset();
         if ($dynamic->getResponse() !== null && $preset->input_mode === 'pool' && $voicePreset) {
             $this->inputPoolService->add($preset->getId(), $dynamic->getPreset()->getName(), $dynamic->getResponse());
-        }
-
-        // If pool mode, flush everything that has accumulated (both self_signal and from the user)
-        if ($preset->input_mode === 'pool') {
-            $flushed = $this->inputPoolService->flush($preset->getId());
-            if ($flushed !== null) {
-                return $flushed;
-            }
+        } else {
+            $this->inputPoolService->add($preset->getId(), $preset->getName(), $this->getCycleContinueInstruction());
         }
 
         // Fallback — dynamic or static

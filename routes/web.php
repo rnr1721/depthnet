@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PersonController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetController;
+use App\Http\Controllers\Admin\PresetMcpController;
 use App\Http\Controllers\Admin\PresetPromptController;
 use App\Http\Controllers\Admin\PresetSandboxController;
 use App\Http\Controllers\Admin\SandboxController;
@@ -107,6 +108,14 @@ Route::middleware('auth')->group(function () {
                     Route::get('/check', [PresetSandboxController::class, 'hasAssignedSandbox'])->name('check');
                 });
             }
+
+            Route::prefix('/{presetId}/mcp')->name('mcp.')->group(function () {
+                Route::get('/', [PresetMcpController::class, 'index'])->name('index');
+                Route::post('/', [PresetMcpController::class, 'store'])->name('store');
+                Route::delete('/{serverId}', [PresetMcpController::class, 'destroy'])->name('destroy');
+                Route::patch('/{serverId}/toggle', [PresetMcpController::class, 'toggle'])->name('toggle');
+                Route::post('/{serverId}/ping', [PresetMcpController::class, 'ping'])->name('ping');
+            });
 
             // Preset Prompts
             Route::prefix('/{id}/prompts')->name('prompts.')->group(function () {

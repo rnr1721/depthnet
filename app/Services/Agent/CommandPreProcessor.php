@@ -4,6 +4,7 @@ namespace App\Services\Agent;
 
 use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Services\Agent\Traits\CommandPatternTrait;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -13,6 +14,8 @@ use Psr\Log\LoggerInterface;
  */
 class CommandPreProcessor implements CommandPreProcessorInterface
 {
+    use CommandPatternTrait;
+
     public function __construct(
         protected PluginRegistryInterface $pluginRegistry,
         protected LoggerInterface $logger
@@ -98,7 +101,7 @@ class CommandPreProcessor implements CommandPreProcessorInterface
 
             foreach ($knownPlugins as $plugin) {
                 // Find complete command blocks for this plugin
-                $pattern = '/\[' . preg_quote($plugin) . '(?:\s+([a-z][a-z0-9_]*))?\](.*?)\[\/' . preg_quote($plugin) . '\]/s';
+                $pattern = $this->getPluginPattern($plugin);
 
                 $output = preg_replace_callback($pattern, function ($matches) use ($knownPlugins, &$extractedCommands, &$foundNested, $plugin) {
                     $fullMatch = $matches[0];
@@ -162,7 +165,7 @@ class CommandPreProcessor implements CommandPreProcessorInterface
         $nestedCommands = [];
 
         foreach ($knownPlugins as $plugin) {
-            $pattern = '/\[' . preg_quote($plugin) . '(?:\s+([a-z][a-z0-9_]*))?\](.*?)\[\/' . preg_quote($plugin) . '\]/s';
+            $pattern = $this->getPluginPattern($plugin);
 
             if (preg_match_all($pattern, $content, $matches, PREG_SET_ORDER)) {
                 foreach ($matches as $match) {
@@ -184,7 +187,7 @@ class CommandPreProcessor implements CommandPreProcessorInterface
     protected function removeNestedCommands(string $content, array $knownPlugins): string
     {
         foreach ($knownPlugins as $plugin) {
-            $pattern = '/\[' . preg_quote($plugin) . '(?:\s+([a-z][a-z0-9_]*))?\](.*?)\[\/' . preg_quote($plugin) . '\]/s';
+            $pattern = $this->getPluginPattern($plugin);
             $content = preg_replace($pattern, '', $content);
         }
 

@@ -1758,6 +1758,7 @@ return [
             'dopamine',
             'node',
             'python',
+            'mcp',
             'codecraft',
             'workspace',
             'browser',
@@ -1892,6 +1893,13 @@ return [
                 'enabled' => $isSandboxEnvironment ? true : false,
                 'user' => 'sandbox-user',
                 'temp_dir' => '/tmp'
+            ],
+
+            'mcp' => [
+                'enabled'             => true,
+                'allow_agent_connect' => false,
+                'connect_whitelist'   => '',
+                'tools_cache_ttl'     => 60,
             ],
 
             'codecraft' => [

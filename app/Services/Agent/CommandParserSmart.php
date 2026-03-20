@@ -5,9 +5,12 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Services\Agent\Plugins\DTO\ParsedCommand;
+use App\Services\Agent\Traits\CommandPatternTrait;
 
 class CommandParserSmart implements CommandParserInterface
 {
+    use CommandPatternTrait;
+
     public function __construct(
         protected PluginRegistryInterface $pluginRegistry
     ) {
@@ -40,7 +43,12 @@ class CommandParserSmart implements CommandParserInterface
         $commands = [];
 
         // Find all command blocks: [plugin method]content[/plugin] or [plugin]content[/plugin]
-        preg_match_all('/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1\]/s', $output, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        preg_match_all(
+            $this->getCommandPattern(),
+            $output,
+            $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
 
         foreach ($matches as $match) {
             $plugin = strtolower(trim($match[1][0]));

@@ -21,6 +21,8 @@ use App\Contracts\Agent\Enricher\ContextEnricherInterface;
 use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Mcp\McpClientInterface;
+use App\Contracts\Agent\Mcp\McpServerRepositoryInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
 use App\Contracts\Agent\Memory\MemoryImporterInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -61,6 +63,8 @@ use App\Services\Agent\Enricher\ContextEnricher;
 use App\Services\Agent\Enricher\RagContextEnricher;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
+use App\Services\Agent\Mcp\McpClient;
+use App\Services\Agent\Mcp\McpServerRepository;
 use App\Services\Agent\Providers\ClaudeModel;
 use App\Services\Agent\Providers\LocalModel;
 use App\Services\Agent\Providers\MockModel;
@@ -77,6 +81,7 @@ use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
+use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\NodePlugin;
@@ -117,6 +122,10 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+
+        $this->app->bind(McpClientInterface::class, McpClient::class);
+        $this->app->bind(McpServerRepositoryInterface::class, McpServerRepository::class);
+
         $this->app->singleton(CommandResultPoolInterface::class, CommandResultPoolService::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
@@ -274,6 +283,7 @@ class AiServiceProvider extends ServiceProvider
             WorkspacePlugin::class,
             GoalPlugin::class,
             SkillPlugin::class,
+            McpPlugin::class,
             CodeCraftPlugin::class,
         ];
     }

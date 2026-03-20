@@ -6,6 +6,7 @@
 ![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Local-purple?style=flat-square)
 ![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20CodeCraft%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
+![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
 **Advanced AI Agent Platform with Autonomous Reasoning** | v0.8.0
 
@@ -71,6 +72,7 @@ DepthNet enables autonomous AI agents through:
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context)
 - **RAG (Retrieval-Augmented Generation)**: Built-in RAG support with configurable preset, provider, and retrieval mode (standard or associative). RAG data is injected into the system prompt via placeholder
+- **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
 - **Inner Voice**: A secondary preset (on any supported provider) can run alongside the main one. Its output is injected via placeholder (request-response mode) or added to the input pool as an additional source (loop mode)
 - **Self-Motivation**: Internal reward system for goal-oriented behavior
@@ -106,6 +108,7 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Agent Plugin**: Agent loop mode can stopped or started by model
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
 - **Browser Plugin**: Experimental Puppeteer browser (alpha). If you need it, please run npx puppeteer browsers install chrome
+- **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
 
 For user browser, please install chrome:
 
@@ -182,6 +185,12 @@ The AI communicates through special command tags that trigger plugin execution:
 [codecraft save]{"path":"/tmp/codecraft/utils.js","type":"function","name":"formatDate"}[/codecraft]
 [codecraft edit]{"path":"/tmp/file.php","modifications":[{"type":"add_method","method":{"name":"newMethod"}}]}[/codecraft]
 [codecraft analyze]/path/to/file.php[/codecraft]
+
+# MCP — external tool servers
+[mcp github]search_repositories: {"query": "depthnet"}[/mcp]
+[mcp github]get_file_contents: {"owner": "rnr1721", "repo": "depthnet", "path": "README.md"}[/mcp]
+[mcp list][/mcp]                    # list connected servers and their tools
+[mcp tools]github[/mcp]            # fetch tools from specific server
 ```
 
 <a href="docs/screenshots/chat.png">

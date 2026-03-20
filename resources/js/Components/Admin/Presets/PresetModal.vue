@@ -70,6 +70,9 @@
                 <PresetSandboxManager :preset="preset" :is-dark="isDark" @error="showError"
                     @success="showNotification" />
 
+                <!-- Mcp Management Component -->
+                <PresetMcpManager :preset="preset" :is-dark="isDark" @error="showError" @success="showNotification" />
+
                 <!-- Agent Settings Component -->
                 <PresetAgentSettings v-model="form" :is-dark="isDark" :errors="errors"
                     :available-plugins="availablePlugins" :available-presets="availablePresets" />
@@ -110,6 +113,7 @@ import { useI18n } from 'vue-i18n';
 import PresetBasicInfo from './PresetBasicInfo.vue';
 import PresetPrompts from './PresetPrompts.vue';
 import PresetSandboxManager from './PresetSandboxManager.vue';
+import PresetMcpManager from './PresetMcpManager.vue';
 import PresetLogicInfo from './PresetLogicInfo.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';

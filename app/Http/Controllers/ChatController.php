@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
+use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
@@ -166,7 +167,8 @@ class ChatController extends Controller
         VectorMemoryFactoryInterface $vectorMemoryFactory,
         WorkspaceServiceInterface $workspaceService,
         GoalServiceInterface $goalService,
-        SkillServiceInterface $skillService
+        SkillServiceInterface $skillService,
+        PersonMemoryServiceInterface $personMemoryService
     ): JsonResponse|RedirectResponse {
         try {
             $presetId = (int) $request->input('preset_id', 0);
@@ -213,6 +215,11 @@ class ChatController extends Controller
             if ($request->boolean('clear_skills')) {
                 $skillService->deleteAllSkills($currentPreset);
                 $cleared[] = 'skills';
+            }
+
+            if ($request->boolean('clear_person')) {
+                $personMemoryService->clearAll($currentPreset);
+                $cleared[] = 'person';
             }
 
             if (empty($cleared)) {

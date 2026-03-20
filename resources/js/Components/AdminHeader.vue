@@ -123,6 +123,21 @@
                         <span>{{ $t('skills') }}</span>
                       </Link>
 
+                      <Link :href="workspaceLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('workspace') }}</span>
+                      </Link>
+
+                      <Link :href="goalsLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('goals') }}</span>
+                      </Link>
+
+                      <Link :href="personLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('person_memory') }}</span>
+                      </Link>
+
                       <Link :href="knownSourcesLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
                         <span class="mr-3"></span>
                         <span>{{ $t('known_sources') }}</span>
@@ -199,7 +214,7 @@
             <div>
               <p :class="['font-medium', isDark ? 'text-white' : 'text-gray-900']">{{ $page.props.auth.user.name }}</p>
               <p :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">{{ isAdmin ? $t('admin') : $t('user')
-              }}</p>
+                }}</p>
             </div>
           </div>
 
@@ -255,6 +270,21 @@
                   <Link :href="skillsLink" :class="mobileSubLinkClass"
                     @click="mobileMenuOpen = false; mobileAdminOpen = false">
                     <span class="text-lg"></span><span>{{ $t('skills') }}</span>
+                  </Link>
+
+                  <Link :href="workspaceLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('workspace') }}</span>
+                  </Link>
+
+                  <Link :href="goalsLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('goals') }}</span>
+                  </Link>
+
+                  <Link :href="personLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('person_memory') }}</span>
                   </Link>
 
                   <Link :href="knownSourcesLink" :class="mobileSubLinkClass"
@@ -328,6 +358,9 @@ const isDark = ref(false);
 const memoryLink = computed(() => routeWithPreset(route('admin.memory.index')));
 const vectorMemoryLink = computed(() => routeWithPreset(route('admin.vector-memory.index')));
 const skillsLink = computed(() => routeWithPreset(route('admin.skills.index')));
+const workspaceLink = computed(() => routeWithPreset(route('admin.workspace.index')));
+const goalsLink = computed(() => routeWithPreset(route('admin.goals.index')));
+const personLink = computed(() => routeWithPreset(route('admin.person-memory.index')));
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
 const knownSourcesLink = computed(() => routeWithPreset(route('admin.known-sources.index')));
 

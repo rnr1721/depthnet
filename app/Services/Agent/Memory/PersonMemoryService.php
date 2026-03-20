@@ -217,6 +217,43 @@ class PersonMemoryService implements PersonMemoryServiceInterface
     }
 
     /**
+     * @inheritDoc
+     */
+    public function getStructuredPeople($preset): array
+    {
+        $rows = $this->personMemoryModel->where('preset_id', $preset->id)
+            ->orderBy('person_name')
+            ->orderBy('position')
+            ->get();
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $name = $row->person_name;
+            if (!isset($grouped[$name])) {
+                $grouped[$name] = [
+                    'name'  => $name,
+                    'facts' => [],
+                ];
+            }
+            $grouped[$name]['facts'][] = [
+                'id'       => $row->id,
+                'number'   => $row->position,
+                'content'  => $row->content,
+            ];
+        }
+
+        return array_values($grouped);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function clearAll(AiPreset $preset): void
+    {
+        $this->personMemoryModel->where('preset_id', $preset->id)->delete();
+    }
+
+    /**
      * Get facts for a person as a Collection
      *
      * @param AiPreset $preset

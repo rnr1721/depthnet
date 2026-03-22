@@ -81,6 +81,7 @@ use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
+use App\Services\Agent\Plugins\HeartPlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
@@ -285,6 +286,7 @@ class AiServiceProvider extends ServiceProvider
             SkillPlugin::class,
             McpPlugin::class,
             CodeCraftPlugin::class,
+            HeartPlugin::class
         ];
     }
 

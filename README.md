@@ -101,6 +101,7 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Python Plugin**: Run Python scripts with virtual environment support in local instance
 - **Node.js Plugin**: Execute JavaScript with async/await and npm packages in local instance
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
+- **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
 - **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability. Supports two retrieval modes: standard (relevance-based) and associative (finds the most relevant memory, then expands to related ones). Can be exported and imported
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions (use local instance)
@@ -108,7 +109,11 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Agent Plugin**: Agent loop mode can stopped or started by model
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
 - **Browser Plugin**: Experimental Puppeteer browser (alpha). If you need it, please run npx puppeteer browsers install chrome
-- **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
+- **Skills Plugin**: Manager of knowledge and reused skills. Vector tf-idf search in skills
+- **Goal Plugin**: Management of goals and objectives, with statuses.
+- **Person Plugin**: Storing information about individuals.
+- **Workspace Plugin**: Storing preset "variables" as key-value data. The model can persist its data in persistent storage, regardless of the chat state.
+- **Heart Plugin**: Attention and connection engine.
 
 For user browser, please install chrome:
 

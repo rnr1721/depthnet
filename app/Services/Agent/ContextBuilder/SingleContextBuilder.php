@@ -3,8 +3,7 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
-use App\Contracts\Agent\Enricher\ContextEnricherInterface;
-use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
+use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
@@ -26,8 +25,7 @@ class SingleContextBuilder implements ContextBuilderInterface
     public function __construct(
         protected Message $messageModel,
         protected OptionsServiceInterface $optionsService,
-        protected RagContextEnricherInterface $ragEnricher,
-        protected ContextEnricherInterface     $voiceEnricher,
+        protected EnricherFactoryInterface     $enricherFactory,
         protected InputPoolServiceInterface $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
     ) {
@@ -38,9 +36,11 @@ class SingleContextBuilder implements ContextBuilderInterface
      *
      * @return array
      */
-    public function build(AiPreset $preset): array
+    public function build(AiPreset $preset, ?int $maxContextLimit = null): array
     {
-        $maxContextLimit = $preset->getMaxContextLimit();
+        if (!$maxContextLimit) {
+            $maxContextLimit = $preset->getMaxContextLimit();
+        }
         $messages = $this->messageModel
             ->forPreset($preset->getId())
             ->where('role', '!=', 'system')
@@ -56,7 +56,8 @@ class SingleContextBuilder implements ContextBuilderInterface
         // RAG enrichment — register as [[rag_context]] placeholder so the
         // preset's system_prompt can place it wherever makes sense.
         // If the preset doesn't use [[rag_context]], nothing happens.
-        $ragBlock = $this->ragEnricher->enrich($preset, $context);
+        $ragEnricher = $this->enricherFactory->makeRagEnricher();
+        $ragBlock = $ragEnricher->enrich($preset, $context);
 
         $this->shortcodeManager->registerShortcodeForPreset(
             $preset->getId(),
@@ -66,7 +67,8 @@ class SingleContextBuilder implements ContextBuilderInterface
         );
 
         // Inner voice — advisor/conscience/muse as [[inner_voice]]
-        $voiceBlock = $this->voiceEnricher->enrich($preset, $context, 'single');
+        $voiceEnricher = $this->enricherFactory->makeContextEnricher();
+        $voiceBlock = $voiceEnricher->enrich($preset, $context, 'single');
         if ($voiceBlock->getResponse()) {
             $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getPreset());
             $this->shortcodeManager->registerShortcodeForPreset(

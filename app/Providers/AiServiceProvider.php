@@ -18,6 +18,7 @@ use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Enricher\ContextEnricherInterface;
+use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
@@ -60,6 +61,7 @@ use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\Enricher\ContextEnricher;
+use App\Services\Agent\Enricher\EnricherFactory;
 use App\Services\Agent\Enricher\RagContextEnricher;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
@@ -138,7 +140,9 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
 
-        $this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
+        //$this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
+
+        $this->app->singleton(EnricherFactoryInterface::class, EnricherFactory::class);
 
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
 
@@ -155,7 +159,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
         $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
-        $this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
+        //$this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);

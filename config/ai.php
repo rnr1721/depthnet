@@ -1927,7 +1927,15 @@ return [
                 'blocked_domains' => '',
                 'node_path' => 'node',
                 'puppeteer_path' => ''
-            ]
+            ],
+
+            'heart' => [
+                'enabled'           => false,
+                'max_connections'   => 20,
+                'max_signals'       => 50,
+                'decay_hours'       => 24,
+                'default_intensity' => 3,
+            ],
         ],
 
         /*

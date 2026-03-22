@@ -14,6 +14,7 @@ use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
+use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use Psr\Log\LoggerInterface;
@@ -35,6 +36,7 @@ class Agent implements AgentInterface
         protected ChatStatusServiceInterface $chatStatusService,
         protected PluginMetadataServiceInterface $pluginMetadataService,
         protected CommandResultPoolInterface $commandResultPool,
+        protected InputPoolServiceInterface $inputPoolService,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -81,11 +83,15 @@ class Agent implements AgentInterface
 
         $context = $contextBuilder->build($preset);
         if ($handoffMessage) {
-            $context[] = [
-                'role' => 'user',
-                'content' => "[Handoff Task: {$handoffMessage}]",
-                'from_user_id' => null
-            ];
+            if ($preset->getInputMode() === 'pool') {
+                $this->inputPoolService->add($preset->getId(), 'Handoff task', $handoffMessage);
+            } else {
+                $context[] = [
+                    'role' => 'user',
+                    'content' => "[Handoff Task: {$handoffMessage}]",
+                    'from_user_id' => null
+                ];
+            }
         }
 
         return $context;

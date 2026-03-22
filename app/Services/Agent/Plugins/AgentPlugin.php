@@ -456,8 +456,8 @@ class AgentPlugin implements CommandPluginInterface
     public function pluginReady(AiPreset $preset): void
     {
         $scope = $this->shortcodeScopeResolver->preset($preset->getId());
-        $this->placeholderService->registerDynamic('agent', 'Agent status', function () {
-            return $this->status('');
+        $this->placeholderService->registerDynamic('agent', 'Agent status', function () use ($preset) {
+            return $this->status('', $preset);
         }, $scope);
     }
 

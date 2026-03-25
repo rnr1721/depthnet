@@ -607,6 +607,16 @@ class AiPreset extends Model
     }
 
     /**
+     * Undocumented get preset code, or if it not available - name
+     *
+     * @return string
+     */
+    public function getAvailableName(): string
+    {
+        return empty($this->getPresetCode()) ? $this->getName() : $this->getPresetCode();
+    }
+
+    /**
      * Get preset code for next
      *
      * @return string|null

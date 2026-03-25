@@ -126,6 +126,21 @@
                 </div>
             </div>
 
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_pre_run_commands') }}
+                </label>
+                <input :value="modelValue.pre_run_commands"
+                    @input="updateField('pre_run_commands', $event.target.value)" type="text" :class="inputClass"
+                    :placeholder="t('p_modal_pre_run_commands_ph')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_pre_run_commands_desc') }}
+                </p>
+                <div v-if="errors.pre_run_commands" class="text-red-500 text-xs mt-1">
+                    {{ errors.pre_run_commands }}
+                </div>
+            </div>
+
         </div>
     </div>
 </template>

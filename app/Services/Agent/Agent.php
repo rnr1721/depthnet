@@ -6,6 +6,7 @@ use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
+use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -28,6 +29,7 @@ class Agent implements AgentInterface
     public function __construct(
         protected PresetRegistryInterface $presetRegistry,
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
+        protected CommandPreRunnerInterface $commandPreRunner,
         protected AgentActionsHandlerInterface $agentActionsHandler,
         protected MemoryServiceInterface $memoryService,
         protected ShortcodeManagerServiceInterface $shortcodeManagerService,
@@ -121,7 +123,7 @@ class Agent implements AgentInterface
     }
 
     /**
-     * Setup preset environment (plugins, shortcodes)
+     * Setup preset environment (plugins, shortcodes, pre-run commands)
      *
      * @param AiPreset $preset
      * @return void
@@ -130,15 +132,19 @@ class Agent implements AgentInterface
     {
         $this->pluginRegistry->applyPreset($preset);
         $this->shortcodeManagerService->setDefaultShortcodes();
-        if ($preset->getAgentResultMode() !== 'internal') {
-            return;
+
+        if ($preset->getAgentResultMode() === 'internal') {
+            $this->shortcodeManagerService->registerShortcodeForPreset(
+                $preset->getId(),
+                'agent_command_results',
+                '',
+                fn () => $this->commandResultPool->getFormatted($preset)
+            );
         }
-        $this->shortcodeManagerService->registerShortcodeForPreset(
-            $preset->getId(),
-            'agent_command_results',
-            '',
-            fn () => $this->commandResultPool->getFormatted($preset)
-        );
+
+        // Execute pre-run commands and expose results as [[pre_command_results]].
+        // Runs after shortcodes are set up so the preset environment is fully ready.
+        $this->commandPreRunner->run($preset, $preset);
     }
 
 }

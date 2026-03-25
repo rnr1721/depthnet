@@ -32,15 +32,18 @@ class SingleContextBuilder implements ContextBuilderInterface
     }
 
     /**
-     * Build simple context without cycle management
+     * Build simple context without single mode management
      *
+     * @param AiPreset $preset Preset for context
+     * @param AiPreset $sourcePreset Preset for RAG, Inner voice etc
      * @return array
      */
-    public function build(AiPreset $preset, ?int $maxContextLimit = null): array
+    public function build(AiPreset $preset, ?AiPreset $sourcePreset = null, ?int $maxContextLimit = null): array
     {
         if (!$maxContextLimit) {
             $maxContextLimit = $preset->getMaxContextLimit();
         }
+        $sourcePreset = $sourcePreset ?? $preset;
         $messages = $this->messageModel
             ->forPreset($preset->getId())
             ->where('role', '!=', 'system')
@@ -57,7 +60,7 @@ class SingleContextBuilder implements ContextBuilderInterface
         // preset's system_prompt can place it wherever makes sense.
         // If the preset doesn't use [[rag_context]], nothing happens.
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
-        $ragBlock = $ragEnricher->enrich($preset, $context);
+        $ragBlock = $ragEnricher->enrich($sourcePreset, $context);
 
         $this->shortcodeManager->registerShortcodeForPreset(
             $preset->getId(),
@@ -68,7 +71,7 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         // Inner voice — advisor/conscience/muse as [[inner_voice]]
         $voiceEnricher = $this->enricherFactory->makeContextEnricher();
-        $voiceBlock = $voiceEnricher->enrich($preset, $context, 'single');
+        $voiceBlock = $voiceEnricher->enrich($sourcePreset, $context, 'single');
         if ($voiceBlock->getResponse()) {
             $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getPreset());
             $this->shortcodeManager->registerShortcodeForPreset(

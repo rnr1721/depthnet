@@ -21,12 +21,15 @@ class AiPreset extends Model
         'input_mode',
         'preset_code',
         'preset_code_next',
+        'pre_run_commands',
         'rag_preset_id',
         'rag_context_limit',
+        'rag_results',
         'voice_preset_id',
         'voice_context_limit',
         'cycle_prompt_preset_id',
         'cp_context_limit',
+        'voice_mp_commands',
         'default_call_message',
         'before_execution_wait',
         'plugins_disabled',
@@ -52,6 +55,7 @@ class AiPreset extends Model
         'active_prompt_id' => 'integer',
         'rag_preset_id' => 'integer',
         'rag_context_limit' => 'integer',
+        'rag_results' => 'integer',
         'voice_preset_id' => 'integer',
         'voice_context_limit' => 'integer',
         'cycle_prompt_preset_id' => 'integer',
@@ -80,8 +84,11 @@ class AiPreset extends Model
         'plugin_configs' => '{}',
         'plugins_disabled' => '',
         'rag_context_limit' => 5,
+        'rag_results' => 5,
         'voice_context_limit' => 4,
         'cp_context_limit' => 5,
+        'voice_mp_commands' => '',
+        'pre_run_commands' => ''
     ];
 
     /**
@@ -488,6 +495,16 @@ class AiPreset extends Model
     }
 
     /**
+     * Get number of RAG results to give LLM
+     *
+     * @return integer
+     */
+    public function getRagResults(): int
+    {
+        return $this->rag_results;
+    }
+
+    /**
      * Context limit for Inner Voice in single mode
      *
      * @return integer
@@ -505,6 +522,17 @@ class AiPreset extends Model
     public function getCpContextLimit(): int
     {
         return $this->cp_context_limit;
+    }
+
+    /**
+     * Get list of commands, that Get a list of commands
+     * that should be executed in the main preset space when InnerVoice is executed
+     *
+     * @return string
+     */
+    public function getVoiceMpCommands(): string
+    {
+        return $this->voice_mp_commands ?? '';
     }
 
     /**
@@ -586,6 +614,16 @@ class AiPreset extends Model
     public function getPresetCodeNext(): ?string
     {
         return $this->preset_code_next;
+    }
+
+    /**
+     * Get commands to run before call LLM
+     *
+     * @return string
+     */
+    public function getPreRunCommands(): string
+    {
+        return $this->pre_run_commands ?? '';
     }
 
     public function getErrorBehavior(): string

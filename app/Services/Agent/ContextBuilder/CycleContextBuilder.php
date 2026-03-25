@@ -5,7 +5,6 @@ namespace App\Services\Agent\ContextBuilder;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\Enricher\ContextEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
-use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
@@ -38,14 +37,16 @@ class CycleContextBuilder implements ContextBuilderInterface
     /**
      * Build context with cycle management
      *
-     * @param AiPreset $preset
+     * @param AiPreset $preset Preset for context
+     * @param AiPreset $sourcePreset Preset for RAG, Inner voice etc
      * @return array
      */
-    public function build(AiPreset $preset, ?int $maxContextLimit = null): array
+    public function build(AiPreset $preset, ?AiPreset $sourcePreset = null, ?int $maxContextLimit = null): array
     {
         if (!$maxContextLimit) {
             $maxContextLimit = $preset->getMaxContextLimit();
         }
+        $sourcePreset = $sourcePreset ?? $preset;
         $messages = $this->messageModel
             ->forPreset($preset->getId())
             ->where('role', '!=', 'system')
@@ -62,17 +63,17 @@ class CycleContextBuilder implements ContextBuilderInterface
         // preset's system_prompt can place it wherever makes sense.
         // If the preset doesn't use [[rag_context]], nothing happens.
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
-        $ragBlock = $ragEnricher->enrich($preset, $context);
+        $ragBlock = $ragEnricher->enrich($sourcePreset, $context);
 
         $this->shortcodeManager->registerShortcodeForPreset(
-            $preset->getId(),
+            $sourcePreset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this thinking cycle',
             fn () => $ragBlock->getResponse() ?? ''
         );
 
         // Known sources — [[known_sources]]
-        if ($this->inputPoolService->isEnabled($preset)) {
+        if ($this->inputPoolService->isEnabled($sourcePreset)) {
             $knownBlock = $this->inputPoolService->getKnownSourcesBlock($preset->getId());
             $this->shortcodeManager->registerShortcodeForPreset(
                 $preset->getId(),

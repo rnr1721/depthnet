@@ -18,6 +18,7 @@ interface AgentActionsInterface
     public function runActions(
         string $responseString,
         AiPreset $preset,
+        ?AiPreset $mainPreset,
         bool $isUser = false
     ): AiActionsResponseInterface;
 }

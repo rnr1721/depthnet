@@ -31,7 +31,8 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
      */
     public function handleResponse(
         $response,
-        AiPreset $preset
+        AiPreset $preset,
+        ?AiPreset $mainPreset = null
     ): AiAgentResponseInterface {
         if ($response->isError()) {
             $errorMessage = $this->createSystemMessage(
@@ -53,7 +54,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         // sensor state and should persist until overwritten by new data.
         $this->inputPoolService->clear($preset->getId());
 
-        $result = $this->processSuccessfulResponse($response, $preset);
+        $result = $this->processSuccessfulResponse($response, $preset, $mainPreset);
 
         return new AgentResponseDTO(
             $result['message'],
@@ -93,13 +94,14 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
      *
      * @param mixed $response
      * @param AiPreset $preset
+     * @param AiPreset|null $mainPreset
      * @return array
      */
-    protected function processSuccessfulResponse($response, AiPreset $preset): array
+    protected function processSuccessfulResponse($response, AiPreset $preset, ?AiPreset $mainPreset = null): array
     {
 
         $output = $response->getResponse();
-        $actionsResult = $this->agentActions->runActions($output, $preset);
+        $actionsResult = $this->agentActions->runActions($output, $preset, $mainPreset);
 
         $method = $preset->getAgentResultMode();
 

@@ -19,11 +19,13 @@ interface AgentActionsHandlerInterface
      *
      * @param mixed $response
      * @param AiPreset $preset
+     * @param AiPreset|null $mainPreset
      * @return AiAgentResponseInterface
      */
     public function handleResponse(
         $response,
-        AiPreset $preset
+        AiPreset $preset,
+        ?AiPreset $mainPreset = null
     ): AiAgentResponseInterface;
 
     /**

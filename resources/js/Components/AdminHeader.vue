@@ -133,6 +133,11 @@
                         <span>{{ $t('goals') }}</span>
                       </Link>
 
+                      <Link :href="journalLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('journal') }}</span>
+                      </Link>
+
                       <Link :href="personLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
                         <span class="mr-3"></span>
                         <span>{{ $t('person_memory') }}</span>
@@ -282,6 +287,11 @@
                     <span class="text-lg"></span><span>{{ $t('goals') }}</span>
                   </Link>
 
+                  <Link :href="journalLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('journal') }}</span>
+                  </Link>
+
                   <Link :href="personLink" :class="mobileSubLinkClass"
                     @click="mobileMenuOpen = false; mobileAdminOpen = false">
                     <span class="text-lg"></span><span>{{ $t('person_memory') }}</span>
@@ -361,6 +371,7 @@ const skillsLink = computed(() => routeWithPreset(route('admin.skills.index')));
 const workspaceLink = computed(() => routeWithPreset(route('admin.workspace.index')));
 const goalsLink = computed(() => routeWithPreset(route('admin.goals.index')));
 const personLink = computed(() => routeWithPreset(route('admin.person-memory.index')));
+const journalLink = computed(() => routeWithPreset(route('admin.journal.index')));
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
 const knownSourcesLink = computed(() => routeWithPreset(route('admin.known-sources.index')));
 

@@ -153,6 +153,7 @@ const form = ref({
     input_mode: props.preset?.input_mode || 'single',
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
+    pre_run_commands: props.preset?.pre_run_commands || '',
     default_call_message: props.preset?.default_call_message || '',
     before_execution_wait: props.preset?.before_execution_wait || 5,
     plugins_disabled: props.preset?.plugins_disabled || '',
@@ -169,8 +170,10 @@ const form = ref({
     voice_preset_id: props.preset?.voice_preset_id || null,
     cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
     rag_context_limit: props.preset?.rag_context_limit || 5,
+    rag_results: props.preset?.rag_results || 5,
     voice_context_limit: props.preset?.voice_context_limit || 4,
     cp_context_limit: props.preset?.cp_context_limit || 5,
+    voice_mp_commands: props.preset?.voice_mp_commands || ''
 });
 
 // Computed

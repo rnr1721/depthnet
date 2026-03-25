@@ -247,6 +247,22 @@
                 </div>
             </div>
 
+            <!-- Rag results -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_rag_results') }}
+                </label>
+                <input :value="modelValue.rag_results ?? 5"
+                    @input="updateField('rag_results', parseNumber($event.target.value))" type="number" min="4" max="20"
+                    step="1" :class="inputClass" :placeholder="t('p_modal_rag_results_placeholder')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_rag_results_desc') }}
+                </p>
+                <div v-if="errors.rag_results" class="text-red-500 text-xs mt-1">
+                    {{ errors.rag_results }}
+                </div>
+            </div>
+
             <!-- Inner Voice -->
             <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
                 <div class="flex items-center justify-between mb-1">
@@ -332,7 +348,7 @@
                     {{ t('p_modal_voice_context_limit') }}
                 </label>
                 <input :value="modelValue.voice_context_limit ?? 5"
-                    @input="updateField('voice_context_limit', parseNumber($event.target.value))" type="number" min="4"
+                    @input="updateField('voice_context_limit', parseNumber($event.target.value))" type="number" min="0"
                     max="20" step="1" :class="inputClass" :placeholder="t('p_modal_voice_context_limit_placeholder')" />
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
                     {{ t('p_modal_voice_context_limit_desc') }}
@@ -376,6 +392,21 @@
                 </p>
                 <div v-if="errors.cp_context_limit" class="text-red-500 text-xs mt-1">
                     {{ errors.cp_context_limit }}
+                </div>
+            </div>
+
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_voice_mp_commands') }}
+                </label>
+                <input :value="modelValue.voice_mp_commands"
+                    @input="updateField('voice_mp_commands', $event.target.value)" type="text" :class="inputClass"
+                    :placeholder="t('p_modal_voice_mp_commands_ph')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_voice_mp_commands_desc') }}
+                </p>
+                <div v-if="errors.voice_mp_commands" class="text-red-500 text-xs mt-1">
+                    {{ errors.voice_mp_commands }}
                 </div>
             </div>
 

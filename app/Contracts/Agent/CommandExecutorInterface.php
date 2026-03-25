@@ -13,7 +13,8 @@ interface CommandExecutorInterface
      *
      * @param ParsedCommand[] $commands
      * @param AiPreset $preset
+     * @param AiPreset|null $mainPreset
      * @return CommandExecutionResult
      */
-    public function executeCommands(array $commands, AiPreset $preset): CommandExecutionResult;
+    public function executeCommands(array $commands, AiPreset $preset, ?AiPreset $mainPreset = null): CommandExecutionResult;
 }

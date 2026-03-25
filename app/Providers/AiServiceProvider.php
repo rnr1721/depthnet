@@ -15,13 +15,13 @@ use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
+use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
-use App\Contracts\Agent\Enricher\ContextEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
-use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Mcp\McpClientInterface;
 use App\Contracts\Agent\Mcp\McpServerRepositoryInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
@@ -57,14 +57,14 @@ use App\Services\Agent\CommandLinter;
 use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
+use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
-use App\Services\Agent\Enricher\ContextEnricher;
 use App\Services\Agent\Enricher\EnricherFactory;
-use App\Services\Agent\Enricher\RagContextEnricher;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
+use App\Services\Agent\Journal\JournalService;
 use App\Services\Agent\Mcp\McpClient;
 use App\Services\Agent\Mcp\McpServerRepository;
 use App\Services\Agent\Providers\ClaudeModel;
@@ -84,6 +84,7 @@ use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\HeartPlugin;
+use App\Services\Agent\Plugins\JournalPlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
@@ -146,6 +147,8 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
 
+        $this->app->singleton(JournalServiceInterface::class, JournalService::class);
+
         // VectorMemoryFactory
         $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {
             return new VectorMemoryFactory(
@@ -183,6 +186,8 @@ class AiServiceProvider extends ServiceProvider
         });
         $this->app->bind(CommandExecutorInterface::class, CommandExecutor::class);
         $this->app->bind(CommandLinterInterface::class, CommandLinter::class);
+
+        $this->app->bind(CommandPreRunnerInterface::class, CommandPreRunner::class);
 
         $this->app->singleton(PluginRegistryInterface::class, function ($app) {
 
@@ -275,6 +280,7 @@ class AiServiceProvider extends ServiceProvider
             AgentPlugin::class,
             VectorMemoryPlugin::class,
             MemoryPlugin::class,
+            JournalPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
             PromptPlugin::class,

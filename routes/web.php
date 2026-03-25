@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\EngineController;
 use App\Http\Controllers\Admin\GoalController;
+use App\Http\Controllers\Admin\JournalController;
 use App\Http\Controllers\Admin\KnownSourceController;
 use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PersonController;
@@ -233,6 +234,15 @@ Route::middleware('auth')->group(function () {
             Route::delete('/fact', [PersonController::class, 'deleteFact'])  ->name('delete-fact');
             Route::delete('/person/{personName}', [PersonController::class, 'forgetPerson'])->name('forget');
             Route::post('/clear', [PersonController::class, 'clearAll'])    ->name('clear');
+        });
+
+        // Journal Management routes
+        Route::prefix('journal')->name('journal.')->group(function () {
+            Route::get('/', [JournalController::class, 'index'])->name('index');
+            Route::post('/', [JournalController::class, 'store'])->name('store');
+            Route::delete('/{entryId}', [JournalController::class, 'destroy'])->name('destroy');
+            Route::post('/clear', [JournalController::class, 'clear'])->name('clear');
+            Route::post('/search', [JournalController::class, 'search'])->name('search');
         });
 
         if (config('sandbox.enabled', false)) {

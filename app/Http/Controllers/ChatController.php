@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
@@ -103,6 +104,7 @@ class ChatController extends Controller
                     'rag_preset_id'           => $preset->rag_preset_id,
                     'voice_preset_id'         => $preset->voice_preset_id,
                     'cycle_prompt_preset_id'  => $preset->cycle_prompt_preset_id,
+                    'voice_mp_commands'       => $preset->voice_mp_commands,
                     'chat_active'             => $presetActiveMap[$preset->id] ?? false,
                 ])->toArray(),
                 // Legacy global flag: true if at least one preset is active
@@ -168,7 +170,8 @@ class ChatController extends Controller
         WorkspaceServiceInterface $workspaceService,
         GoalServiceInterface $goalService,
         SkillServiceInterface $skillService,
-        PersonMemoryServiceInterface $personMemoryService
+        PersonMemoryServiceInterface $personMemoryService,
+        JournalServiceInterface $journalService
     ): JsonResponse|RedirectResponse {
         try {
             $presetId = (int) $request->input('preset_id', 0);
@@ -219,6 +222,11 @@ class ChatController extends Controller
 
             if ($request->boolean('clear_person')) {
                 $personMemoryService->clearAll($currentPreset);
+                $cleared[] = 'person';
+            }
+
+            if ($request->boolean('clear_journal')) {
+                $journalService->clear($currentPreset);
                 $cleared[] = 'person';
             }
 

@@ -5,22 +5,28 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
+use App\Contracts\Agent\AiModelResponseInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ActionsResponseDTO;
 use App\Services\Agent\DTO\AgentResponseDTO;
+use App\Services\Agent\Traits\ExtractsAgentVoice;
 use Psr\Log\LoggerInterface;
 use Illuminate\Contracts\Cache\Repository as Cache;
 
 class AgentActionsHandler implements AgentActionsHandlerInterface
 {
+    use ExtractsAgentVoice;
+
     public function __construct(
         protected Message $messageModel,
         protected AgentActionsInterface $agentActions,
         protected CommandResultPoolInterface $commandResultPool,
         protected InputPoolServiceInterface $inputPoolService,
+        protected OptionsServiceInterface $optionsService,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -30,8 +36,9 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
      * @inheritDoc
      */
     public function handleResponse(
-        $response,
-        AiPreset $preset
+        AiModelResponseInterface $response,
+        AiPreset $preset,
+        ?AiPreset $mainPreset = null,
     ): AiAgentResponseInterface {
         if ($response->isError()) {
             $errorMessage = $this->createSystemMessage(
@@ -48,12 +55,16 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             );
         }
 
+
+
+        $result = $this->processSuccessfulResponse($response, $preset, $mainPreset);
+
         // Clear regular pool items now that the cycle is complete.
         // Known sources are left intact — they represent the last known
         // sensor state and should persist until overwritten by new data.
+        //if (!$mainPreset) {
         $this->inputPoolService->clear($preset->getId());
-
-        $result = $this->processSuccessfulResponse($response, $preset);
+        //}
 
         return new AgentResponseDTO(
             $result['message'],
@@ -91,15 +102,16 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     /**
      * Process successful AI response through actions
      *
-     * @param mixed $response
+     * @param AiModelResponseInterface $response
      * @param AiPreset $preset
+     * @param AiPreset|null $mainPreset
      * @return array
      */
-    protected function processSuccessfulResponse($response, AiPreset $preset): array
+    protected function processSuccessfulResponse(AiModelResponseInterface $response, AiPreset $preset, ?AiPreset $mainPreset = null): array
     {
 
         $output = $response->getResponse();
-        $actionsResult = $this->agentActions->runActions($output, $preset);
+        $actionsResult = $this->agentActions->runActions($output, $preset, $mainPreset);
 
         $method = $preset->getAgentResultMode();
 
@@ -135,6 +147,18 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             ]);
         }
 
+        if ($mainPreset && $preset->getId() !== $mainPreset->getId()) {
+            $messageText = $this->extractAgentVoice($response->getResponse());
+            if ($this->inputPoolService->isEnabled($mainPreset)) {
+                $this->inputPoolService->add($mainPreset->getId(), $preset->getAvailableName(), $messageText);
+                $messageContent = $this->inputPoolService->getAllAsJSON($mainPreset->getId());
+            } else {
+                $messageFromUserLabel = 'handoff response from ';
+                $messageContent = "$messageFromUserLabel {$preset->getAvailableName()}:\n$messageText";
+                $this->createUserMessage($messageContent, $mainPreset->getId());
+            }
+        }
+
         if ($actionsResult->getSystemMessage()) {
             $this->createSystemMessage(
                 $actionsResult->getSystemMessage(),
@@ -161,6 +185,26 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     {
         return $this->messageModel->create([
             'role' => 'system',
+            'content' => $content,
+            'from_user_id' => null,
+            'preset_id' => $presetId,
+            'is_visible_to_user' => true,
+            'metadata' => $metadata
+        ]);
+    }
+
+    /**
+     * Create user message
+     *
+     * @param string $content
+     * @param int $presetId
+     * @param array $metadata
+     * @return Message
+     */
+    protected function createUserMessage(string $content, int $presetId, array $metadata = []): Message
+    {
+        return $this->messageModel->create([
+            'role' => 'user',
             'content' => $content,
             'from_user_id' => null,
             'preset_id' => $presetId,

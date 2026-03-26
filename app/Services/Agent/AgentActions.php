@@ -35,7 +35,7 @@ class AgentActions implements AgentActionsInterface
     /**
      * @inheritDoc
      */
-    public function runActions(string $responseString, AiPreset $preset, bool $isUser = false): AiActionsResponseInterface
+    public function runActions(string $responseString, AiPreset $preset, ?AiPreset $mainPreset = null, bool $isUser = false): AiActionsResponseInterface
     {
 
         // Step 0: Cleanup response from fake system command results
@@ -59,7 +59,7 @@ class AgentActions implements AgentActionsInterface
         $role = $isUser ? self::ROLE_USER : self::ROLE_THINKING;
 
         // Step 4: Execute commands
-        $executionResult = $this->executeCommands($commands, $preset);
+        $executionResult = $this->executeCommands($commands, $preset, $mainPreset);
         if ($executionResult) {
             $role = self::ROLE_COMMAND;
             $output .= $executionResult->formattedMessage;
@@ -134,15 +134,17 @@ class AgentActions implements AgentActionsInterface
      * Execute commands if any are present
      *
      * @param array $commands
+     * @param AiPreset $preset
+     * @param AiPreset|null $mainPreset
      * @return CommandExecutionResult|null
      */
-    private function executeCommands(array $commands, AiPreset $preset): ?CommandExecutionResult
+    private function executeCommands(array $commands, AiPreset $preset, ?AiPreset $mainPreset = null): ?CommandExecutionResult
     {
         if (empty($commands)) {
             return null;
         }
 
-        return $this->commandExecutor->executeCommands($commands, $preset);
+        return $this->commandExecutor->executeCommands($commands, $preset, $mainPreset);
     }
 
     /**

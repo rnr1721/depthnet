@@ -23,14 +23,23 @@ class CommandExecutor implements CommandExecutorInterface
     /**
      * @inheritDoc
      */
-    public function executeCommands(array $commands, AiPreset $preset): CommandExecutionResult
+    public function executeCommands(array $commands, AiPreset $preset, ?AiPreset $mainPreset = null): CommandExecutionResult
     {
         $results = [];
         $hasErrors = false;
         $pluginExecutionMeta = [];
 
+        $mainPresetCommands = [];
+        if ($mainPreset) {
+            $mainPresetCommands = explode(',', $mainPreset->getVoiceMpCommands()) ?? [];
+        }
+
         foreach ($commands as $command) {
-            $result = $this->executeCommand($command, $preset);
+            if ($mainPreset && in_array($command->plugin, $mainPresetCommands)) {
+                $result = $this->executeCommand($command, $mainPreset);
+            } else {
+                $result = $this->executeCommand($command, $preset);
+            }
             $results[] = $result;
             $pluginExecutionMeta = $this->mergeExecutionMetaStrings($pluginExecutionMeta, $result->executionMeta);
 

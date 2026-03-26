@@ -29,6 +29,8 @@ class AgentPlugin implements CommandPluginInterface
     /** @var AgentJobServiceInterface|null Lazy-loaded service */
     private ?AgentJobServiceInterface $agentJobService = null;
 
+    private const OWN_METHODS = ['speak', 'resume', 'pause', 'status', 'handoff'];
+
     public function __construct(
         protected Container $container,
         protected LoggerInterface $logger,
@@ -97,6 +99,34 @@ class AgentPlugin implements CommandPluginInterface
         $instructions[] = 'Write message to user [agent speak]I have a question. How..[/agent]:';
         $instructions[] = 'Write message to user [agent speak]I need to tell you...[/agent]:';
         return $instructions;
+    }
+
+    /**
+     * PluginMethodTrait routes [agent agent_code]...[/agent] here via callMethod().
+     *
+     * But agent_code is the "method" in command syntax, so we need to intercept
+     * unknown methods and treat them as server calls.
+     */
+    public function hasMethod(string $method): bool
+    {
+        // Own named methods
+        if (in_array($method, self::OWN_METHODS)) {
+            return true;
+        }
+
+        // Everything else is treated as a agent_code — handled at callMethod level
+        return true;
+    }
+
+    public function callMethod(string $method, string $content, AiPreset $preset): string
+    {
+        // Own named methods
+        if (method_exists($this, $method) && in_array($method, self::OWN_METHODS)) {
+            return $this->{$method}($content, $preset);
+        }
+
+        // Treat $method as agent_code
+        return $this->callAgent($method, $content, $preset);
     }
 
     /**
@@ -456,14 +486,36 @@ class AgentPlugin implements CommandPluginInterface
     public function pluginReady(AiPreset $preset): void
     {
         $scope = $this->shortcodeScopeResolver->preset($preset->getId());
-        $this->placeholderService->registerDynamic('agent', 'Agent status', function () {
-            return $this->status('');
+        $this->placeholderService->registerDynamic('agent', 'Agent status', function () use ($preset) {
+            return $this->status('', $preset);
         }, $scope);
     }
 
     public function getSelfClosingTags(): array
     {
         return ['pause', 'resume', 'status'];
+    }
+
+    /**
+      * Route [agent handoff]agent_code:message[/agent] to the actual agent call
+      */
+    private function callAgent(string $presetCode, string $content, AiPreset $preset): string
+    {
+        $targetPreset = $this->presetService->findByCode($presetCode);
+        if (!$targetPreset) {
+            return "Error: Agent '{$presetCode}' not found for handoff.";
+        }
+
+        try {
+            return $this->handoff($presetCode.':'.$content);
+
+        } catch (\Throwable $e) {
+            $this->logger->error("Handoff: preset code call failed", [
+                'preset_code' => $presetCode,
+                'error'  => $e->getMessage(),
+            ]);
+            return "Error calling '{$presetCode}': " . $e->getMessage();
+        }
     }
 
 }

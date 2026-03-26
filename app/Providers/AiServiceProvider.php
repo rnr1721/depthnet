@@ -10,17 +10,19 @@ use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
 use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
+use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
-use App\Contracts\Agent\Enricher\ContextEnricherInterface;
-use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
+use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Mcp\McpClientInterface;
 use App\Contracts\Agent\Mcp\McpServerRepositoryInterface;
 use App\Contracts\Agent\Memory\MemoryExporterInterface;
@@ -50,19 +52,23 @@ use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
 use App\Services\Agent\AgentActionsHandler;
 use App\Services\Agent\AgentJobService;
+use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
+use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
+use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandLinter;
 use App\Services\Agent\CommandParser;
 use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
+use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
-use App\Services\Agent\Enricher\ContextEnricher;
-use App\Services\Agent\Enricher\RagContextEnricher;
+use App\Services\Agent\Enricher\EnricherFactory;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
+use App\Services\Agent\Journal\JournalService;
 use App\Services\Agent\Mcp\McpClient;
 use App\Services\Agent\Mcp\McpServerRepository;
 use App\Services\Agent\Providers\ClaudeModel;
@@ -82,6 +88,7 @@ use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\HeartPlugin;
+use App\Services\Agent\Plugins\JournalPlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
@@ -108,6 +115,8 @@ use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\VectorMemory\EmbeddingAssociativeVectorMemoryService;
+use App\Services\Agent\VectorMemory\EmbeddingVectorMemoryService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
 use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
@@ -138,15 +147,44 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
 
-        $this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
+        //$this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
+
+        $this->app->singleton(EnricherFactoryInterface::class, EnricherFactory::class);
 
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
+
+        $this->app->singleton(JournalServiceInterface::class, JournalService::class);
+
+        // EmbeddingRegistry: singleton so all drivers are registered once.
+        $this->app->singleton(EmbeddingRegistry::class, function ($app) {
+            $registry = new EmbeddingRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            // Register Novita as the first available embedding driver.
+            // Add new drivers here as they become available.
+            $registry->register(
+                new NovitaEmbeddingProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            // $registry->register(new OpenAiEmbeddingProvider(...));
+
+            return $registry;
+        });
+
+        $this->app->singleton(EmbeddingServiceInterface::class, EmbeddingService::class);
 
         // VectorMemoryFactory
         $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {
             return new VectorMemoryFactory(
-                $app->make(VectorMemoryService::class),
-                $app->make(VectorMemoryAssociativeService::class),
+                flatTfidf:             $app->make(VectorMemoryService::class),
+                associativeTfidf:      $app->make(VectorMemoryAssociativeService::class),
+                flatEmbedding:         $app->make(EmbeddingVectorMemoryService::class),
+                associativeEmbedding:  $app->make(EmbeddingAssociativeVectorMemoryService::class),
             );
         });
 
@@ -155,7 +193,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
         $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
-        $this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
+        //$this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
@@ -179,6 +217,8 @@ class AiServiceProvider extends ServiceProvider
         });
         $this->app->bind(CommandExecutorInterface::class, CommandExecutor::class);
         $this->app->bind(CommandLinterInterface::class, CommandLinter::class);
+
+        $this->app->bind(CommandPreRunnerInterface::class, CommandPreRunner::class);
 
         $this->app->singleton(PluginRegistryInterface::class, function ($app) {
 
@@ -271,6 +311,7 @@ class AiServiceProvider extends ServiceProvider
             AgentPlugin::class,
             VectorMemoryPlugin::class,
             MemoryPlugin::class,
+            JournalPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
             PromptPlugin::class,

@@ -4,7 +4,9 @@ namespace App\Services\Agent\Enricher;
 
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
+use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Enricher\ContextEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherResponseInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -72,6 +74,8 @@ class ContextEnricher implements ContextEnricherInterface
         protected PluginRegistryInterface            $pluginRegistry,
         protected PluginMetadataServiceInterface     $pluginMetadataService,
         protected AgentActionsHandlerInterface       $agentActionsHandler,
+        protected ContextBuilderFactoryInterface     $contextBuilderFactory,
+        protected CommandPreRunnerInterface          $commandPreRunner,
         protected LoggerInterface                    $logger,
     ) {
     }
@@ -174,20 +178,48 @@ class ContextEnricher implements ContextEnricherInterface
                 );
             }
 
-            $recentMessages = collect($context)
+            // Execute pre-run commands so [[pre_command_results]] is available
+            // in the voice preset's system_prompt before generation.
+            // $mainPreset is passed for cross-context command routing
+            // (e.g. MemoryManager reading from Adalia's memory via VoiceMpCommands).
+            $preResults = $this->commandPreRunner->run($voicePreset, $voicePreset, $mainPreset);
+
+            $contextBuilder = $this->contextBuilderFactory->getContextBuilder('single');
+
+            $context = $contextBuilder->build($mainPreset, $voicePreset, $contextLimit);
+
+            // Compress into one analytical message
+            $conversationText = collect($context)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command'], true))
-                ->slice(-$contextLimit)
-                ->values();
-
-            $this->debugLog('recent messages for voice', ['count' => $recentMessages->count()]);
-
-            if ($recentMessages->isEmpty()) {
-                return null;
-            }
-
-            $conversationText = $recentMessages
                 ->map(fn ($m) => strtoupper($m['role']) . ': ' . mb_substr($m['content'] ?? '', 0, 500))
                 ->implode("\n");
+
+            $flatContext = [];
+
+            if (!empty($preResults)) {
+                $flatContext[] = [
+                    'role'         => 'user',
+                    'content'      => $preResults,
+                    'from_user_id' => null,
+                ];
+            }
+
+            if (!empty($conversationText)) {
+                $flatContext[] = [
+                    'role'         => 'user',
+                    'content'      => "=== CONVERSATION TO ANALYZE ===\n{$conversationText}\n=== END ===",
+                    'from_user_id' => null,
+                ];
+            }
+
+            if (empty($flatContext)) {
+                $flatContext[] = [
+                    'role'         => 'user',
+                    'content'      => 'No recent conversation available.',
+                    'from_user_id' => null,
+                ];
+            }
+            $this->debugLog('recent messages for voice', ['count' => count($context)]);
 
             $engine = $this->presetRegistry->createInstance($voicePreset->getId());
 
@@ -197,9 +229,7 @@ class ContextEnricher implements ContextEnricherInterface
                 commandInstructionBuilder: $this->commandInstructionBuilder,
                 shortcodeManager:          $this->shortcodeManagerService,
                 pluginMetadataService:     $this->pluginMetadataService,
-                context:                   [
-                    ['role' => 'user', 'content' => $conversationText],
-                ],
+                context:                   $flatContext
             );
 
             $response = $engine->generate($dto);

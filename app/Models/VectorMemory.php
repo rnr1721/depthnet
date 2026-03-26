@@ -27,6 +27,8 @@ class VectorMemory extends Model implements TfIdfDocumentInterface
         'preset_id',
         'content',
         'tfidf_vector',
+        'embedding',
+        'embedding_dim',
         'keywords',
         'importance',
         'access_count',
@@ -35,6 +37,8 @@ class VectorMemory extends Model implements TfIdfDocumentInterface
 
     protected $casts = [
         'tfidf_vector' => 'array',
+        'embedding'     => 'array',
+        'embedding_dim' => 'integer',
         'keywords' => 'array',
         'importance' => 'float',
         'access_count'     => 'integer',

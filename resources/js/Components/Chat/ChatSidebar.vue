@@ -80,6 +80,9 @@
           <Link :href="goalsLink" :class="linkClass">
             {{ t('goals') }}
           </Link>
+          <Link :href="journalLink" :class="linkClass">
+            {{ t('journal') }}
+          </Link>
           <Link :href="personLink" :class="linkClass">
             {{ t('person_memory') }}
           </Link>
@@ -235,6 +238,9 @@ const workspaceLink = computed(() =>
 );
 const goalsLink = computed(() =>
   routeWithPreset(route('admin.goals.index'), props.currentPresetId)
+);
+const journalLink = computed(() =>
+  routeWithPreset(route('admin.journal.index'), props.currentPresetId)
 );
 const personLink = computed(() =>
   routeWithPreset(route('admin.person-memory.index'), props.currentPresetId)

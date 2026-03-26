@@ -2,10 +2,12 @@
 
 use App\Http\Controllers\Admin\EngineController;
 use App\Http\Controllers\Admin\GoalController;
+use App\Http\Controllers\Admin\JournalController;
 use App\Http\Controllers\Admin\KnownSourceController;
 use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PersonController;
 use App\Http\Controllers\Admin\PluginController;
+use App\Http\Controllers\Admin\PresetCapabilityController;
 use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\PresetMcpController;
 use App\Http\Controllers\Admin\PresetPromptController;
@@ -183,6 +185,18 @@ Route::middleware('auth')->group(function () {
             Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
         });
 
+        // Capabilities Management routes
+        Route::prefix('capabilities')->name('capabilities.')->group(function () {
+            // Index page — with optional preset selector (same pattern as plugins)
+            Route::get('/{presetId?}', [PresetCapabilityController::class, 'index'])->name('index');
+            // Reload capabilities JSON after preset switch
+            Route::get('/{presetId}/data', [PresetCapabilityController::class, 'show'])->name('show');
+            // Save config for a specific capability type
+            Route::put('/{presetId}/{capability}', [PresetCapabilityController::class, 'update'])->name('update');
+            // Test the current config
+            Route::post('/{presetId}/{capability}/test', [PresetCapabilityController::class, 'test'])->name('test');
+        });
+
         // Skills Management routes
         Route::prefix('skills')->name('skills.')->group(function () {
             Route::get('/', [SkillController::class, 'index'])->name('index');
@@ -233,6 +247,15 @@ Route::middleware('auth')->group(function () {
             Route::delete('/fact', [PersonController::class, 'deleteFact'])  ->name('delete-fact');
             Route::delete('/person/{personName}', [PersonController::class, 'forgetPerson'])->name('forget');
             Route::post('/clear', [PersonController::class, 'clearAll'])    ->name('clear');
+        });
+
+        // Journal Management routes
+        Route::prefix('journal')->name('journal.')->group(function () {
+            Route::get('/', [JournalController::class, 'index'])->name('index');
+            Route::post('/', [JournalController::class, 'store'])->name('store');
+            Route::delete('/{entryId}', [JournalController::class, 'destroy'])->name('destroy');
+            Route::post('/clear', [JournalController::class, 'clear'])->name('clear');
+            Route::post('/search', [JournalController::class, 'search'])->name('search');
         });
 
         if (config('sandbox.enabled', false)) {

@@ -5,7 +5,9 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
+use App\Contracts\Agent\AiModelResponseInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
+use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -15,7 +17,9 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
+use App\Models\Message;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use Psr\Log\LoggerInterface;
 use Illuminate\Contracts\Cache\Repository as Cache;
@@ -28,6 +32,7 @@ class Agent implements AgentInterface
     public function __construct(
         protected PresetRegistryInterface $presetRegistry,
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
+        protected CommandPreRunnerInterface $commandPreRunner,
         protected AgentActionsHandlerInterface $agentActionsHandler,
         protected MemoryServiceInterface $memoryService,
         protected ShortcodeManagerServiceInterface $shortcodeManagerService,
@@ -37,6 +42,8 @@ class Agent implements AgentInterface
         protected PluginMetadataServiceInterface $pluginMetadataService,
         protected CommandResultPoolInterface $commandResultPool,
         protected InputPoolServiceInterface $inputPoolService,
+        protected OptionsServiceInterface $optionsService,
+        protected Message $messageModel,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -57,14 +64,15 @@ class Agent implements AgentInterface
             $this->setupPresetEnvironment($currentPreset);
 
             // 1. Build context
-            $context = $this->buildContext($mainPreset ?? $currentPreset, $handoffMessage);
+            $context = $this->buildContext($currentPreset, $mainPreset, $handoffMessage);
 
             // 2. Setup and generate response
-            $response = $this->generateResponse($context, $currentPreset, $handoffMessage);
+            $response = $this->generateResponse($context, $currentPreset);
 
             // 3. Handle response
-            return $this->agentActionsHandler->handleResponse($response, $mainPreset ?? $currentPreset);
+            $result = $this->agentActionsHandler->handleResponse($response, $currentPreset, $mainPreset);
 
+            return $result;
         } catch (\Exception $e) {
             return $this->agentActionsHandler->handleError($e, $presetId);
         }
@@ -76,23 +84,33 @@ class Agent implements AgentInterface
      * @param AiPreset $preset Current preset
      * @return array
      */
-    protected function buildContext(AiPreset $preset, ?string $handoffMessage = null): array
+    protected function buildContext(AiPreset $preset, ?AiPreset $mainPreset = null, ?string $handoffMessage = null): array
     {
+
+        if ($handoffMessage && $mainPreset) {
+            if ($preset->getInputMode() === 'pool') {
+                $this->inputPoolService->add($preset->getId(), $mainPreset->getAvailableName(), $handoffMessage);
+                $messageText = $this->inputPoolService->getAllAsJSON($preset->getId());
+            } else {
+                $messageFromUserLabel = $this->optionsService->get('model_message_from_user', 'message_from_user');
+                $messageText = "$messageFromUserLabel {$preset->getAvailableName()}:\n$handoffMessage";
+                $messageText = $handoffMessage;
+            }
+
+            $this->messageModel->create([
+                'role' => 'user',
+                'content' => $messageText,
+                'from_user_id' => null,
+                'preset_id' => $preset->getId()
+            ]);
+
+        }
+
         $mode = $this->chatStatusService->getChatStatus() ? self::MODE_CYCLE : self::MODE_SINGLE;
         $contextBuilder = $this->contextBuilderFactory->getContextBuilder($mode);
 
         $context = $contextBuilder->build($preset);
-        if ($handoffMessage) {
-            if ($preset->getInputMode() === 'pool') {
-                $this->inputPoolService->add($preset->getId(), 'Handoff task', $handoffMessage);
-            } else {
-                $context[] = [
-                    'role' => 'user',
-                    'content' => "[Handoff Task: {$handoffMessage}]",
-                    'from_user_id' => null
-                ];
-            }
-        }
+
 
         return $context;
     }
@@ -102,9 +120,9 @@ class Agent implements AgentInterface
      *
      * @param array $context
      * @param AiPreset $preset
-     * @return mixed
+     * @return AiModelResponseInterface
      */
-    protected function generateResponse(array $context, AiPreset $preset)
+    protected function generateResponse(array $context, AiPreset $preset): AiModelResponseInterface
     {
         $currentEngine = $this->presetRegistry->createInstance($preset->getId());
 
@@ -121,7 +139,7 @@ class Agent implements AgentInterface
     }
 
     /**
-     * Setup preset environment (plugins, shortcodes)
+     * Setup preset environment (plugins, shortcodes, pre-run commands)
      *
      * @param AiPreset $preset
      * @return void
@@ -130,15 +148,19 @@ class Agent implements AgentInterface
     {
         $this->pluginRegistry->applyPreset($preset);
         $this->shortcodeManagerService->setDefaultShortcodes();
-        if ($preset->getAgentResultMode() !== 'internal') {
-            return;
+
+        if ($preset->getAgentResultMode() === 'internal') {
+            $this->shortcodeManagerService->registerShortcodeForPreset(
+                $preset->getId(),
+                'agent_command_results',
+                '',
+                fn () => $this->commandResultPool->getFormatted($preset)
+            );
         }
-        $this->shortcodeManagerService->registerShortcodeForPreset(
-            $preset->getId(),
-            'agent_command_results',
-            '',
-            fn () => $this->commandResultPool->getFormatted($preset)
-        );
+
+        // Execute pre-run commands and expose results as [[pre_command_results]].
+        // Runs after shortcodes are set up so the preset environment is fully ready.
+        $this->commandPreRunner->run($preset, $preset);
     }
 
 }

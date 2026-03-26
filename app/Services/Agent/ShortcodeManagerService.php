@@ -31,6 +31,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setAgentCommandResults();
         $this->setWorkspace();
         $this->setKnownSources();
+        $this->setPreCommandResults();
     }
 
     /**
@@ -129,6 +130,20 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'known_sources',
             'Data from known sources routed directly into context — sensors, body projections, ambient signals (requires pool input mode with known sources configured)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register pre_command_results placeholder stub (global).
+     * Actual content is injected per-preset by CommandPreRunner
+     * before each generation cycle when pre_run_commands are configured.
+     */
+    private function setPreCommandResults(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'pre_command_results',
+            'Results of commands executed before generation (requires pre_run_commands to be configured on the preset)',
             fn () => ''
         );
     }

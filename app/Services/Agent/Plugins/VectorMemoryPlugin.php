@@ -52,7 +52,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
     public function getDescription(): string
     {
         $maxEntries = $this->config['max_entries'] ?? 1000;
-        return "Semantic memory storage with TF-IDF search. Finds similar memories by meaning, not just keywords. Stores up to {$maxEntries} entries per preset.";
+        $engine     = $this->config['memory_engine'] ?? 'tfidf';
+        $mode       = $this->config['memory_mode']   ?? 'flat';
+        $engineLabel = $engine === 'embedding' ? 'semantic embedding' : 'TF-IDF keyword';
+        $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat';
+
+        return "Vector memory: {$modeLabel} search via {$engineLabel} similarity. Stores up to {$maxEntries} entries per preset.";
     }
 
     /**
@@ -100,15 +105,26 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'required' => false
             ],
             'memory_mode' => [
-                'type' => 'select',
-                'label' => 'Memory mode',
-                'description' => 'You can choose between simple vector memory, which just stores information as vectors, or associative vector memory, which also tracks the importance and relevance of memories over time.',
-                'options' => [
-                    'default' => 'Default: simple vector memory',
-                    'associative' => 'Associative: tracks importance and relevance of memories over time',
+                'type'        => 'select',
+                'label'       => 'Search mode',
+                'description' => 'Flat returns the top-K most similar memories directly. Associative traverses related memories via chain walk for richer recall.',
+                'options'     => [
+                    'flat'        => 'Flat — direct top-K search',
+                    'associative' => 'Associative — chain traversal through related memories',
                 ],
-                'value' => 'default',
-                'required' => false
+                'value'    => 'flat',
+                'required' => false,
+            ],
+            'memory_engine' => [
+                'type'        => 'select',
+                'label'       => 'Similarity engine',
+                'description' => 'TF-IDF uses keyword overlap (always available). Embedding uses semantic similarity — requires an embedding capability configured for this preset.',
+                'options'     => [
+                    'tfidf'     => 'TF-IDF — keyword similarity (no API required)',
+                    'embedding' => 'Embedding — semantic similarity (requires embedding capability)',
+                ],
+                'value'    => 'tfidf',
+                'required' => false,
             ],
             'max_entries' => [
                 'type' => 'number',
@@ -226,6 +242,14 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         $errors = [];
 
+        if (isset($config['memory_mode']) && !in_array($config['memory_mode'], ['flat', 'associative'])) {
+            $errors['memory_mode'] = 'Memory mode must be flat or associative.';
+        }
+
+        if (isset($config['memory_engine']) && !in_array($config['memory_engine'], ['tfidf', 'embedding'])) {
+            $errors['memory_engine'] = 'Memory engine must be tfidf or embedding.';
+        }
+
         if (isset($config['max_entries'])) {
             $maxEntries = (int) $config['max_entries'];
             if ($maxEntries < 100 || $maxEntries > 5000) {
@@ -271,6 +295,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         return [
             'enabled' => true,
+            'memory_mode'           => VectorMemoryFactoryInterface::MODE_FLAT,      // ← добавить
+            'memory_engine'         => VectorMemoryFactoryInterface::ENGINE_TFIDF,
             'max_entries' => 1000,
             'similarity_threshold' => 0.1,
             'search_limit' => 5,
@@ -679,12 +705,10 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     public function pluginReady(AiPreset $preset): void
     {
-        $mode = $this->config['memory_mode'] ?? 'default';
-        $driver = $mode === 'associative'
-            ? VectorMemoryFactoryInterface::DRIVER_ASSOCIATIVE
-            : VectorMemoryFactoryInterface::DRIVER_DEFAULT;
+        $mode   = $this->config['memory_mode']   ?? VectorMemoryFactoryInterface::MODE_FLAT;
+        $engine = $this->config['memory_engine'] ?? VectorMemoryFactoryInterface::ENGINE_TFIDF;
 
-        $this->vectorMemoryService = $this->vectorMemoryFactory->make($driver);
+        $this->vectorMemoryService = $this->vectorMemoryFactory->make($mode, $engine);
     }
 
     /**

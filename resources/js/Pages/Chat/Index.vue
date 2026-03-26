@@ -363,6 +363,7 @@ async function handleClearHistory(options) {
     if (options.clearGoals) requestData.clear_goals = true;
     if (options.clearSkills) requestData.clear_skills = true;
     if (options.clearPerson) requestData.clear_person = true;
+    if (options.clearJournal) requestData.clear_journal = true;
 
     await router.post(route('chat.clear'), requestData, {
       preserveScroll: true,

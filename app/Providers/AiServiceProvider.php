@@ -84,6 +84,7 @@ use App\Services\Agent\PluginManager;
 use App\Services\Agent\PluginMetadataService;
 use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
+use App\Services\Agent\Plugins\BeingPlugin;
 use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
@@ -327,7 +328,8 @@ class AiServiceProvider extends ServiceProvider
             SkillPlugin::class,
             McpPlugin::class,
             CodeCraftPlugin::class,
-            HeartPlugin::class
+            HeartPlugin::class,
+            BeingPlugin::class,
         ];
     }
 

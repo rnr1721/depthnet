@@ -29,6 +29,8 @@ class PresetResource extends JsonResource
             'rag_preset_id' => $this->rag_preset_id,
             'rag_context_limit' => $this->rag_context_limit,
             'rag_results' => $this->rag_results,
+            'rag_mode' => $this->rag_mode,
+            'rag_engine' => $this->rag_engine,
             'voice_preset_id' => $this->voice_preset_id,
             'voice_context_limit' => $this->voice_context_limit,
             'cycle_prompt_preset_id' => $this->cycle_prompt_preset_id,

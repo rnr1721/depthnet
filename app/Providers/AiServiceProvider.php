@@ -10,6 +10,7 @@ use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
@@ -51,6 +52,9 @@ use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
 use App\Services\Agent\AgentActionsHandler;
 use App\Services\Agent\AgentJobService;
+use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
+use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
+use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandLinter;
@@ -111,6 +115,8 @@ use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\VectorMemory\EmbeddingAssociativeVectorMemoryService;
+use App\Services\Agent\VectorMemory\EmbeddingVectorMemoryService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
 use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
@@ -149,11 +155,36 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(JournalServiceInterface::class, JournalService::class);
 
+        // EmbeddingRegistry: singleton so all drivers are registered once.
+        $this->app->singleton(EmbeddingRegistry::class, function ($app) {
+            $registry = new EmbeddingRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            // Register Novita as the first available embedding driver.
+            // Add new drivers here as they become available.
+            $registry->register(
+                new NovitaEmbeddingProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            // $registry->register(new OpenAiEmbeddingProvider(...));
+
+            return $registry;
+        });
+
+        $this->app->singleton(EmbeddingServiceInterface::class, EmbeddingService::class);
+
         // VectorMemoryFactory
         $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {
             return new VectorMemoryFactory(
-                $app->make(VectorMemoryService::class),
-                $app->make(VectorMemoryAssociativeService::class),
+                flatTfidf:             $app->make(VectorMemoryService::class),
+                associativeTfidf:      $app->make(VectorMemoryAssociativeService::class),
+                flatEmbedding:         $app->make(EmbeddingVectorMemoryService::class),
+                associativeEmbedding:  $app->make(EmbeddingAssociativeVectorMemoryService::class),
             );
         });
 

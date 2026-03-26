@@ -35,7 +35,6 @@ class RagContextEnricher implements RagContextEnricherInterface
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
         protected ShortcodeManagerServiceInterface   $shortcodeManagerService,
         protected PluginMetadataServiceInterface     $pluginMetadataService,
-        protected OptionsServiceInterface            $optionsService,
         protected SkillServiceInterface              $skillService,
         protected JournalServiceInterface            $journalService,
         protected LoggerInterface                    $logger,
@@ -69,69 +68,48 @@ class RagContextEnricher implements RagContextEnricherInterface
                 return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
-            // --- Vector memory search ---
-            $memoryMode  = $this->optionsService->get('agent_rag_vector_memory_mode', 'generic');
+            // ── Vector memory search ──────────────────────────────────────────
+            $ragMode   = $preset->getRagMode();
+            $ragEngine = $preset->getRagEngine();
+
             $searchLimit = $preset->getRagResults() ?? 5;
 
-            $assocResults   = [];
-            $defaultResults = [];
-            $seenIds        = [];
-
-            // Associative first (if enabled) — smarter, gets priority
-            if ($memoryMode === 'associative') {
-                $assocService = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::DRIVER_ASSOCIATIVE);
-                $assocSearch  = $assocService->searchVectorMemories($preset, $query, [
-                    'search_limit' => $searchLimit,
-                    'boost_recent' => true,
-                ]);
-
-                if ($assocSearch['success'] && !empty($assocSearch['results'])) {
-                    $assocResults = $assocSearch['results'];
-                    $seenIds      = collect($assocResults)
-                        ->map(fn ($r) => ($r['document'] ?? $r['memory'])->id)
-                        ->flip()
-                        ->toArray();
-                }
-            }
-
-            // Default TF-IDF always runs — adds results not already found by associative
-            $defaultService = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::DRIVER_DEFAULT);
-            $defaultSearch  = $defaultService->searchVectorMemories($preset, $query, [
-                'search_limit' => $searchLimit,
-                'boost_recent' => true,
-            ]);
-
-            if ($defaultSearch['success'] && !empty($defaultSearch['results'])) {
-                foreach ($defaultSearch['results'] as $r) {
-                    $id = ($r['document'] ?? $r['memory'])->id;
-                    if (!isset($seenIds[$id])) {
-                        $defaultResults[] = $r;
-                        $seenIds[$id]     = true;
-                    }
-                }
-            }
+            [$primaryResults, $supplementResults] = $this->runVectorSearch(
+                $preset,
+                $query,
+                $ragMode,
+                $ragEngine,
+                $searchLimit
+            );
 
             $this->logger->debug('RAG enrichment', [
-                'query'         => $query,
-                'mode'          => $memoryMode,
-                'assoc_count'   => count($assocResults),
-                'default_count' => count($defaultResults),
+                'query'            => $query,
+                'mode'             => $ragMode,
+                'engine'           => $ragEngine,
+                'primary_count'    => count($primaryResults),
+                'supplement_count' => count($supplementResults),
             ]);
 
-            // --- Skills search ---
+            // ── Skills search ─────────────────────────────────────────────────
             $skillResults = $this->skillService->searchItemsData($preset, $query, 3);
 
-            // --- Journal search ---
-            // Surface relevant past events from the episodic chronicle.
-            // Pure semantic search — no date filter here, RAG decides relevance.
+            // ── Journal search ────────────────────────────────────────────────
             $journalResults = $this->journalService->searchEntries($preset, $query, 3);
 
-            // Nothing found in any source — return empty
-            if (empty($assocResults) && empty($defaultResults) && empty($skillResults) && empty($journalResults)) {
+            if (empty($primaryResults) && empty($supplementResults) && empty($skillResults) && empty($journalResults)) {
                 return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
-            $result = $this->formatResults($query, $assocResults, $defaultResults, $skillResults, $journalResults);
+            $result = $this->formatResults(
+                $query,
+                $ragMode,
+                $ragEngine,
+                $primaryResults,
+                $supplementResults,
+                $skillResults,
+                $journalResults
+            );
+
             return new EnricherResponse($preset, $ragPreset, $result);
 
         } catch (\Throwable $e) {
@@ -143,8 +121,92 @@ class RagContextEnricher implements RagContextEnricherInterface
         }
     }
 
+    // ── Vector search ─────────────────────────────────────────────────────────
+
     /**
-     * Formulate query
+     * Run vector memory search for the given mode.
+     *
+     * Returns [$primaryResults, $supplementResults]:
+     * - For TF-IDF modes: primary = associative/default, supplement = empty
+     * - For embedding modes: primary = embedding results, supplement = TF-IDF
+     *   results for records that don't have an embedding yet
+     *
+     * All embedding modes fall back gracefully to associative TF-IDF if no
+     * embedding capability is configured for the preset.
+     *
+     * @return array{array, array}
+     */
+    private function runVectorSearch(
+        AiPreset $preset,
+        string   $query,
+        string   $mode,
+        string   $engine,
+        int      $searchLimit,
+    ): array {
+        // ── Primary search (associative or flat) ──────────────────────────────
+        $primaryService = $this->vectorMemoryFactory->make($mode, $engine);
+        $primarySearch  = $primaryService->searchVectorMemories($preset, $query, [
+            'search_limit' => $searchLimit,
+            'boost_recent' => true,
+        ]);
+
+        $primaryResults = [];
+        $seenIds        = [];
+
+        if ($primarySearch['success'] ?? false) {
+            foreach ($primarySearch['results'] ?? [] as $r) {
+                $id = ($r['document'] ?? $r['memory'])->id;
+                $primaryResults[] = $r;
+                $seenIds[$id]     = true;
+            }
+        }
+
+        // ── Supplement: flat search always runs when mode is associative ──────
+        // Adds results the associative traversal may have missed.
+        // When mode is already flat, skip to avoid redundant search.
+        $supplementResults = [];
+
+        if ($mode === VectorMemoryFactoryInterface::MODE_ASSOCIATIVE) {
+            $flatService  = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::MODE_FLAT, $engine);
+            $flatSearch   = $flatService->searchVectorMemories($preset, $query, [
+                'search_limit' => $searchLimit,
+                'boost_recent' => true,
+            ]);
+
+            if ($flatSearch['success'] ?? false) {
+                foreach ($flatSearch['results'] ?? [] as $r) {
+                    $id = ($r['document'] ?? $r['memory'])->id;
+                    if (!isset($seenIds[$id])) {
+                        $supplementResults[] = $r;
+                        $seenIds[$id]        = true;
+                    }
+                }
+            }
+        }
+
+        // ── Separate embedding supplement (TF-IDF fallback inside embedding service) ─
+        // Records without embedding inside the primary results get their own label.
+        $embeddingFallback = [];
+        $cleanPrimary      = [];
+
+        foreach ($primaryResults as $r) {
+            if (($r['source'] ?? '') === 'tfidf_fallback') {
+                $embeddingFallback[] = $r;
+            } else {
+                $cleanPrimary[] = $r;
+            }
+        }
+
+        // Merge: clean primary first, then flat supplement, then embedding fallback
+        $allSupplement = array_merge($supplementResults, $embeddingFallback);
+
+        return [$cleanPrimary, $allSupplement];
+    }
+
+    // ── Query formulation ─────────────────────────────────────────────────────
+
+    /**
+     * Use the RAG preset to distil the recent conversation into a search query.
      */
     protected function formulateQuery(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?string
     {
@@ -207,51 +269,54 @@ class RagContextEnricher implements RagContextEnricherInterface
         }
     }
 
+    // ── Result formatting ─────────────────────────────────────────────────────
+
     /**
-     * Format results from all sources into a single RAG context block.
-     *
-     * @param string $query
-     * @param array  $assocResults   Associative vector memory results
-     * @param array  $defaultResults TF-IDF vector memory results (deduplicated)
-     * @param array  $skillResults   Skill items results
-     * @param array  $journalResults Episodic journal entries
+     * Format all sources into a single RAG context block for the system prompt.
      */
     protected function formatResults(
         string $query,
-        array $assocResults,
-        array $defaultResults,
-        array $skillResults,
-        array $journalResults = []
+        string $mode,
+        string $engine,
+        array  $primaryResults,
+        array  $supplementResults,
+        array  $skillResults,
+        array  $journalResults = [],
     ): string {
         $lines = ["[RAG CONTEXT — query: \"{$query}\"]", ''];
 
-        // Associative memory — found by semantic association
-        if (!empty($assocResults)) {
-            $lines[] = '[ASSOCIATIVE MEMORY]';
-            foreach ($assocResults as $i => $result) {
+        // Primary memory results — label depends on active mode
+        if (!empty($primaryResults)) {
+            $label   = $this->primarySectionLabel($mode, $engine);
+            $lines[] = $label;
+
+            foreach ($primaryResults as $i => $result) {
                 $memory  = $result['document'] ?? $result['memory'];
                 $score   = round(($result['composite_score'] ?? $result['similarity']) * 100, 1);
                 $date    = $memory->getCreatedAt()->format('Y-m-d');
                 $content = mb_substr($memory->getTextContent(), 0, 600);
                 $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $date, $score, $content);
             }
+
             $lines[] = '';
         }
 
-        // Default TF-IDF memory — found by keyword similarity
-        if (!empty($defaultResults)) {
-            $lines[] = '[KEYWORD MEMORY]';
-            foreach ($defaultResults as $i => $result) {
+        // TF-IDF supplement — records without embedding yet
+        if (!empty($supplementResults)) {
+            $lines[] = '[KEYWORD MEMORY — no embedding yet]';
+
+            foreach ($supplementResults as $i => $result) {
                 $memory  = $result['document'] ?? $result['memory'];
-                $score   = round(($result['composite_score'] ?? $result['similarity']) * 100, 1);
+                $score   = round(($result['similarity'] ?? 0) * 100, 1);
                 $date    = $memory->getCreatedAt()->format('Y-m-d');
                 $content = mb_substr($memory->getTextContent(), 0, 600);
                 $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $date, $score, $content);
             }
+
             $lines[] = '';
         }
 
-        // Skills — relevant knowledge items
+        // Skills
         if (!empty($skillResults)) {
             $lines[] = '[RELEVANT SKILLS]';
             foreach ($skillResults as $item) {
@@ -268,7 +333,7 @@ class RagContextEnricher implements RagContextEnricherInterface
             $lines[] = '';
         }
 
-        // Journal — relevant past events from the episodic chronicle
+        // Journal
         if (!empty($journalResults)) {
             $lines[] = '[RELEVANT JOURNAL ENTRIES]';
             foreach ($journalResults as $entry) {
@@ -290,6 +355,21 @@ class RagContextEnricher implements RagContextEnricherInterface
 
         return implode("\n", $lines);
     }
+
+    /**
+     * Human-readable section label for the primary results block.
+     */
+    private function primarySectionLabel(string $mode, string $engine): string
+    {
+        return match (true) {
+            $mode === VectorMemoryFactoryInterface::MODE_ASSOCIATIVE && $engine === VectorMemoryFactoryInterface::ENGINE_EMBEDDING => '[SEMANTIC ASSOCIATIVE MEMORY]',
+            $mode === VectorMemoryFactoryInterface::MODE_FLAT        && $engine === VectorMemoryFactoryInterface::ENGINE_EMBEDDING => '[SEMANTIC MEMORY]',
+            $mode === VectorMemoryFactoryInterface::MODE_ASSOCIATIVE                                                               => '[ASSOCIATIVE MEMORY]',
+            default                                                                                                                 => '[KEYWORD MEMORY]',
+        };
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private function generateEmptyResponse(AiPreset $mainPreset, ?AiPreset $voicePreset = null): EnricherResponseInterface
     {

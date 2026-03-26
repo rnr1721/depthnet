@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\KnownSourceController;
 use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\PersonController;
 use App\Http\Controllers\Admin\PluginController;
+use App\Http\Controllers\Admin\PresetCapabilityController;
 use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\PresetMcpController;
 use App\Http\Controllers\Admin\PresetPromptController;
@@ -182,6 +183,18 @@ Route::middleware('auth')->group(function () {
             Route::get('/export', [VectorMemoryController::class, 'export'])->name('export');
             Route::post('/import', [VectorMemoryController::class, 'import'])->name('import');
             Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
+        });
+
+        // Capabilities Management routes
+        Route::prefix('capabilities')->name('capabilities.')->group(function () {
+            // Index page — with optional preset selector (same pattern as plugins)
+            Route::get('/{presetId?}', [PresetCapabilityController::class, 'index'])->name('index');
+            // Reload capabilities JSON after preset switch
+            Route::get('/{presetId}/data', [PresetCapabilityController::class, 'show'])->name('show');
+            // Save config for a specific capability type
+            Route::put('/{presetId}/{capability}', [PresetCapabilityController::class, 'update'])->name('update');
+            // Test the current config
+            Route::post('/{presetId}/{capability}/test', [PresetCapabilityController::class, 'test'])->name('test');
         });
 
         // Skills Management routes

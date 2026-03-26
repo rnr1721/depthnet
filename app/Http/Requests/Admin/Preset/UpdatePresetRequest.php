@@ -33,6 +33,8 @@ class UpdatePresetRequest extends FormRequest
             'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'voice_context_limit' => 'required|integer|min:0|max:20',
             'rag_results' => 'required|integer|min:4|max:20',
+            'rag_mode' => 'required|in:flat,associative',
+            'rag_engine' => 'required|in:tfidf,embedding',
             'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'cp_context_limit' => 'required|integer|min:4|max:20',
             'voice_mp_commands' => ['nullable','string'],

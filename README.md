@@ -8,10 +8,11 @@
 ![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20CodeCraft%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
-**Advanced AI Agent Platform with Autonomous Reasoning** | v0.8.0
+**Advanced AI Agent Platform with Autonomous Reasoning** | v0.8.5
 
-DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, maintain persistent and semantic memory, and make autonomous decisions.
+DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 The platform supports multiple AI providers and presets that can be switched instantly, a plugin system for code execution (PHP, Python, Node.js), agent-to-agent handoff, RAG, and multi-source input. All of this runs within a web interface where administrators manage configurations and users observe or interact with the agent's reasoning process in real time.
+
 
 <a href="docs/screenshots/welcome.png">
   <img src="docs/screenshots/welcome.png" alt="Main Interface" height="300">
@@ -70,7 +71,7 @@ DepthNet enables autonomous AI agents through:
 - **Continuous Reasoning**: Agents operate in persistent thinking loops beyond simple request-response
 - **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
-- **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context)
+- **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, image, audio and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
 - **RAG (Retrieval-Augmented Generation)**: Built-in RAG support with configurable preset, provider, and retrieval mode (standard or associative). RAG data is injected into the system prompt via placeholder
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
@@ -102,7 +103,7 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Node.js Plugin**: Execute JavaScript with async/await and npm packages in local instance
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
 - **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
-- **Vector Memory Plugin**: Semantic memory storage with TF-IDF search capabilities and optional integration with regular memory for better discoverability. Supports two retrieval modes: standard (relevance-based) and associative (finds the most relevant memory, then expands to related ones). Can be exported and imported
+- **Vector Memory Plugin**: Semantic memory with dual-engine search: TF-IDF keyword similarity (always available) and dense embedding vectors via configurable provider (Novita, OpenAI, etc.). Two retrieval modes: flat (direct top-K) and associative (graph-based chain traversal through semantically related memories). Both journal and vector memory share the same embedding space — the agent can find connections between insights and actions by meaning, not just keywords.
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions (use local instance)
 - **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
@@ -433,6 +434,11 @@ php artisan agent stop 2       # Stop loop for preset ID 2
 php artisan agent status       # Status of all active presets
 php artisan agent status 1     # Status of specific preset
 php artisan agent status 1 --json
+
+
+php artisan vectormemory:embed --preset=1          # Backfill embeddings for vector memory
+php artisan vectormemory:embed --preset=1 --journal # Also backfill journal entries
+php artisan vectormemory:embed --all               # All presets with embedding configured
 ```
 
 ## Known Challenges & Observations
@@ -462,7 +468,7 @@ php artisan agent status 1 --json
 - **Agents use vector memory to build knowledge bases and reference past learnings**
 - Small models may fabricate reasons for dopamine changes or forget command syntax
 - Large models demonstrate genuine strategic thinking and adaptation
-- **Memory integration creates powerful knowledge discovery**: Agents can see semantic memory references in their constant context, leading to better information retrieval and learning patterns
+- **Memory integration creates powerful knowledge discovery**: Agents can see semantic memory references in their constant context, leading to better information retrieval and learning patterns. Semantic journal search enables pattern recognition across past decisions and actions — the agent can find "I decided X" and "I did Y" connections even when phrased differently
 
 ## Default Credentials
 

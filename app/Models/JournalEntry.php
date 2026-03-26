@@ -20,7 +20,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string      $summary      Short description (always visible)
  * @property string|null $details      Full event text (loaded on demand)
  * @property string|null $outcome      success|failure|pending|null
- * @property array       $tfidf_vector Semantic search vector
+ * @property array       $tfidf_vector TF-IDF sparse vector for keyword search
+ * @property array|null  $embedding    Dense float vector for semantic search
+ * @property int|null    $embedding_dim Vector dimension (1024 for bge-m3, etc.)
  */
 class JournalEntry extends Model implements TfIdfDocumentInterface
 {
@@ -34,11 +36,15 @@ class JournalEntry extends Model implements TfIdfDocumentInterface
         'details',
         'outcome',
         'tfidf_vector',
+        'embedding',
+        'embedding_dim',
     ];
 
     protected $casts = [
         'recorded_at'  => 'datetime',
         'tfidf_vector' => 'array',
+        'embedding'     => 'array',
+        'embedding_dim' => 'integer',
     ];
 
     public function preset(): BelongsTo

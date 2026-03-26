@@ -18,6 +18,7 @@ trait AiModelPromptTrait
             $initialMessage,
             $request->getPreset()->getId()
         );
+
         return $finalMessage;
     }
 }

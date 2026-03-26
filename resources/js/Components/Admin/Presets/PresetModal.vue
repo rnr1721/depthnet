@@ -171,6 +171,8 @@ const form = ref({
     cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
     rag_context_limit: props.preset?.rag_context_limit || 5,
     rag_results: props.preset?.rag_results || 5,
+    rag_mode: props.preset?.rag_mode || 'flat',
+    rag_engine: props.preset?.rag_engine || 'tfidf',
     voice_context_limit: props.preset?.voice_context_limit || 4,
     cp_context_limit: props.preset?.cp_context_limit || 5,
     voice_mp_commands: props.preset?.voice_mp_commands || ''

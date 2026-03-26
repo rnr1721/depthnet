@@ -231,6 +231,30 @@
                 </Transition>
             </div>
 
+            <!-- RAG mode -->
+            <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_rag_mode') }}
+                </label>
+                <select :value="modelValue.rag_mode" @input="updateField('rag_mode', $event.target.value)"
+                    :class="inputClass">
+                    <option value="flat">{{ t('p_modal_rag_mode_flat') }}</option>
+                    <option value="associative">{{ t('p_modal_rag_mode_assoc') }}</option>
+                </select>
+            </div>
+
+            <!-- RAG engine -->
+            <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_rag_engine') }}
+                </label>
+                <select :value="modelValue.rag_engine" @input="updateField('rag_engine', $event.target.value)"
+                    :class="inputClass">
+                    <option value="tfidf">{{ t('p_modal_rag_engine_tfidf') }}</option>
+                    <option value="embedding">{{ t('p_modal_rag_engine_embedding') }}</option>
+                </select>
+            </div>
+
             <!-- Rag context limit -->
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">

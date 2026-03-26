@@ -159,6 +159,11 @@
                         <span>{{ $t('plugins') }}</span>
                       </Link>
 
+                      <Link :href="capabilitiesLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('capabilities') }}</span>
+                      </Link>
+
                       <Link :href="route('admin.engines.index')" @click="dropdownOpen = false"
                         :class="dropdownLinkClass">
                         <span class="mr-3"></span>
@@ -219,7 +224,7 @@
             <div>
               <p :class="['font-medium', isDark ? 'text-white' : 'text-gray-900']">{{ $page.props.auth.user.name }}</p>
               <p :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">{{ isAdmin ? $t('admin') : $t('user')
-                }}</p>
+              }}</p>
             </div>
           </div>
 
@@ -307,6 +312,11 @@
                     <span class="text-lg"></span><span>{{ $t('plugins') }}</span>
                   </Link>
 
+                  <Link :href="capabilitiesLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('capabilities') }}</span>
+                  </Link>
+
                   <Link :href="route('admin.engines.index')" :class="mobileSubLinkClass"
                     @click="mobileMenuOpen = false; mobileAdminOpen = false">
                     <span class="text-lg"></span><span>{{ $t('engines') }}</span>
@@ -373,6 +383,7 @@ const goalsLink = computed(() => routeWithPreset(route('admin.goals.index')));
 const personLink = computed(() => routeWithPreset(route('admin.person-memory.index')));
 const journalLink = computed(() => routeWithPreset(route('admin.journal.index')));
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
+const capabilitiesLink = computed(() => routeWithPresetParam('admin.capabilities.index'));
 const knownSourcesLink = computed(() => routeWithPreset(route('admin.known-sources.index')));
 
 // Shared link class helpers

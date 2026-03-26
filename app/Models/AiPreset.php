@@ -25,6 +25,8 @@ class AiPreset extends Model
         'rag_preset_id',
         'rag_context_limit',
         'rag_results',
+        'rag_mode',
+        'rag_engine',
         'voice_preset_id',
         'voice_context_limit',
         'cycle_prompt_preset_id',
@@ -85,6 +87,8 @@ class AiPreset extends Model
         'plugins_disabled' => '',
         'rag_context_limit' => 5,
         'rag_results' => 5,
+        'rag_mode' => 'flat',
+        'rag_engine' => 'tfidf',
         'voice_context_limit' => 4,
         'cp_context_limit' => 5,
         'voice_mp_commands' => '',
@@ -502,6 +506,26 @@ class AiPreset extends Model
     public function getRagResults(): int
     {
         return $this->rag_results;
+    }
+
+    /**
+     * Rag mode - flat or associative
+     *
+     * @return string
+     */
+    public function getRagMode(): string
+    {
+        return $this->rag_mode;
+    }
+
+    /**
+     * Rag engine - tfidf or embedding (need provider)
+     *
+     * @return string
+     */
+    public function getRagEngine(): string
+    {
+        return $this->rag_engine;
     }
 
     /**

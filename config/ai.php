@@ -1,5 +1,7 @@
 <?php
 
+use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
+
 $isSandboxEnvironment = (function () {
     $profiles = env('COMPOSE_PROFILES');
     return $profiles && (
@@ -1837,17 +1839,18 @@ return [
 
             'vectormemory' => [
                 'enabled' => true,
-                'memory_mode' => 'default',
+                'memory_mode'           => 'flat',
+                'memory_engine'         => 'tfidf',
                 'max_entries' => 1000,
                 'similarity_threshold' => 0.1,
                 'search_limit' => 5,
                 'auto_cleanup' => true,
                 'boost_recent' => true,
-                'integrate_with_memory' => false, // Integrate with regular memory
-                'memory_link_format' => 'descriptive', //short, descriptive, timestamped
-                'max_link_keywords' => 4, // Max keywords in memory link
-                'display_content_length' => 500,
+                'integrate_with_memory' => false,
+                'memory_link_format' => 'descriptive',
+                'max_link_keywords' => 4,
                 'language_mode' => 'auto',
+                'display_content_length' => 500,
                 'custom_stop_words_ru' => '',
                 'custom_stop_words_en' => ''
             ],

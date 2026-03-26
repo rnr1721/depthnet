@@ -55,7 +55,7 @@
           <div class="text-xs text-indigo-200 opacity-75 mb-1">
             {{ src.source }}
           </div>
-          <div class="text-sm leading-relaxed">{{ src.content }}</div>
+          <div class="text-sm leading-relaxed whitespace-pre-wrap">{{ src.content }}</div>
           <div v-if="src.timestamp" class="text-xs opacity-40 mt-1">
             {{ formatSourceTime(src.timestamp) }}
           </div>

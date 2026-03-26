@@ -1945,6 +1945,13 @@ return [
                 'decay_hours'       => 24,
                 'default_intensity' => 3,
             ],
+
+            'being' => [
+                'enabled'        => true,
+                'default_being'  => '',
+                'history_limit'  => 5,
+                'history_format' => 'numbered',
+            ],
         ],
 
         /*

@@ -124,7 +124,7 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
 
             // Supplement with TF-IDF for records missing an embedding
             if ($withoutEmbedding->isNotEmpty() && count($results) < $searchLimit) {
-                $seenIds   = array_column(array_column($results, 'memory'), 'id');
+                $seenIds   = array_map(fn ($r) => $r['memory']->id, $results);
                 $remaining = $searchLimit - count($results);
 
                 $tfidfResults = $this->tfIdfService->findSimilar(

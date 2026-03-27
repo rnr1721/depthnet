@@ -317,25 +317,38 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     public function getVectorMemoryStats(AiPreset $preset, array $config = []): array
     {
         try {
-            $memories   = $this->getVectorMemories($preset);
-            $totalCount = $memories->count();
             $maxEntries = $config['max_entries'] ?? 1000;
 
-            $avgVectorSize = 0;
-            $totalFeatures = 0;
-            $allWords      = [];
+            $totalCount = $this->vectorMemoryModel
+                ->where('preset_id', $preset->id)
+                ->count();
 
-            foreach ($memories as $memory) {
-                $vector         = $memory->tfidf_vector;
-                $totalFeatures += count($vector);
-                $allWords       = array_merge($allWords, array_keys($vector));
-            }
+            $timestamps = $this->vectorMemoryModel
+                ->where('preset_id', $preset->id)
+                ->selectRaw('MIN(created_at) as oldest, MAX(created_at) as newest')
+                ->first();
+
+            // Vocabulary and avg vector size still need records, but only the vector column
+            $avgVectorSize  = 0;
+            $vocabularySize = 0;
 
             if ($totalCount > 0) {
-                $avgVectorSize = $totalFeatures / $totalCount;
-            }
+                $vectors = $this->vectorMemoryModel
+                    ->where('preset_id', $preset->id)
+                    ->pluck('tfidf_vector');
 
-            $vocabularySize = count(array_unique($allWords));
+                $totalFeatures = 0;
+                $allWords      = [];
+
+                foreach ($vectors as $vector) {
+                    $arr            = is_array($vector) ? $vector : [];
+                    $totalFeatures += count($arr);
+                    array_push($allWords, ...array_keys($arr));
+                }
+
+                $avgVectorSize  = $totalFeatures / $totalCount;
+                $vocabularySize = count(array_unique($allWords));
+            }
 
             return [
                 'total_memories'      => $totalCount,
@@ -345,8 +358,8 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 'vocabulary_size'     => $vocabularySize,
                 'is_near_limit'       => $totalCount > ($maxEntries * 0.8),
                 'is_over_limit'       => $totalCount > $maxEntries,
-                'oldest_memory'       => $memories->isNotEmpty() ? $memories->last()->created_at : null,
-                'newest_memory'       => $memories->isNotEmpty() ? $memories->first()->created_at : null
+                'oldest_memory'       => $timestamps->oldest ?? null,
+                'newest_memory'       => $timestamps->newest ?? null,
             ];
 
         } catch (\Throwable $e) {
@@ -585,7 +598,11 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     }
 
     /**
-     * Cleanup old entries if limit is reached
+     * Cleanup entries if limit is reached.
+     *
+     * Deletes the weakest memories first using a lightweight composite score:
+     *   importance * (1 + log(1 + access_count))
+     * Only scalar columns are fetched — no vectors loaded into memory.
      */
     protected function cleanupIfNeeded(AiPreset $preset, array $config): void
     {
@@ -596,14 +613,26 @@ class VectorMemoryService implements VectorMemoryServiceInterface
         $maxEntries   = $config['max_entries'] ?? 1000;
         $currentCount = $this->vectorMemoryModel->where('preset_id', $preset->id)->count();
 
-        if ($currentCount >= $maxEntries) {
-            $deleteCount = $currentCount - $maxEntries + 1;
-
-            $this->vectorMemoryModel->where('preset_id', $preset->id)
-                ->orderBy('created_at', 'asc')
-                ->limit($deleteCount)
-                ->delete();
+        if ($currentCount < $maxEntries) {
+            return;
         }
+
+        $deleteCount = $currentCount - $maxEntries + 1;
+
+        $memories = $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
+            ->get(['id', 'importance', 'access_count']);
+
+        $scored = $memories->map(fn ($m) => [
+            'id'    => $m->id,
+            'score' => ($m->importance ?? 1.0) * (1 + log(1 + ($m->access_count ?? 0))),
+        ])->sortBy('score');
+
+        $idsToDelete = $scored->take($deleteCount)->pluck('id')->toArray();
+
+        $this->vectorMemoryModel->whereIn('id', $idsToDelete)->delete();
+
+        $this->logger->info("VectorMemoryService: cleaned up {$deleteCount} weakest memories for preset {$preset->id}.");
     }
 
     /**

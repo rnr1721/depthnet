@@ -184,9 +184,9 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 $results[] = [
                     'document'        => $memory,
                     'memory'          => $memory,
-                    'similarity'      => $initialScores[$idx] ?? $score,
+                    'similarity'      => $initialScores[$idx] ?? null, // null for graph-hop nodes — not a cosine score
                     'composite_score' => $score,
-                    'source'          => 'embedding_graph',
+                    'source'          => isset($initialScores[$idx]) ? 'embedding_graph' : 'embedding_graph_hop',
                 ];
             }
 
@@ -357,7 +357,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
         $results = $embeddingResults;
 
         if ($withoutEmbedding->isNotEmpty() && count($results) < $searchLimit) {
-            $seenIds   = array_column(array_column($results, 'memory'), 'id');
+            $seenIds   = array_map(fn ($r) => $r['memory']->id, $results);
             $remaining = $searchLimit - count($results);
 
             $tfidf = $this->tfIdfService->findSimilar(
@@ -370,6 +370,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
 
             foreach ($tfidf as $r) {
                 if (!in_array($r['document']->id, $seenIds, true)) {
+                    $seenIds[] = $r['document']->id; // prevent intra-tfidf dupes
                     $results[] = array_merge($r, [
                         'memory' => $r['document'],
                         'source' => 'tfidf_fallback',

@@ -13,8 +13,8 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
-use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
+use App\Models\Message;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use App\Services\Agent\Enricher\EnricherResponse;
 use Psr\Log\LoggerInterface;
@@ -37,6 +37,7 @@ class RagContextEnricher implements RagContextEnricherInterface
         protected PluginMetadataServiceInterface     $pluginMetadataService,
         protected SkillServiceInterface              $skillService,
         protected JournalServiceInterface            $journalService,
+        protected Message                            $messageModel,
         protected LoggerInterface                    $logger,
     ) {
     }
@@ -110,9 +111,13 @@ class RagContextEnricher implements RagContextEnricherInterface
                 $journalResults
             );
 
+            // Create message in RAG preset for transparency with results
+            $this->createMessage($result, $ragPreset->getId(), 'system');
+
             return new EnricherResponse($preset, $ragPreset, $result);
 
         } catch (\Throwable $e) {
+            $this->createMessage($e->getMessage(), $ragPreset->getId(), 'system');
             $this->logger->error('RagContextEnricher::enrich error: ' . $e->getMessage(), [
                 'main_preset_id' => $preset->getId(),
                 'trace'          => $e->getTraceAsString(),
@@ -367,6 +372,27 @@ class RagContextEnricher implements RagContextEnricherInterface
             $mode === VectorMemoryFactoryInterface::MODE_ASSOCIATIVE                                                               => '[ASSOCIATIVE MEMORY]',
             default                                                                                                                 => '[KEYWORD MEMORY]',
         };
+    }
+
+    /**
+     * Create system message
+     *
+     * @param string $content
+     * @param int $presetId
+     * @param string $role
+     * @param array $metadata
+     * @return Message
+     */
+    protected function createMessage(string $content, int $presetId, string $role, array $metadata = []): Message
+    {
+        return $this->messageModel->create([
+            'role' => 'system',
+            'content' => $content,
+            'from_user_id' => null,
+            'preset_id' => $presetId,
+            'is_visible_to_user' => true,
+            'metadata' => $metadata
+        ]);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

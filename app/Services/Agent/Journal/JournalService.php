@@ -318,7 +318,7 @@ class JournalService implements JournalServiceInterface
 
                 // TF-IDF supplement for entries without embedding
                 if ($withoutEmbedding->isNotEmpty() && count($results) < $limit) {
-                    $seenIds   = array_column(array_column($results, 'entry'), 'id');
+                    $seenIds   = array_map(fn ($r) => $r['entry']->id, $results);
                     $remaining = $limit - count($results);
 
                     $tfidf = $this->tfIdfService->findSimilar(
@@ -331,6 +331,7 @@ class JournalService implements JournalServiceInterface
 
                     foreach ($tfidf as $r) {
                         if (!in_array($r['document']->id, $seenIds, true)) {
+                            $seenIds[] = $r['document']->id;
                             $results[] = ['entry' => $r['document'], 'score' => $r['similarity']];
                         }
                     }

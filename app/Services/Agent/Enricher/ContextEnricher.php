@@ -139,7 +139,13 @@ class ContextEnricher implements ContextEnricherInterface
     public function getVoicePreset(AiPreset $mainPreset, string $target): ?AiPreset
     {
         $dbField = $this->getDbField($target);
-        return $this->presetService->findById($mainPreset->$dbField);
+        $presetId = $mainPreset->$dbField;
+
+        if (!$presetId) {
+            return null;
+        }
+
+        return $this->presetService->findById($presetId);
     }
 
     /**

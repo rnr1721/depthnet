@@ -14,7 +14,9 @@ trait PluginExecutionMetaTrait
      */
     public function getPluginExecutionMeta(): array
     {
-        return $this->pluginExecutionMeta;
+        $meta = $this->pluginExecutionMeta;
+        $this->pluginExecutionMeta = [];
+        return $meta;
     }
 
     /**

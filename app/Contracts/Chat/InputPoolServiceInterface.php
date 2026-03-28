@@ -148,4 +148,13 @@ interface InputPoolServiceInterface
      * @param int[] $orderedIds IDs in desired display/injection order
      */
     public function reorderKnownSources(int $presetId, array $orderedIds): void;
+
+    /**
+     * Remove a single pool item by preset and source name.
+     *
+     * @param int    $presetId
+     * @param string $sourceName
+     */
+    public function removeItem(int $presetId, string $sourceName): void;
+
 }

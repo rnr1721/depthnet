@@ -21,7 +21,6 @@ interface AgentInterface
      */
     public function think(
         AiPreset $currentPreset,
-        ?AiPreset $mainPreset = null
     ): AiAgentResponseInterface;
 
 }

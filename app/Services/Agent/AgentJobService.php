@@ -9,33 +9,27 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Jobs\ProcessAgentThinking;
 use App\Models\AiPreset;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Support\Facades\Artisan;
 use Psr\Log\LoggerInterface;
 
 class AgentJobService implements AgentJobServiceInterface
 {
-    /**
-     * Queue name
-     */
     private string $queue = 'ai';
-
-    /**
-     * Lock key prefix: task_lock_{presetId}
-     */
     private const LOCK_PREFIX = 'task_lock_';
+
+    /** Lock TTL in seconds — safety net if process dies without releasing */
+    private const LOCK_TTL = 300;
 
     public function __construct(
         private OptionsServiceInterface $options,
         private ChatStatusServiceInterface $chatStatusService,
         private PresetServiceInterface $presetService,
         private AgentInterface $agent,
+        private Cache $cache,
         private LoggerInterface $logger
     ) {
     }
-
-    // -------------------------------------------------------------------------
-    // Interface implementation
-    // -------------------------------------------------------------------------
 
     /** @inheritDoc */
     public function isActive(int $presetId): bool
@@ -46,7 +40,6 @@ class AgentJobService implements AgentJobServiceInterface
     /** @inheritDoc */
     public function canStart(int $presetId): bool
     {
-        // Can start when active and not already running
         return $this->isActive($presetId) && !$this->isLocked($presetId);
     }
 
@@ -59,8 +52,6 @@ class AgentJobService implements AgentJobServiceInterface
     /** @inheritDoc */
     public function start(int $presetId, bool $singleMode = false): bool
     {
-
-        // Single mode: run once only if not blocked
         if ($singleMode) {
             if ($this->isLocked($presetId)) {
                 $this->logger->info("AgentJobService: Cannot start preset {$presetId} - already running");
@@ -70,7 +61,6 @@ class AgentJobService implements AgentJobServiceInterface
             return true;
         }
 
-        // Cycle mode: must be active and not blocked
         if (!$this->canStart($presetId)) {
             $this->logger->info("AgentJobService: Cannot start preset {$presetId} - conditions not met");
             return false;
@@ -91,7 +81,7 @@ class AgentJobService implements AgentJobServiceInterface
         }
 
         $this->logger->info("AgentJobService: Stopping thinking loop for preset {$presetId}");
-        $this->unlock($presetId);
+        $this->releaseLock($presetId);
 
         return true;
     }
@@ -99,7 +89,7 @@ class AgentJobService implements AgentJobServiceInterface
     /** @inheritDoc */
     public function isLocked(int $presetId): bool
     {
-        return $this->options->get(self::LOCK_PREFIX . $presetId, false) === true;
+        return $this->cache->has(self::LOCK_PREFIX . $presetId);
     }
 
     /** @inheritDoc */
@@ -127,7 +117,6 @@ class AgentJobService implements AgentJobServiceInterface
             ]);
 
             if ($isActive && !$wasActive) {
-                // Fresh start — restart queue workers so the new job is picked up cleanly
                 $this->restartQueue();
                 $this->start($presetId);
             } elseif (!$isActive && $wasActive) {
@@ -148,11 +137,10 @@ class AgentJobService implements AgentJobServiceInterface
     /** @inheritDoc */
     public function getModelSettings(int $presetId): array
     {
-        $isActive      = $this->isActive($presetId);
-        $isLocked      = $this->isLocked($presetId);
-        $canStart      = $this->canStart($presetId);
+        $isActive = $this->isActive($presetId);
+        $isLocked = $this->isLocked($presetId);
+        $canStart = $this->canStart($presetId);
 
-        // Auto-correct: active flag set but queue not running and not locked
         if ($isActive && !$isLocked && !$canStart) {
             $this->logger->info("AgentJobService: Auto-correcting state for preset {$presetId}");
             $this->chatStatusService->setPresetStatus($presetId, false);
@@ -173,7 +161,6 @@ class AgentJobService implements AgentJobServiceInterface
     {
         $activePresetIds = $this->chatStatusService->getActivePresetIds();
 
-        // Also include presets that have a lock (running but maybe not in active list)
         $result = [];
         foreach ($activePresetIds as $presetId) {
             $result[$presetId] = $this->getModelSettings($presetId);
@@ -187,137 +174,49 @@ class AgentJobService implements AgentJobServiceInterface
     // -------------------------------------------------------------------------
 
     /**
-     * Core thinking loop for one preset, with handoff support.
+     * Execute a single thinking cycle for one preset.
      *
-     * @param integer $presetId
-     * @return void
+     * Uses atomic cache lock — if another process is already running
+     * this preset, the lock acquisition fails and we bail out.
+     * TTL ensures the lock auto-expires if the process crashes.
      */
     private function executeThinkingCycle(int $presetId): void
     {
-        $this->lock($presetId);
+        $lock = $this->cache->lock(self::LOCK_PREFIX . $presetId, self::LOCK_TTL);
+
+        if (!$lock->get()) {
+            $this->logger->info("AgentJobService: Skipped preset {$presetId} — could not acquire lock");
+            return;
+        }
 
         try {
-            $this->logger->info("AgentJobService: Starting thinking cycle for preset {$presetId}");
-
-            $mainPreset    = $this->presetService->findById($presetId);
-            if (!$mainPreset) {
+            $preset = $this->presetService->findById($presetId);
+            if (!$preset) {
                 $this->logger->error("AgentJobService: Preset {$presetId} not found — aborting cycle");
                 return;
             }
 
-            $currentPreset  = $mainPreset;
-            $handoffChain   = [];
-            $iterationCount = 0;
-            $maxIterations  = 20;
-            $handoffData    = null;
-
-            while ($iterationCount < $maxIterations) {
-                $iterationCount++;
-
-                $this->logger->info("AgentJobService: Thinking iteration", [
-                    'preset_id'      => $presetId,
-                    'iteration'      => $iterationCount,
-                    'current_preset' => $currentPreset->getName(),
-                    'handoff_chain'  => $handoffChain,
-                ]);
-
-                if ($iterationCount > 1) {
-                    sleep($currentPreset->getBeforeExecutionWait());
-                }
-
-                $agentResponse = $this->agent->think(
-                    $currentPreset,
-                    $mainPreset,
-                    $handoffData['handoff_message'] ?? null
-                );
-
-                if ($agentResponse->hasError()) {
-                    $this->logger->error("AgentJobService: Agent error", [
-                        'preset_id' => $presetId,
-                        'error'     => $agentResponse->getErrorMessage(),
-                        'preset'    => $currentPreset->getName(),
-                    ]);
-                    break;
-                }
-
-                $message = $agentResponse->getMessage();
-                $this->logger->info("AgentJobService: Iteration completed", [
-                    'preset_id'  => $presetId,
-                    'message_id' => $message->id,
-                    'preset'     => $currentPreset->getName(),
-                ]);
-
-                if (!$agentResponse->hasHandoff()) {
-                    $this->logger->info("AgentJobService: No handoff, cycle complete for preset {$presetId}");
-                    break;
-                }
-
-                $handoffData      = $agentResponse->getHandoffData();
-                $targetPresetCode = $handoffData['target_preset'] ?? null;
-
-                if (!$targetPresetCode) {
-                    $this->logger->warning("AgentJobService: Empty handoff target for preset {$presetId}");
-                    break;
-                }
-
-                $targetPreset = $this->presetService->findByCode($targetPresetCode);
-                if (!$targetPreset) {
-                    $this->logger->error("AgentJobService: Handoff target not found", [
-                        'preset_id'   => $presetId,
-                        'target_code' => $targetPresetCode,
-                    ]);
-                    break;
-                }
-
-                if (!$currentPreset->allowsHandoffFrom()) {
-                    $this->logger->warning("AgentJobService: Preset does not allow handoff from", [
-                        'preset_id'      => $presetId,
-                        'current_preset' => $currentPreset->getName(),
-                    ]);
-                    break;
-                }
-
-                if (!$targetPreset->allowsHandoffTo()) {
-                    $this->logger->warning("AgentJobService: Target preset does not allow handoff to", [
-                        'preset_id'     => $presetId,
-                        'target_preset' => $targetPreset->getName(),
-                    ]);
-                    break;
-                }
-
-                if (in_array($targetPresetCode, $handoffChain, true)) {
-                    $this->logger->warning("AgentJobService: Handoff cycle detected", [
-                        'preset_id'   => $presetId,
-                        'target_code' => $targetPresetCode,
-                        'chain'       => $handoffChain,
-                    ]);
-                    break;
-                }
-
-                $currentPreset   = $targetPreset;
-                $handoffChain[]  = $targetPresetCode;
-
-                $this->logger->info("AgentJobService: Handoff successful", [
-                    'preset_id' => $presetId,
-                    'from'      => $handoffChain[count($handoffChain) - 2] ?? $mainPreset->getPresetCode(),
-                    'to'        => $targetPresetCode,
-                    'chain_len' => count($handoffChain),
-                ]);
-            }
-
-            if ($iterationCount >= $maxIterations) {
-                $this->logger->warning("AgentJobService: Max iterations reached for preset {$presetId}", [
-                    'max_iterations' => $maxIterations,
-                    'handoff_chain'  => $handoffChain,
-                ]);
-            }
-
-            $this->logger->info("AgentJobService: Cycle completed for preset {$presetId}", [
-                'total_iterations' => $iterationCount,
-                'handoff_chain'    => $handoffChain,
+            $this->logger->info("AgentJobService: Starting thinking cycle", [
+                'preset_id' => $presetId,
+                'preset'    => $preset->getName(),
             ]);
 
-            $this->scheduleNextCycle($presetId, $mainPreset);
+            $agentResponse = $this->agent->think($preset);
+
+            if ($agentResponse->hasError()) {
+                $this->logger->error("AgentJobService: Agent error", [
+                    'preset_id' => $presetId,
+                    'error'     => $agentResponse->getErrorMessage(),
+                ]);
+                return;
+            }
+
+            $this->logger->info("AgentJobService: Cycle completed", [
+                'preset_id'  => $presetId,
+                'message_id' => $agentResponse->getMessage()->id,
+            ]);
+
+            $this->scheduleNextCycle($presetId, $preset);
 
         } catch (\Throwable $e) {
             $this->logger->error("AgentJobService: Cycle failed for preset {$presetId}", [
@@ -326,16 +225,12 @@ class AgentJobService implements AgentJobServiceInterface
             ]);
             throw $e;
         } finally {
-            $this->unlock($presetId);
+            $lock->release();
         }
     }
 
     /**
-     * Schedule the next cycle for this preset using its own loop_interval.
-     *
-     * @param integer $presetId
-     * @param AiPreset $preset
-     * @return void
+     * Schedule the next cycle — only if preset is still active.
      */
     private function scheduleNextCycle(int $presetId, AiPreset $preset): void
     {
@@ -353,31 +248,15 @@ class AgentJobService implements AgentJobServiceInterface
     }
 
     /**
-     * Lock preset
-     *
-     * @param integer $presetId
-     * @return void
+     * Force-release a lock (used by stop()).
      */
-    private function lock(int $presetId): void
+    private function releaseLock(int $presetId): void
     {
-        $this->options->set(self::LOCK_PREFIX . $presetId, true);
+        $this->cache->lock(self::LOCK_PREFIX . $presetId)->forceRelease();
     }
 
     /**
-     * Unlock preset
-     *
-     * @param integer $presetId
-     * @return void
-     */
-    private function unlock(int $presetId): void
-    {
-        $this->options->set(self::LOCK_PREFIX . $presetId, false);
-    }
-
-    /**
-     * Restart Laravel queue workers (applies when new jobs need fresh state).
-     *
-     * @return void
+     * Restart Laravel queue workers.
      */
     private function restartQueue(): void
     {

@@ -108,6 +108,17 @@ class InputPoolService implements InputPoolServiceInterface
         return $this->poolItemModel->forPreset($presetId)->orderBy('created_at')->get();
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function removeItem(int $presetId, string $sourceName): void
+    {
+        $this->poolItemModel
+            ->forPreset($presetId)
+            ->where('source_name', $sourceName)
+            ->delete();
+    }
+
     // -------------------------------------------------------------------------
     // Known sources
     // -------------------------------------------------------------------------

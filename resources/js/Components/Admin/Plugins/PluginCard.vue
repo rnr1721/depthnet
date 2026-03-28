@@ -152,6 +152,16 @@
                         {{ getFieldError(fieldName) }}
                     </div>
 
+                    <!-- Date Input -->
+                    <input v-else-if="field.type === 'date'" v-model="localConfig[fieldName]" type="date"
+                        @input="updateConfig(fieldName, localConfig[fieldName])" :class="getFieldClasses(fieldName)" />
+                    <div v-if="field.type === 'date' && hasFieldError(fieldName)" :class="[
+                        'text-xs mt-1',
+                        'text-red-500'
+                    ]">
+                        {{ getFieldError(fieldName) }}
+                    </div>
+
                     <!-- Select -->
                     <select v-else-if="field.type === 'select'" v-model="localConfig[fieldName]"
                         @change="updateConfig(fieldName, localConfig[fieldName])" :class="[

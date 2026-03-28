@@ -102,6 +102,7 @@ use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
+use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
@@ -333,6 +334,7 @@ class AiServiceProvider extends ServiceProvider
             CodeCraftPlugin::class,
             HeartPlugin::class,
             BeingPlugin::class,
+            RhythmPlugin::class
         ];
     }
 

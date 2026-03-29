@@ -56,7 +56,7 @@ class SkillPlugin implements CommandPluginInterface
 
     public function getDescription(): string
     {
-        return 'Persistent knowledge base. Store reusable knowledge as named skills with items. Items are semantically searchable via TF-IDF. Skill titles are always visible in context.';
+        return 'Persistent knowledge base. Store reusable knowledge as named skills with items. Items are semantically searchable via TF-IDF.';
     }
 
     public function getInstructions(): array

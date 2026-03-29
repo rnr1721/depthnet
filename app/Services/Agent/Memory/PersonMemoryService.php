@@ -2,321 +2,700 @@
 
 namespace App\Services\Agent\Memory;
 
+use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
+use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Models\AiPreset;
 use App\Models\PersonMemory;
 use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
 
 /**
- * Service for managing person-specific memory facts.
- * Each person has their own numbered list of facts that can be
- * added, deleted, and recalled independently.
+ * PersonMemoryService
+ *
+ * Manages structured facts about people.
+ *
+ * person_name is a slash-separated string of aliases:
+ *   "Женя / Жэка / James Kvakiani"
+ *
+ * Semantic search over fact content uses embedding cosine similarity
+ * with automatic TF-IDF fallback — same pattern as JournalService.
  */
 class PersonMemoryService implements PersonMemoryServiceInterface
 {
+    /** Separator used between aliases in person_name */
+    public const ALIAS_SEP = ' / ';
+
     public function __construct(
-        protected LoggerInterface $logger,
-        protected PersonMemory $personMemoryModel
+        protected TfIdfServiceInterface     $tfIdfService,
+        protected EmbeddingServiceInterface $embeddingService,
+        protected PersonMemory              $personModel,
+        protected LoggerInterface           $logger,
     ) {
     }
 
+    // -------------------------------------------------------------------------
+    // Write — facts
+    // -------------------------------------------------------------------------
+
     /**
-     * @inheritDoc
+     * Add a fact about a person.
+     * Format: "Name | fact text"
+     *
+     * If a person with that name (or alias) already exists, the fact is added
+     * to their existing record group. Otherwise a new person is created.
      */
-    public function addFact(AiPreset $preset, string $personName, string $content): array
+    public function addFact(AiPreset $preset, string $personName, string $fact): array
     {
         try {
-            $personName = $this->normalizeName($personName);
-            $content = trim($content);
+            $personName = trim($personName);
+            $fact       = trim($fact);
 
-            if (empty($content)) {
+            if (empty($personName) || empty($fact)) {
+                return ['success' => false, 'message' => 'Person name and fact cannot be empty.'];
+            }
+
+            // Resolve canonical name string — find existing person by any alias
+            $canonical = $this->resolveCanonicalName($preset, $personName) ?? $personName;
+
+            $exists = $this->personModel
+                ->forPreset($preset->id)
+                ->forPerson($canonical)
+                ->whereRaw('LOWER(content) = ?', [strtolower($fact)])
+                ->exists();
+
+            if ($exists) {
                 return [
                     'success' => false,
-                    'message' => 'Error: Fact content cannot be empty.'
+                    'message' => "Fact already exists for {$canonical}: \"{$fact}\"",
                 ];
             }
 
-            $currentCount = $this->personMemoryModel
+            // Next position for this person
+            $position = $this->personModel
                 ->forPreset($preset->id)
-                ->forPerson($personName)
-                ->count();
+                ->forPerson($canonical)
+                ->max('position') ?? 0;
+            $position++;
 
-            $newPosition = $currentCount + 1;
+            $vector = $this->tfIdfService->vectorize($fact);
 
-            $this->personMemoryModel->create([
-                'preset_id' => $preset->id,
-                'person_name' => $personName,
-                'content' => $content,
-                'position' => $newPosition
+            $record = $this->personModel->create([
+                'preset_id'    => $preset->id,
+                'person_name'  => $canonical,
+                'content'      => $fact,
+                'position'     => $position,
+                'tfidf_vector' => $vector,
             ]);
 
+            $this->attachEmbedding($record, $fact, $preset);
+
+            $primary = $record->getPrimaryName();
             return [
                 'success' => true,
-                'message' => "Fact [{$newPosition}] about {$personName} saved."
+                'message' => "Fact #{$record->id} added for {$primary} (position {$position}): {$fact}",
+                'record'  => $record,
             ];
 
         } catch (\Throwable $e) {
-            $this->logger->error("PersonMemoryService::addFact error: " . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => "Error saving fact: " . $e->getMessage()
-            ];
+            $this->logger->error('PersonMemoryService::addFact error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error adding fact: ' . $e->getMessage()];
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Write — aliases
+    // -------------------------------------------------------------------------
+
     /**
-     * @inheritDoc
+     * Add an alias to a person identified by fact ID.
+     * Updates person_name on ALL facts belonging to that person.
+     *
+     * [person alias add]1 | Жэка[/person]
      */
-    public function recallPerson(AiPreset $preset, string $personName): array
+    public function addAlias(AiPreset $preset, int $factId, string $alias): array
     {
         try {
-            $personName = $this->normalizeName($personName);
-            $items = $this->getPersonFacts($preset, $personName);
-
-            if ($items->isEmpty()) {
-                return [
-                    'success' => true,
-                    'message' => "No facts stored about {$personName} yet."
-                ];
+            $alias = trim($alias);
+            if (empty($alias)) {
+                return ['success' => false, 'message' => 'Alias cannot be empty.'];
             }
 
-            $formatted = $this->formatFacts($personName, $items);
+            $record = $this->personModel->forPreset($preset->id)->find($factId);
+            if (!$record) {
+                return ['success' => false, 'message' => "Person fact #{$factId} not found."];
+            }
+
+            $names = $record->getAllNames();
+
+            // Already has this alias?
+            if (in_array(strtolower($alias), array_map('strtolower', $names), true)) {
+                return ['success' => false, 'message' => "Alias \"{$alias}\" already exists for {$record->getPrimaryName()}."];
+            }
+
+            $names[]      = $alias;
+            $newName      = implode(self::ALIAS_SEP, $names);
+            $currentName  = $record->person_name;
+
+            // Update all facts for this person atomically
+            $this->personModel
+                ->forPreset($preset->id)
+                ->forPerson($currentName)
+                ->update(['person_name' => $newName]);
 
             return [
                 'success' => true,
-                'message' => $formatted
+                'message' => "Alias \"{$alias}\" added. {$record->getPrimaryName()} is now known as: {$newName}",
             ];
 
         } catch (\Throwable $e) {
-            $this->logger->error("PersonMemoryService::recallPerson error: " . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => "Error recalling person: " . $e->getMessage()
-            ];
+            $this->logger->error('PersonMemoryService::addAlias error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error adding alias: ' . $e->getMessage()];
         }
     }
 
     /**
-     * @inheritDoc
+     * Remove an alias from a person identified by fact ID.
+     * Cannot remove the primary name (first segment).
+     *
+     * [person alias remove]1 | Жэка[/person]
      */
-    public function deleteFact(AiPreset $preset, string $personName, int $factNumber): array
+    public function removeAlias(AiPreset $preset, int $factId, string $alias): array
     {
         try {
-            $personName = $this->normalizeName($personName);
-            $items = $this->getPersonFacts($preset, $personName);
+            $alias = trim($alias);
 
-            if ($factNumber < 1 || $factNumber > $items->count()) {
-                return [
-                    'success' => false,
-                    'message' => "Error: Fact [{$factNumber}] does not exist. {$personName} has {$items->count()} facts."
-                ];
+            $record = $this->personModel->forPreset($preset->id)->find($factId);
+            if (!$record) {
+                return ['success' => false, 'message' => "Person fact #{$factId} not found."];
             }
 
-            $itemToDelete = $items[$factNumber - 1];
-            $itemToDelete->delete();
+            $names   = $record->getAllNames();
+            $primary = $names[0];
 
-            $this->reorderPersonFacts($preset, $personName);
+            if (strtolower($alias) === strtolower($primary)) {
+                return ['success' => false, 'message' => "Cannot remove primary name \"{$primary}\". Use [person alias add] to add a new one first, then remove the old."];
+            }
 
-            $remaining = $items->count() - 1;
-            $message = $remaining === 0
-                ? "Fact [{$factNumber}] about {$personName} deleted. No facts remain."
-                : "Fact [{$factNumber}] about {$personName} deleted. {$remaining} facts remain.";
+            $filtered = array_values(array_filter(
+                $names,
+                fn ($n) => strtolower($n) !== strtolower($alias)
+            ));
+
+            if (count($filtered) === count($names)) {
+                return ['success' => false, 'message' => "Alias \"{$alias}\" not found for {$primary}."];
+            }
+
+            $newName     = implode(self::ALIAS_SEP, $filtered);
+            $currentName = $record->person_name;
+
+            $this->personModel
+                ->forPreset($preset->id)
+                ->forPerson($currentName)
+                ->update(['person_name' => $newName]);
 
             return [
                 'success' => true,
-                'message' => $message
+                'message' => "Alias \"{$alias}\" removed. Now known as: {$newName}",
             ];
 
         } catch (\Throwable $e) {
-            $this->logger->error("PersonMemoryService::deleteFact error: " . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => "Error deleting fact: " . $e->getMessage()
-            ];
+            $this->logger->error('PersonMemoryService::removeAlias error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error removing alias: ' . $e->getMessage()];
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Read
+    // -------------------------------------------------------------------------
+
+    /**
+     * Recall all facts for a person by name/alias or by fact ID.
+     * [person recall]Женя[/person]  or  [person recall]1[/person]
+     */
+    public function recallPerson(AiPreset $preset, string $nameOrId): array
+    {
+        try {
+            $canonical = $this->resolveByNameOrId($preset, $nameOrId);
+
+            if ($canonical === null) {
+                return ['success' => false, 'message' => "Person \"{$nameOrId}\" not found. Use [person list][/person] to see all people."];
+            }
+
+            $facts = $this->personModel
+                ->forPreset($preset->id)
+                ->forPerson($canonical)
+                ->ordered()
+                ->get();
+
+            return ['success' => true, 'message' => $this->formatPerson($canonical, $facts)];
+
+        } catch (\Throwable $e) {
+            $this->logger->error('PersonMemoryService::recallPerson error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error recalling person: ' . $e->getMessage()];
         }
     }
 
     /**
-     * @inheritDoc
+     * Find persons by mention — searches across all aliases.
+     * Returns list of matching persons with their IDs.
+     * [person find]Вася[/person]
+     */
+    public function findByMention(AiPreset $preset, string $term): array
+    {
+        try {
+            $term = trim($term);
+
+            $records = $this->personModel
+                ->forPreset($preset->id)
+                ->mentions($term)
+                ->ordered()
+                ->get();
+
+            if ($records->isEmpty()) {
+                return ['success' => true, 'message' => "No person matching \"{$term}\" found."];
+            }
+
+            // Group by person_name
+            $grouped = $records->groupBy('person_name');
+            $lines   = ["Persons matching \"{$term}\":"];
+
+            foreach ($grouped as $name => $facts) {
+                $firstId = $facts->first()->id;
+                $count   = $facts->count();
+                $lines[] = "  #{$firstId} {$name} — {$count} fact(s)";
+            }
+
+            return ['success' => true, 'message' => implode("\n", $lines)];
+
+        } catch (\Throwable $e) {
+            $this->logger->error('PersonMemoryService::findByMention error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error finding person: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Semantic search across all facts for a preset.
+     * Uses embedding cosine similarity, falls back to TF-IDF.
+     * [person search]punk aesthetic[/person]
+     */
+    public function searchFacts(AiPreset $preset, string $query, int $limit = 5): array
+    {
+        try {
+            $query = trim($query);
+            if (empty($query)) {
+                return ['success' => false, 'message' => 'Search query cannot be empty.'];
+            }
+
+            $all = $this->personModel
+                ->forPreset($preset->id)
+                ->get();
+
+            if ($all->isEmpty()) {
+                return ['success' => true, 'message' => 'No person facts recorded yet.'];
+            }
+
+            $matched = $this->semanticSearch($all, $query, $limit, $preset);
+
+            if (empty($matched)) {
+                return ['success' => true, 'message' => "No facts matching \"{$query}\" found."];
+            }
+
+            $lines = ["[PERSON FACTS — search: \"{$query}\"]", ''];
+            foreach ($matched as $r) {
+                $record = $r['record'];
+                $score  = round($r['score'] * 100, 1);
+                $lines[] = "#{$record->id} [{$record->getPrimaryName()} | {$score}%] {$record->content}";
+            }
+            $lines[] = '';
+            $lines[] = '[END]';
+
+            return ['success' => true, 'message' => implode("\n", $lines)];
+
+        } catch (\Throwable $e) {
+            $this->logger->error('PersonMemoryService::searchFacts error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error searching facts: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * List all known people with their fact counts and IDs.
+     * [person list][/person]
      */
     public function listPeople(AiPreset $preset): array
     {
         try {
-            $people = $this->personMemoryModel
+            $records = $this->personModel
                 ->forPreset($preset->id)
-                ->select('person_name')
-                ->selectRaw('COUNT(*) as fact_count')
-                ->groupBy('person_name')
-                ->orderBy('person_name')
+                ->ordered()
                 ->get();
 
-            if ($people->isEmpty()) {
-                return [
-                    'success' => true,
-                    'message' => 'No people in memory yet.'
-                ];
+            if ($records->isEmpty()) {
+                return ['success' => true, 'message' => 'No people in memory yet.'];
             }
 
-            $lines = ['People in memory:'];
-            foreach ($people as $person) {
-                $lines[] = "- {$person->person_name} ({$person->fact_count} facts)";
+            $grouped = $records->groupBy('person_name');
+            $lines   = ['[KNOWN PEOPLE]', ''];
+
+            foreach ($grouped as $name => $facts) {
+                $firstId = $facts->first()->id;
+                $count   = $facts->count();
+                $lines[] = "#{$firstId} {$name} ({$count} fact" . ($count !== 1 ? 's' : '') . ')';
             }
 
-            return [
-                'success' => true,
-                'message' => implode("\n", $lines)
-            ];
+            $lines[] = '';
+            $lines[] = 'Use [person recall]Name or ID[/person] to see facts.';
+
+            return ['success' => true, 'message' => implode("\n", $lines)];
 
         } catch (\Throwable $e) {
-            $this->logger->error("PersonMemoryService::listPeople error: " . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => "Error listing people: " . $e->getMessage()
-            ];
+            $this->logger->error('PersonMemoryService::listPeople error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error listing people: ' . $e->getMessage()];
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Delete
+    // -------------------------------------------------------------------------
+
     /**
-     * @inheritDoc
+     * Delete a specific fact by its ID.
+     * [person delete]42[/person]
      */
-    public function forgetPerson(AiPreset $preset, string $personName): array
+    public function deleteFact(AiPreset $preset, int $factId): array
     {
         try {
-            $personName = $this->normalizeName($personName);
+            $record = $this->personModel->forPreset($preset->id)->find($factId);
 
-            $count = $this->personMemoryModel
-                ->forPreset($preset->id)
-                ->forPerson($personName)
-                ->count();
-
-            if ($count === 0) {
-                return [
-                    'success' => false,
-                    'message' => "No facts found about {$personName}."
-                ];
+            if (!$record) {
+                return ['success' => false, 'message' => "Fact #{$factId} not found."];
             }
 
-            $this->personMemoryModel
-                ->forPreset($preset->id)
-                ->forPerson($personName)
-                ->delete();
+            $name    = $record->getPrimaryName();
+            $content = mb_substr($record->content, 0, 80);
+            $record->delete();
 
-            return [
-                'success' => true,
-                'message' => "All {$count} facts about {$personName} forgotten."
-            ];
+            return ['success' => true, 'message' => "Fact #{$factId} deleted from {$name}: \"{$content}\""];
 
         } catch (\Throwable $e) {
-            $this->logger->error("PersonMemoryService::forgetPerson error: " . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => "Error forgetting person: " . $e->getMessage()
-            ];
+            $this->logger->error('PersonMemoryService::deleteFact error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error deleting fact: ' . $e->getMessage()];
         }
     }
 
     /**
-     * @inheritDoc
+     * Delete all facts about a person (by name/alias or fact ID).
+     * [person forget]Женя[/person]
      */
-    public function getStructuredPeople($preset): array
+    public function forgetPerson(AiPreset $preset, string $nameOrId): array
     {
-        $rows = $this->personMemoryModel->where('preset_id', $preset->id)
-            ->orderBy('person_name')
-            ->orderBy('position')
-            ->get();
+        try {
+            $canonical = $this->resolveByNameOrId($preset, $nameOrId);
+
+            if ($canonical === null) {
+                return ['success' => false, 'message' => "Person \"{$nameOrId}\" not found."];
+            }
+
+            $count = $this->personModel
+                ->forPreset($preset->id)
+                ->forPerson($canonical)
+                ->count();
+
+            $this->personModel
+                ->forPreset($preset->id)
+                ->forPerson($canonical)
+                ->delete();
+
+            $primary = trim(explode(self::ALIAS_SEP, $canonical)[0]);
+            return ['success' => true, 'message' => "Forgot {$primary} — {$count} fact(s) deleted."];
+
+        } catch (\Throwable $e) {
+            $this->logger->error('PersonMemoryService::forgetPerson error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error forgetting person: ' . $e->getMessage()];
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // RAG enricher support
+    // -------------------------------------------------------------------------
+
+    /**
+     * Get relevant person facts for RAG context, given a semantic query.
+     * Returns raw records grouped by person, up to $factsPerPerson each.
+     *
+     * Used by PersonContextEnricher.
+     *
+     * @return array<string, PersonMemory[]>  keyed by person_name
+     */
+    public function getRelevantFacts(AiPreset $preset, string $query, int $limit = 5, int $factsPerPerson = 5): array
+    {
+        $all = $this->personModel->forPreset($preset->id)->get();
+
+        if ($all->isEmpty()) {
+            return [];
+        }
+
+        $matched = $this->semanticSearch($all, $query, $limit * $factsPerPerson, $preset);
 
         $grouped = [];
-        foreach ($rows as $row) {
-            $name = $row->person_name;
+        foreach ($matched as $r) {
+            $name = $r['record']->person_name;
             if (!isset($grouped[$name])) {
-                $grouped[$name] = [
-                    'name'  => $name,
-                    'facts' => [],
-                ];
+                $grouped[$name] = [];
             }
-            $grouped[$name]['facts'][] = [
-                'id'       => $row->id,
-                'number'   => $row->position,
-                'content'  => $row->content,
-            ];
+            if (count($grouped[$name]) < $factsPerPerson) {
+                $grouped[$name][] = $r['record'];
+            }
         }
 
-        return array_values($grouped);
+        return $grouped;
     }
 
     /**
-     * @inheritDoc
+     * Get all facts for people currently in Heart focus.
+     * Used by PersonContextEnricher when Heart plugin is active.
+     *
+     * @param  string[] $names  Names from heart_state dominant/connections
+     * @return array<string, PersonMemory[]>
+     */
+    public function getFactsForNames(AiPreset $preset, array $names, int $factsPerPerson = 5): array
+    {
+        $grouped = [];
+
+        foreach ($names as $name) {
+            $canonical = $this->resolveCanonicalName($preset, $name);
+            if ($canonical === null) {
+                continue;
+            }
+
+            $facts = $this->personModel
+                ->forPreset($preset->id)
+                ->forPerson($canonical)
+                ->ordered()
+                ->limit($factsPerPerson)
+                ->get();
+
+            if ($facts->isNotEmpty()) {
+                $grouped[$canonical] = $facts->all();
+            }
+        }
+
+        return $grouped;
+    }
+
+    // -------------------------------------------------------------------------
+    // Structured export / clear
+    // -------------------------------------------------------------------------
+
+    /**
+     * Get all people with their facts as a structured array.
+     * Used by UI and export functionality.
+     *
+     * @return array<array{name: string, primary: string, aliases: string[], facts: PersonMemory[]}>
+     */
+    public function getStructuredPeople(AiPreset $preset): array
+    {
+        $records = $this->personModel
+            ->forPreset($preset->id)
+            ->ordered()
+            ->get();
+
+        $result = [];
+
+        foreach ($records->groupBy('person_name') as $name => $facts) {
+            $segments = array_map('trim', explode(self::ALIAS_SEP, $name));
+            $result[] = [
+                'name'    => $name,
+                'primary' => $segments[0],
+                'aliases' => array_slice($segments, 1),
+                'facts'   => $facts->all(),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Delete all persons and facts for a preset.
      */
     public function clearAll(AiPreset $preset): void
     {
-        $this->personMemoryModel->where('preset_id', $preset->id)->delete();
+        $this->personModel->forPreset($preset->id)->delete();
     }
 
-    /**
-     * Get facts for a person as a Collection
-     *
-     * @param AiPreset $preset
-     * @param string $personName
-     * @return Collection
-     */
-    protected function getPersonFacts(AiPreset $preset, string $personName): Collection
-    {
-        return $this->personMemoryModel
-            ->forPreset($preset->id)
-            ->forPerson($personName)
-            ->ordered()
-            ->get();
-    }
+    // -------------------------------------------------------------------------
+    // Semantic search — same pattern as JournalService
+    // -------------------------------------------------------------------------
 
     /**
-     * Format facts for output
-     *
-     * @param string $personName
-     * @param Collection $items
-     * @return string
+     * @param  Collection<PersonMemory> $records
+     * @return array<array{record: PersonMemory, score: float}>
      */
-    protected function formatFacts(string $personName, Collection $items): string
+    private function semanticSearch(Collection $records, string $query, int $limit, AiPreset $preset): array
     {
-        $lines = ["Person: {$personName}"];
-        foreach ($items as $index => $item) {
-            $number = $index + 1;
-            $lines[] = "[{$number}] {$item->content}";
-        }
-        return implode("\n", $lines);
-    }
+        // ── Embedding path ────────────────────────────────────────────────────
+        if ($this->embeddingService->isAvailable($preset)) {
+            $queryVector = $this->embeddingService->embed($query, $preset);
 
-    /**
-     * Reorder facts for a person to have sequential positions
-     *
-     * @param AiPreset $preset
-     * @param string $personName
-     * @return void
-     */
-    protected function reorderPersonFacts(AiPreset $preset, string $personName): void
-    {
-        $items = $this->personMemoryModel
-            ->forPreset($preset->id)
-            ->forPerson($personName)
-            ->ordered()
-            ->get();
+            if ($queryVector !== null) {
+                $withEmbedding    = $records->filter(fn ($r) => !empty($r->embedding));
+                $withoutEmbedding = $records->filter(fn ($r) => empty($r->embedding));
 
-        foreach ($items as $index => $item) {
-            $newPosition = $index + 1;
-            if ($item->position !== $newPosition) {
-                $item->update(['position' => $newPosition]);
+                $results = [];
+
+                foreach ($withEmbedding as $record) {
+                    $score = $this->cosineSimilarity($queryVector, $record->embedding);
+                    if ($score >= 0.3) {
+                        $results[] = ['record' => $record, 'score' => $score];
+                    }
+                }
+
+                usort($results, fn ($a, $b) => $b['score'] <=> $a['score']);
+                $results = array_slice($results, 0, $limit);
+
+                // TF-IDF supplement for records without embedding
+                if ($withoutEmbedding->isNotEmpty() && count($results) < $limit) {
+                    $seenIds   = array_map(fn ($r) => $r['record']->id, $results);
+                    $remaining = $limit - count($results);
+
+                    $tfidf = $this->tfIdfService->findSimilar(
+                        $query,
+                        $withoutEmbedding,
+                        $remaining,
+                        0.05,
+                        false
+                    );
+
+                    foreach ($tfidf as $r) {
+                        if (!in_array($r['document']->id, $seenIds, true)) {
+                            $results[] = ['record' => $r['document'], 'score' => $r['similarity']];
+                        }
+                    }
+                }
+
+                if (!empty($results)) {
+                    return $results;
+                }
             }
         }
+
+        // ── TF-IDF fallback ───────────────────────────────────────────────────
+        $tfidf = $this->tfIdfService->findSimilar($query, $records, $limit, 0.05, false);
+
+        return array_map(
+            fn ($r) => ['record' => $r['document'], 'score' => $r['similarity']],
+            $tfidf
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Embedding helpers
+    // -------------------------------------------------------------------------
+
+    private function attachEmbedding(PersonMemory $record, string $text, AiPreset $preset): void
+    {
+        try {
+            if (!$this->embeddingService->isAvailable($preset)) {
+                return;
+            }
+
+            $vector = $this->embeddingService->embed($text, $preset);
+
+            if ($vector === null) {
+                return;
+            }
+
+            $record->update([
+                'embedding'     => $vector,
+                'embedding_dim' => count($vector),
+            ]);
+
+        } catch (\Throwable $e) {
+            $this->logger->warning('PersonMemoryService: failed to attach embedding.', [
+                'record_id' => $record->id,
+                'error'     => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function cosineSimilarity(array $a, array $b): float
+    {
+        $dot  = 0.0;
+        $normA = 0.0;
+        $normB = 0.0;
+
+        $len = min(count($a), count($b));
+        for ($i = 0; $i < $len; $i++) {
+            $dot   += $a[$i] * $b[$i];
+            $normA += $a[$i] * $a[$i];
+            $normB += $b[$i] * $b[$i];
+        }
+
+        $denom = sqrt($normA) * sqrt($normB);
+        return $denom > 0 ? $dot / $denom : 0.0;
+    }
+
+    // -------------------------------------------------------------------------
+    // Name resolution helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Find canonical person_name string by searching all aliases.
+     * Returns null if nobody found.
+     */
+    private function resolveCanonicalName(AiPreset $preset, string $term): ?string
+    {
+        $record = $this->personModel
+            ->forPreset($preset->id)
+            ->mentions($term)
+            ->first();
+
+        return $record?->person_name;
     }
 
     /**
-     * Normalize person name for consistent storage
-     *
-     * @param string $name
-     * @return string
+     * Resolve by name/alias string OR by numeric fact ID.
      */
-    protected function normalizeName(string $name): string
+    private function resolveByNameOrId(AiPreset $preset, string $nameOrId): ?string
     {
-        return trim($name);
+        $nameOrId = trim($nameOrId);
+
+        // Numeric — look up by fact ID
+        if (ctype_digit($nameOrId)) {
+            $record = $this->personModel->forPreset($preset->id)->find((int) $nameOrId);
+            return $record?->person_name;
+        }
+
+        return $this->resolveCanonicalName($preset, $nameOrId);
+    }
+
+    // -------------------------------------------------------------------------
+    // Formatting
+    // -------------------------------------------------------------------------
+
+    private function formatPerson(string $canonicalName, Collection $facts): string
+    {
+        $primary = trim(explode(self::ALIAS_SEP, $canonicalName)[0]);
+        $aliases = array_slice(array_map('trim', explode(self::ALIAS_SEP, $canonicalName)), 1);
+
+        $lines = ["[PERSON: {$canonicalName}]", ''];
+
+        if (!empty($aliases)) {
+            $lines[] = 'Also known as: ' . implode(', ', $aliases);
+            $lines[] = '';
+        }
+
+        if ($facts->isEmpty()) {
+            $lines[] = 'No facts recorded yet.';
+        } else {
+            foreach ($facts as $fact) {
+                $lines[] = "#{$fact->id} {$fact->content}";
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = "[END {$primary}]";
+
+        return implode("\n", $lines);
     }
 }

@@ -65,15 +65,12 @@ class RhythmPlugin implements CommandPluginInterface
 
     public function getDescription(): string
     {
-        return 'Temporal context awareness. Injects a compact time snapshot into "rhythm": date/time, day/week/year progress, agent age, pause since last message, cycle count, weather and sunset.';
+        return 'Temporal context awareness. Injects a compact time snapshot.';
     }
 
     public function getInstructions(): array
     {
         return [
-            'This plugin has no commands — it only provides the "rhythm" placeholder.',
-            'Place "rhythm" in your system prompt to receive temporal context each cycle.',
-            '',
             'Show current rhythm snapshot: [rhythm show][/rhythm]',
         ];
     }

@@ -5,18 +5,20 @@ namespace App\Http\Controllers\Admin;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\Person\AddAliasRequest;
 use App\Http\Requests\Admin\Person\AddFactRequest;
 use App\Http\Requests\Admin\Person\ClearAllPeopleRequest;
 use App\Http\Requests\Admin\Person\DeleteFactRequest;
 use App\Http\Requests\Admin\Person\ForgetPersonRequest;
 use App\Http\Requests\Admin\Person\IndexPersonRequest;
+use App\Http\Requests\Admin\Person\RemoveAliasRequest;
 use Inertia\Inertia;
 
 class PersonController extends Controller
 {
     public function __construct(
         protected PersonMemoryServiceInterface $personMemoryService,
-        protected PresetRegistryInterface $presetRegistry,
+        protected PresetRegistryInterface      $presetRegistry,
     ) {
     }
 
@@ -66,13 +68,45 @@ class PersonController extends Controller
         return back()->with('error', $result['message']);
     }
 
+    /**
+     * Delete a single fact by ID.
+     * UI passes fact_id directly — no need for person_name anymore.
+     */
     public function deleteFact(DeleteFactRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->getPresetId());
-        $result = $this->personMemoryService->deleteFact(
+        $result = $this->personMemoryService->deleteFact($preset, $request->getFactId());
+
+        if ($result['success']) {
+            return back()->with('success', $result['message']);
+        }
+
+        return back()->with('error', $result['message']);
+    }
+
+    /**
+     * Forget all facts about a person.
+     * Accepts name, any alias, or numeric fact ID — resolved by service.
+     */
+    public function forgetPerson(ForgetPersonRequest $request)
+    {
+        $preset = $this->presetRegistry->getPreset($request->getPresetId());
+        $result = $this->personMemoryService->forgetPerson($preset, $request->getNameOrId());
+
+        if ($result['success']) {
+            return back()->with('success', $result['message']);
+        }
+
+        return back()->with('error', $result['message']);
+    }
+
+    public function addAlias(AddAliasRequest $request)
+    {
+        $preset = $this->presetRegistry->getPreset($request->getPresetId());
+        $result = $this->personMemoryService->addAlias(
             $preset,
-            $request->getPersonName(),
-            $request->getFactNumber(),
+            $request->getFactId(),
+            $request->getAlias(),
         );
 
         if ($result['success']) {
@@ -82,10 +116,14 @@ class PersonController extends Controller
         return back()->with('error', $result['message']);
     }
 
-    public function forgetPerson(ForgetPersonRequest $request, string $personName)
+    public function removeAlias(RemoveAliasRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->getPresetId());
-        $result = $this->personMemoryService->forgetPerson($preset, $personName);
+        $result = $this->personMemoryService->removeAlias(
+            $preset,
+            $request->getFactId(),
+            $request->getAlias(),
+        );
 
         if ($result['success']) {
             return back()->with('success', $result['message']);
@@ -97,10 +135,8 @@ class PersonController extends Controller
     public function clearAll(ClearAllPeopleRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->getPresetId());
-
         $this->personMemoryService->clearAll($preset);
 
         return back()->with('success', __('pm.all_cleared'));
     }
-
 }

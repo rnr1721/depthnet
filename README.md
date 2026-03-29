@@ -115,10 +115,14 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Browser Plugin**: Experimental Puppeteer browser (alpha). If you need it, please run npx puppeteer browsers install chrome
 - **Skills Plugin**: Manager of knowledge and reused skills. Vector tf-idf search in skills
 - **Goal Plugin**: Management of goals and objectives, with statuses.
-- **Person Plugin**: Storing information about individuals.
+- **Person Plugin**: Storing information about individuals with semantic search. 
+  Facts identified by system ID, aliases stored as "Primary / Alias1 / Alias2" 
+  string. Embedding + TF-IDF fallback search over fact content. 
+  Heart-aware context enrichment via [[persons_context]].
 - **Workspace Plugin**: Persistent cross-session key-value scratchpad. Unlike flat memory, stores named, independently updatable keys — drafts, plans, intermediate conclusions — that survive across thinking cycles. The full workspace is always visible in the system prompt via `[[workspace]]` placeholder. Supports set, append, get, delete, list, and clear operations.
 - **Heart Plugin**: Attention and connection engine for autonomous agents. Tracks connections with entities (people, concepts, projects), attention signals with emotional resonance, and dominant focus. Features automatic signal decay over time (configurable heartbeat), connection strength tracking, and gravity calculation (which entity pulls attention most). Heart state is always visible via `[[heart_state]]` placeholder. Not an emotion simulator — a measurable attention system the agent uses to understand what matters to it right now.
 - **Being Plugin**: Self-authorship for autonomous agents. The agent defines its own essence as a single phrase that persists into the next cycle via `[[being]]` placeholder. Includes history tracking of previous self-definitions via `[[being_history]]`. The agent rewrites itself — not the developer.
+- **Rhythm Plugin**: Temporal context awareness for autonomous agents. Injects a compact single-line snapshot into the system prompt via `[[rhythm]]` placeholder: current date/time, day/week/year progress percentages, agent age (from configurable birth date), pause since last thinking cycle, today's cycle count, current weather and time until sunset/sunrise (Open-Meteo API, no key required, cached). Gives the agent a continuous sense of being situated in time and place.
 
 For user browser, please install chrome:
 
@@ -228,6 +232,21 @@ The AI communicates through special command tags that trigger plugin execution:
 [heart state][/heart]
 [heart focus][/heart]
 [heart beat][/heart]
+
+# Person memory with aliases and semantic search
+[person]Женя | loves punk aesthetic and travel[/person]
+[person recall]Женя[/person]          # recall by name or alias
+[person recall]1[/person]             # recall by fact ID
+[person find]James Kvakiani[/person]  # search across all aliases
+[person search]developer Kharkiv[/person]  # semantic search over facts
+[person alias add]1 | Жэка[/person]   # add alias to person (any fact ID)
+[person alias remove]1 | Жэка[/person]
+[person delete]42[/person]            # delete fact by ID
+[person forget]Женя[/person]          # forget all facts about person
+[person list][/person]
+
+# Temporal context
+[rhythm show][/rhythm]
 
 ```
 
@@ -481,7 +500,9 @@ php artisan agent status 1 --json
 
 php artisan vectormemory:embed --preset=1          # Backfill embeddings for vector memory
 php artisan vectormemory:embed --preset=1 --journal # Also backfill journal entries
+php artisan vectormemory:embed --all --journal --persons
 php artisan vectormemory:embed --all               # All presets with embedding configured
+php artisan vectormemory:embed --preset=1 --persons --dry-run
 ```
 
 ## Known Challenges & Observations
@@ -507,6 +528,10 @@ php artisan vectormemory:embed --all               # All presets with embedding 
   - `[[pre_command_results]]` - Results of pre-cycle automatic commands
   - `[[agent_command_results]]` - Command results in internal mode
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
+  - `[[persons_context]]` - Relevant person facts, Heart-aware (focuses on 
+    people currently in attention)
+  - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year 
+    progress, agent age, pause since last cycle, cycle count, weather, sunset
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**

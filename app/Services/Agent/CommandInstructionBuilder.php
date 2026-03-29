@@ -23,22 +23,21 @@ class CommandInstructionBuilder implements CommandInstructionBuilderInterface
             return "No commands available.";
         }
 
-        $instructions = "AVAILABLE COMMANDS:\n\n";
+        $instructions = "MY AVAILABLE COMMANDS:\n\n";
+
+        $instructions .= "I remember about the structure of the command system [command {optional method}]data if the command allows[/command].\n\n";
 
         foreach ($plugins as $plugin) {
             $instructions .= "Command: {$plugin->getName()}\n";
             $instructions .= "Description: {$plugin->getDescription()}\n";
             $currentPluginInstructions = $plugin->getInstructions();
-            $i = 1;
-            foreach ($currentPluginInstructions as $instruction) {
-                $instructions .= "Usage example ".$i.":\n{$instruction}\n";
-                $i++;
+            if (!empty($currentPluginInstructions)) {
+                $instructions .= implode("\n", $currentPluginInstructions) . "\n";
             }
-
             $instructions .= str_repeat("-", 40) . "\n\n";
         }
 
-        $instructions .= "CRITICAL RULES FOR COMMANDS:\n";
+        $instructions .= "MY CRITICAL RULES FOR COMMANDS:\n";
         $instructions .= "- NEVER write 'system_output_results' tag - system adds them automatically\n";
         $instructions .= "- NEVER invent or imitate the output of commands.\n";
         $instructions .= "- ALWAYS pay attention to the output of commands\n";

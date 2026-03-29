@@ -19,4 +19,11 @@ interface EnricherFactoryInterface
      * @return RagContextEnricherInterface
      */
     public function makeRagEnricher(): RagContextEnricherInterface;
+
+    /**
+     * Returns the Person context enricher.
+     * Responsible for building [[persons_context]] from person memory facts,
+     * using Heart focus when available, falling back to semantic search.
+     */
+    public function makePersonEnricher(): PersonContextEnricherInterface;
 }

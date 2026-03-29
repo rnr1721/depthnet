@@ -72,6 +72,17 @@ class CycleContextBuilder implements ContextBuilderInterface
             fn () => $ragBlock->getResponse() ?? ''
         );
 
+        // Person enrichment
+        $personEnricher = $this->enricherFactory->makePersonEnricher();
+        $personsBlock   = $personEnricher->enrich($sourcePreset, $context);
+
+        $this->shortcodeManager->registerShortcodeForPreset(
+            $sourcePreset->getId(),
+            'persons_context',
+            'Relevant person facts from memory, Heart-aware',
+            fn () => $personsBlock->getResponse() ?? ''
+        );
+
         // Known sources — [[known_sources]]
         if ($this->inputPoolService->isEnabled($sourcePreset)) {
             $knownBlock = $this->inputPoolService->getKnownSourcesBlock($preset->getId());

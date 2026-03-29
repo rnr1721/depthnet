@@ -2,24 +2,33 @@
 
 namespace App\Models;
 
+use App\Contracts\Agent\Plugins\TfIdfDocumentInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * PersonMemory model for storing individual facts about people
+ * PersonMemory — a single fact about a person.
  *
- * @property int $id
- * @property int $preset_id
- * @property string $person_name
- * @property string $content
- * @property int $position
- * @property array|null $metadata
- * @property \DateTime $created_at
- * @property \DateTime $updated_at
- * @property AiPreset $preset
+ * person_name stores the full display string including aliases:
+ *   "Женя / Жэка / James Kvakiani"
+ *
+ * The first segment before " / " is treated as the primary name.
+ * All segments are searched when looking up a person by mention.
+ *
+ * Semantic search (embedding + TF-IDF fallback) operates on `content`.
+ *
+ * @property int         $id
+ * @property int         $preset_id
+ * @property string      $person_name   "Primary / Alias1 / Alias2"
+ * @property string      $content       The fact text
+ * @property int         $position      Display order within person
+ * @property array|null  $metadata
+ * @property array|null  $tfidf_vector
+ * @property array|null  $embedding
+ * @property int|null    $embedding_dim
  */
-class PersonMemory extends Model
+class PersonMemory extends Model implements TfIdfDocumentInterface
 {
     use HasFactory;
 
@@ -28,41 +37,47 @@ class PersonMemory extends Model
         'person_name',
         'content',
         'position',
-        'metadata'
+        'metadata',
+        'tfidf_vector',
+        'embedding',
+        'embedding_dim',
     ];
 
     protected $casts = [
-        'metadata' => 'array',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime'
+        'metadata'      => 'array',
+        'tfidf_vector'  => 'array',
+        'embedding'     => 'array',
+        'embedding_dim' => 'integer',
+        'created_at'    => 'datetime',
+        'updated_at'    => 'datetime',
     ];
 
-    /**
-     * Preset that owns this memory
-     */
+    // -------------------------------------------------------------------------
+    // Relations
+    // -------------------------------------------------------------------------
+
     public function preset(): BelongsTo
     {
         return $this->belongsTo(AiPreset::class, 'preset_id');
     }
 
-    /**
-     * Scope to order by position
-     */
+    // -------------------------------------------------------------------------
+    // Scopes
+    // -------------------------------------------------------------------------
+
     public function scopeOrdered($query)
     {
         return $query->orderBy('position');
     }
 
-    /**
-     * Scope to filter by preset
-     */
     public function scopeForPreset($query, int $presetId)
     {
         return $query->where('preset_id', $presetId);
     }
 
     /**
-     * Scope to filter by person name (case-insensitive)
+     * Find all facts for a person by ID (exact match on person_name prefix or full string).
+     * Since person_name can be "Женя / Жэка", we match by the stored string exactly.
      */
     public function scopeForPerson($query, string $personName)
     {
@@ -70,10 +85,51 @@ class PersonMemory extends Model
     }
 
     /**
-     * Get content length
+     * Search across all aliases — matches any segment of "A / B / C".
+     * Used by PersonService::findByMention() to resolve unknown names.
      */
-    public function getContentLengthAttribute(): int
+    public function scopeMentions($query, string $term)
     {
-        return strlen($this->content);
+        $term = strtolower(trim($term));
+        return $query->whereRaw('LOWER(person_name) LIKE ?', ["%{$term}%"]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Alias helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Primary display name — first segment before " / ".
+     */
+    public function getPrimaryName(): string
+    {
+        return trim(explode(' / ', $this->person_name)[0]);
+    }
+
+    /**
+     * All name segments as array.
+     */
+    public function getAllNames(): array
+    {
+        return array_map('trim', explode(' / ', $this->person_name));
+    }
+
+    // -------------------------------------------------------------------------
+    // TfIdfDocumentInterface
+    // -------------------------------------------------------------------------
+
+    public function getTfIdfVector(): array
+    {
+        return $this->tfidf_vector ?? [];
+    }
+
+    public function getTextContent(): string
+    {
+        return $this->content;
+    }
+
+    public function getCreatedAt(): ?\Carbon\Carbon
+    {
+        return $this->created_at;
     }
 }

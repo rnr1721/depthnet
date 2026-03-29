@@ -6,6 +6,7 @@ use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Models\AiPreset;
 use App\Models\JournalEntry;
+use App\Models\PersonMemory;
 use App\Models\VectorMemory;
 use App\Services\Agent\VectorMemory\EmbeddingVectorMemoryService;
 use Illuminate\Console\Command;
@@ -29,17 +30,19 @@ class EmbedVectorMemoryCommand extends Command
         {--preset=   : Preset ID to migrate}
         {--all       : Migrate all presets that have an embedding capability configured}
         {--journal   : Also backfill journal entries (in addition to vector memories)}
+        {--persons   : Also backfill person memory facts (in addition to vector memories)}
         {--batch=50  : Records per API batch (default: 50)}
         {--sleep=1000: Milliseconds to sleep between batches (default: 1000)}
         {--dry-run   : Show what would be migrated without making API calls}';
 
-    protected $description = 'Backfill dense embedding vectors for vector memories and/or journal entries.';
+    protected $description = 'Backfill dense embedding vectors for vector memories, journal entries and/or person facts.';
 
     public function __construct(
         protected EmbeddingVectorMemoryService $vectorMemoryService,
         protected EmbeddingServiceInterface    $embeddingService,
         protected PresetServiceInterface       $presetService,
         protected JournalEntry                 $journalModel,
+        protected PersonMemory                 $personModel,
     ) {
         parent::__construct();
     }
@@ -78,6 +81,12 @@ class EmbedVectorMemoryCommand extends Command
                 [$jp, $jf] = $this->migrateJournal($preset, $batchSize, $sleepMs, $dryRun);
                 $totalProcessed += $jp;
                 $totalFailed    += $jf;
+            }
+
+            if ($this->option('persons')) {
+                [$pp, $pf] = $this->migratePersons($preset, $batchSize, $sleepMs, $dryRun);
+                $totalProcessed += $pp;
+                $totalFailed    += $pf;
             }
         }
 
@@ -227,6 +236,84 @@ class EmbedVectorMemoryCommand extends Command
 
         $bar->finish();
         $this->newLine();
+
+        return [$processed, $failed];
+    }
+
+    // ── Person facts migration ────────────────────────────────────────────────
+
+    private function migratePersons(
+        AiPreset $preset,
+        int      $batchSize,
+        int      $sleepMs,
+        bool     $dryRun,
+    ): array {
+        $total = PersonMemory::where('preset_id', $preset->id)
+            ->whereNull('embedding')
+            ->count();
+
+        $name = $preset->getName();
+
+        if ($total === 0) {
+            $this->line("<info>[{$name} / persons]</info> All facts already have embeddings.");
+            return [0, 0];
+        }
+
+        $this->line("<info>[{$name} / persons]</info> {$total} facts need embedding.");
+
+        if ($dryRun) {
+            $this->line("  Would process {$total} facts in batches of {$batchSize}.");
+            return [0, 0];
+        }
+
+        $bar = $this->output->createProgressBar($total);
+        $bar->setFormat(" %current%/%max% [%bar%] %percent:3s%% — processed: %processed% failed: %failed%");
+        $bar->setMessage('0', 'processed');
+        $bar->setMessage('0', 'failed');
+        $bar->start();
+
+        $processed = 0;
+        $failed    = 0;
+
+        do {
+            $facts = PersonMemory::where('preset_id', $preset->id)
+                ->whereNull('embedding')
+                ->limit($batchSize)
+                ->get();
+
+            if ($facts->isEmpty()) {
+                break;
+            }
+
+            foreach ($facts as $fact) {
+                $vector = $this->embeddingService->embed($fact->content, $preset);
+
+                if ($vector !== null) {
+                    $fact->update(['embedding' => $vector, 'embedding_dim' => count($vector)]);
+                    $processed++;
+                } else {
+                    $failed++;
+                }
+            }
+
+            $bar->setMessage((string) $processed, 'processed');
+            $bar->setMessage((string) $failed, 'failed');
+            $bar->advance($facts->count());
+
+            $remaining = PersonMemory::where('preset_id', $preset->id)->whereNull('embedding')->count();
+
+            if ($remaining > 0 && $sleepMs > 0) {
+                usleep($sleepMs * 1000);
+            }
+
+        } while ($remaining > 0);
+
+        $bar->finish();
+        $this->newLine();
+
+        if ($failed > 0) {
+            $this->warn("  Completed with {$failed} failures. Re-run to retry failed facts.");
+        }
 
         return [$processed, $failed];
     }

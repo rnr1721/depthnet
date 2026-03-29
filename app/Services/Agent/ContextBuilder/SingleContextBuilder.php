@@ -69,6 +69,17 @@ class SingleContextBuilder implements ContextBuilderInterface
             fn () => $ragBlock->getResponse() ?? ''
         );
 
+        // Person enrichment
+        $personEnricher = $this->enricherFactory->makePersonEnricher();
+        $personsBlock   = $personEnricher->enrich($sourcePreset, $context);
+
+        $this->shortcodeManager->registerShortcodeForPreset(
+            $sourcePreset->getId(),
+            'persons_context',
+            'Relevant person facts from memory, Heart-aware',
+            fn () => $personsBlock->getResponse() ?? ''
+        );
+
         // Inner voice — advisor/conscience/muse as [[inner_voice]]
         $voiceEnricher = $this->enricherFactory->makeContextEnricher();
         $voiceBlock = $voiceEnricher->enrich($sourcePreset, $context, 'single');

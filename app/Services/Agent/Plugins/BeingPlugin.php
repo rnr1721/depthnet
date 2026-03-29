@@ -66,7 +66,7 @@ class BeingPlugin implements CommandPluginInterface
     public function getDescription(): string
     {
         $max = $this->config['history_limit'] ?? 5;
-        return "Self-authorship plugin. The agent defines its own essence as a single phrase injected into the next cycle via [[being]]. History of the last {$max} phrases available via [[being_history]].";
+        return "Self-authorship plugin. The agent defines its own essence as a single phrase injected into the next cycle. History of the last {$max} phrases";
     }
 
     public function getInstructions(): array

@@ -272,7 +272,7 @@
                         </label>
                         <input :value="modelValue.rag_context_limit ?? 5"
                             @input="updateField('rag_context_limit', parseNumber($event.target.value))" type="number"
-                            min="4" max="20" step="1" :class="inputClass"
+                            min="1" max="20" step="1" :class="inputClass"
                             :placeholder="t('p_modal_rag_context_limit_placeholder')" />
                         <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
                             {{ t('p_modal_rag_context_limit_desc') }}

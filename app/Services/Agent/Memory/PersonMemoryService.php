@@ -133,6 +133,19 @@ class PersonMemoryService implements PersonMemoryServiceInterface
                 return ['success' => false, 'message' => "Alias \"{$alias}\" already exists for {$record->getPrimaryName()}."];
             }
 
+            // Check if alias already belongs to a different person
+            $existing = $this->personModel
+                ->forPreset($preset->id)
+                ->mentions($alias)
+                ->first();
+
+            if ($existing && $existing->person_name !== $record->person_name) {
+                return [
+                    'success' => false,
+                    'message' => "Alias \"{$alias}\" already used by another person: {$existing->getPrimaryName()}.",
+                ];
+            }
+
             $names[]      = $alias;
             $newName      = implode(self::ALIAS_SEP, $names);
             $currentName  = $record->person_name;

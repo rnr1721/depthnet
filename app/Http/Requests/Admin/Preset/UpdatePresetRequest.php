@@ -29,7 +29,7 @@ class UpdatePresetRequest extends FormRequest
             'preset_code_next' => ['nullable', 'string', 'max:50'],
             'pre_run_commands' => ['nullable', 'string'],
             'rag_preset_id' => 'nullable|integer|exists:ai_presets,id',
-            'rag_context_limit' => 'required|integer|min:4|max:20',
+            'rag_context_limit' => 'required|integer|min:1|max:20',
             'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'voice_context_limit' => 'required|integer|min:0|max:20',
             'rag_results' => 'required|integer|min:4|max:20',

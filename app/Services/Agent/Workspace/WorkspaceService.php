@@ -97,17 +97,12 @@ class WorkspaceService implements WorkspaceServiceInterface
             return '';
         }
 
-        $lines = ['[WORKSPACE]'];
+        $lines = ['[WORKSPACE]', ''];
 
         foreach ($entries as $key => $value) {
-            if (str_contains($value, "\n")) {
-                $lines[] = "{$key}:";
-                foreach (explode("\n", $value) as $vline) {
-                    $lines[] = "  {$vline}";
-                }
-            } else {
-                $lines[] = "{$key}: {$value}";
-            }
+            $lines[] = "--- {$key} ---";
+            $lines[] = $value;
+            $lines[] = '';
         }
 
         $lines[] = '[/WORKSPACE]';

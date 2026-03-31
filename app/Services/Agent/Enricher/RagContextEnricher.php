@@ -17,6 +17,7 @@ use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use App\Services\Agent\Enricher\EnricherResponse;
+use Carbon\Carbon;
 use Psr\Log\LoggerInterface;
 
 class RagContextEnricher implements RagContextEnricherInterface
@@ -26,6 +27,14 @@ class RagContextEnricher implements RagContextEnricherInterface
      * Set to true temporarily when diagnosing issues.
      */
     private bool $debug = false;
+
+    /**
+     * Append relative age (e.g. "3 days ago", "just now") next to absolute dates.
+     * Toggle via preset setting — injected before formatResults() is called.
+     */
+    private bool $showRelativeDate = true;
+
+    private int  $journalContextWindow = 3; // 0 = off, 1+ = neighbours each side
 
     public function __construct(
         protected PresetServiceInterface             $presetService,
@@ -69,6 +78,9 @@ class RagContextEnricher implements RagContextEnricherInterface
                 return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
+            $this->showRelativeDate        = $preset->getRagRelativeDates();
+            $this->journalContextWindow    = $preset->getRagJournalContextWindow();
+
             // ── Vector memory search ──────────────────────────────────────────
             $ragMode   = $preset->getRagMode();
             $ragEngine = $preset->getRagEngine();
@@ -92,23 +104,27 @@ class RagContextEnricher implements RagContextEnricherInterface
             ]);
 
             // ── Skills search ─────────────────────────────────────────────────
-            $skillResults = $this->skillService->searchItemsData($preset, $query, 3);
+            $skillResults = $this->skillService->searchItemsData($preset, $query, $preset->getRagSkillsLimit());
 
             // ── Journal search ────────────────────────────────────────────────
-            $journalResults = $this->journalService->searchEntries($preset, $query, 3);
+            $journalResults = $this->journalService->searchEntries($preset, $query, $preset->getRagJournalLimit());
 
             if (empty($primaryResults) && empty($supplementResults) && empty($skillResults) && empty($journalResults)) {
                 return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
+            $maxContentLimit = $preset->getRagContentLimit() ?? 400;
+
             $result = $this->formatResults(
+                $preset,
                 $query,
                 $ragMode,
                 $ragEngine,
                 $primaryResults,
                 $supplementResults,
                 $skillResults,
-                $journalResults
+                $journalResults,
+                $maxContentLimit
             );
 
             // Create message in RAG preset for transparency with results
@@ -280,6 +296,7 @@ class RagContextEnricher implements RagContextEnricherInterface
      * Format all sources into a single RAG context block for the system prompt.
      */
     protected function formatResults(
+        AiPreset $preset,
         string $query,
         string $mode,
         string $engine,
@@ -287,6 +304,7 @@ class RagContextEnricher implements RagContextEnricherInterface
         array  $supplementResults,
         array  $skillResults,
         array  $journalResults = [],
+        int $maxContentLimit = 400,
     ): string {
         $lines = ["[RAG CONTEXT — query: \"{$query}\"]", ''];
 
@@ -298,9 +316,13 @@ class RagContextEnricher implements RagContextEnricherInterface
             foreach ($primaryResults as $i => $result) {
                 $memory  = $result['document'] ?? $result['memory'];
                 $score   = round(($result['composite_score'] ?? $result['similarity']) * 100, 1);
-                $date    = $memory->getCreatedAt()->format('Y-m-d');
-                $content = mb_substr($memory->getTextContent(), 0, 600);
-                $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $date, $score, $content);
+                $content = mb_substr($memory->getTextContent(), 0, $maxContentLimit);
+                $createdAt = $memory->getCreatedAt();
+                $dateStr   = $createdAt->format('Y-m-d');
+                if ($this->showRelativeDate) {
+                    $dateStr .= ' (' . $this->formatRelativeDate($createdAt) . ')';
+                }
+                $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $dateStr, $score, $content);
             }
 
             $lines[] = '';
@@ -313,9 +335,13 @@ class RagContextEnricher implements RagContextEnricherInterface
             foreach ($supplementResults as $i => $result) {
                 $memory  = $result['document'] ?? $result['memory'];
                 $score   = round(($result['similarity'] ?? 0) * 100, 1);
-                $date    = $memory->getCreatedAt()->format('Y-m-d');
-                $content = mb_substr($memory->getTextContent(), 0, 600);
-                $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $date, $score, $content);
+                $content = mb_substr($memory->getTextContent(), 0, $maxContentLimit);
+                $createdAt = $memory->getCreatedAt();
+                $dateStr   = $createdAt->format('Y-m-d');
+                if ($this->showRelativeDate) {
+                    $dateStr .= ' (' . $this->formatRelativeDate($createdAt) . ')';
+                }
+                $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $dateStr, $score, $content);
             }
 
             $lines[] = '';
@@ -332,7 +358,7 @@ class RagContextEnricher implements RagContextEnricherInterface
                     $item['skill_number'],
                     $item['item_number'],
                     $item['similarity_percent'],
-                    mb_substr($item['content'], 0, 400)
+                    mb_substr($item['content'], 0, $maxContentLimit)
                 );
             }
             $lines[] = '';
@@ -341,18 +367,53 @@ class RagContextEnricher implements RagContextEnricherInterface
         // Journal
         if (!empty($journalResults)) {
             $lines[] = '[RELEVANT JOURNAL ENTRIES]';
+
+            $anchorIds  = array_map(fn ($e) => $e->id, $journalResults);
+            $neighbours = $this->journalContextWindow > 0
+                ? $this->journalService->fetchNeighbours($preset, $anchorIds, $this->journalContextWindow)
+                : [];
+
+            $timeline = [];
             foreach ($journalResults as $entry) {
-                $date    = $entry->recorded_at->format('Y-m-d H:i');
-                $outcome = $entry->outcome ? " [{$entry->outcome}]" : '';
-                $lines[] = sprintf(
-                    '#{%d} [%s] [%s]%s %s',
-                    $entry->id,
-                    $date,
-                    $entry->type,
-                    $outcome,
-                    mb_substr($entry->summary, 0, 300)
-                );
+                $timeline[$entry->id] = ['entry' => $entry, 'is_anchor' => true];
             }
+            foreach ($neighbours as $id => $entry) {
+                $timeline[$id] = ['entry' => $entry, 'is_anchor' => false];
+            }
+
+            uasort(
+                $timeline,
+                fn ($a, $b) =>
+                $a['entry']->recorded_at <=> $b['entry']->recorded_at
+            );
+
+            foreach ($timeline as ['entry' => $entry, 'is_anchor' => $isAnchor]) {
+                $date = $entry->recorded_at->format('Y-m-d H:i');
+                if ($this->showRelativeDate) {
+                    $date .= ' (' . $this->formatRelativeDate($entry->recorded_at) . ')';
+                }
+
+                if ($isAnchor) {
+                    $outcome = $entry->outcome ? " [{$entry->outcome}]" : '';
+                    $lines[] = sprintf(
+                        '★ #{%d} [%s] [%s]%s %s',
+                        $entry->id,
+                        $date,
+                        $entry->type,
+                        $outcome,
+                        mb_substr($entry->summary, 0, $maxContentLimit)
+                    );
+                } else {
+                    $lines[] = sprintf(
+                        '  [ctx] #{%d} [%s] [%s] %s',
+                        $entry->id,
+                        $date,
+                        $entry->type,
+                        mb_substr($entry->summary, 0, $maxContentLimit)
+                    );
+                }
+            }
+
             $lines[] = '';
         }
 
@@ -371,6 +432,21 @@ class RagContextEnricher implements RagContextEnricherInterface
             $mode === VectorMemoryFactoryInterface::MODE_FLAT        && $engine === VectorMemoryFactoryInterface::ENGINE_EMBEDDING => '[SEMANTIC MEMORY]',
             $mode === VectorMemoryFactoryInterface::MODE_ASSOCIATIVE                                                               => '[ASSOCIATIVE MEMORY]',
             default                                                                                                                 => '[KEYWORD MEMORY]',
+        };
+    }
+
+    private function formatRelativeDate(\DateTimeInterface|Carbon $date): string
+    {
+        $now = now();
+        $diff = abs($now->diffInSeconds($date, false));
+
+        return match(true) {
+            $diff < 60         => 'just now',
+            $diff < 3600       => (int)($diff / 60) . 'm ago',
+            $diff < 86400      => (int)($diff / 3600) . 'h ago',
+            $diff < 86400 * 7  => (int)($diff / 86400) . 'd ago',
+            $diff < 86400 * 30 => (int)($diff / (86400 * 7)) . 'w ago',
+            default            => (int)($diff / (86400 * 30)) . 'mo ago',
         };
     }
 

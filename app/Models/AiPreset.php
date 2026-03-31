@@ -27,6 +27,11 @@ class AiPreset extends Model
         'rag_results',
         'rag_mode',
         'rag_engine',
+        'rag_relative_dates',
+        'rag_journal_limit',
+        'rag_skills_limit',
+        'rag_content_limit',
+        'rag_journal_context_window',
         'voice_preset_id',
         'voice_context_limit',
         'cycle_prompt_preset_id',
@@ -58,6 +63,11 @@ class AiPreset extends Model
         'rag_preset_id' => 'integer',
         'rag_context_limit' => 'integer',
         'rag_results' => 'integer',
+        'rag_relative_dates'          => 'boolean',
+        'rag_journal_limit'           => 'integer',
+        'rag_skills_limit'            => 'integer',
+        'rag_content_limit'           => 'integer',
+        'rag_journal_context_window'  => 'integer',
         'voice_preset_id' => 'integer',
         'voice_context_limit' => 'integer',
         'cycle_prompt_preset_id' => 'integer',
@@ -89,6 +99,11 @@ class AiPreset extends Model
         'rag_results' => 5,
         'rag_mode' => 'flat',
         'rag_engine' => 'tfidf',
+        'rag_relative_dates'          => false,
+        'rag_journal_limit'           => 3,
+        'rag_skills_limit'            => 3,
+        'rag_content_limit'           => 400,
+        'rag_journal_context_window'  => 0,
         'voice_context_limit' => 4,
         'cp_context_limit' => 5,
         'voice_mp_commands' => '',
@@ -526,6 +541,56 @@ class AiPreset extends Model
     public function getRagEngine(): string
     {
         return $this->rag_engine;
+    }
+
+    /**
+     * Add relative dates to RAG context in results
+     *
+     * @return boolean
+     */
+    public function getRagRelativeDates(): bool
+    {
+        return $this->rag_relative_dates;
+    }
+
+    /**
+     * Journal max entries in RAG
+     *
+     * @return integer
+     */
+    public function getRagJournalLimit(): int
+    {
+        return $this->rag_journal_limit;
+    }
+
+    /**
+     * Skills max entries in RAG
+     *
+     * @return integer
+     */
+    public function getRagSkillsLimit(): int
+    {
+        return $this->rag_skills_limit;
+    }
+
+    /**
+     * Content (entry) max symbols in RAG
+     *
+     * @return integer
+     */
+    public function getRagContentLimit(): int
+    {
+        return $this->rag_content_limit;
+    }
+
+    /**
+     * RAG Journal content window (journal neighborhood records)
+     *
+     * @return integer
+     */
+    public function getRagJournalContextWindow(): int
+    {
+        return $this->rag_journal_context_window;
     }
 
     /**

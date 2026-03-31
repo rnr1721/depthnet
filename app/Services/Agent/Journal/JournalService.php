@@ -277,7 +277,10 @@ class JournalService implements JournalServiceInterface
                     $neighbours[$entry->id] = $entry;
                 } else {
                     // Entry is neighbour of multiple anchors — merge
-                    $neighbours[$entry->id]->neighbour_of[] = $anchorId;
+                    $neighbours[$entry->id]->setAttribute(
+                        'neighbour_of',
+                        array_merge($neighbours[$entry->id]->neighbour_of ?? [], [$anchorId])
+                    );
                 }
             }
         }
@@ -451,7 +454,7 @@ class JournalService implements JournalServiceInterface
      */
     private function timeDecay(Carbon $recordedAt): float
     {
-        $daysSince = now()->diffInHours($recordedAt) / 24.0;
+        $daysSince = max(0, now()->diffInHours($recordedAt, false) * -1) / 24.0;
         $lambda    = log(2) / 30.0;
         return max(0.1, exp(-$lambda * $daysSince));
     }

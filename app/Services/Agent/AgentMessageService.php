@@ -57,7 +57,7 @@ class AgentMessageService implements AgentMessageServiceInterface
 
         if ($this->inputPoolService->isEnabled($toPreset)) {
             $this->inputPoolService->add($targetPresetId, $sourceName, $message);
-            $content = $this->inputPoolService->getAllAsJSON($targetPresetId);
+            $content = $this->inputPoolService->getAllAsJSON($toPreset);
 
             $this->messageModel->create([
                 'role'               => 'user',

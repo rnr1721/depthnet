@@ -117,6 +117,7 @@ export default {
   chat_tts_disable: 'Выключить озвучку',
   chat_delete_message: 'Удалить сообщение',
   chat_voice: 'Голос',
+  chat_pool_ago_hint: 'Через сколько ответил пользователь после ответа LLM',
   settings_user_can_run_commands: "Пользователь может выполнять команды как модель",
   settings_user_can_run_commands_desc: "При включении администраторы смогут выполнять команды в чате аналогично модели.",
   settings_header: "Конфигурация системы и настройки ИИ",

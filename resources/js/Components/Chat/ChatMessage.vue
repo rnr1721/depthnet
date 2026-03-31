@@ -56,9 +56,10 @@
             {{ src.source }}
           </div>
           <div class="text-sm leading-relaxed whitespace-pre-wrap">{{ src.content }}</div>
-          <div v-if="src.timestamp" class="text-xs opacity-40 mt-1">
-            {{ formatSourceTime(src.timestamp) }}
-          </div>
+          {{ formatSourceTime(src.timestamp) }}
+          <span v-if="src.ago" :title="t('chat_pool_ago_hint')" class="cursor-help">
+            ({{ src.ago }})
+          </span>
         </div>
       </div>
 

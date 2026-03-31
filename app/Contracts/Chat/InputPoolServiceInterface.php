@@ -42,20 +42,20 @@ interface InputPoolServiceInterface
      *   ]
      * }
      *
-     * @param integer $presetId
+     * @param AiPreset $preset
      * @return string|null
      */
-    public function getAllAsJSON(int $presetId): ?string;
+    public function getAllAsJSON(AiPreset $preset): ?string;
 
     /**
      * Build JSON from regular pool items and then clear the entire pool.
      * Equivalent to getAllAsJSON() followed by clear().
      * Use when dispatching the pool as a user message.
      *
-     * @param int $presetId Preset Id
+     * @param AiPreset $preset
      * @return string|null Null if the pool was empty before clearing
      */
-    public function flush(int $presetId): ?string;
+    public function flush(AiPreset $preset): ?string;
 
     /**
      * Delete all pool items for a preset without returning anything.

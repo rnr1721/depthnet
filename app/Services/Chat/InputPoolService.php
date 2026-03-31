@@ -6,7 +6,9 @@ use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\InputPoolItem;
+use App\Models\Message;
 use App\Models\PresetKnownSource;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Service to manage the input pool for chat presets.
@@ -37,7 +39,8 @@ class InputPoolService implements InputPoolServiceInterface
     public function __construct(
         protected OptionsServiceInterface $optionsService,
         protected InputPoolItem $poolItemModel,
-        protected PresetKnownSource $knownSourceModel
+        protected PresetKnownSource $knownSourceModel,
+        protected Message $messageModel,
     ) {
     }
 
@@ -63,15 +66,15 @@ class InputPoolService implements InputPoolServiceInterface
     /**
      * @inheritDoc
      */
-    public function getAllAsJSON(int $presetId): ?string
+    public function getAllAsJSON(AiPreset $preset): ?string
     {
-        $items = $this->poolItemModel->forPreset($presetId)->orderBy('created_at')->get();
+        $items = $this->poolItemModel->forPreset($preset->getId())->orderBy('created_at')->get();
         if ($items->isEmpty()) {
             return null;
         }
 
         $knownNames = $this->knownSourceModel
-            ->forPreset($presetId)
+            ->forPreset($preset->getId())
             ->pluck('source_name')
             ->toArray();
 
@@ -79,16 +82,16 @@ class InputPoolService implements InputPoolServiceInterface
             fn ($item) => in_array($item->source_name, $knownNames)
         );
 
-        return $this->buildJson($regular);
+        return $this->buildJson($regular, $preset);
     }
 
     /**
      * @inheritDoc
      */
-    public function flush(int $presetId): ?string
+    public function flush(AiPreset $preset): ?string
     {
-        $result = $this->getAllAsJSON($presetId);
-        $this->clear($presetId);
+        $result = $this->getAllAsJSON($preset);
+        $this->clear($preset->getId());
         return $result;
     }
 
@@ -103,7 +106,7 @@ class InputPoolService implements InputPoolServiceInterface
     /**
      * @inheritDoc
      */
-    public function getItems(int $presetId): \Illuminate\Database\Eloquent\Collection
+    public function getItems(int $presetId): Collection
     {
         return $this->poolItemModel->forPreset($presetId)->orderBy('created_at')->get();
     }
@@ -162,7 +165,7 @@ class InputPoolService implements InputPoolServiceInterface
     /**
      * @inheritDoc
      */
-    public function getKnownSources(int $presetId): \Illuminate\Database\Eloquent\Collection
+    public function getKnownSources(int $presetId): Collection
     {
         return $this->knownSourceModel->forPreset($presetId)->get();
     }
@@ -220,13 +223,28 @@ class InputPoolService implements InputPoolServiceInterface
      *   ]
      * }
      */
-    private function buildJson(\Illuminate\Database\Eloquent\Collection $items): string
+    private function buildJson(Collection $items, AiPreset $preset): string
     {
-        $sources = $items->map(fn ($item) => [
-            'source'    => $item->source_name,
-            'content'   => $item->content,
-            'timestamp' => $item->created_at->toIso8601String(),
-        ])->values()->all();
+        $reference = null;
+
+        if ($preset->getRagRelativeDates()) {
+            $lastMessage = $this->messageModel->forPreset($preset->getId())
+                ->whereIn('role', ['thinking', 'command'])
+                ->latest()
+                ->value('created_at');
+
+            $reference = $lastMessage ? \Carbon\Carbon::parse($lastMessage) : now();
+        }
+
+        $sources = $items->map(function ($item) use ($reference) {
+            $entry = [
+                'source'    => $item->source_name,
+                'content'   => $item->content,
+                'timestamp' => $item->created_at->toIso8601String(),
+                'ago'       => $reference ? $item->created_at->diffForHumans($reference, true) : null,
+            ];
+            return $entry;
+        })->values()->all();
 
         return json_encode(['sources' => $sources], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     }

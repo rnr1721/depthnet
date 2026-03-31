@@ -117,6 +117,7 @@ export default {
   chat_tts_disable: 'Disable voice output',
   chat_delete_message: 'Delete message',
   chat_voice: 'Voice',
+  chat_pool_ago_hint: "How long did it take for the user to respond after LLM's reply?",
   settings_user_can_run_commands: "User can run model commands",
   settings_user_can_run_commands_desc: "If enabled, admin users will be able to run commands in the chat.",
   settings_header: "System Configuration and AI Settings",

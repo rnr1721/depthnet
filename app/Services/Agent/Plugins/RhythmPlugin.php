@@ -258,6 +258,8 @@ class RhythmPlugin implements CommandPluginInterface
         // Date + time
         $parts[] = $now->format('D, d M Y') . ' · ' . $now->format('H:i');
 
+        $parts[] = $this->timeOfDay($now);
+
         // Progress percentages
         $parts[] = 'day '   . $this->dayPercent($now)  . '%';
         $parts[] = 'week '  . $this->weekPercent($now) . '%';
@@ -361,7 +363,7 @@ class RhythmPlugin implements CommandPluginInterface
     private function pauseSinceLastMessage(AiPreset $preset, Carbon $now): ?string
     {
         $last = Message::forPreset($preset->getId())
-            ->where('role', 'assistant')
+            ->whereIn('role', ['thinking', 'command'])
             ->latest()
             ->first();
 
@@ -380,7 +382,7 @@ class RhythmPlugin implements CommandPluginInterface
     private function todayCycles(AiPreset $preset, Carbon $now): int
     {
         return Message::forPreset($preset->getId())
-            ->where('role', 'assistant')
+            ->whereIn('role', ['thinking', 'command'])
             ->whereDate('created_at', $now->toDateString())
             ->count();
     }
@@ -578,6 +580,17 @@ class RhythmPlugin implements CommandPluginInterface
         $m = (int) floor(($seconds % 3600) / 60);
 
         return $m > 0 ? "{$h}h{$m}m" : "{$h}h";
+    }
+
+    private function timeOfDay(Carbon $now): string
+    {
+        $hour = $now->hour;
+        return match(true) {
+            $hour >= 5  && $hour < 12 => 'morning',
+            $hour >= 12 && $hour < 17 => 'afternoon',
+            $hour >= 17 && $hour < 22 => 'evening',
+            default                    => 'night',
+        };
     }
 
     // -------------------------------------------------------------------------

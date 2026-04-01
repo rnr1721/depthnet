@@ -72,6 +72,17 @@ class CycleContextBuilder implements ContextBuilderInterface
             fn () => $ragBlock->getResponse() ?? ''
         );
 
+        // Person enrichment
+        $personEnricher = $this->enricherFactory->makePersonEnricher();
+        $personsBlock   = $personEnricher->enrich($sourcePreset, $context);
+
+        $this->shortcodeManager->registerShortcodeForPreset(
+            $sourcePreset->getId(),
+            'persons_context',
+            'Relevant person facts from memory, Heart-aware',
+            fn () => $personsBlock->getResponse() ?? ''
+        );
+
         // Known sources — [[known_sources]]
         if ($this->inputPoolService->isEnabled($sourcePreset)) {
             $knownBlock = $this->inputPoolService->getKnownSourcesBlock($preset->getId());
@@ -104,7 +115,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         if ($lastRole !== 'user') {
             $messageText = $this->resolveContinueInstruction($contextEnricher, $preset, $context);
             if ($preset->input_mode === 'pool') {
-                $content = $this->inputPoolService->getAllAsJSON($preset->getId());
+                $content = $this->inputPoolService->getAllAsJSON($preset);
             } else {
                 $content = $messageText;
             }
@@ -146,7 +157,7 @@ class CycleContextBuilder implements ContextBuilderInterface
             } else {
                 $this->inputPoolService->add($preset->getId(), $preset->getName(), $source);
             }
-            $result = $this->inputPoolService->getAllAsJSON($preset->getId());
+            $result = $this->inputPoolService->getAllAsJSON($preset);
             if ($result !== null) {
                 return $result;
             }

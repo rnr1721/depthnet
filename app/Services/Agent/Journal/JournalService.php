@@ -235,6 +235,59 @@ class JournalService implements JournalServiceInterface
         }
     }
 
+    public function fetchNeighbours(AiPreset $preset, array $entryIds, int $window = 1): array
+    {
+        if (empty($entryIds) || $window < 1) {
+            return [];
+        }
+
+        // Load anchors to get their recorded_at timestamps
+        $anchors = $this->journalModel
+            ->forPreset($preset->id)
+            ->whereIn('id', $entryIds)
+            ->get(['id', 'recorded_at'])
+            ->keyBy('id');
+
+        if ($anchors->isEmpty()) {
+            return [];
+        }
+
+        $neighbours = [];
+
+        foreach ($anchors as $anchorId => $anchor) {
+            $before = $this->journalModel
+                ->forPreset($preset->id)
+                ->where('recorded_at', '<', $anchor->recorded_at)
+                ->whereNotIn('id', $entryIds)
+                ->orderBy('recorded_at', 'desc')
+                ->limit($window)
+                ->get();
+
+            $after = $this->journalModel
+                ->forPreset($preset->id)
+                ->where('recorded_at', '>', $anchor->recorded_at)
+                ->whereNotIn('id', $entryIds)
+                ->orderBy('recorded_at', 'asc')
+                ->limit($window)
+                ->get();
+
+            foreach ([...$before, ...$after] as $entry) {
+                if (!isset($neighbours[$entry->id])) {
+                    $entry->neighbour_of = [$anchorId];
+                    $neighbours[$entry->id] = $entry;
+                } else {
+                    // Entry is neighbour of multiple anchors — merge
+                    $neighbours[$entry->id]->setAttribute(
+                        'neighbour_of',
+                        array_merge($neighbours[$entry->id]->neighbour_of ?? [], [$anchorId])
+                    );
+                }
+            }
+        }
+
+        return $neighbours;
+    }
+
     // -------------------------------------------------------------------------
     // Delete / Clear
     // -------------------------------------------------------------------------
@@ -309,7 +362,10 @@ class JournalService implements JournalServiceInterface
                         $entry->embedding,
                     );
                     if ($similarity >= 0.2) {
-                        $results[] = ['entry' => $entry, 'score' => $similarity];
+                        $results[] = [
+                            'entry' => $entry,
+                            'score' => $similarity * $this->timeDecay($entry->recorded_at),
+                        ];
                     }
                 }
 
@@ -332,7 +388,10 @@ class JournalService implements JournalServiceInterface
                     foreach ($tfidf as $r) {
                         if (!in_array($r['document']->id, $seenIds, true)) {
                             $seenIds[] = $r['document']->id;
-                            $results[] = ['entry' => $r['document'], 'score' => $r['similarity']];
+                            $results[] = [
+                                'entry' => $r['document'],
+                                'score' => $r['similarity'] * $this->timeDecay($r['document']->recorded_at),
+                            ];
                         }
                     }
                 }
@@ -344,15 +403,15 @@ class JournalService implements JournalServiceInterface
         }
 
         // ── TF-IDF fallback ───────────────────────────────────────────────────
-        $tfidf = $this->tfIdfService->findSimilar(
-            $query,
-            $entries,
-            $limit,
-            0.05,
-            false
-        );
+        $tfidf = $this->tfIdfService->findSimilar($query, $entries, $limit, 0.05, false);
 
-        return array_map(fn ($r) => $r['document'], $tfidf);
+        $scored = array_map(fn ($r) => [
+            'entry' => $r['document'],
+            'score' => $r['similarity'] * $this->timeDecay($r['document']->recorded_at),
+        ], $tfidf);
+
+        usort($scored, fn ($a, $b) => $b['score'] <=> $a['score']);
+        return array_column($scored, 'entry');
     }
 
     // -------------------------------------------------------------------------
@@ -387,6 +446,17 @@ class JournalService implements JournalServiceInterface
                 'error'    => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Exponential time decay based on recorded_at.
+     * Half-life: 30 days. Floor: 0.1 — old entries can still surface if highly relevant.
+     */
+    private function timeDecay(Carbon $recordedAt): float
+    {
+        $daysSince = max(0, now()->diffInHours($recordedAt, false) * -1) / 24.0;
+        $lambda    = log(2) / 30.0;
+        return max(0.1, exp(-$lambda * $daysSince));
     }
 
     // -------------------------------------------------------------------------

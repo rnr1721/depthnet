@@ -366,13 +366,17 @@ class SkillService implements SkillServiceInterface
             return '';
         }
 
-        $parts = $skills->map(function (Skill $skill) {
-            $desc  = $skill->description ? " ({$skill->description})" : '';
-            $count = $skill->items_count;
-            return "#{$skill->number} {$skill->title}{$desc} [{$count} " . ($count === 1 ? 'item' : 'items') . "]";
-        });
+        $lines = ['[SKILLS]'];
 
-        return "Skills: " . $parts->implode(' | ');
+        foreach ($skills as $skill) {
+            $desc  = $skill->description ? " — {$skill->description}" : '';
+            $count = $skill->items_count;
+            $lines[] = "#{$skill->number} {$skill->title}{$desc} ({$count} " . ($count === 1 ? 'item' : 'items') . ")";
+        }
+
+        $lines[] = '[/SKILLS]';
+
+        return implode("\n", $lines);
     }
 
     /**

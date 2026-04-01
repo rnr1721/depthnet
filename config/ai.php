@@ -1767,7 +1767,8 @@ return [
             'browser',
             'skill',
             'goal',
-            'mood'
+            'mood',
+            'rhythm',
         ],
 
         'defaults' => [
@@ -1951,6 +1952,16 @@ return [
                 'default_being'  => '',
                 'history_limit'  => 5,
                 'history_format' => 'numbered',
+            ],
+
+            'rhythm' => [
+                'enabled'               => false,
+                'city'                  => 'World',
+                'birth_date'            => '',
+                'latitude'              => '',
+                'longitude'             => '',
+                'weather_cache_minutes' => 30,
+                'timezone'              => '',
             ],
         ],
 

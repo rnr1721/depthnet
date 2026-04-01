@@ -42,20 +42,20 @@ interface InputPoolServiceInterface
      *   ]
      * }
      *
-     * @param integer $presetId
+     * @param AiPreset $preset
      * @return string|null
      */
-    public function getAllAsJSON(int $presetId): ?string;
+    public function getAllAsJSON(AiPreset $preset): ?string;
 
     /**
      * Build JSON from regular pool items and then clear the entire pool.
      * Equivalent to getAllAsJSON() followed by clear().
      * Use when dispatching the pool as a user message.
      *
-     * @param int $presetId Preset Id
+     * @param AiPreset $preset
      * @return string|null Null if the pool was empty before clearing
      */
-    public function flush(int $presetId): ?string;
+    public function flush(AiPreset $preset): ?string;
 
     /**
      * Delete all pool items for a preset without returning anything.
@@ -148,4 +148,13 @@ interface InputPoolServiceInterface
      * @param int[] $orderedIds IDs in desired display/injection order
      */
     public function reorderKnownSources(int $presetId, array $orderedIds): void;
+
+    /**
+     * Remove a single pool item by preset and source name.
+     *
+     * @param int    $presetId
+     * @param string $sourceName
+     */
+    public function removeItem(int $presetId, string $sourceName): void;
+
 }

@@ -173,6 +173,11 @@ const form = ref({
     rag_results: props.preset?.rag_results || 5,
     rag_mode: props.preset?.rag_mode || 'flat',
     rag_engine: props.preset?.rag_engine || 'tfidf',
+    rag_relative_dates: props.preset?.rag_relative_dates ?? false,
+    rag_journal_limit: props.preset?.rag_journal_limit ?? 3,
+    rag_skills_limit: props.preset?.rag_skills_limit ?? 3,
+    rag_content_limit: props.preset?.rag_content_limit ?? 400,
+    rag_journal_context_window: props.preset?.rag_journal_context_window ?? 0,
     voice_context_limit: props.preset?.voice_context_limit || 4,
     cp_context_limit: props.preset?.cp_context_limit || 5,
     voice_mp_commands: props.preset?.voice_mp_commands || ''

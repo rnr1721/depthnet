@@ -19,6 +19,21 @@ trait AiModelPromptTrait
             $request->getPreset()->getId()
         );
 
+        $this->dumpPrompt($request->getPreset()->getId(), $finalMessage);
+
         return $finalMessage;
     }
+
+    private function dumpPrompt(int $presetId, string $prompt): void
+    {
+        $dir  = storage_path('logs/prompts');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        file_put_contents(
+            $dir . '/preset_' . $presetId . '.txt',
+            '[' . date('Y-m-d H:i:s') . ']' . PHP_EOL . $prompt . PHP_EOL
+        );
+    }
+
 }

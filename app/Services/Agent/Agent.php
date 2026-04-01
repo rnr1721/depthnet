@@ -16,13 +16,8 @@ use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
-use App\Contracts\Chat\InputPoolServiceInterface;
-use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
-use App\Models\Message;
 use App\Services\Agent\DTO\ModelRequestDTO;
-use Psr\Log\LoggerInterface;
-use Illuminate\Contracts\Cache\Repository as Cache;
 
 class Agent implements AgentInterface
 {
@@ -40,37 +35,32 @@ class Agent implements AgentInterface
         protected ContextBuilderFactoryInterface $contextBuilderFactory,
         protected ChatStatusServiceInterface $chatStatusService,
         protected PluginMetadataServiceInterface $pluginMetadataService,
-        protected CommandResultPoolInterface $commandResultPool,
-        protected InputPoolServiceInterface $inputPoolService,
-        protected OptionsServiceInterface $optionsService,
-        protected Message $messageModel,
-        protected Cache $cache,
-        protected LoggerInterface $logger
+        protected CommandResultPoolInterface $commandResultPool
     ) {
     }
 
     /**
      * @inheritDoc
+     *
+     * Handoff messages now arrive via AgentMessageService before think()
+     * is called — they are already in the preset's input pool or message
+     * history, so there is no need to inject them here.
      */
     public function think(
         AiPreset $currentPreset,
-        ?AiPreset $mainPreset = null,
-        ?string $handoffMessage = null
     ): AiAgentResponseInterface {
         try {
-
-            // Get and setup preset
             $presetId = $currentPreset->getId();
             $this->setupPresetEnvironment($currentPreset);
 
-            // 1. Build context
-            $context = $this->buildContext($currentPreset, $mainPreset, $handoffMessage);
+            // 1. Build context (handoff messages already in pool/history)
+            $context = $this->buildContext($currentPreset);
 
-            // 2. Setup and generate response
+            // 2. Generate response
             $response = $this->generateResponse($context, $currentPreset);
 
-            // 3. Handle response
-            $result = $this->agentActionsHandler->handleResponse($response, $currentPreset, $mainPreset);
+            // 3. Handle response (inter-agent delivery happens inside if needed)
+            $result = $this->agentActionsHandler->handleResponse($response, $currentPreset);
 
             return $result;
         } catch (\Exception $e) {
@@ -79,40 +69,17 @@ class Agent implements AgentInterface
     }
 
     /**
-     * Build context based on chat status
+     * Build context based on chat status.
      *
      * @param AiPreset $preset Current preset
      * @return array
      */
-    protected function buildContext(AiPreset $preset, ?AiPreset $mainPreset = null, ?string $handoffMessage = null): array
+    protected function buildContext(AiPreset $preset): array
     {
-
-        if ($handoffMessage && $mainPreset) {
-            if ($preset->getInputMode() === 'pool') {
-                $this->inputPoolService->add($preset->getId(), $mainPreset->getAvailableName(), $handoffMessage);
-                $messageText = $this->inputPoolService->getAllAsJSON($preset->getId());
-            } else {
-                $messageFromUserLabel = $this->optionsService->get('model_message_from_user', 'message_from_user');
-                $messageText = "$messageFromUserLabel {$preset->getAvailableName()}:\n$handoffMessage";
-                $messageText = $handoffMessage;
-            }
-
-            $this->messageModel->create([
-                'role' => 'user',
-                'content' => $messageText,
-                'from_user_id' => null,
-                'preset_id' => $preset->getId()
-            ]);
-
-        }
-
         $mode = $this->chatStatusService->getChatStatus() ? self::MODE_CYCLE : self::MODE_SINGLE;
         $contextBuilder = $this->contextBuilderFactory->getContextBuilder($mode);
 
-        $context = $contextBuilder->build($preset);
-
-
-        return $context;
+        return $contextBuilder->build($preset);
     }
 
     /**
@@ -158,9 +125,6 @@ class Agent implements AgentInterface
             );
         }
 
-        // Execute pre-run commands and expose results as [[pre_command_results]].
-        // Runs after shortcodes are set up so the preset environment is fully ready.
         $this->commandPreRunner->run($preset, $preset);
     }
-
 }

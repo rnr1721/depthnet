@@ -11,17 +11,22 @@ use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
 /**
- * PersonPlugin - structured memory for people.
+ * PersonPlugin — structured memory for people.
  *
- * Stores numbered facts about individuals independently of general memory.
- * Each person has their own fact list that can be updated incrementally.
+ * person_name stores the full alias string: "Женя / Жэка / James Kvakiani"
+ * Facts are individual records identified by system ID.
  *
- * Workflow:
- *   [person]Zhenya | loves punk aesthetic and travel[/person]  — add fact
- *   [person recall]Zhenya[/person]                             — show all facts
- *   [person delete]Zhenya|3[/person]                           — delete fact #3
- *   [person forget]Zhenya[/person]                             — remove all facts
- *   [person list][/person]                                     — list all people
+ * Commands:
+ *   [person]Женя | loves punk aesthetic[/person]      — add fact (creates person if new)
+ *   [person recall]Женя[/person]                      — recall by name/alias
+ *   [person recall]1[/person]                         — recall by fact ID
+ *   [person find]Вася[/person]                        — search across all aliases
+ *   [person search]punk aesthetic[/person]            — semantic search across all facts
+ *   [person alias add]1 | Жэка[/person]               — add alias (identified by any fact ID)
+ *   [person alias remove]1 | Жэка[/person]            — remove alias
+ *   [person delete]42[/person]                        — delete fact by ID
+ *   [person forget]Женя[/person]                      — remove all facts about person
+ *   [person list][/person]                            — list all known people
  */
 class PersonPlugin implements CommandPluginInterface
 {
@@ -31,120 +36,116 @@ class PersonPlugin implements CommandPluginInterface
 
     public function __construct(
         protected PersonMemoryServiceInterface $personMemoryService,
-        protected LoggerInterface $logger
+        protected LoggerInterface              $logger,
     ) {
         $this->initializeConfig();
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getName(): string
     {
         return 'person';
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getDescription(): string
     {
-        return 'Structured memory for people. Store and recall facts about individuals across conversations.';
+        return 'Structured memory for people. Store facts, manage aliases, search semantically. person_name stores all aliases as "Primary / Alias1 / Alias2".';
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getInstructions(): array
     {
         return [
-            'Add fact about person: [person]Zhenya | loves punk aesthetic and travel[/person]',
-            'Recall all facts about person: [person recall]Zhenya[/person]',
-            'Delete specific fact: [person delete]Zhenya|3[/person]',
-            'To update a fact: first [person recall]Name[/person] to see fact numbers, then [person delete]Name|N[/person] and add new fact',
-            'Forget all facts about person: [person forget]Zhenya[/person]',
-            'List all people in memory: [person list][/person]',
+            'Add fact:              [person]Женя | loves punk aesthetic and travel[/person]',
+            'Recall by name/id:     [person recall]Женя[/person]  or  [person recall]1[/person]',
+            'Find by any alias:     [person find]James Kvakiani[/person]',
+            'Semantic search:       [person search]developer Kharkiv[/person]',
+            'Add alias:             [person alias add]1 | Жэка[/person]',
+            'Remove alias:          [person alias remove]1 | Жэка[/person]',
+            'Delete fact:           [person delete]42[/person]',
+            'Forget person:         [person forget]Женя[/person]',
+            'List all people:       [person list][/person]',
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getConfigFields(): array
     {
         return [
             'enabled' => [
-                'type' => 'checkbox',
-                'label' => 'Enable Person Memory Plugin',
-                'description' => 'Allow storing facts about people',
-                'required' => false
-            ]
+                'type'        => 'checkbox',
+                'label'       => 'Enable Person Memory Plugin',
+                'description' => 'Allow storing structured facts about people',
+                'required'    => false,
+            ],
+            'search_limit' => [
+                'type'        => 'number',
+                'label'       => 'Search results limit',
+                'description' => 'Max facts returned by semantic search',
+                'min'         => 1,
+                'max'         => 20,
+                'value'       => 5,
+                'required'    => false,
+            ],
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function validateConfig(array $config): array
     {
-        return [];
+        $errors = [];
+        if (isset($config['search_limit'])) {
+            $l = (int) $config['search_limit'];
+            if ($l < 1 || $l > 20) {
+                $errors['search_limit'] = 'Search limit must be between 1 and 20.';
+            }
+        }
+        return $errors;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getDefaultConfig(): array
     {
         return [
-            'enabled' => true
+            'enabled'      => true,
+            'search_limit' => 5,
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getCustomSuccessMessage(): ?string
-    {
-        return null;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function getCustomErrorMessage(): ?string
-    {
-        return null;
-    }
-
-    /**
-     * @inheritDoc
-     */
     public function testConnection(): bool
     {
         return $this->isEnabled();
     }
 
+    public function getCustomSuccessMessage(): ?string
+    {
+        return null;
+    }
+
+    public function getCustomErrorMessage(): ?string
+    {
+        return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Commands
+    // -------------------------------------------------------------------------
+
     /**
      * Default execute — add a fact.
-     * Format: "PersonName | fact content"
+     * [person]Женя | loves punk aesthetic[/person]
      */
     public function execute(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
-            return "Error: Person memory plugin is disabled.";
+            return 'Error: Person memory plugin is disabled.';
         }
 
         $parts = explode('|', $content, 2);
-
         if (count($parts) !== 2) {
-            return "Error: Invalid format. Use [person]Name | fact about them[/person]";
+            return 'Error: Invalid format. Use [person]Name | fact about them[/person]';
         }
 
         $personName = trim($parts[0]);
-        $fact = trim($parts[1]);
+        $fact       = trim($parts[1]);
 
         if (empty($personName)) {
-            return "Error: Person name cannot be empty.";
+            return 'Error: Person name cannot be empty.';
         }
 
         $result = $this->personMemoryService->addFact($preset, $personName, $fact);
@@ -152,112 +153,163 @@ class PersonPlugin implements CommandPluginInterface
     }
 
     /**
-     * Recall all facts about a person
+     * [person recall]Женя[/person]  or  [person recall]1[/person]
      */
     public function recall(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
-            return "Error: Person memory plugin is disabled.";
+            return 'Error: Person memory plugin is disabled.';
         }
 
-        $personName = trim($content);
-        if (empty($personName)) {
-            return "Error: Person name cannot be empty.";
+        $nameOrId = trim($content);
+        if (empty($nameOrId)) {
+            return 'Error: Provide a name or fact ID. Use [person recall]Женя[/person]';
         }
 
-        $result = $this->personMemoryService->recallPerson($preset, $personName);
+        $result = $this->personMemoryService->recallPerson($preset, $nameOrId);
         return $result['message'];
     }
 
     /**
-     * Delete a specific fact about a person
-     * Format: "PersonName|factNumber"
+     * [person find]James Kvakiani[/person]
+     */
+    public function find(string $content, AiPreset $preset): string
+    {
+        if (!$this->isEnabled()) {
+            return 'Error: Person memory plugin is disabled.';
+        }
+
+        $term = trim($content);
+        if (empty($term)) {
+            return 'Error: Provide a search term. Use [person find]Name[/person]';
+        }
+
+        $result = $this->personMemoryService->findByMention($preset, $term);
+        return $result['message'];
+    }
+
+    /**
+     * [person search]punk aesthetic[/person]
+     */
+    public function search(string $content, AiPreset $preset): string
+    {
+        if (!$this->isEnabled()) {
+            return 'Error: Person memory plugin is disabled.';
+        }
+
+        $query = trim($content);
+        if (empty($query)) {
+            return 'Error: Provide a search query. Use [person search]punk aesthetic[/person]';
+        }
+
+        $limit  = (int) ($this->config['search_limit'] ?? 5);
+        $result = $this->personMemoryService->searchFacts($preset, $query, $limit);
+        return $result['message'];
+    }
+
+    /**
+     * [person alias add]1 | Жэка[/person]
+     * [person alias remove]1 | Жэка[/person]
+     *
+     * Routed here as method "alias" with content "add|1|Жэка" or "remove|1|Жэка".
+     * The PluginMethodTrait routes [person alias] as method "alias".
+     * We split the subcommand from content manually.
+     */
+    public function alias(string $content, AiPreset $preset): string
+    {
+        if (!$this->isEnabled()) {
+            return 'Error: Person memory plugin is disabled.';
+        }
+
+        // content format: "add|1|Жэка" or "remove|1|Жэка"
+        $parts = array_map('trim', explode('|', $content, 3));
+
+        if (count($parts) < 3) {
+            return 'Error: Invalid format. Use [person alias add]1 | Alias[/person] or [person alias remove]1 | Alias[/person]';
+        }
+
+        [$subcommand, $idStr, $alias] = $parts;
+        $factId = (int) $idStr;
+
+        if ($factId <= 0) {
+            return 'Error: Provide a valid fact ID (any fact belonging to that person).';
+        }
+
+        return match (strtolower($subcommand)) {
+            'add'    => $this->personMemoryService->addAlias($preset, $factId, $alias)['message'],
+            'remove' => $this->personMemoryService->removeAlias($preset, $factId, $alias)['message'],
+            default  => 'Error: Unknown alias subcommand. Use "add" or "remove".',
+        };
+    }
+
+    /**
+     * [person delete]42[/person]
      */
     public function delete(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
-            return "Error: Person memory plugin is disabled.";
+            return 'Error: Person memory plugin is disabled.';
         }
 
-        $parts = explode('|', $content, 2);
-
-        if (count($parts) !== 2) {
-            return "Error: Invalid format. Use [person delete]Name|factNumber[/person]";
+        $factId = (int) trim($content);
+        if ($factId <= 0) {
+            return 'Error: Provide a valid fact ID. Use [person delete]42[/person]';
         }
 
-        $personName = trim($parts[0]);
-        $factNumber = (int) trim($parts[1]);
-
-        if (empty($personName)) {
-            return "Error: Person name cannot be empty.";
-        }
-
-        if ($factNumber < 1) {
-            return "Error: Fact number must be a positive integer.";
-        }
-
-        $result = $this->personMemoryService->deleteFact($preset, $personName, $factNumber);
+        $result = $this->personMemoryService->deleteFact($preset, $factId);
         return $result['message'];
     }
 
     /**
-     * Forget all facts about a person
+     * [person forget]Женя[/person]
      */
     public function forget(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
-            return "Error: Person memory plugin is disabled.";
+            return 'Error: Person memory plugin is disabled.';
         }
 
-        $personName = trim($content);
-        if (empty($personName)) {
-            return "Error: Person name cannot be empty.";
+        $nameOrId = trim($content);
+        if (empty($nameOrId)) {
+            return 'Error: Provide a name or fact ID. Use [person forget]Женя[/person]';
         }
 
-        $result = $this->personMemoryService->forgetPerson($preset, $personName);
+        $result = $this->personMemoryService->forgetPerson($preset, $nameOrId);
         return $result['message'];
     }
 
     /**
-     * List all people in memory
+     * [person list][/person]
      */
     public function list(string $content, AiPreset $preset): string
     {
         if (!$this->isEnabled()) {
-            return "Error: Person memory plugin is disabled.";
+            return 'Error: Person memory plugin is disabled.';
         }
 
         $result = $this->personMemoryService->listPeople($preset);
         return $result['message'];
     }
 
-    /**
-     * @inheritDoc
-     */
+    // -------------------------------------------------------------------------
+    // CommandPluginInterface boilerplate
+    // -------------------------------------------------------------------------
+
     public function getMergeSeparator(): ?string
     {
         return null;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function canBeMerged(): bool
     {
         return false;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function pluginReady(AiPreset $preset): void
     {
-        // No placeholders needed
+        // No placeholders — PersonContextEnricher handles [[persons_context]]
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getSelfClosingTags(): array
     {
         return ['list'];

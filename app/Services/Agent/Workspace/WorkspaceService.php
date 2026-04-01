@@ -93,16 +93,20 @@ class WorkspaceService implements WorkspaceServiceInterface
     public function getFormatted(AiPreset $preset): string
     {
         $entries = $this->all($preset);
-
         if (empty($entries)) {
             return '';
         }
 
-        $lines = [];
+        $lines = ['[WORKSPACE]', ''];
+
         foreach ($entries as $key => $value) {
-            $lines[] = "[{$key}]\n{$value}";
+            $lines[] = "--- {$key} ---";
+            $lines[] = $value;
+            $lines[] = '';
         }
 
-        return implode("\n\n", $lines);
+        $lines[] = '[/WORKSPACE]';
+
+        return implode("\n", $lines);
     }
 }

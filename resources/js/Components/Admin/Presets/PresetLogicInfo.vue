@@ -232,7 +232,7 @@
             </div>
 
             <!-- RAG mode -->
-            <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+            <div :class="isDark ? 'border-gray-600' : 'border-gray-200'">
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_rag_mode') }}
                 </label>
@@ -244,7 +244,7 @@
             </div>
 
             <!-- RAG engine -->
-            <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+            <div :class="isDark ? 'border-gray-600' : 'border-gray-200'">
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_rag_engine') }}
                 </label>
@@ -255,35 +255,105 @@
                 </select>
             </div>
 
-            <!-- Rag context limit -->
-            <div>
-                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                    {{ t('p_modal_rag_context_limit') }}
-                </label>
-                <input :value="modelValue.rag_context_limit ?? 5"
-                    @input="updateField('rag_context_limit', parseNumber($event.target.value))" type="number" min="4"
-                    max="20" step="1" :class="inputClass" :placeholder="t('p_modal_rag_context_limit_placeholder')" />
-                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_rag_context_limit_desc') }}
-                </p>
-                <div v-if="errors.rag_context_limit" class="text-red-500 text-xs mt-1">
-                    {{ errors.rag_context_limit }}
-                </div>
-            </div>
 
-            <!-- Rag results -->
-            <div>
-                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                    {{ t('p_modal_rag_results') }}
-                </label>
-                <input :value="modelValue.rag_results ?? 5"
-                    @input="updateField('rag_results', parseNumber($event.target.value))" type="number" min="4" max="20"
-                    step="1" :class="inputClass" :placeholder="t('p_modal_rag_results_placeholder')" />
-                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_rag_results_desc') }}
-                </p>
-                <div v-if="errors.rag_results" class="text-red-500 text-xs mt-1">
-                    {{ errors.rag_results }}
+
+            <!-- RAG display settings -->
+            <div class="" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+                <h6 :class="['text-sm font-medium mb-3', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_rag_display_limits') }}
+                </h6>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+
+                    <!-- Rag context limit -->
+                    <div>
+                        <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                            {{ t('p_modal_rag_context_limit') }}
+                        </label>
+                        <input :value="modelValue.rag_context_limit ?? 5"
+                            @input="updateField('rag_context_limit', parseNumber($event.target.value))" type="number"
+                            min="1" max="20" step="1" :class="inputClass"
+                            :placeholder="t('p_modal_rag_context_limit_placeholder')" />
+                        <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                            {{ t('p_modal_rag_context_limit_desc') }}
+                        </p>
+                        <div v-if="errors.rag_context_limit" class="text-red-500 text-xs mt-1">
+                            {{ errors.rag_context_limit }}
+                        </div>
+                    </div>
+
+                    <!-- Rag results -->
+                    <div>
+                        <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                            {{ t('p_modal_rag_results') }}
+                        </label>
+                        <input :value="modelValue.rag_results ?? 5"
+                            @input="updateField('rag_results', parseNumber($event.target.value))" type="number" min="4"
+                            max="20" step="1" :class="inputClass" :placeholder="t('p_modal_rag_results_placeholder')" />
+                        <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                            {{ t('p_modal_rag_results_desc') }}
+                        </p>
+                        <div v-if="errors.rag_results" class="text-red-500 text-xs mt-1">
+                            {{ errors.rag_results }}
+                        </div>
+                    </div>
+
+
+                    <!-- Journal limit -->
+                    <div>
+                        <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                            {{ t('p_modal_rag_journal_limit') }}
+                        </label>
+                        <input :value="modelValue.rag_journal_limit ?? 3"
+                            @input="updateField('rag_journal_limit', parseNumber($event.target.value))" type="number"
+                            min="1" max="20" step="1" :class="inputClass" />
+                    </div>
+
+                    <!-- Skills limit -->
+                    <div>
+                        <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                            {{ t('p_modal_rag_skills_limit') }}
+                        </label>
+                        <input :value="modelValue.rag_skills_limit ?? 3"
+                            @input="updateField('rag_skills_limit', parseNumber($event.target.value))" type="number"
+                            min="1" max="20" step="1" :class="inputClass" />
+                    </div>
+
+                    <!-- Content limit -->
+                    <div>
+                        <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                            {{ t('p_modal_rag_content_limit') }}
+                        </label>
+                        <input :value="modelValue.rag_content_limit ?? 400"
+                            @input="updateField('rag_content_limit', parseNumber($event.target.value))" type="number"
+                            min="100" max="2000" step="50" :class="inputClass" />
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Journal context window -->
+                    <div>
+                        <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                            {{ t('p_modal_rag_journal_context_window') }}
+                        </label>
+                        <input :value="modelValue.rag_journal_context_window ?? 0"
+                            @input="updateField('rag_journal_context_window', parseNumber($event.target.value))"
+                            type="number" min="0" max="5" step="1" :class="inputClass" />
+                        <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                            {{ t('p_modal_rag_journal_context_window_desc') }}
+                        </p>
+                    </div>
+
+                    <!-- Relative dates -->
+                    <div class="flex items-center pt-6">
+                        <label
+                            :class="['flex items-center space-x-3 cursor-pointer', isDark ? 'text-white' : 'text-gray-900']">
+                            <input :checked="modelValue.rag_relative_dates"
+                                @change="updateField('rag_relative_dates', $event.target.checked)" type="checkbox"
+                                class="w-4 h-4 rounded text-indigo-600" />
+                            <span class="text-sm">{{ t('p_modal_rag_relative_dates') }}</span>
+                        </label>
+                    </div>
                 </div>
             </div>
 

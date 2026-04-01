@@ -32,6 +32,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setWorkspace();
         $this->setKnownSources();
         $this->setPreCommandResults();
+        $this->setPersonsContext();
     }
 
     /**
@@ -144,6 +145,15 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'pre_command_results',
             'Results of commands executed before generation (requires pre_run_commands to be configured on the preset)',
+            fn () => ''
+        );
+    }
+
+    private function setPersonsContext(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'persons_context',
+            'Relevant person facts from memory, Heart-aware — focuses on people currently in attention (requires Person plugin enabled)',
             fn () => ''
         );
     }

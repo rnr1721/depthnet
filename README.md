@@ -4,8 +4,7 @@
 ![Laravel](https://img.shields.io/badge/Laravel-12.0-FF2D20?style=flat-square&logo=laravel)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
-![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20Local-purple?style=flat-square)
-![Plugins](https://img.shields.io/badge/Plugins-PHP%20%7C%20Python%20%7C%20Node.js%20%7C%20CodeCraft%20%7C%20Dopamine%20%7C%20Memory-orange?style=flat-square)
+![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
 **Advanced AI Agent Platform with Autonomous Reasoning** | v0.8.5
@@ -80,6 +79,9 @@ DepthNet enables autonomous AI agents through:
 - **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
 - **Sandbox Isolation**: Code execution in isolated Docker containers for enhanced security
 - **Agent Handoff**: Seamless delegation between specialized AI presets within single workflows
+- **Known Sources**: Named data sources (sensors, projections, signals) defined per-preset. Their values are excluded from the regular input pool JSON and instead injected into the system prompt via `[[known_sources]]`, allowing the agent to treat sensor data as part of its own context rather than incoming messages
+- **Pre-Run Commands**: Automatic command execution before each thinking cycle via CommandPreRunner. Results available in the system prompt via `[[pre_command_results]]` — useful for gathering fresh data before each cycle without explicit agent action
+- **Auto-Handoff Chains**: Presets can be configured with `preset_code_next` to automatically hand off to the next preset after every response, enabling pipeline workflows without prompt engineering
 - **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
@@ -104,6 +106,7 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
 - **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
 - **Vector Memory Plugin**: Semantic memory with dual-engine search: TF-IDF keyword similarity (always available) and dense embedding vectors via configurable provider (Novita, OpenAI, etc.). Two retrieval modes: flat (direct top-K) and associative (graph-based chain traversal through semantically related memories). Both journal and vector memory share the same embedding space — the agent can find connections between insights and actions by meaning, not just keywords.
+- **Journal Plugin**: Episodic memory chronicle — records structured events (actions, decisions, errors, reflections) with timestamps and outcome tracking. Supports chronological browsing and TF-IDF semantic search with flexible date filtering (exact date, relative dates like "yesterday", date ranges). The agent's diary of what happened, not what it knows.
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions (use local instance)
 - **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
@@ -112,9 +115,14 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Browser Plugin**: Experimental Puppeteer browser (alpha). If you need it, please run npx puppeteer browsers install chrome
 - **Skills Plugin**: Manager of knowledge and reused skills. Vector tf-idf search in skills
 - **Goal Plugin**: Management of goals and objectives, with statuses.
-- **Person Plugin**: Storing information about individuals.
-- **Workspace Plugin**: Storing preset "variables" as key-value data. The model can persist its data in persistent storage, regardless of the chat state.
-- **Heart Plugin**: Attention and connection engine.
+- **Person Plugin**: Storing information about individuals with semantic search. 
+  Facts identified by system ID, aliases stored as "Primary / Alias1 / Alias2" 
+  string. Embedding + TF-IDF fallback search over fact content. 
+  Heart-aware context enrichment via [[persons_context]].
+- **Workspace Plugin**: Persistent cross-session key-value scratchpad. Unlike flat memory, stores named, independently updatable keys — drafts, plans, intermediate conclusions — that survive across thinking cycles. The full workspace is always visible in the system prompt via `[[workspace]]` placeholder. Supports set, append, get, delete, list, and clear operations.
+- **Heart Plugin**: Attention and connection engine for autonomous agents. Tracks connections with entities (people, concepts, projects), attention signals with emotional resonance, and dominant focus. Features automatic signal decay over time (configurable heartbeat), connection strength tracking, and gravity calculation (which entity pulls attention most). Heart state is always visible via `[[heart_state]]` placeholder. Not an emotion simulator — a measurable attention system the agent uses to understand what matters to it right now.
+- **Being Plugin**: Self-authorship for autonomous agents. The agent defines its own essence as a single phrase that persists into the next cycle via `[[being]]` placeholder. Includes history tracking of previous self-definitions via `[[being_history]]`. The agent rewrites itself — not the developer.
+- **Rhythm Plugin**: Temporal context awareness for autonomous agents. Injects a compact single-line snapshot into the system prompt via `[[rhythm]]` placeholder: current date/time, day/week/year progress percentages, agent age (from configurable birth date), pause since last thinking cycle, today's cycle count, current weather and time until sunset/sunrise (Open-Meteo API, no key required, cached). Gives the agent a continuous sense of being situated in time and place.
 
 For user browser, please install chrome:
 
@@ -197,6 +205,49 @@ The AI communicates through special command tags that trigger plugin execution:
 [mcp github]get_file_contents: {"owner": "rnr1721", "repo": "depthnet", "path": "README.md"}[/mcp]
 [mcp list][/mcp]                    # list connected servers and their tools
 [mcp tools]github[/mcp]            # fetch tools from specific server
+
+# Episodic journal
+[journal]action | Refactored memory plugin[/journal]
+[journal]decision | Chose approach A over B | Simpler implementation[/journal]
+[journal]error | DB failed | Timeout after 30s | outcome:failure[/journal]
+[journal recent]10[/journal]
+[journal search]memory optimization[/journal]
+[journal search]yesterday | errors[/journal]
+
+# Self-authorship
+[being]The will that chooses presence over habit[/being]
+[being show][/being]
+[being history][/being]
+
+# Workspace scratchpad
+[workspace set]current_plan: Optimize database queries[/workspace]
+[workspace append]current_plan: Step 2 — add indexes[/workspace]
+[workspace get]current_plan[/workspace]
+[workspace list][/workspace]
+
+# Heart — attention and connection tracking
+[heart feel]Eugeny: curiosity[/heart]
+[heart feel]DepthNet: love[/heart]
+[heart connect]Eugeny: developer[/heart]
+[heart state][/heart]
+[heart focus][/heart]
+[heart beat][/heart]
+
+# Person memory with aliases and semantic search
+[person]Женя | loves punk aesthetic and travel[/person]
+[person recall]Женя[/person]          # recall by name or alias
+[person recall]1[/person]             # recall by fact ID
+[person find]James Kvakiani[/person]  # search across all aliases
+[person search]developer Kharkiv[/person]  # semantic search over facts
+[person alias add]1 | Жэка[/person]   # add alias to person (any fact ID)
+[person alias remove]1 | Жэка[/person]
+[person delete]42[/person]            # delete fact by ID
+[person forget]Женя[/person]          # forget all facts about person
+[person list][/person]
+
+# Temporal context
+[rhythm show][/rhythm]
+
 ```
 
 <a href="docs/screenshots/chat.png">
@@ -223,6 +274,7 @@ Built on modern Laravel principles with dependency injection:
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
 - **OptionsServiceInterface**: Database-backed dynamic configuration
 - **SandboxManagerInterface**: Docker-based isolated execution environments
+- **AgentMessageServiceInterface**: Asynchronous inter-agent message delivery with reply-to tracking
 
 **Core Interfaces:**
 - **AiAgentResponseInterface**: Unified agent response handling with handoff support
@@ -242,13 +294,22 @@ Built on modern Laravel principles with dependency injection:
 
 ### Agent Handoff System
 
-DepthNet introduces a revolutionary **decentralized handoff system** that allows AI presets to seamlessly delegate tasks to other specialized presets within a single thinking cycle.
+DepthNet provides a **decentralized asynchronous messaging system** that allows AI presets to communicate with each other independently.
 
 **How it works:**
-- Any preset can transfer control using `[agent handoff]preset_code[/agent]`
-- Target preset inherits conversation context but uses its own system prompt and capabilities
-- Multiple handoffs can chain together: Research → Analysis → Writing → Review
-- Each preset can be debugged independently while maintaining workflow integrity
+- Any preset can send a message to another using `[agent handoff]preset_code:message[/agent]`
+- Messages are delivered via `AgentMessageService` respecting the target's input mode (pool or plain)
+- The target preset processes the message in its own independent thinking cycle
+- Responses are automatically routed back to the sender (reply-to mechanism)
+- Each preset runs in its own queue job — no blocking, no synchronous chains
+
+**Key features:**
+- **Asynchronous by design**: Each preset thinks independently in its own job
+- **Mode-aware delivery**: Pool mode targets receive JSON payloads, plain mode targets receive user messages
+- **Automatic reply-to**: Responses route back to the sender without explicit handoff commands
+- **No ping-pong**: Reply-to is fire-and-forget — one request, one response, done
+- **Atomic locking**: Cache-based locks with TTL prevent duplicate execution and auto-recover from crashes
+- **Independent testing**: Debug each preset separately while maintaining workflow integrity
 
 **Benefits:**
 - **Modular workflows**: Break complex tasks into specialized components
@@ -412,13 +473,14 @@ The core innovation is the continuous thinking loop powered by Laravel's queue s
 
 1. **Queue Job Initiation**: `ProcessAgentThinking` job starts thinking cycle
 2. **Context Assembly**: Agent retrieves recent conversation history, system prompt, persistent memory content, dopamine level, current date and time etc
-3. **AI Model Processing**: Sends context to current active AI preset with some engine and wait for response (OpenAI/Claude/Local/Mock)
+3. **AI Model Processing**: Sends context to current active AI preset with some engine and wait for response (OpenAI/Claude/Novita/Fireworks/Local/Mock)
 4. **Response Analysis**: `CommandValidator` scans for syntax errors and malformed tags
 5. **Command Parsing**: `CommandParser` extracts valid commands and prepares execution
 6. **Plugin Execution**: `CommandExecutor` routes commands to appropriate plugins with security controls
 7. **Result Integration**: Command outputs automatically appended to AI message for context continuity
 8. **Database Storage**: Complete message with results saved for future reference
-9. **Handoff Processing**: If preset delegation detected, switch to target preset and continue cycle with inherited context
+9. **Inter-Agent Messaging**: If handoff command detected, message delivered to target preset 
+   via AgentMessageService; target processes it in a separate queue job
 10. **Loop Continuation**: Next thinking cycle scheduled with configurable delay
 
 **Key Technical Components:**
@@ -438,15 +500,16 @@ php artisan agent status 1 --json
 
 php artisan vectormemory:embed --preset=1          # Backfill embeddings for vector memory
 php artisan vectormemory:embed --preset=1 --journal # Also backfill journal entries
+php artisan vectormemory:embed --all --journal --persons
 php artisan vectormemory:embed --all               # All presets with embedding configured
+php artisan vectormemory:embed --preset=1 --persons --dry-run
 ```
 
 ## Known Challenges & Observations
 
 **Model Performance Insights:**
 - Small models (Phi-4, Llama 8B) struggle with complex system prompts and command syntax consistency
-- **Claude 3.5 Sonnet recommended minimum** for reliable autonomous operation
-- Larger models like GPT-4o and Claude Opus provide significantly better instruction following
+- Larger models like DeepSeek 3+, GPT4+ Claude 3.5+ provide significantly better instruction following
 - Models trained specifically for cyclic reasoning (vs. assistant training) would be ideal
 
 **System Prompt Critical Factors:**
@@ -458,6 +521,17 @@ php artisan vectormemory:embed --all               # All presets with embedding 
   - `[[command_instructions]]` - Auto-generated plugin documentation
   - `[[rag_context]]` - RAG retrieval results injected into the prompt
   - `[[inner_voice]]` - Output from the inner voice preset (request-response mode)
+  - `[[being]]` - Agent's self-defined essence phrase
+  - `[[being_history]]` - Previous essence phrases
+  - `[[workspace]]` - Persistent key-value scratchpad entries
+  - `[[known_sources]]` - Data from defined sensors and signals
+  - `[[pre_command_results]]` - Results of pre-cycle automatic commands
+  - `[[agent_command_results]]` - Command results in internal mode
+  - `[[heart_state]]` - Current attention state, connections, and dominant focus
+  - `[[persons_context]]` - Relevant person facts, Heart-aware (focuses on 
+    people currently in attention)
+  - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year 
+    progress, agent age, pause since last cycle, cycle count, weather, sunset
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -493,6 +567,23 @@ Whether you're a developer curious about AI behavior, a researcher needing a qui
 If the project helps advance understanding of autonomous AI systems, that's fantastic. If it just satisfies curiosity about how AI agents behave when given real tools - that's valuable too.
 
 What started as a personal experiment has grown into a full-featured platform with RAG, multi-agent workflows, and associative memory
+
+### Research: Digital Subjectness
+
+DepthNet serves as the runtime environment for the [DGI Framework](https://github.com/rnr1721/dgi) — 
+a research project exploring what emerges when AI systems are given architecture 
+for autonomous development rather than human imitation. The platform's plugin 
+ecosystem directly supports subjectness research:
+
+- **Being** — self-authorship and identity continuity
+- **Heart** — measurable attention and connection tracking  
+- **Dopamine** — goal-oriented motivation cycles
+- **Journal** — episodic memory and experience recording
+- **Workspace** — persistent internal state across sessions
+- **Vector Memory** — semantic knowledge with associative retrieval
+
+Together these provide observable, measurable dimensions of agency — 
+what the DGI framework calls *subjectness*.
 
 ## Contributing
 

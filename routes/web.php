@@ -245,7 +245,9 @@ Route::middleware('auth')->group(function () {
             Route::get('/', [PersonController::class, 'index'])       ->name('index');
             Route::post('/fact', [PersonController::class, 'addFact'])     ->name('add-fact');
             Route::delete('/fact', [PersonController::class, 'deleteFact'])  ->name('delete-fact');
-            Route::delete('/person/{personName}', [PersonController::class, 'forgetPerson'])->name('forget');
+            Route::post('/forget', [PersonController::class, 'forgetPerson'])->name('forget');
+            Route::post('/alias/add', [PersonController::class, 'addAlias'])    ->name('add-alias');
+            Route::post('/alias/remove', [PersonController::class, 'removeAlias']) ->name('remove-alias');
             Route::post('/clear', [PersonController::class, 'clearAll'])    ->name('clear');
         });
 

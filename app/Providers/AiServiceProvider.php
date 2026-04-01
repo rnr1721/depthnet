@@ -10,6 +10,7 @@ use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
@@ -52,6 +53,7 @@ use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
 use App\Services\Agent\AgentActionsHandler;
 use App\Services\Agent\AgentJobService;
+use App\Services\Agent\AgentMessageService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
@@ -100,6 +102,7 @@ use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
+use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
@@ -244,10 +247,11 @@ class AiServiceProvider extends ServiceProvider
 
             return $registry;
         });
-
+        $this->app->bind(AgentMessageServiceInterface::class, AgentMessageService::class);
         $this->app->singleton(PresetPromptServiceInterface::class, PresetPromptService::class);
         $this->app->bind(PresetServiceInterface::class, PresetService::class);
         $this->app->singleton(PresetRegistryInterface::class, PresetRegistry::class);
+
 
 
         $this->app->singleton(AgentActionsHandlerInterface::class, AgentActionsHandler::class);
@@ -330,6 +334,7 @@ class AiServiceProvider extends ServiceProvider
             CodeCraftPlugin::class,
             HeartPlugin::class,
             BeingPlugin::class,
+            RhythmPlugin::class
         ];
     }
 

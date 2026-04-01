@@ -43,6 +43,17 @@ interface JournalServiceInterface
      */
     public function searchEntries(AiPreset $preset, string $query, int $limit = 3): array;
 
+    /**
+     * Fetch neighbouring entries around a set of entry IDs.
+     * Returns entries with recorded_at strictly before/after each anchor,
+     * deduplicated and not overlapping with the anchor IDs themselves.
+     *
+     * @param  int[]  $entryIds  Anchor entry IDs (the search results)
+     * @param  int    $window    How many neighbours before and after each anchor
+     * @return \App\Models\JournalEntry[]    Keyed by id, tagged with 'neighbour_of' => [anchor_ids]
+     */
+    public function fetchNeighbours(AiPreset $preset, array $entryIds, int $window = 1): array;
+
     /*
      * Delete a single entry by ID.
      */

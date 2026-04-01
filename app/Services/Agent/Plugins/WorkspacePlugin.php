@@ -58,10 +58,7 @@ class WorkspacePlugin implements CommandPluginInterface
 
     public function getDescription(): string
     {
-        return 'Persistent cross-session key-value scratchpad. '
-            . 'Store named pieces of thought — drafts, plans, intermediate conclusions — '
-            . 'that survive across thinking cycles. '
-            . 'The full workspace is always visible via the [[workspace]] placeholder.';
+        return 'Persistent cross-session key-value scratchpad. that survive across thinking cycles.';
     }
 
     public function getInstructions(): array

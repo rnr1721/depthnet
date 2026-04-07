@@ -129,6 +129,28 @@ interface ChatServiceInterface
     ): Message|array;
 
     /**
+     * Send an external voice input to a preset without a user context.
+     *
+     * Works in both single and pool input modes:
+     * - pool mode:   adds to the input pool and flushes as JSON
+     * - single mode: creates a plain user message with source prefix
+     *
+     * Automatically triggers the agent thinking cycle if not already running.
+     * Designed for external integrations (Rhasspy, etc.) that have no
+     * authenticated user but need to deliver speech-recognised text to an agent.
+     *
+     * @param int    $presetId Target preset ID
+     * @param string $content  Recognised speech text to deliver
+     * @param string $source   Source identifier shown in message metadata (default: 'rhasspy')
+     * @return Message         The created user message
+     */
+    public function sendVoiceInput(
+        int $presetId,
+        string $content,
+        string $source = 'rhasspy',
+    ): Message;
+
+    /**
      * Flush the current input pool and send it as a single message.
      * Returns null if pool is disabled or empty.
      *

@@ -6,4 +6,5 @@ return [
     App\Providers\SandboxServiceProvider::class,
     App\Providers\AuthServiceProvider::class,
     App\Providers\ChatServiceProvider::class,
+    App\Providers\RhasspyServiceProvider::class,
 ];

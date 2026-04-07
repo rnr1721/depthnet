@@ -48,6 +48,7 @@ Choose your preferred installation method:
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
 - **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - Browser setup for voice input and text-to-speech
+- **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration
 
 ## AI Provider Support
 

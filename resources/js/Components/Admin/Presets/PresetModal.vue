@@ -81,6 +81,9 @@
                 <PresetLogicInfo v-model="form" :is-dark="isDark" :errors="errors" :available-presets="availablePresets"
                     @success="showNotification" @error="showError" />
 
+                <!-- Integrations Component -->
+                <PresetIntegrations v-model="form" :is-dark="isDark" :errors="errors" :preset-id="preset?.id ?? null" />
+
                 <!-- Engine Config Component -->
                 <PresetEngineConfig v-model="form" :engine-name="form.engine_name" :engines="engines" :is-dark="isDark"
                     :errors="errors" @validation-errors="onValidationErrors" @success="showNotification"
@@ -116,6 +119,7 @@ import PresetSandboxManager from './PresetSandboxManager.vue';
 import PresetMcpManager from './PresetMcpManager.vue';
 import PresetLogicInfo from './PresetLogicInfo.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
+import PresetIntegrations from './PresetIntegrations.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';
 
 const { t } = useI18n();
@@ -180,7 +184,12 @@ const form = ref({
     rag_journal_context_window: props.preset?.rag_journal_context_window ?? 0,
     voice_context_limit: props.preset?.voice_context_limit || 4,
     cp_context_limit: props.preset?.cp_context_limit || 5,
-    voice_mp_commands: props.preset?.voice_mp_commands || ''
+    voice_mp_commands: props.preset?.voice_mp_commands || '',
+    rhasspy_enabled: props.preset?.rhasspy_enabled ?? false,
+    rhasspy_url: props.preset?.rhasspy_url ?? '',
+    rhasspy_tts_voice: props.preset?.rhasspy_tts_voice ?? '',
+    rhasspy_incoming_enabled: props.preset?.rhasspy_incoming_enabled ?? false,
+    rhasspy_incoming_token: props.preset?.rhasspy_incoming_token ?? '',
 });
 
 // Computed

@@ -147,6 +147,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
 
         if ($actionsResult->getSystemMessage()) {
             $this->createSystemMessage($actionsResult->getSystemMessage(), $preset->getId());
+            event(new \App\Events\AgentSpeakEvent($actionsResult->getSystemMessage(), $preset));
         }
 
         return ['actionsResult' => $actionsResult, 'message' => $message];

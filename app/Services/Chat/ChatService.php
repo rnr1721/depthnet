@@ -246,6 +246,38 @@ class ChatService implements ChatServiceInterface
     }
 
     /**
+     * @inheritDoc
+     */
+    public function sendVoiceInput(
+        int $presetId,
+        string $content,
+        string $source = 'rhasspy',
+    ): Message {
+        $preset = $this->presetRegistry->getPreset($presetId);
+
+        if ($this->inputPoolService->isEnabled($preset)) {
+            $this->inputPoolService->add($presetId, $source, $content);
+            $formattedContent = $this->inputPoolService->getAllAsJSON($preset);
+        } else {
+            $formattedContent = "[{$source}]: {$content}";
+        }
+
+        $message = $this->messageModel->create([
+            'role'               => 'user',
+            'content'            => $formattedContent,
+            'from_user_id'       => null,
+            'preset_id'          => $presetId,
+            'is_visible_to_user' => true,
+            'metadata'           => ['source' => $source],
+        ]);
+
+        $isActive = $this->chatStatusService->getPresetStatus($presetId);
+        $this->agentJobService->start($presetId, !$isActive);
+
+        return $message;
+    }
+
+    /**
      * Create a user message, run commands if needed, trigger agent.
      *
      * @param User $user

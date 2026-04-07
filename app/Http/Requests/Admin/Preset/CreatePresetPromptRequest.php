@@ -25,7 +25,7 @@ class CreatePresetPromptRequest extends FormRequest
                 // but you can add it here for a quick fail:
                 "unique:preset_prompts,code,NULL,id,preset_id,{$presetId}",
             ],
-            'content'       => ['required', 'string', 'max:10000'],
+            'content'       => ['required', 'string', 'max:12000'],
             'description'   => ['nullable', 'string', 'max:500'],
             'set_as_active' => ['nullable', 'boolean'],
         ];

@@ -124,6 +124,10 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Heart Plugin**: Attention and connection engine for autonomous agents. Tracks connections with entities (people, concepts, projects), attention signals with emotional resonance, and dominant focus. Features automatic signal decay over time (configurable heartbeat), connection strength tracking, and gravity calculation (which entity pulls attention most). Heart state is always visible via `[[heart_state]]` placeholder. Not an emotion simulator — a measurable attention system the agent uses to understand what matters to it right now.
 - **Being Plugin**: Self-authorship for autonomous agents. The agent defines its own essence as a single phrase that persists into the next cycle via `[[being]]` placeholder. Includes history tracking of previous self-definitions via `[[being_history]]`. The agent rewrites itself — not the developer.
 - **Rhythm Plugin**: Temporal context awareness for autonomous agents. Injects a compact single-line snapshot into the system prompt via `[[rhythm]]` placeholder: current date/time, day/week/year progress percentages, agent age (from configurable birth date), pause since last thinking cycle, today's cycle count, current weather and time until sunset/sunrise (Open-Meteo API, no key required, cached). Gives the agent a continuous sense of being situated in time and place.
+- **RAG Query Plugin**: Explicit RAG search control — agent sets its own search query 
+  for the next cycle instead of relying on automatic query formulation. Use 
+  `[rag query]what to find[/rag]` when you know exactly what memory to retrieve. 
+  Falls back to automatic formulation if no query is set.
 
 For user browser, please install chrome:
 
@@ -248,6 +252,11 @@ The AI communicates through special command tags that trigger plugin execution:
 
 # Temporal context
 [rhythm show][/rhythm]
+
+# RAG query control
+[rag query]Technical breakthroughs in AI self-regulation[/rag]
+[rag show][/rag]
+[rag clear][/rag]
 
 ```
 

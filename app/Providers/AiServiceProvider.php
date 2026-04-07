@@ -101,6 +101,7 @@ use App\Services\Agent\Plugins\PHPPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
+use App\Services\Agent\Plugins\RagQueryPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
@@ -316,6 +317,7 @@ class AiServiceProvider extends ServiceProvider
             AgentPlugin::class,
             VectorMemoryPlugin::class,
             MemoryPlugin::class,
+            RagQueryPlugin::class,
             JournalPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,

@@ -1,7 +1,5 @@
 <?php
 
-use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
-
 $isSandboxEnvironment = (function () {
     $profiles = env('COMPOSE_PROFILES');
     return $profiles && (
@@ -1755,6 +1753,7 @@ return [
             'shell',
             'memory',
             'vectormemory',
+            'rag',
             'journal',
             'mode',
             'person',
@@ -1854,6 +1853,10 @@ return [
                 'display_content_length' => 500,
                 'custom_stop_words_ru' => '',
                 'custom_stop_words_en' => ''
+            ],
+
+            'rag' => [
+                'enabled'       => false
             ],
 
             'journal' => [

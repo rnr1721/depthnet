@@ -165,12 +165,17 @@ setup_env() {
 build_compose_cmd() {
     detect_sandbox_mode
     local profile_arg=""
+    local override_arg=""
 
     if [ "$SANDBOX_MODE" = "true" ]; then
         profile_arg="--profile sandbox"
     fi
 
-    echo "DOCKER_UID=$DOCKER_UID DOCKER_GID=$DOCKER_GID DOCKER_SOCKET_GID=$DOCKER_SOCKET_GID docker compose -f $COMPOSE_FILE $profile_arg"
+    if [ -f "$PROJECT_DIR/docker-compose.override.yml" ]; then
+        override_arg="-f docker-compose.override.yml"
+    fi
+
+    echo "DOCKER_UID=$DOCKER_UID DOCKER_GID=$DOCKER_GID DOCKER_SOCKET_GID=$DOCKER_SOCKET_GID docker compose -f $COMPOSE_FILE $override_arg $profile_arg"
 }
 
 # Enable/disable sandbox

@@ -176,6 +176,30 @@
                             </span>
                         </label>
 
+                        <!-- Clear entire agent — only shown when preset belongs to an agent -->
+                        <template v-if="agentName">
+                            <div :class="['mt-2 pt-3 border-t', isDark ? 'border-gray-600' : 'border-gray-200']"></div>
+                            <label class="flex items-start space-x-3 cursor-pointer">
+                                <input type="checkbox" v-model="clearAgent" :class="[
+                                    'w-4 h-4 rounded border-2 transition-colors mt-0.5 flex-shrink-0',
+                                    'focus:ring-2 focus:ring-orange-500 focus:ring-offset-2',
+                                    isDark
+                                        ? 'bg-gray-700 border-gray-600 text-orange-500 focus:ring-offset-gray-800'
+                                        : 'bg-white border-gray-300 text-orange-500'
+                                ]">
+                                <div>
+                                    <span
+                                        :class="['text-sm font-medium', isDark ? 'text-orange-300' : 'text-orange-700']">
+                                        {{ t('chat_clear_agent') || 'Clear entire agent' }}
+                                    </span>
+                                    <p :class="['text-xs mt-0.5', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                        {{ t('chat_clear_agent_hint', { name: agentName }) || `Applies selected options
+                                        to all presets of agent "${agentName}"` }}
+                                    </p>
+                                </div>
+                            </label>
+                        </template>
+
                     </div>
 
                     <!-- Warning -->
@@ -250,7 +274,10 @@ const { t } = useI18n();
 const props = defineProps({
     show: Boolean,
     isDark: Boolean,
-    isClearing: Boolean
+    isClearing: Boolean,
+    // Agent name — passed when current preset belongs to an agent.
+    // When set, shows the "clear entire agent" option.
+    agentName: { type: String, default: null },
 });
 
 const emit = defineEmits(['close', 'confirm']);
@@ -263,17 +290,16 @@ const clearGoals = ref(true);
 const clearSkills = ref(true);
 const clearPerson = ref(true);
 const clearJournal = ref(true);
+const clearAgent = ref(false);
 
 const hasAnySelected = computed(() =>
-    clearMessages.value || clearMemory.value || clearVectorMemory.value || clearWorkspace.value || clearGoals.value || clearSkills.value || clearPerson.value || clearJournal.value
+    clearMessages.value || clearMemory.value || clearVectorMemory.value ||
+    clearWorkspace.value || clearGoals.value || clearSkills.value ||
+    clearPerson.value || clearJournal.value
 );
 
-/**
- * Close modal and reset state
- */
 function closeModal() {
     emit('close');
-    // Reset to default state
     setTimeout(() => {
         clearMessages.value = true;
         clearMemory.value = true;
@@ -283,12 +309,10 @@ function closeModal() {
         clearSkills.value = true;
         clearPerson.value = true;
         clearJournal.value = true;
+        clearAgent.value = false;
     }, 300);
 }
 
-/**
- * Confirm clearing with selected options
- */
 function confirmClear() {
     if (!hasAnySelected.value) return;
 
@@ -300,7 +324,9 @@ function confirmClear() {
         clearGoals: clearGoals.value,
         clearSkills: clearSkills.value,
         clearPerson: clearPerson.value,
-        clearJournal: clearJournal.value
+        clearJournal: clearJournal.value,
+        // Only send clear_agent when checkbox is checked and agent exists
+        clearAgent: props.agentName ? clearAgent.value : false,
     });
 }
 

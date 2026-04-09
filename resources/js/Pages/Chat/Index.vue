@@ -19,8 +19,9 @@
       ]">
         <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
           :isDark="isDark" :presetMetadata="presetMetadata" :user="user" :presetActiveMap="presetActiveMap"
-          @mentionUser="handleMobileMention" @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect"
-          @editPreset="handleEditPreset" @togglePresetActive="handleTogglePresetActive" />
+          :agents="agents" @mentionUser="handleMobileMention" @showAbout="showAboutModal = true"
+          @selectPreset="handlePresetSelect" @editPreset="handleEditPreset"
+          @togglePresetActive="handleTogglePresetActive" @agentFilterChanged="selectedAgentId = $event" />
       </div>
     </div>
 
@@ -28,9 +29,9 @@
     <ChatSidebar :mobileMenuOpen="mobileMenuOpen" :isDark="isDark" :appName="page.props.app_name" :user="user"
       :isAdmin="isAdmin" :currentPreset="currentPreset" :currentPresetId="selectedPresetId"
       v-model:isChatActive="isChatActive" v-model:selectedExportFormat="selectedExportFormat"
-      :exportFormats="exportFormats" :isExporting="isExporting" @closeMobileMenu="mobileMenuOpen = false"
-      @clearHistory="showClearHistory" @editPreset="editCurrentPreset" @toggleTheme="toggleTheme"
-      @exportChat="exportChat" />
+      :exportFormats="exportFormats" :isExporting="isExporting" :selectedAgentId="selectedAgentId"
+      @closeMobileMenu="mobileMenuOpen = false" @clearHistory="showClearHistory" @editPreset="editCurrentPreset"
+      @toggleTheme="toggleTheme" @exportChat="exportChat" />
 
     <!-- Main chat area -->
     <div class="flex-1 flex flex-col overflow-hidden lg:ml-0">
@@ -72,8 +73,9 @@
     <div class="hidden lg:flex lg:w-80 flex-col border-l">
       <TabsPanel :users="localUsers" :availablePresets="availablePresets" :selectedPresetId="selectedPresetId"
         :isDark="isDark" :presetMetadata="presetMetadata" :user="user" :presetActiveMap="presetActiveMap"
-        @mentionUser="mentionUser" @showAbout="showAboutModal = true" @selectPreset="handlePresetSelect"
-        @editPreset="handleEditPreset" @togglePresetActive="handleTogglePresetActive" />
+        :agents="agents" @mentionUser="mentionUser" @showAbout="showAboutModal = true"
+        @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" @togglePresetActive="handleTogglePresetActive"
+        @agentFilterChanged="selectedAgentId = $event" /> />
     </div>
 
     <!-- Preset Modal -->
@@ -86,7 +88,7 @@
 
     <!-- Clear History Modal -->
     <ClearHistoryModal :show="showClearHistoryModal" :isDark="isDark" :isClearing="isClearingHistory"
-      @close="showClearHistoryModal = false" @confirm="handleClearHistory" />
+      :agentName="currentPresetAgentName" @close="showClearHistoryModal = false" @confirm="handleClearHistory" />
   </div>
 </template>
 
@@ -155,6 +157,7 @@ const props = defineProps({
   showAgentResults: Boolean,
   showCommandResults: Boolean,
   pagination: Object,
+  agents: { type: Array, default: () => [] },
 });
 
 const { isDark, toggleTheme } = useTheme();
@@ -182,6 +185,21 @@ const messageInputComponent = ref(null);
 const showAboutModal = ref(false);
 const showClearHistoryModal = ref(false);
 const isClearingHistory = ref(false);
+
+const selectedAgentId = ref(null);
+
+// Find agent name for the currently selected preset — used in ClearHistoryModal
+const currentPresetAgentName = computed(() => {
+  if (!props.agents?.length || !selectedPresetId.value) return null;
+  const agent = props.agents.find(a =>
+    a.planner?.id === selectedPresetId.value ||
+    a.roles?.some(r =>
+      r.preset?.id === selectedPresetId.value ||
+      r.validator?.id === selectedPresetId.value
+    )
+  );
+  return agent?.name ?? null;
+});
 
 const {
   localMessages,
@@ -364,6 +382,7 @@ async function handleClearHistory(options) {
     if (options.clearSkills) requestData.clear_skills = true;
     if (options.clearPerson) requestData.clear_person = true;
     if (options.clearJournal) requestData.clear_journal = true;
+    if (options.clearAgent) requestData.clear_agent = true;
 
     await router.post(route('chat.clear'), requestData, {
       preserveScroll: true,

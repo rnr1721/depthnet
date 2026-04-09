@@ -1766,6 +1766,7 @@ return [
             'browser',
             'skill',
             'goal',
+            'task',
             'mood',
             'rhythm',
         ],
@@ -1879,6 +1880,10 @@ return [
             ],
 
             'goal' => [
+                'enabled' => true,
+            ],
+
+            'task' => [
                 'enabled' => true,
             ],
 

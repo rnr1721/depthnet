@@ -64,6 +64,12 @@
           <Link :href="pluginsLink" :class="linkClass">
             {{ t('plugins') }}
           </Link>
+          <Link :href="route('admin.agents.index')" :class="linkClass">
+            {{ t('agents') }}
+          </Link>
+          <Link :href="agentTasksLink" :class="linkClass">
+            {{ t('agent_tasks') }}
+          </Link>
           <!-- Preset-aware links: carry current preset_id -->
           <Link :href="memoryLink" :class="linkClass">
             {{ t('memory') }}
@@ -208,6 +214,8 @@ const props = defineProps({
   currentPreset: Object,
   // Current preset ID — used to build preset-aware admin links
   currentPresetId: Number,
+  // Currently selected agent in the preset filter — used for agent tasks link
+  selectedAgentId: { type: Number, default: null },
 });
 
 defineEmits([
@@ -248,6 +256,12 @@ const personLink = computed(() =>
 const knownSourcesLink = computed(() =>
   routeWithPreset(route('admin.known-sources.index'), props.currentPresetId)
 );
+
+// Agent tasks link — carries selected agent_id if one is chosen in the preset filter
+const agentTasksLink = computed(() => {
+  const base = route('admin.agent-tasks.index');
+  return props.selectedAgentId ? `${base}?agent_id=${props.selectedAgentId}` : base;
+});
 
 const linkClass = computed(() => [
   'inline-block text-sm px-3 py-2 rounded-md transition-colors',

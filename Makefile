@@ -26,6 +26,9 @@ setup-prod: ## Setup production environment (lightweight, no sandbox)
 setup-prod-full: ## Setup production environment (with sandbox support)
 	@$(MANAGER) setup-prod-full
 
+setup: ## General setup (defaults to development full)
+	@$(MANAGER) setup
+
 # Sandbox management
 sandbox-toggle: ## Toggle sandbox on/off (use: make sandbox-toggle action="enable" or action="disable")
 	@$(MANAGER) sandbox-toggle "$(action)"
@@ -51,6 +54,9 @@ up: check-scripts ## Start containers in foreground
 
 status: ## Show container status
 	@$(MANAGER) status
+
+build: ## Build containers without starting
+	@$(MANAGER) build
 
 # Logging
 logs: ## Show application logs
@@ -103,6 +109,15 @@ clean: ## Clean up containers
 
 reset: ## Complete reset (containers, volumes, images)
 	@$(MANAGER) reset
+
+prune: ## reset project (keep volumes, remove containers and images)
+	@$(MANAGER) prune
+
+backup:
+	@$(MANAGER) backup
+
+restore:
+	@$(MANAGER) restore $(file)
 
 fix-permissions: ## Fix file permissions after sudo usage
 	@$(MANAGER) fix-permissions

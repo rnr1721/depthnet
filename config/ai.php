@@ -1713,7 +1713,12 @@ return [
             'name' => 'Mock',
             'description' => 'Mock engine for development and testing',
             'engine_name' => 'mock',
-            'system_prompt' => "You are useful AI assistant\nDopamine level: [[dopamine_level]]\nYou know: [[notepad_content]]\nCurrent datetime: [[current_datetime]]\nCommand instructions: [[command_instructions]]\n",
+            'system_prompts' => [
+                [
+                    'code' => 'default',
+                    'content' => "You are useful AI assistant\nDopamine level: [[dopamine_level]]\nYou know: [[notepad_content]]\nCurrent datetime: [[current_datetime]]\nCommand instructions: [[command_instructions]]\n",
+                ]
+            ],
             'loop_interval' => 15,
             'max_context_limit' => 8,
             'agent_result_mode' => 'separate',

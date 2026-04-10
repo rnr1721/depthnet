@@ -1,11 +1,13 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
 import path from 'path';
 
 const isDocker = process.env.VITE_DOCKER_ENV === 'true';
 const isProduction = process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+const isHttps = process.env.APP_URL?.startsWith('https://');
 
 /**
  * Get the appropriate host configuration based on environment
@@ -67,7 +69,7 @@ function getHMRConfig() {
     return {
         host: hmrHost,
         port: hmrPort,
-        protocol: process.env.VITE_HMR_PROTOCOL || 'ws',
+        protocol: isHttps ? 'wss' : 'ws',
     };
 }
 
@@ -98,6 +100,7 @@ export default defineConfig({
             input: ['resources/css/app.css', 'resources/js/app.js'],
             refresh: !isProduction,
         }),
+        ...(isDocker && isHttps ? [basicSsl()] : []),
         vue({
             template: {
                 transformAssetUrls: {

@@ -31,3 +31,14 @@ services:
 
     volumes:
       - ./docker/mysql/certs:/etc/mysql/certs:ro
+
+
+  # ==========================================================================
+  # Set SSL_MODE=custom in .env and put your certificates here:
+  #   docker/ssl/cert.pem
+  #   docker/ssl/key.pem
+  # ==========================================================================
+
+  #app:
+  #  volumes:
+  #    - ./docker/ssl:/etc/nginx/ssl:ro

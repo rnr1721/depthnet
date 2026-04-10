@@ -17,6 +17,21 @@ cd depthnet
 
 ## Quick Start
 
+### Quickest Start (Interactive Setup)
+
+```bash
+chmod +x ./docker/manager.sh
+make setup        # Interactive setup for development
+make start
+```
+
+The interactive setup will ask you for:
+- `APP_URL` — your IP/domain and port
+- Timezone
+- Database password (optional)
+
+Everything else is configured automatically.
+
 ### For Production Environment
 
 **Full mode (with sandbox for AI features):**
@@ -153,6 +168,10 @@ APP_URL=http://192.168.1.5
 
 # Example 4: Localhost with custom port
 APP_URL=http://localhost:9000
+
+# Example 5: HTTPS with self-signed certificate
+APP_URL=https://192.168.1.5:8443
+# APP_PORT and session settings are configured automatically
 ```
 
 No need for manual port exports! Just edit your `.env` file and run `make start`.
@@ -241,6 +260,9 @@ The application automatically detects your host UID/GID and creates matching use
 
 ### Environment Setup
 ```bash
+
+make setup        # Interactive setup
+
 make setup-dev       # Setup development environment (lightweight)
 make setup-dev-full  # Setup development environment (with sandbox)
 make setup-prod      # Setup production environment (lightweight)
@@ -311,7 +333,8 @@ make optimize                         # Optimize for production
 ### Maintenance
 ```bash
 make clean              # Clean up containers and reset initialization
-make reset              # Complete reset (containers, volumes, images)
+make prune        # Remove containers and images, keep volumes (database data)
+make reset        # Complete reset including volumes (WARNING: deletes all data)
 make fix-permissions    # Fix file permissions after sudo usage
 ```
 
@@ -376,8 +399,10 @@ make logs-service service="sandbox-manager"
 ## Configuration Tips
 
 ### Development
-- Use `APP_URL=http://localhost:8000` for standard setup
-- Use `APP_URL=http://192.168.1.5:3000` for network access
+- Use `APP_URL=https://192.168.1.5:8443` for network access with HTTPS
+- SSL certificate is generated automatically (self-signed by default)
+- IMPORTANT: When using HTTPS, open `https://your-ip:5173` in browser once and accept the certificate warning for Vite HMR to work
+- `SESSION_DOMAIN`, `SANCTUM_STATEFUL_DOMAINS` and `VITE_HMR_HOST` are configured automatically from `APP_URL`
 - Vite HMR automatically configured for Docker
 - Start with lightweight mode, enable sandbox only if needed
 
@@ -387,6 +412,62 @@ make logs-service service="sandbox-manager"
 - Configure proper CORS origins
 - Use lightweight mode unless AI features are required
 - Monitor resource usage if using sandbox mode
+
+## 🔐 SSL / HTTPS Configuration
+
+HTTPS is enabled by default using a self-signed certificate. The certificate is generated automatically on first start.
+
+### SSL Modes
+
+Set `SSL_MODE` in your `.env`:
+
+```bash
+# Auto-generate self-signed certificate (default)
+SSL_MODE=self-signed
+
+# Use your own certificates (place them in docker/ssl/)
+SSL_MODE=custom
+
+# Disable HTTPS (use when behind external reverse proxy)
+SSL_MODE=off
+```
+
+### Custom certificates (SSL_MODE=custom)
+
+1. Copy the example override file:
+```bash
+cp docker-compose.override.example.yml docker-compose.override.yml
+```
+
+2. Uncomment the `OPTION 3: Custom SSL certificates` section in `docker-compose.override.yml`
+
+3. Place your certificates into:
+```
+docker/ssl/
+  ├── cert.pem
+  └── key.pem
+```
+
+4. Set in `.env`:
+```bash
+SSL_MODE=custom
+```
+
+### HTTPS port
+
+Default HTTPS port is `8443`. To change it:
+```bash
+HTTPS_PORT=443
+APP_URL=https://yourdomain.com:443
+```
+
+### Vite HMR with HTTPS
+
+When using HTTPS, Vite development server runs on a separate port (`5173`) with its own self-signed certificate. On first use you need to accept it in your browser:
+
+1. Open `https://your-ip:5173` in browser
+2. Accept the certificate warning
+3. Return to your app — HMR will work automatically
 
 ## Default Admin Account
 
@@ -491,6 +572,22 @@ make restart
 make logs-service service="sandbox-manager"
 ```
 
+**HTTPS / Vite HMR not connecting:**
+```bash
+# Accept Vite certificate in browser
+# Open https://your-ip:5173 and click "Accept risk"
+# Then reload your app
+```
+
+**Login redirects back to login page:**
+```bash
+# Make sure APP_URL matches the address you use in browser
+# SESSION_DOMAIN and SANCTUM_STATEFUL_DOMAINS are set automatically
+# If issues persist, clear Laravel cache:
+make artisan cmd="config:clear"
+make artisan cmd="cache:clear"
+```
+
 **Resource issues:**
 ```bash
 # Switch to lightweight mode
@@ -499,6 +596,12 @@ make restart
 
 # Or allocate more resources to Docker
 # Docker Desktop: Settings → Resources → Advanced
+```
+
+**Need to rebuild after code changes:**
+```bash
+make prune   # removes images but keeps database
+make start   # rebuilds from scratch
 ```
 
 ## Advanced Usage

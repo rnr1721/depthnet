@@ -1,3 +1,9 @@
+# ============================================================
+# DO NOT run this file directly with docker compose up!
+# Use: make start / make stop / make restart
+# or: ./docker/manager.sh start
+# See docker.md for full documentation.
+# ============================================================
 services:
   app:
     build:
@@ -8,6 +14,7 @@ services:
         - DOCKER_SOCKET_GID=${DOCKER_SOCKET_GID:-999}
     ports:
       - "${APP_PORT:-8000}:80"
+      - "${HTTPS_PORT:-8443}:443"
       - "${VITE_HMR_PORT:-5173}:5173"
     volumes:
       - .:/var/www/html
@@ -35,6 +42,7 @@ services:
       - VITE_CORS_ORIGIN=${VITE_CORS_ORIGIN:-}
       - VITE_POLLING_INTERVAL=${VITE_POLLING_INTERVAL:-1000}
       - CORS_MAX_AGE=${CORS_MAX_AGE:-0}
+      - TZ=${TZ:-UTC}
     hostname: depthnet
     depends_on:
       mysql:

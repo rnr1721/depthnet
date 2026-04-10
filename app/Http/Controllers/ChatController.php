@@ -3,17 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Contracts\Agent\AgentJobServiceInterface;
-use App\Contracts\Agent\Goals\GoalServiceInterface;
-use App\Contracts\Agent\Journal\JournalServiceInterface;
-use App\Contracts\Agent\Memory\MemoryServiceInterface;
-use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
+use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
+use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
-use App\Contracts\Agent\Skills\SkillServiceInterface;
-use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
-use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
@@ -51,6 +47,7 @@ class ChatController extends Controller
         ChatStatusServiceInterface $chatStatusService,
         UserServiceInterface $userService,
         PluginRegistryInterface $pluginRegistry,
+        AgentServiceInterface $agentService,
         ShortcodeManagerServiceInterface $shortcodeManager,
         OptionsServiceInterface $optionsService
     ) {
@@ -74,6 +71,7 @@ class ChatController extends Controller
                 'model'               => $defaultPreset->engine_config['model'] ?? null,
                 'metadata'            => $defaultPreset->metadata ?? [],
             ] : null,
+            'agents' => $agentService->getAgentsForChat()
         ];
 
         if ($user && $user->isAdmin()) {
@@ -162,23 +160,20 @@ class ChatController extends Controller
 
     /**
      * Clear the chat history for the currently selected preset.
+     * Optionally clear additional data (memory, vector memory, workspace, etc.)
+     * If clear_agent is true and the preset belongs to an agent, clears all agent presets.
      */
     public function clearHistory(
         Request $request,
-        MemoryServiceInterface $memoryService,
-        VectorMemoryFactoryInterface $vectorMemoryFactory,
-        WorkspaceServiceInterface $workspaceService,
-        GoalServiceInterface $goalService,
-        SkillServiceInterface $skillService,
-        PersonMemoryServiceInterface $personMemoryService,
-        JournalServiceInterface $journalService
+        PresetCleanupServiceInterface $cleanupService,
+        AgentTaskServiceInterface $agentTaskService
     ): JsonResponse|RedirectResponse {
         try {
             $presetId = (int) $request->input('preset_id', 0);
 
             if (!$presetId) {
                 $currentPreset = $this->presetService->getDefaultPreset();
-                $presetId = $currentPreset->getId();
+                $presetId      = $currentPreset->getId();
             } else {
                 $currentPreset = $this->presetService->findById($presetId);
             }
@@ -187,47 +182,23 @@ class ChatController extends Controller
                 return response()->json(['success' => false, 'message' => 'Preset not found'], 404);
             }
 
+            $options = $request->all();
             $cleared = [];
 
-            if ($request->boolean('clear_messages', true)) {
-                $this->chatService->clearHistory($presetId);
-                $cleared[] = 'messages';
-            }
-
-            if ($request->boolean('clear_memory')) {
-                $memoryService->clearMemory($currentPreset);
-                $cleared[] = 'memory';
-            }
-
-            if ($request->boolean('clear_vector_memory')) {
-                $vectorMemoryService = $vectorMemoryFactory->make();
-                $vectorMemoryService->clearVectorMemories($currentPreset);
-                $cleared[] = 'vector_memory';
-            }
-
-            if ($request->boolean('clear_workspace')) {
-                $workspaceService->clear($currentPreset);
-                $cleared[] = 'workspace';
-            }
-
-            if ($request->boolean('clear_goals')) {
-                $goalService->clear($currentPreset);
-                $cleared[] = 'goals';
-            }
-
-            if ($request->boolean('clear_skills')) {
-                $skillService->deleteAllSkills($currentPreset);
-                $cleared[] = 'skills';
-            }
-
-            if ($request->boolean('clear_person')) {
-                $personMemoryService->clearAll($currentPreset);
-                $cleared[] = 'person';
-            }
-
-            if ($request->boolean('clear_journal')) {
-                $journalService->clear($currentPreset);
-                $cleared[] = 'person';
+            if ($request->boolean('clear_agent')) {
+                $agent = $agentTaskService->findAgentForPreset($currentPreset);
+                if ($agent) {
+                    $agentCleared = $cleanupService->clearAgent($agent, $options);
+                    foreach ($agentCleared as $presetName => $items) {
+                        foreach ($items as $item) {
+                            $cleared[] = "{$presetName}:{$item}";
+                        }
+                    }
+                } else {
+                    $cleared = $cleanupService->clearPreset($currentPreset, $options);
+                }
+            } else {
+                $cleared = $cleanupService->clearPreset($currentPreset, $options);
             }
 
             if (empty($cleared)) {
@@ -249,20 +220,15 @@ class ChatController extends Controller
 
         } catch (\Exception $e) {
             $this->logger->error('Failed to clear chat history', [
-                'error'          => $e->getMessage(),
-                'trace'          => $e->getTraceAsString(),
-                'preset_id'      => $presetId ?? null,
-                'user_id'        => $this->authService->getCurrentUserId(),
-                'request_params' => $request->only([
-                    'clear_messages', 'clear_memory', 'clear_vector_memory',
-                ]),
+                'error'     => $e->getMessage(),
+                'preset_id' => $presetId ?? null,
             ]);
 
             if ($request->expectsJson()) {
-                return response()->json(['success' => false, 'message' => 'Failed to clear history'], 500);
+                return response()->json(['success' => false, 'message' => 'Failed to clear: ' . $e->getMessage()], 500);
             }
 
-            return back()->withErrors(['error' => 'Failed to clear history: ' . $e->getMessage()]);
+            return back()->withErrors(['error' => 'Failed to clear: ' . $e->getMessage()]);
         }
     }
 

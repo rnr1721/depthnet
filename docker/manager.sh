@@ -161,16 +161,96 @@ setup_env() {
     echo "You can now edit .env if needed, then run: $0 start"
 }
 
+interactive_setup() {
+    local env_type="$1"
+    local with_sandbox="$2"
+
+    # If env_type not passed — ask
+    if [ -z "$env_type" ]; then
+        echo ""
+        echo "Select environment:"
+        echo "  1) Production (recommended)"
+        echo "  2) Development"
+        read -p "Enter choice [1]: " env_choice
+        case "${env_choice:-1}" in
+            "2") env_type="dev" ;;
+            *)   env_type="prod" ;;
+        esac
+    fi
+
+    # If sandbox not passed — ask
+    if [ -z "$with_sandbox" ]; then
+        echo ""
+        echo "Enable sandbox support? (required for AI code execution features)"
+        echo "  1) No — lightweight mode, faster startup (recommended)"
+        echo "  2) Yes — full mode with sandbox"
+        read -p "Enter choice [1]: " sandbox_choice
+        case "${sandbox_choice:-1}" in
+            "2") with_sandbox="true" ;;
+            *)   with_sandbox="false" ;;
+        esac
+    fi
+
+    # First do regular setup
+    setup_env "$env_type" "$with_sandbox"
+
+    echo ""
+    log_info "Interactive configuration..."
+    echo ""
+
+    # APP_URL
+    local current_url=$(grep "^APP_URL=" "$ENV_FILE" | cut -d'=' -f2)
+    echo "Current APP_URL: $current_url"
+    echo "Examples: http://localhost:8000  |  https://192.168.1.5:8443  |  https://yourdomain.com"
+    read -p "Enter APP_URL (press Enter to keep current): " new_url
+    if [ -n "$new_url" ]; then
+        sed -i "s|^APP_URL=.*|APP_URL=$new_url|" "$ENV_FILE"
+        log_success "APP_URL set to $new_url"
+    fi
+
+    # Timezone
+    local current_tz=$(grep "^TZ=" "$ENV_FILE" | cut -d'=' -f2)
+    echo ""
+    echo "Current timezone: $current_tz"
+    read -p "Enter timezone (e.g. Europe/Kyiv, press Enter to keep current): " new_tz
+    if [ -n "$new_tz" ] && [ -f "/usr/share/zoneinfo/$new_tz" ]; then
+        sed -i "s|^TZ=.*|TZ=$new_tz|" "$ENV_FILE"
+        log_success "Timezone set to $new_tz"
+    elif [ -n "$new_tz" ]; then
+        log_warning "Unknown timezone '$new_tz', keeping current"
+    fi
+
+    # DB Password (prod only)
+    if [ "$env_type" = "prod" ]; then
+        echo ""
+        read -p "Set database password? (recommended for production, press Enter to skip): " new_pass
+        if [ -n "$new_pass" ]; then
+            sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=$new_pass|" "$ENV_FILE"
+            sed -i "s|^DB_ROOT_PASSWORD=.*|DB_ROOT_PASSWORD=${new_pass}_root|" "$ENV_FILE"
+            log_success "Database password set"
+        fi
+    fi
+
+    echo ""
+    log_success "Configuration complete!"
+    echo "Run 'make start' to launch DepthNet."
+}
+
 # Build compose command with profile support
 build_compose_cmd() {
     detect_sandbox_mode
     local profile_arg=""
+    local override_arg=""
 
     if [ "$SANDBOX_MODE" = "true" ]; then
         profile_arg="--profile sandbox"
     fi
 
-    echo "DOCKER_UID=$DOCKER_UID DOCKER_GID=$DOCKER_GID DOCKER_SOCKET_GID=$DOCKER_SOCKET_GID docker compose -f $COMPOSE_FILE $profile_arg"
+    if [ -f "$PROJECT_DIR/docker-compose.override.yml" ]; then
+        override_arg="-f docker-compose.override.yml"
+    fi
+
+    echo "DOCKER_UID=$DOCKER_UID DOCKER_GID=$DOCKER_GID DOCKER_SOCKET_GID=$DOCKER_SOCKET_GID docker compose -f $COMPOSE_FILE $override_arg $profile_arg"
 }
 
 # Enable/disable sandbox
@@ -205,11 +285,30 @@ toggle_sandbox() {
 # Start containers
 start_containers() {
     local resolved_port=$(get_resolved_port)
+
+    # If HTTPS — internal HTTP port must be 8000, not the HTTPS port
+    local app_url=$(grep "^APP_URL=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+    if echo "$app_url" | grep -q "^https://"; then
+        resolved_port=8000
+    fi
+
     detect_sandbox_mode
 
     log_info "Starting $ENV_TYPE environment..."
     log_info "Using port: $resolved_port (UID:$DOCKER_UID, GID:$DOCKER_GID)"
     log_info "Docker socket GID: $DOCKER_SOCKET_GID"
+
+    # Resolve HTTPS_PORT from APP_URL if not set
+    local https_port=$(grep "^HTTPS_PORT=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+    if [ -z "$https_port" ]; then
+        local app_url=$(grep "^APP_URL=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+        if echo "$app_url" | grep -q "^https://"; then
+            https_port=$(echo "$app_url" | sed 's|https://||' | cut -d':' -f2 | cut -d'/' -f1)
+            https_port=${https_port:-8443}
+        else
+            https_port=8443
+        fi
+    fi
 
     if [ "$SANDBOX_MODE" = "true" ]; then
         log_info "Sandbox manager will be started"
@@ -217,11 +316,39 @@ start_containers() {
         log_info "Running in lightweight mode (no sandbox)"
     fi
 
+    # Check if already running
+    if docker ps --filter "name=depthnet-app-1" --filter "status=running" --quiet | grep -q .; then
+        log_warning "Containers are already running! Use 'make restart' or 'make stop' first."
+        exit 1
+    fi
+
     local compose_cmd=$(build_compose_cmd)
-    APP_PORT="$resolved_port" eval "$compose_cmd up -d --build"
+
+    # Cleanup stale networks
+    docker network rm depthnet_depthnet 2>/dev/null || true
+
+    log_info "Resolved APP_PORT: $resolved_port"
+    log_info "Resolved HTTPS_PORT: $https_port"
+    log_info "TZ from env file: $(grep "^TZ=" "$ENV_FILE" | cut -d'=' -f2 | head -1)"
+
+    APP_PORT="$resolved_port" HTTPS_PORT="$https_port" eval "$compose_cmd up -d --build --remove-orphans"
 
     log_success "Containers started"
     show_urls
+}
+
+# Build containers without starting
+build_containers() {
+    local resolved_port=$(get_resolved_port)
+    detect_sandbox_mode
+
+    log_info "Building $ENV_TYPE environment..."
+    log_info "UID:$DOCKER_UID, GID:$DOCKER_GID, Socket GID:$DOCKER_SOCKET_GID"
+
+    local compose_cmd=$(build_compose_cmd)
+    APP_PORT="$resolved_port" eval "$compose_cmd build"
+
+    log_success "Build completed"
 }
 
 # Stop containers
@@ -417,18 +544,18 @@ run_composer() {
 
 # Show URLs
 show_urls() {
-    local resolved_port=$(get_resolved_port)
-    local resolved_url=$(get_resolved_url)
     detect_sandbox_mode
+
+    local app_url=$(grep "^APP_URL=" "$ENV_FILE" | cut -d'=' -f2 | head -1 2>/dev/null || echo "http://localhost:8000")
+    local pma_port=$(grep "^PMA_PORT=" "$ENV_FILE" | cut -d'=' -f2 | head -1 2>/dev/null)
+    pma_port=${pma_port:-8001}
 
     echo ""
     echo "Application URLs:"
-    echo "    App: $resolved_url"
-    echo "    Port: $resolved_port"
+    echo "    App: $app_url"
 
     if [ "$DETECTED_ENV" != "production" ] && [ -f "$ENV_FILE" ]; then
-        local pma_port=$(grep "^PMA_PORT=" "$ENV_FILE" | cut -d'=' -f2 | head -1 2>/dev/null || echo "8001")
-        echo "   phpMyAdmin: http://localhost:$pma_port"
+        echo "    phpMyAdmin: http://localhost:$pma_port"
     fi
 
     if [ "$SANDBOX_MODE" = "true" ]; then
@@ -471,7 +598,7 @@ cleanup() {
     log_success "Cleanup completed"
 }
 
-# Complete reset
+# Complete reset (containers, volumes, images)
 reset_project() {
     log_warning "This will completely reset the Docker environment!"
     read -p "Are you sure? (y/N): " -n 1 -r
@@ -499,6 +626,95 @@ reset_project() {
 
     log_success "Complete reset finished"
     echo "Run '$0 setup-dev' or '$0 setup-prod' to start fresh"
+}
+
+# Prune project (stop containers and remove images, keep volumes)
+prune_project() {
+    log_warning "This will stop containers and remove all Docker images for this project."
+    log_info "Volumes (database data) will NOT be removed."
+    read -p "Are you sure? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Prune cancelled"
+        return 0
+    fi
+
+    log_info "Stopping containers..."
+    docker compose -f docker-compose.yml down --remove-orphans 2>/dev/null || true
+    docker compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
+
+    log_info "Removing project images..."
+    docker image rm $(docker images "*depthnet*" -q) 2>/dev/null || true
+
+    log_info "Removing initialization flag..."
+    rm -f ./storage/app/.docker_initialized 2>/dev/null || true
+    rm -f ./public/hot 2>/dev/null || true
+
+    log_info "Pruning unused Docker networks..."
+    docker network prune -f
+
+    log_success "Prune completed! Volumes preserved."
+    echo "Run 'make start' to rebuild and restart."
+}
+
+# Database backup
+backup_database() {
+    local timestamp=$(date +"%Y-%m-%d_%H-%M")
+    local backup_file="$PROJECT_DIR/backups/depthnet_$timestamp.sql"
+
+    log_info "Creating database backup..."
+
+    local db_name=$(grep "^DB_DATABASE=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+    local db_user=$(grep "^DB_USERNAME=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+    local db_pass=$(grep "^DB_PASSWORD=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+
+    local compose_cmd=$(build_compose_cmd)
+    eval "$compose_cmd exec -T mysql mysqldump -u$db_user -p$db_pass $db_name" > "$backup_file"
+
+    if [ $? -eq 0 ]; then
+        log_success "Backup created: $backup_file"
+    else
+        log_error "Backup failed!"
+        rm -f "$backup_file"
+        exit 1
+    fi
+}
+
+# Database restore
+restore_database() {
+    local file="$1"
+
+    if [ -z "$file" ]; then
+        log_error "Usage: $0 restore 'backups/filename.sql'"
+        exit 1
+    fi
+
+    if [ ! -f "$PROJECT_DIR/$file" ]; then
+        log_error "Backup file not found: $file"
+        exit 1
+    fi
+
+    log_warning "This will overwrite the current database!"
+    read -p "Are you sure? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Restore cancelled"
+        return 0
+    fi
+
+    local db_name=$(grep "^DB_DATABASE=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+    local db_user=$(grep "^DB_USERNAME=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+    local db_pass=$(grep "^DB_PASSWORD=" "$ENV_FILE" | cut -d'=' -f2 | head -1)
+
+    local compose_cmd=$(build_compose_cmd)
+    cat "$PROJECT_DIR/$file" | eval "$compose_cmd exec -T mysql mysql -u$db_user -p$db_pass $db_name"
+
+    if [ $? -eq 0 ]; then
+        log_success "Database restored from: $file"
+    else
+        log_error "Restore failed!"
+        exit 1
+    fi
 }
 
 # Check environment
@@ -544,6 +760,7 @@ show_help() {
     echo "  $0 restart            Restart containers"
     echo "  $0 up                 Start in foreground"
     echo "  $0 status             Show container status"
+    echo "  $0 build              Build images without starting"
     echo ""
     echo "Sandbox management:"
     echo "  $0 sandbox-toggle     Toggle sandbox on/off:"
@@ -577,6 +794,9 @@ show_help() {
     echo "  $0 fix-permissions    Fix file permissions"
     echo "  $0 clean              Clean up containers"
     echo "  $0 reset              Complete reset (containers, volumes, images)"
+    echo "  $0 prune              Reset (containers, volumes, images), keep volumes"
+    echo "  $0 backup             Create database backup to backups/"
+    echo "  $0 restore 'file'     Restore database from backup file"
     echo ""
 }
 
@@ -601,6 +821,9 @@ main() {
         "setup-prod-full")
             setup_env "prod" "true"
             ;;
+        "setup")
+            interactive_setup "" ""
+            ;;
         "sandbox-toggle")
             toggle_sandbox "$2"
             ;;
@@ -623,6 +846,10 @@ main() {
         "status")
             check_env
             show_status
+            ;;
+        "build")
+            check_env
+            build_containers
             ;;
         "logs")
             check_env
@@ -668,6 +895,17 @@ main() {
             ;;
         "reset")
             reset_project
+            ;;
+        "prune")
+            prune_project
+            ;;
+        "backup")
+            check_env
+            backup_database
+            ;;
+        "restore")
+            check_env
+            restore_database "$2"
             ;;
         "help"|*)
             show_help

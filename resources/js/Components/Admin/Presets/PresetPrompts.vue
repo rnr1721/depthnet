@@ -151,7 +151,7 @@ const props = defineProps({
     isDark: { type: Boolean, default: false },
     errors: { type: Object, default: () => ({}) },
     placeholders: { type: Object, default: () => ({}) },
-    maxLength: { type: Number, default: 10000 },
+    maxLength: { type: Number, default: 12000 },
 });
 
 const emit = defineEmits(['update:modelValue', 'success', 'error']);

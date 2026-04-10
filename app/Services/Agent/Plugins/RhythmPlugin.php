@@ -127,8 +127,8 @@ class RhythmPlugin implements CommandPluginInterface
             'timezone' => [
                 'type'        => 'text',
                 'label'       => 'Timezone',
-                'description' => 'PHP timezone string (e.g. Europe/Kiev). Defaults to app timezone.',
-                'placeholder' => 'Europe/Kiev',
+                'description' => 'PHP timezone string (e.g. Europe/Kyiv). Defaults to app timezone.',
+                'placeholder' => 'Europe/Kyiv',
                 'required'    => false,
             ],
         ];

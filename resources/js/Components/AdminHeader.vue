@@ -78,6 +78,10 @@
               <span>{{ $t('chat') }}</span>
             </Link>
 
+            <Link :href="route('admin.agents.index')" :class="navLinkClass">
+              <span>{{ $t('agents') }}</span>
+            </Link>
+
             <Link :href="route('profile.show')" :class="navLinkClass">
               <span>{{ $t('profile') }}</span>
             </Link>
@@ -131,6 +135,11 @@
                       <Link :href="goalsLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
                         <span class="mr-3"></span>
                         <span>{{ $t('goals') }}</span>
+                      </Link>
+
+                      <Link :href="agentTasksLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('agent_tasks') }}</span>
                       </Link>
 
                       <Link :href="journalLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
@@ -224,7 +233,7 @@
             <div>
               <p :class="['font-medium', isDark ? 'text-white' : 'text-gray-900']">{{ $page.props.auth.user.name }}</p>
               <p :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">{{ isAdmin ? $t('admin') : $t('user')
-              }}</p>
+                }}</p>
             </div>
           </div>
 
@@ -290,6 +299,11 @@
                   <Link :href="goalsLink" :class="mobileSubLinkClass"
                     @click="mobileMenuOpen = false; mobileAdminOpen = false">
                     <span class="text-lg"></span><span>{{ $t('goals') }}</span>
+                  </Link>
+
+                  <Link :href="agentTasksLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('agent_tasks') }}</span>
                   </Link>
 
                   <Link :href="journalLink" :class="mobileSubLinkClass"
@@ -366,6 +380,8 @@ const { routeWithPreset, routeWithPresetParam } = useSelectedPreset();
 const props = defineProps({
   title: { type: String, required: true },
   isAdmin: { type: Boolean, default: false },
+  // Agent ID to carry to agent-tasks link (optional)
+  currentAgentId: { type: Number, default: null },
 });
 
 const mobileMenuOpen = ref(false);
@@ -385,6 +401,11 @@ const journalLink = computed(() => routeWithPreset(route('admin.journal.index'))
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
 const capabilitiesLink = computed(() => routeWithPresetParam('admin.capabilities.index'));
 const knownSourcesLink = computed(() => routeWithPreset(route('admin.known-sources.index')));
+
+const agentTasksLink = computed(() => {
+  const base = route('admin.agent-tasks.index');
+  return props.currentAgentId ? `${base}?agent_id=${props.currentAgentId}` : base;
+});
 
 // Shared link class helpers
 const navLinkClass = computed(() => [

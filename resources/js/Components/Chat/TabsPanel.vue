@@ -32,6 +32,23 @@
                     </span>
                 </button>
             </div>
+
+            <!-- Agent filter — shown only on presets tab when agents exist -->
+            <div v-if="isAdmin && activeTab === 'presets' && agents.length > 0" class="mt-3">
+                <select v-model="selectedAgentFilter" :class="[
+                    'w-full rounded-lg border-0 ring-1 ring-inset text-xs px-3 py-1.5 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                    isDark
+                        ? 'bg-gray-600 text-gray-200 ring-gray-500'
+                        : 'bg-white text-gray-700 ring-gray-300'
+                ]">
+                    <option :value="null">{{ t('chat_all_presets') || 'All presets' }}</option>
+                    <optgroup :label="t('chat_filter_by_agent') || 'Filter by agent'">
+                        <option v-for="agent in agents" :key="agent.id" :value="agent.id">
+                            {{ agent.name }}
+                        </option>
+                    </optgroup>
+                </select>
+            </div>
         </div>
 
         <!-- Tab Content -->
@@ -39,7 +56,14 @@
             <!-- Presets Tab -->
             <div v-if="activeTab === 'presets' && isAdmin" ref="presetsContainer"
                 class="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
-                <PresetItem v-for="preset in availablePresets" :key="preset.id" :ref="el => setPresetRef(el, preset.id)"
+
+                <!-- Empty state when agent filter yields nothing -->
+                <div v-if="filteredPresets.length === 0"
+                    :class="['text-center py-6 text-xs', isDark ? 'text-gray-500' : 'text-gray-400']">
+                    {{ t('chat_no_presets_for_agent') || 'No presets for this agent.' }}
+                </div>
+
+                <PresetItem v-for="preset in filteredPresets" :key="preset.id" :ref="el => setPresetRef(el, preset.id)"
                     :preset="preset" :isActive="selectedPresetId === preset.id" :loopActive="getPresetActive(preset.id)"
                     :isDark="isDark" :isAdmin="isAdmin" @select="$emit('selectPreset', preset.id)"
                     @edit="handleEditPreset"
@@ -130,11 +154,13 @@ const props = defineProps({
     isDark: { type: Boolean, required: true },
     presetMetadata: { type: Object, default: () => ({}) },
     user: { type: Object, default: null },
-    /**
-     * Map of { presetId: bool } for loop-active status.
-     * Passed down from Index.vue / usePresets.
-     */
     presetActiveMap: { type: Object, default: () => ({}) },
+    /**
+     * List of agents for filter select.
+     * Each item: { id, name, roles: [{ preset_id }] }
+     * If empty, filter is not shown.
+     */
+    agents: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits([
@@ -142,17 +168,49 @@ const emit = defineEmits([
     'showAbout',
     'selectPreset',
     'editPreset',
-    'togglePresetActive',   // (presetId, value)
+    'togglePresetActive',
+    'agentFilterChanged',  // emits agent id (number) or null
 ]);
 
 const isAdmin = computed(() => props.user && props.user.is_admin);
 const activeTab = ref(isAdmin.value ? 'presets' : 'users');
 const presetsContainer = ref(null);
 const presetRefs = ref(new Map());
+const selectedAgentFilter = ref(null);
 
 /**
- * Proxy to read loop-active status for a given preset.
+ * Collect all preset IDs that belong to the selected agent
+ * (planner + all role presets + all validator presets).
  */
+const agentPresetIds = computed(() => {
+    if (!selectedAgentFilter.value) return null;
+
+    const agent = props.agents.find(a => a.id === selectedAgentFilter.value);
+    if (!agent) return null;
+
+    const ids = new Set();
+
+    // Planner
+    if (agent.planner?.id) ids.add(agent.planner.id);
+
+    // Roles — preset + optional validator
+    for (const role of agent.roles ?? []) {
+        if (role.preset?.id) ids.add(role.preset.id);
+        if (role.validator?.id) ids.add(role.validator.id);
+    }
+
+    return ids;
+});
+
+/**
+ * Filtered preset list — respects agent filter.
+ * Falls back to full list when no agent selected.
+ */
+const filteredPresets = computed(() => {
+    if (!agentPresetIds.value) return props.availablePresets;
+    return props.availablePresets.filter(p => agentPresetIds.value.has(p.id));
+});
+
 function getPresetActive(presetId) {
     return !!props.presetActiveMap[presetId];
 }
@@ -189,13 +247,20 @@ function handleEditPreset(presetId) {
     if (isAdmin.value) emit('editPreset', presetId);
 }
 
+// Emit agent filter changes to parent so chat page can pass agent_id to sidebar links
+watch(selectedAgentFilter, (agentId) => {
+    emit('agentFilterChanged', agentId);
+});
+
+// Reset filter when switching away from presets tab
+watch(activeTab, (newTab) => {
+    if (newTab !== 'presets') selectedAgentFilter.value = null;
+    if (isAdmin.value && newTab === 'presets') setTimeout(scrollToActivePreset, 100);
+});
+
 watch(() => props.selectedPresetId, () => {
     if (isAdmin.value && activeTab.value === 'presets') scrollToActivePreset();
 }, { flush: 'post' });
-
-watch(activeTab, (newTab) => {
-    if (isAdmin.value && newTab === 'presets') setTimeout(scrollToActivePreset, 100);
-});
 
 onMounted(() => {
     if (isAdmin.value) setTimeout(scrollToActivePreset, 200);

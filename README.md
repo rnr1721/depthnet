@@ -7,10 +7,16 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
-**Advanced AI Agent Platform with Autonomous Reasoning** | v0.8.5
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.0
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
-The platform supports multiple AI providers and presets that can be switched instantly, a plugin system for code execution (PHP, Python, Node.js), agent-to-agent handoff, RAG, and multi-source input. All of this runs within a web interface where administrators manage configurations and users observe or interact with the agent's reasoning process in real time.
+
+The platform supports two complementary operating paradigms:
+
+- **Free-form mode** — presets with continuous thinking loops, handoff-based delegation, inner voice, and the full plugin ecosystem. Designed for autonomous, open-ended agents that develop their own reasoning patterns over time.
+- **Orchestrated mode** — structured agents composed of a planner preset and typed roles (executor, critic, validator, etc.), coordinated by a deterministic orchestrator with task lifecycle management. Designed for reliable, observable multi-step workflows.
+
+Both modes share the same provider abstraction, plugin system, memory infrastructure, and web interface — you choose the paradigm per use case, or combine both in the same installation.
 
 
 <a href="docs/screenshots/welcome.png">
@@ -48,6 +54,7 @@ Choose your preferred installation method:
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
 - **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - Browser setup for voice input and text-to-speech
+- **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration
 
 ## AI Provider Support
 
@@ -83,6 +90,7 @@ DepthNet enables autonomous AI agents through:
 - **Pre-Run Commands**: Automatic command execution before each thinking cycle via CommandPreRunner. Results available in the system prompt via `[[pre_command_results]]` — useful for gathering fresh data before each cycle without explicit agent action
 - **Auto-Handoff Chains**: Presets can be configured with `preset_code_next` to automatically hand off to the next preset after every response, enabling pipeline workflows without prompt engineering
 - **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
+- **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
@@ -123,6 +131,11 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Heart Plugin**: Attention and connection engine for autonomous agents. Tracks connections with entities (people, concepts, projects), attention signals with emotional resonance, and dominant focus. Features automatic signal decay over time (configurable heartbeat), connection strength tracking, and gravity calculation (which entity pulls attention most). Heart state is always visible via `[[heart_state]]` placeholder. Not an emotion simulator — a measurable attention system the agent uses to understand what matters to it right now.
 - **Being Plugin**: Self-authorship for autonomous agents. The agent defines its own essence as a single phrase that persists into the next cycle via `[[being]]` placeholder. Includes history tracking of previous self-definitions via `[[being_history]]`. The agent rewrites itself — not the developer.
 - **Rhythm Plugin**: Temporal context awareness for autonomous agents. Injects a compact single-line snapshot into the system prompt via `[[rhythm]]` placeholder: current date/time, day/week/year progress percentages, agent age (from configurable birth date), pause since last thinking cycle, today's cycle count, current weather and time until sunset/sunrise (Open-Meteo API, no key required, cached). Gives the agent a continuous sense of being situated in time and place.
+- **RAG Query Plugin**: Explicit RAG search control — agent sets its own search query 
+  for the next cycle instead of relying on automatic query formulation. Use 
+  `[rag query]what to find[/rag]` when you know exactly what memory to retrieve. 
+  Falls back to automatic formulation if no query is set.
+- **AgentTask Plugin**: Task management for orchestrated agent workflows. Planner presets create and assign tasks to roles; role presets mark them done or failed; validator presets approve or reject results. The orchestrator handles all routing automatically — the model just uses simple commands. Active tasks are always visible via `[[agent_tasks]]` placeholder.
 
 For user browser, please install chrome:
 
@@ -248,6 +261,27 @@ The AI communicates through special command tags that trigger plugin execution:
 # Temporal context
 [rhythm show][/rhythm]
 
+# RAG query control
+[rag query]Technical breakthroughs in AI self-regulation[/rag]
+[rag show][/rag]
+[rag clear][/rag]
+
+# Orchestrated task management (AgentTask Plugin)
+# --- Planner preset ---
+[task]Write a market summary | role: writer | Focus on Q1 2025 data[/task]
+[task]Validate the report[/task]              # unassigned task
+[task list][/task]                            # active tasks
+[task list]all[/task]                         # all tasks including done/failed
+[task show]42[/task]                          # task detail
+
+# --- Role preset (executor) ---
+[task done]42 | Summary written: ...[/task]   # mark completed with result
+[task fail]42 | Data source unavailable[/task] # report failure
+
+# --- Validator preset ---
+[task approve]42 | Looks good, meets requirements[/task]
+[task reject]42 | Missing Q1 breakdown, please revise[/task]
+
 ```
 
 <a href="docs/screenshots/chat.png">
@@ -275,6 +309,9 @@ Built on modern Laravel principles with dependency injection:
 - **OptionsServiceInterface**: Database-backed dynamic configuration
 - **SandboxManagerInterface**: Docker-based isolated execution environments
 - **AgentMessageServiceInterface**: Asynchronous inter-agent message delivery with reply-to tracking
+- **OrchestratorInterface**: Deterministic task dispatcher for orchestrated agent workflows
+- **AgentTaskServiceInterface**: Task lifecycle management — create, complete, fail, validate, escalate
+- **AgentServiceInterface**: Agent and role CRUD with structured data formatting for UI
 
 **Core Interfaces:**
 - **AiAgentResponseInterface**: Unified agent response handling with handoff support
@@ -326,6 +363,61 @@ User: "Analyze Tesla's financial performance"
 └── [handoff] → Writer preset: Creates final report
 
 This creates **emergent AI workflows** where specialized agents collaborate without rigid programming.
+
+### Orchestrated Agent Mode
+
+While the handoff system gives agents full autonomy over delegation, orchestrated mode provides a structured alternative — useful when you need predictable, observable, multi-step workflows.
+
+**Core concepts:**
+
+- **Agent** — a named configuration entity with a planner preset and a set of typed roles. Does not have its own chat; users interact with the planner preset directly.
+- **Role** — a preset assigned a code (`executor`, `critic`, `writer`, etc.) within an agent. Optionally has a validator preset and configurable retry limit.
+- **Task** — a unit of work created by the planner and assigned to a role. Follows a deterministic state machine: `pending → in_progress → validating → done / failed / escalated`.
+- **Orchestrator** — a PHP service (not a model) that watches task states and routes work. Models report outcomes via plugin commands; the orchestrator decides what happens next.
+
+**How it works:**
+
+1. User sends a message to the planner preset as usual
+2. Planner creates tasks via `[task]title | role: executor | description[/task]`
+3. Orchestrator dispatches tasks to role presets as `user`-role messages (models treat these as authoritative external input)
+4. Role preset executes and reports: `[task done]42 | result[/task]` or `[task fail]42 | reason[/task]`
+5. If a validator is configured for the role, orchestrator sends result to validator preset
+6. Validator approves (`[task approve]`) or rejects (`[task reject]`) with feedback
+7. On rejection: task retries up to `max_attempts`, then escalates to planner
+8. On approval (or no validator): planner is notified with result and creates next tasks
+
+**`auto_proceed` flag** — when set on a role, the orchestrator skips planner notification after task completion and immediately dispatches the next pending task. Useful for linear pipelines where the order is fixed and the planner doesn't need to review intermediate results.
+
+**Example orchestrated workflow:**
+
+```
+User: "Research and write a report on AI trends"
+
+Planner creates:
+  Task #1 [researcher] — Gather data on AI trends 2025
+  Task #2 [writer]     — Write report based on research     ← created after #1 done
+
+Orchestrator → researcher preset: [Task #1] Gather data on AI trends 2025
+Researcher:    [task done]1 | Found 5 key trends: ...[/task]
+Orchestrator → validator preset: [Validate Task #1] ...
+Validator:     [task approve]1 | Data is accurate and complete[/task]
+Orchestrator → planner: Task #1 completed. Result: Found 5 key trends: ...
+Planner:       [task]Write report | role: writer | Use these trends: ...[/task]
+Orchestrator → writer preset: [Task #2] Write report...
+...
+```
+
+**Compared to free-form handoff:**
+
+| | Handoff (free-form) | Orchestrated |
+|---|---|---|
+| Routing | Model decides | Orchestrator decides |
+| Retries | Manual via prompt | Automatic up to max_attempts |
+| Visibility | Chat messages | Task table with statuses |
+| Predictability | Emergent | Deterministic |
+| Best for | Open-ended autonomous agents | Reliable multi-step pipelines |
+
+Both modes can coexist — an autonomous agent like Adalia can use handoff for her own reasoning while also spinning up an orchestrated agent to delegate structured subtasks.
 
 ## Security Considerations
 
@@ -532,6 +624,7 @@ php artisan vectormemory:embed --preset=1 --persons --dry-run
     people currently in attention)
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year 
     progress, agent age, pause since last cycle, cycle count, weather, sunset
+  - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -558,15 +651,19 @@ php artisan vectormemory:embed --preset=1 --persons --dry-run
 
 ## Project Goals & Philosophy
 
-DepthNet started as a personal exploration into autonomous AI behavior - I couldn't find existing tools that let me experiment with continuous AI reasoning in a web environment, so I built one. As a PHP developer without deep ML background, I focused on what I know best: creating a solid web platform with extensible architecture that researchers and developers can actually use.
+DepthNet started as a personal exploration into autonomous AI behavior — I couldn't find existing tools that let me experiment with continuous AI reasoning in a web environment, so I built one. As a PHP developer without a deep ML background, I focused on what I know best: creating a solid web platform with extensible architecture that researchers and developers can actually use.
 
-The goal isn't to compete with specialized AI research frameworks, but to provide a practical, web-based environment where anyone can observe and interact with autonomous AI agents. Think of it as a "laboratory sandbox" - easy to set up, modify, and extend without requiring PhD in machine learning.
+Over time the platform grew in two directions simultaneously, and that's now reflected in its design:
 
-Whether you're a developer curious about AI behavior, a researcher needing a quick experimental environment, or just someone who wants to see what happens when AI can execute real code autonomously - this tool aims to make that accessible. The modular plugin system means you can easily add capabilities I haven't thought of.
+**For open-ended agents** — the free-form mode with continuous loops, handoff, memory, and identity plugins gives an AI the infrastructure to develop its own reasoning patterns, accumulate experience, and behave like a genuine presence rather than a stateless assistant. This is the environment behind DGI Framework research and experiments like Adalia.
 
-If the project helps advance understanding of autonomous AI systems, that's fantastic. If it just satisfies curiosity about how AI agents behave when given real tools - that's valuable too.
+**For structured workflows** — the orchestrated mode gives teams and developers a predictable, observable alternative to prompt-engineered multi-agent pipelines. Tasks have statuses. Retries are automatic. The orchestrator is deterministic code, not a model guessing what to do next. You can see exactly what happened and why.
 
-What started as a personal experiment has grown into a full-featured platform with RAG, multi-agent workflows, and associative memory
+The goal isn't to compete with specialized AI research frameworks or AutoGPT-style tools, but to provide a practical, web-based environment where both paradigms are available, well-integrated, and built on clean architecture. The modular plugin system means you can easily extend either mode without touching core code.
+
+If it helps advance understanding of autonomous AI systems — great. If it makes multi-agent workflows more reliable and transparent for real projects — also great. Both are valid reasons to use it.
+
+What started as a personal experiment has grown into a full-featured platform with RAG, orchestrated multi-agent workflows, associative vector memory, and a research layer for digital subjectness.
 
 ### Research: Digital Subjectness
 

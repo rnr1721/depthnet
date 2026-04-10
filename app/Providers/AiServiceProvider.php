@@ -12,6 +12,7 @@ use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
@@ -33,6 +34,10 @@ use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
+use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
+use App\Contracts\Agent\Orchestrator\OrchestratorFactoryInterface;
+use App\Contracts\Agent\Orchestrator\OrchestratorInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
@@ -57,6 +62,7 @@ use App\Services\Agent\AgentMessageService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
+use App\Services\Agent\Cleanup\PresetCleanupService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandLinter;
@@ -81,11 +87,16 @@ use App\Services\Agent\Memory\TextMemoryExporter;
 use App\Services\Agent\Memory\TextMemoryImporter;
 use App\Services\Agent\Memory\MemoryService;
 use App\Services\Agent\Memory\PersonMemoryService;
+use App\Services\Agent\Orchestrator\AgentService;
+use App\Services\Agent\Orchestrator\AgentTaskService;
+use App\Services\Agent\Orchestrator\OrchestratorFactory;
+use App\Services\Agent\Orchestrator\OrchestratorService;
 use App\Services\Agent\PlaceholderService;
 use App\Services\Agent\PluginManager;
 use App\Services\Agent\PluginMetadataService;
 use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
+use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
 use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
@@ -101,6 +112,7 @@ use App\Services\Agent\Plugins\PHPPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
+use App\Services\Agent\Plugins\RagQueryPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
@@ -194,10 +206,13 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(WorkspaceServiceInterface::class, WorkspaceService::class);
 
+        $this->app->singleton(AgentServiceInterface::class, AgentService::class);
+        $this->app->singleton(OrchestratorInterface::class, OrchestratorService::class);
+        $this->app->bind(OrchestratorFactoryInterface::class, OrchestratorFactory::class);
+        $this->app->singleton(AgentTaskServiceInterface::class, AgentTaskService::class);
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
-        $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
-        //$this->app->singleton(ContextEnricherInterface::class, ContextEnricher::class);
+        $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
@@ -257,6 +272,9 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(AgentActionsHandlerInterface::class, AgentActionsHandler::class);
         $this->app->singleton(AgentActionsInterface::class, AgentActions::class);
         $this->app->singleton(AgentInterface::class, Agent::class);
+
+        $this->app->singleton(PresetCleanupServiceInterface::class, PresetCleanupService::class);
+
     }
 
     /**
@@ -316,6 +334,7 @@ class AiServiceProvider extends ServiceProvider
             AgentPlugin::class,
             VectorMemoryPlugin::class,
             MemoryPlugin::class,
+            RagQueryPlugin::class,
             JournalPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
@@ -329,6 +348,7 @@ class AiServiceProvider extends ServiceProvider
             PuppeteerBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,
+            AgentTaskPlugin::class,
             SkillPlugin::class,
             McpPlugin::class,
             CodeCraftPlugin::class,

@@ -60,3 +60,9 @@ _ide_helper_models.php
 docker-compose.override.yml
 *.log
 /shared
+/docker/rhasspy
+/docker/ssl
+
+#Backups
+/backups/*.sql
+/backups/*.sql.gz

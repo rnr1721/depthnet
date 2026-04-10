@@ -31,6 +31,13 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
     // ── Graph parameters ──────────────────────────────────────────────────────
 
     /**
+     * Maximum number of embedding records fed into the local graph.
+     * Keeps O(N²) graph construction bounded in memory and time.
+     * Records are selected by composite importance * access_count score.
+     */
+    protected const MAX_GRAPH_NODES = 1000;
+
+    /**
      * Minimum cosine similarity to create an edge in the local graph.
      * Lower values = denser graph = more hops, but slower and noisier.
      */
@@ -92,6 +99,15 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
 
             if ($withEmbedding->isEmpty()) {
                 return $this->fallbackSearch($preset, $query, $config);
+            }
+
+            // Trim to MAX_GRAPH_NODES BEFORE computing scores and building the graph,
+            // so that $withEmbedding indices stay consistent across all three operations.
+            if ($withEmbedding->count() > self::MAX_GRAPH_NODES) {
+                $withEmbedding = $withEmbedding
+                    ->sortByDesc(fn ($m) => ($m->importance ?? 1.0) * (1 + ($m->access_count ?? 0)))
+                    ->take(self::MAX_GRAPH_NODES)
+                    ->values();
             }
 
             // ── Step 2: initial cosine retrieval ─────────────────────────────

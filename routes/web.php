@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Admin\AgentController;
+use App\Http\Controllers\Admin\AgentTaskController;
 use App\Http\Controllers\Admin\EngineController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\JournalController;
@@ -238,6 +240,30 @@ Route::middleware('auth')->group(function () {
             Route::patch('/{number}/status', [GoalController::class, 'setStatus'])   ->name('set-status');
             Route::delete('/{number}', [GoalController::class, 'destroy'])      ->name('destroy');
             Route::post('/clear', [GoalController::class, 'clear'])        ->name('clear');
+        });
+
+        // Agent Management routes
+        Route::prefix('agents')->name('agents.')->group(function () {
+            Route::get('/', [AgentController::class, 'index'])->name('index');
+            Route::post('/', [AgentController::class, 'store'])->name('store');
+            Route::get('/{id}', [AgentController::class, 'show'])->name('show');
+            Route::put('/{id}', [AgentController::class, 'update'])->name('update');
+            Route::delete('/{id}', [AgentController::class, 'destroy'])->name('destroy');
+            Route::post('/{id}/clear', [AgentController::class, 'clear'])->name('agents.clear');
+
+            // Roles
+            Route::post('/{id}/roles', [AgentController::class, 'storeRole'])->name('roles.store');
+            Route::put('/{id}/roles/{roleId}', [AgentController::class, 'updateRole'])->name('roles.update');
+            Route::delete('/{id}/roles/{roleId}', [AgentController::class, 'destroyRole'])->name('roles.destroy');
+        });
+
+        // Agent Tasks (observation + manual control)
+        Route::prefix('agent-tasks')->name('agent-tasks.')->group(function () {
+            Route::get('/', [AgentTaskController::class, 'index'])->name('index');
+            Route::post('/', [AgentTaskController::class, 'store'])->name('store');
+            Route::patch('/{taskId}/status', [AgentTaskController::class, 'setStatus'])->name('set-status');
+            Route::delete('/{taskId}', [AgentTaskController::class, 'destroy'])->name('destroy');
+            Route::post('/clear', [AgentTaskController::class, 'clear'])->name('clear');
         });
 
         // Person Memory Management routes

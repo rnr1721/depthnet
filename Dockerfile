@@ -105,10 +105,11 @@ COPY docker/php-custom.ini /usr/local/etc/php/conf.d/99-custom.ini
 
 # Nginx config
 COPY docker/nginx.conf /etc/nginx/sites-available/default
+COPY docker/nginx-ssl.conf /etc/nginx/sites-available/ssl
 
 # Nginx to run as depthnet
-RUN mkdir -p /var/log/nginx /var/run && \
-    chown -R depthnet:depthnet /var/log/nginx /var/run
+RUN mkdir -p /var/log/nginx /var/run /etc/nginx/ssl && \
+    chown -R depthnet:depthnet /var/log/nginx /var/run /etc/nginx/ssl
 RUN sed -i "s/user www-data;/user depthnet depthnet;/" /etc/nginx/nginx.conf
 
 # Supervisor config
@@ -124,6 +125,7 @@ RUN chown -R depthnet:depthnet /var/www/html && \
     chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 EXPOSE 80
+EXPOSE 443
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

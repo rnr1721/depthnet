@@ -17,6 +17,7 @@ use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use App\Services\Agent\Enricher\EnricherResponse;
+use App\Services\Agent\Plugins\RagQueryPlugin;
 use Carbon\Carbon;
 use Psr\Log\LoggerInterface;
 
@@ -231,6 +232,22 @@ class RagContextEnricher implements RagContextEnricherInterface
      */
     protected function formulateQuery(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?string
     {
+
+        $pending = $this->pluginMetadataService->get(
+            $mainPreset,
+            RagQueryPlugin::PLUGIN_NAME,
+            RagQueryPlugin::META_KEY,
+        );
+        if (!empty($pending)) {
+            $this->pluginMetadataService->remove(
+                $mainPreset,
+                RagQueryPlugin::PLUGIN_NAME,
+                RagQueryPlugin::META_KEY,
+            );
+            $this->debugLog('using agent-provided RAG query', ['query' => $pending]);
+            return $pending;
+        }
+
         try {
             $contextLimit   = max(1, (int) $mainPreset->getRagContextLimit());
             $recentMessages = collect($context)

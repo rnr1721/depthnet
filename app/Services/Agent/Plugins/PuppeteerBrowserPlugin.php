@@ -12,7 +12,7 @@ use Psr\Log\LoggerInterface;
 /**
  * PuppeteerBrowserPlugin class
  *
- * Advanced web browsing using Puppeteer via Node.js subprocess.
+ * Advanced web crawling using Puppeteer via Node.js subprocess.
  * Provides full JavaScript support, page automation, screenshots,
  * and complex web interaction through Puppeteer's powerful API.
  */
@@ -51,7 +51,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
      */
     public function getName(): string
     {
-        return 'browser';
+        return 'crawler';
     }
 
     /**
@@ -59,7 +59,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
      */
     public function getDescription(): string
     {
-        return 'Advanced web browsing with Puppeteer. Full JavaScript support, screenshots, form automation, page interaction.';
+        return 'Advanced web crawling with Puppeteer. Full JavaScript support, screenshots, form automation, page interaction.';
     }
 
     /**
@@ -68,17 +68,17 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
     public function getInstructions(): array
     {
         return [
-            'Open page: [browser]https://example.com[/browser]',
-            'Click element: [browser click]button[/browser]',
-            'Type in field: [browser type]{"selector":"input[name=email]","text":"test@example.com"}[/browser]',
-            'Wait for element: [browser wait]#content[/browser]',
-            'Take screenshot: [browser screenshot]page.png[/browser]',
-            'Get current page content: [browser content][/browser]',
-            'Get element text: [browser text]h1[/browser]',
-            'Execute JavaScript: [browser eval]document.title[/browser]',
-            'Get page title: [browser title][/browser]',
-            'Get page URL: [browser url][/browser]',
-            'Close browser: [browser close][/browser]'
+            'Open page: [crawler]https://example.com[/crawler]',
+            'Click element: [crawler click]button[/crawler]',
+            'Type in field: [crawler type]{"selector":"input[name=email]","text":"test@example.com"}[/crawler]',
+            'Wait for element: [crawler wait]#content[/crawler]',
+            'Take screenshot: [crawler screenshot]page.png[/crawler]',
+            'Get current page content: [crawler content][/crawler]',
+            'Get element text: [crawler text]h1[/crawler]',
+            'Execute JavaScript: [crawler eval]document.title[/crawler]',
+            'Get page title: [crawler title][/crawler]',
+            'Get page URL: [crawler url][/crawler]',
+            'Close browser: [crawler close][/crawler]'
         ];
     }
 
@@ -87,7 +87,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
      */
     public function getCustomSuccessMessage(): ?string
     {
-        return "Browser operation completed successfully.";
+        return "Crawler operation completed successfully.";
     }
 
     /**
@@ -95,7 +95,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
      */
     public function getCustomErrorMessage(): ?string
     {
-        return "Error: Browser operation failed.";
+        return "Error: Crawler operation failed.";
     }
 
     /**
@@ -106,8 +106,8 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
         return [
             'enabled' => [
                 'type' => 'checkbox',
-                'label' => 'Enable Browser Plugin',
-                'description' => 'Allow web browsing with Puppeteer',
+                'label' => 'Enable Crawler Plugin',
+                'description' => 'Allow web crawling with Puppeteer',
                 'required' => false
             ],
             'headless' => [
@@ -129,7 +129,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
             'viewport_height' => [
                 'type' => 'number',
                 'label' => 'Viewport Height',
-                'description' => 'Browser viewport height in pixels',
+                'description' => 'Crawler viewport height in pixels',
                 'min' => 600,
                 'max' => 1080,
                 'value' => 720,
@@ -620,7 +620,7 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
         try {
             // Check if we have session
             if (!$this->isSessionActive()) {
-                return "Error: No active page. Open a page first: [browser]https://example.com[/browser]";
+                return "Error: No active page. Open a page first: [crawler]https://example.com[/crawler]";
             }
 
             $sessionData = json_decode(file_get_contents($this->sessionFile), true);

@@ -1768,7 +1768,7 @@ return [
             'mcp',
             'codecraft',
             'workspace',
-            'browser',
+            'crawler',
             'skill',
             'goal',
             'task',
@@ -1933,7 +1933,7 @@ return [
                 'enabled' => true,
             ],
 
-            'browser' => [
+            'crawler' => [
                 'enabled' => false,
                 'headless' => true,
                 'viewport_width' => 1280,

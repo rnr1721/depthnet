@@ -9,7 +9,7 @@
       <!-- Action buttons: delete + speak (shown on hover) -->
       <div :class="[
         'absolute top-2 right-2 flex items-center gap-1',
-        'opacity-0 group-hover:opacity-100 transition-opacity'
+        'opacity-0 group-hover:opacity-100 transition-opacity touch-visible'
       ]">
 
         <!-- Кнопка озвучки (только для подходящих ролей и если TTS доступен) -->
@@ -77,7 +77,25 @@
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
             :class="{ 'rotate-90': commandStates[command.id] }">▶</span>
-          <span class="mr-2">⚡</span>{{ command.name }}
+          <span class="mr-2">⚡</span>
+          <span class="flex-1">{{ command.name }}</span>
+
+          <!-- Кнопка копирования -->
+          <button @click.stop="copyCommand(command.content)" :class="[
+            'w-6 h-6 rounded flex items-center justify-center transition-all ml-2',
+            isDark ? 'text-blue-400 hover:bg-blue-700 hover:text-white' : 'text-blue-500 hover:bg-blue-200 hover:text-blue-800'
+          ]" title="Copy">
+            <!-- Галочка после копирования -->
+            <svg v-if="copiedCommandId === command.content" class="w-3.5 h-3.5 text-green-400" fill="none"
+              stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <!-- Иконка копирования -->
+            <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
         </div>
         <div :class="[
           'overflow-hidden transition-all duration-500 ease-in-out',
@@ -85,8 +103,8 @@
         ]">
           <div class="px-3 pb-3 transform transition-transform duration-300"
             :class="commandStates[command.id] ? 'translate-y-0' : '-translate-y-2'">
-            <pre :class="[
-              'p-2 rounded text-sm overflow-x-auto',
+            <pre @click="selectAll" :class="[
+              'p-2 rounded text-sm overflow-x-auto cursor-text select-all',
               isDark ? 'bg-gray-800 text-gray-100' : 'bg-gray-100 text-gray-800'
             ]"><code>{{ command.content }}</code></pre>
           </div>
@@ -144,6 +162,25 @@ const props = defineProps({
 
 const isResultsExpanded = ref(props.showAgentResults);
 const commandStates = reactive({});
+
+// Копирование содержимого команды
+async function copyCommand(content) {
+  try {
+    await navigator.clipboard.writeText(content);
+    copiedCommandId.value = content; // временно показываем галочку
+    setTimeout(() => copiedCommandId.value = null, 1500);
+  } catch {
+    // fallback для старых браузеров
+    const el = document.createElement('textarea');
+    el.value = content;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  }
+}
+
+const copiedCommandId = ref(null);
 
 defineEmits(['delete', 'speak']);
 
@@ -268,7 +305,7 @@ const extractedCommands = computed(() => {
     if (lastIndex !== -1) userContent = content.substring(0, lastIndex).trim();
   }
 
-  const commandRegex = /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1\]/gs;
+  const commandRegex = /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs;
   let match;
   while ((match = commandRegex.exec(userContent)) !== null) {
     const [, plugin, method, commandContent] = match;
@@ -291,7 +328,7 @@ const formattedContent = computed(() => {
     if (lastIndex !== -1) userContent = content.substring(0, lastIndex).trim();
   }
 
-  userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1\]/gs, '');
+  userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
   userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
   userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   userContent = userContent.replace(
@@ -301,7 +338,7 @@ const formattedContent = computed(() => {
     </span>`
   );
   userContent = userContent.replace(
-    /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1\])/g,
+    /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1(?:\s+[a-z][a-z0-9_]*)?\])/g,
     (match, plugin, method) => {
       const methodDisplay = method ? ` ${method}` : '';
       const pluginName = `${plugin}${methodDisplay}`;
@@ -339,6 +376,16 @@ function escapeHtml(unsafe) {
 function formatTime(timestamp) {
   if (!timestamp) return '';
   return new Date(timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function selectAll(event) {
+  const el = event.target.closest('pre');
+  if (!el) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
 }
 </script>
 
@@ -411,5 +458,11 @@ function formatTime(timestamp) {
 
 .dark .message-content blockquote {
   border-left-color: #4b5563;
+}
+
+@media (hover: none) {
+  .touch-visible {
+    opacity: 1 !important;
+  }
 }
 </style>

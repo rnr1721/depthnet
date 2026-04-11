@@ -51,7 +51,8 @@ class CommandLinter implements CommandLinterInterface
 
         foreach ($knownPlugins as $plugin) {
             // Pattern for full command blocks with content
-            $pattern = '/\[' . preg_quote($plugin) . '(?:\s+[a-z][a-z0-9_]*)?\](.*?)\[\/' . preg_quote($plugin) . '\]/s';
+            $pattern = '/\[' . preg_quote($plugin) . '(?:\s+[a-z][a-z0-9_]*)?\](.*?)\[\/'
+                . preg_quote($plugin) . '(?:\s+[a-z][a-z0-9_]*)?\]/s';
 
             $cleanedOutput = preg_replace_callback($pattern, function ($matches) use ($plugin) {
                 // Replace the command contents with placeholder
@@ -81,7 +82,7 @@ class CommandLinter implements CommandLinterInterface
             $method = isset($openTags[2][$index][0]) ? $openTags[2][$index][0] : null;
             $tagPosition = $openTag[1];
 
-            $closePattern = '/\[\/' . preg_quote($plugin) . '\]/';
+            $closePattern = '/\[\/' . preg_quote($plugin) . '(?:\s+[a-z][a-z0-9_]*)?\]/';
             $remainingText = substr($output, $tagPosition + strlen($openTag[0]));
 
             if (!preg_match($closePattern, $remainingText)) {

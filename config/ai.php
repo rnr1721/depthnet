@@ -1768,6 +1768,7 @@ return [
             'mcp',
             'codecraft',
             'workspace',
+            'browser',
             'crawler',
             'skill',
             'goal',
@@ -1950,6 +1951,14 @@ return [
                 'blocked_domains' => '',
                 'node_path' => 'node',
                 'puppeteer_path' => ''
+            ],
+
+            'browser' => [
+                'enabled'         => false,
+                'service_url'     => 'http://browser-service:3001',
+                'request_timeout' => 60,
+                'allowed_domains' => '',
+                'blocked_domains' => '',
             ],
 
             'heart' => [

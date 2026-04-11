@@ -91,6 +91,17 @@ detect_sandbox_mode() {
     fi
 }
 
+# Detect browser mode from .env
+detect_browser_mode() {
+    BROWSER_MODE="false"
+    if [ -f "$ENV_FILE" ]; then
+        COMPOSE_PROFILES=$(grep "^COMPOSE_PROFILES=" "$ENV_FILE" | cut -d'=' -f2 2>/dev/null || echo "")
+        if [[ "$COMPOSE_PROFILES" == *"browser"* ]] || [[ "$COMPOSE_PROFILES" == *"full"* ]]; then
+            BROWSER_MODE="true"
+        fi
+    fi
+}
+
 # Get resolved port
 get_resolved_port() {
     if [ -x "$SCRIPT_DIR/port-resolver.sh" ] && [ -f "$ENV_FILE" ]; then
@@ -239,11 +250,16 @@ interactive_setup() {
 # Build compose command with profile support
 build_compose_cmd() {
     detect_sandbox_mode
+    detect_browser_mode
     local profile_arg=""
     local override_arg=""
 
-    if [ "$SANDBOX_MODE" = "true" ]; then
+    if [ "$SANDBOX_MODE" = "true" ] && [ "$BROWSER_MODE" = "true" ]; then
+        profile_arg="--profile sandbox --profile browser"
+    elif [ "$SANDBOX_MODE" = "true" ]; then
         profile_arg="--profile sandbox"
+    elif [ "$BROWSER_MODE" = "true" ]; then
+        profile_arg="--profile browser"
     fi
 
     if [ -f "$PROJECT_DIR/docker-compose.override.yml" ]; then
@@ -282,6 +298,55 @@ toggle_sandbox() {
     esac
 }
 
+# Enable/disable browser service
+toggle_browser() {
+    local action="$1"
+
+    if [ ! -f "$ENV_FILE" ]; then
+        log_error ".env file not found! Run setup first."
+        exit 1
+    fi
+
+    local current_profiles=$(grep "^COMPOSE_PROFILES=" "$ENV_FILE" | cut -d'=' -f2 2>/dev/null || echo "")
+
+    case "$action" in
+        "enable")
+            if [[ "$current_profiles" == *"browser"* ]]; then
+                log_warning "Browser service is already enabled."
+                return
+            fi
+            if grep -q "^COMPOSE_PROFILES=" "$ENV_FILE"; then
+                if [ -z "$current_profiles" ]; then
+                    sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=browser/" "$ENV_FILE"
+                else
+                    sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=${current_profiles},browser/" "$ENV_FILE"
+                fi
+            else
+                echo "COMPOSE_PROFILES=browser" >> "$ENV_FILE"
+            fi
+            log_success "Browser service enabled! Restart containers to apply: make restart"
+            ;;
+        "disable")
+            if [[ "$current_profiles" != *"browser"* ]]; then
+                log_warning "Browser service is already disabled."
+                return
+            fi
+            # Remove ,browser or browser, or just browser
+            local new_profiles=$(echo "$current_profiles" | sed 's/,browser//g; s/browser,//g; s/^browser$//g')
+            if [ -z "$new_profiles" ]; then
+                sed -i "/^COMPOSE_PROFILES=/d" "$ENV_FILE"
+            else
+                sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=${new_profiles}/" "$ENV_FILE"
+            fi
+            log_success "Browser service disabled! Restart containers to apply: make restart"
+            ;;
+        *)
+            log_error "Usage: $0 browser-toggle [enable|disable]"
+            exit 1
+            ;;
+    esac
+}
+
 # Start containers
 start_containers() {
     local resolved_port=$(get_resolved_port)
@@ -314,6 +379,10 @@ start_containers() {
         log_info "Sandbox manager will be started"
     else
         log_info "Running in lightweight mode (no sandbox)"
+    fi
+
+    if [ "$BROWSER_MODE" = "true" ]; then
+        log_info "Browser service will be started"
     fi
 
     # Check if already running
@@ -742,6 +811,12 @@ show_help() {
         else
             echo "Sandbox: Disabled (lightweight mode)"
         fi
+        detect_browser_mode
+        if [ "$BROWSER_MODE" = "true" ]; then
+            echo "Browser: Enabled"
+        else
+            echo "Browser: Disabled"
+        fi
     else
         echo "No .env file found - run setup first"
     fi
@@ -775,6 +850,11 @@ show_help() {
     echo "    restart [name]         Restart sandbox"
     echo "    destroy [name]         Destroy sandbox"
     echo "    cleanup                Destroy all sandboxes"
+    echo ""
+    echo "Browser service:"
+    echo "  $0 browser-toggle     Toggle browser service on/off:"
+    echo "    enable                Enable browser service (Playwright)"
+    echo "    disable               Disable browser service"
     echo ""
     echo "Development tools:"
     echo "  $0 shell              Open shell as depthnet user"
@@ -826,6 +906,9 @@ main() {
             ;;
         "sandbox-toggle")
             toggle_sandbox "$2"
+            ;;
+        "browser-toggle")
+            toggle_browser "$2"
             ;;
         "start")
             check_env

@@ -35,7 +35,13 @@ class RagContextEnricher implements RagContextEnricherInterface
      */
     private bool $showRelativeDate = true;
 
-    private int  $journalContextWindow = 3; // 0 = off, 1+ = neighbours each side
+    private int $journalContextWindow = 3; // 0 = off, 1+ = neighbours each side
+
+    /**
+     * Separators tried in order when splitting a multi-query response from the
+     * RAG preset model. First match wins.
+     */
+    private const QUERY_SEPARATORS = ['|', ';', '//', "\n"];
 
     public function __construct(
         protected PresetServiceInterface             $presetService,
@@ -72,45 +78,96 @@ class RagContextEnricher implements RagContextEnricherInterface
                 return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
-            $query = $this->formulateQuery($ragPreset, $preset, $context);
+            // Returns a non-empty array of query strings, or null if nothing to search.
+            $queries = $this->formulateQueries($ragPreset, $preset, $context);
 
-            if (empty($query)) {
-                $this->debugLog('empty query, skipping search');
+            if (empty($queries)) {
+                $this->debugLog('empty queries, skipping search');
                 return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
-            $this->showRelativeDate        = $preset->getRagRelativeDates();
-            $this->journalContextWindow    = $preset->getRagJournalContextWindow();
+            $this->showRelativeDate     = $preset->getRagRelativeDates();
+            $this->journalContextWindow = $preset->getRagJournalContextWindow();
 
-            // ── Vector memory search ──────────────────────────────────────────
             $ragMode   = $preset->getRagMode();
             $ragEngine = $preset->getRagEngine();
-
             $searchLimit = $preset->getRagResults() ?? 5;
 
-            [$primaryResults, $supplementResults] = $this->runVectorSearch(
+            // ── Sources that run ONCE regardless of query count ───────────────
+            // Associative traversal is expensive (graph construction over all vectors),
+            // so we run it only for the first / primary query.
+            // Skills and persons are context-level, not query-level.
+            [$primaryResults, $supplementResultsOnce] = $this->runVectorSearch(
                 $preset,
-                $query,
+                $queries[0],
                 $ragMode,
                 $ragEngine,
                 $searchLimit
             );
 
+            $skillResults = $this->skillService->searchItemsData($preset, $queries[0], $preset->getRagSkillsLimit());
+
+            // ── Sources that run PER QUERY (flat memory + journal) ────────────
+            // seenIds is shared across all iterations for deduplication.
+            $seenIds         = [];
+            $allFlatResults  = [];
+            $allJournalResults = [];
+
+            // Seed seenIds from the already-retrieved primary results so we
+            // don't surface the same records in flat search.
+            foreach ($primaryResults as $r) {
+                $seenIds[($r['document'] ?? $r['memory'])->id] = true;
+            }
+            foreach ($supplementResultsOnce as $r) {
+                $seenIds[($r['document'] ?? $r['memory'])->id] = true;
+            }
+
+            foreach ($queries as $query) {
+                // Flat memory search
+                $flatService = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::MODE_FLAT, $ragEngine);
+                $flatSearch  = $flatService->searchVectorMemories($preset, $query, [
+                    'search_limit' => $searchLimit,
+                    'boost_recent' => true,
+                ]);
+
+                if ($flatSearch['success'] ?? false) {
+                    foreach ($flatSearch['results'] ?? [] as $r) {
+                        $id = ($r['document'] ?? $r['memory'])->id;
+                        if (!isset($seenIds[$id])) {
+                            $allFlatResults[] = $r;
+                            $seenIds[$id]     = true;
+                        }
+                    }
+                }
+
+                // Journal search
+                $journalHits = $this->journalService->searchEntries($preset, $query, $preset->getRagJournalLimit());
+                foreach ($journalHits as $entry) {
+                    if (!isset($seenIds['journal_' . $entry->id])) {
+                        $allJournalResults[]               = $entry;
+                        $seenIds['journal_' . $entry->id] = true;
+                    }
+                }
+            }
+
             $this->logger->debug('RAG enrichment', [
-                'query'            => $query,
+                'queries'          => $queries,
                 'mode'             => $ragMode,
                 'engine'           => $ragEngine,
                 'primary_count'    => count($primaryResults),
-                'supplement_count' => count($supplementResults),
+                'supplement_count' => count($supplementResultsOnce),
+                'flat_count'       => count($allFlatResults),
+                'journal_count'    => count($allJournalResults),
+                'skill_count'      => count($skillResults),
             ]);
 
-            // ── Skills search ─────────────────────────────────────────────────
-            $skillResults = $this->skillService->searchItemsData($preset, $query, $preset->getRagSkillsLimit());
-
-            // ── Journal search ────────────────────────────────────────────────
-            $journalResults = $this->journalService->searchEntries($preset, $query, $preset->getRagJournalLimit());
-
-            if (empty($primaryResults) && empty($supplementResults) && empty($skillResults) && empty($journalResults)) {
+            if (
+                empty($primaryResults) &&
+                empty($supplementResultsOnce) &&
+                empty($allFlatResults) &&
+                empty($skillResults) &&
+                empty($allJournalResults)
+            ) {
                 return $this->generateEmptyResponse($preset, $ragPreset);
             }
 
@@ -118,13 +175,14 @@ class RagContextEnricher implements RagContextEnricherInterface
 
             $result = $this->formatResults(
                 $preset,
-                $query,
+                $queries,
                 $ragMode,
                 $ragEngine,
                 $primaryResults,
-                $supplementResults,
+                $supplementResultsOnce,
+                $allFlatResults,
                 $skillResults,
-                $journalResults,
+                $allJournalResults,
                 $maxContentLimit
             );
 
@@ -146,15 +204,13 @@ class RagContextEnricher implements RagContextEnricherInterface
     // ── Vector search ─────────────────────────────────────────────────────────
 
     /**
-     * Run vector memory search for the given mode.
+     * Run associative (or flat) vector memory search for a single query.
      *
      * Returns [$primaryResults, $supplementResults]:
-     * - For TF-IDF modes: primary = associative/default, supplement = empty
-     * - For embedding modes: primary = embedding results, supplement = TF-IDF
-     *   results for records that don't have an embedding yet
+     * - primary  = associative chain (or flat when mode=flat)
+     * - supplement = flat dedup complement + tfidf_fallback records
      *
-     * All embedding modes fall back gracefully to associative TF-IDF if no
-     * embedding capability is configured for the preset.
+     * Used once per enrichment cycle (for the primary query only).
      *
      * @return array{array, array}
      */
@@ -185,12 +241,13 @@ class RagContextEnricher implements RagContextEnricherInterface
 
         // ── Supplement: flat search always runs when mode is associative ──────
         // Adds results the associative traversal may have missed.
-        // When mode is already flat, skip to avoid redundant search.
+        // When mode is already flat, skip to avoid redundant search
+        // (flat results are collected per-query in the main loop instead).
         $supplementResults = [];
 
         if ($mode === VectorMemoryFactoryInterface::MODE_ASSOCIATIVE) {
-            $flatService  = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::MODE_FLAT, $engine);
-            $flatSearch   = $flatService->searchVectorMemories($preset, $query, [
+            $flatService = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::MODE_FLAT, $engine);
+            $flatSearch  = $flatService->searchVectorMemories($preset, $query, [
                 'search_limit' => $searchLimit,
                 'boost_recent' => true,
             ]);
@@ -207,7 +264,6 @@ class RagContextEnricher implements RagContextEnricherInterface
         }
 
         // ── Separate embedding supplement (TF-IDF fallback inside embedding service) ─
-        // Records without embedding inside the primary results get their own label.
         $embeddingFallback = [];
         $cleanPrimary      = [];
 
@@ -219,7 +275,6 @@ class RagContextEnricher implements RagContextEnricherInterface
             }
         }
 
-        // Merge: clean primary first, then flat supplement, then embedding fallback
         $allSupplement = array_merge($supplementResults, $embeddingFallback);
 
         return [$cleanPrimary, $allSupplement];
@@ -228,26 +283,44 @@ class RagContextEnricher implements RagContextEnricherInterface
     // ── Query formulation ─────────────────────────────────────────────────────
 
     /**
-     * Use the RAG preset to distil the recent conversation into a search query.
+     * Resolve the list of search queries for this enrichment cycle.
+     *
+     * Priority:
+     *   1. Agent-provided queries via RagQueryPlugin (collected from metadata, then cleared).
+     *   2. RAG preset model response, split on common separators into multiple queries.
+     *
+     * Always returns a flat array of non-empty strings, or null when nothing
+     * could be formulated.
+     *
+     * @return string[]|null
      */
-    protected function formulateQuery(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?string
+    protected function formulateQueries(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?array
     {
-
-        $pending = $this->pluginMetadataService->get(
+        // ── 1. Agent-provided queries ─────────────────────────────────────────
+        $pendingRaw = $this->pluginMetadataService->get(
             $mainPreset,
             RagQueryPlugin::PLUGIN_NAME,
             RagQueryPlugin::META_KEY,
         );
-        if (!empty($pending)) {
+
+        if (!empty($pendingRaw)) {
             $this->pluginMetadataService->remove(
                 $mainPreset,
                 RagQueryPlugin::PLUGIN_NAME,
                 RagQueryPlugin::META_KEY,
             );
-            $this->debugLog('using agent-provided RAG query', ['query' => $pending]);
-            return $pending;
+
+            $decoded = json_decode($pendingRaw, true);
+            $queries = is_array($decoded) ? $decoded : [$pendingRaw];
+            $queries = $this->sanitizeQueries($queries);
+
+            if (!empty($queries)) {
+                $this->debugLog('using agent-provided RAG queries', ['queries' => $queries]);
+                return $queries;
+            }
         }
 
+        // ── 2. RAG preset model formulation ───────────────────────────────────
         try {
             $contextLimit   = max(1, (int) $mainPreset->getRagContextLimit());
             $recentMessages = collect($context)
@@ -294,36 +367,99 @@ class RagContextEnricher implements RagContextEnricherInterface
                 return null;
             }
 
-            $query = trim(strip_tags($response->getResponse()));
-            $query = preg_replace('/\s+/', ' ', $query);
+            $raw     = trim(strip_tags($response->getResponse()));
+            $queries = $this->splitQueryResponse($raw);
+            $queries = $this->sanitizeQueries($queries);
 
-            return mb_substr($query, 0, 200) ?: null;
+            return !empty($queries) ? $queries : null;
 
         } catch (\Throwable $e) {
-            $this->logger->error('RagContextEnricher::formulateQuery error: ' . $e->getMessage(), [
+            $this->logger->error('RagContextEnricher::formulateQueries error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
             return null;
         }
     }
 
+    /**
+     * Split a raw model response into individual query strings.
+     * Tries known separators in priority order; falls back to a single-item array.
+     *
+     * @return string[]
+     */
+    private function splitQueryResponse(string $response): array
+    {
+        foreach (self::QUERY_SEPARATORS as $sep) {
+            if (str_contains($response, $sep)) {
+                return array_values(array_filter(
+                    array_map('trim', explode($sep, $response)),
+                    fn ($q) => $q !== ''
+                ));
+            }
+        }
+
+        return [$response];
+    }
+
+    /**
+     * Sanitize an array of raw query strings:
+     * - Strips surrounding quote characters (straight, typographic)
+     * - Normalises internal whitespace
+     * - Truncates to 200 characters
+     * - Removes empty entries
+     *
+     * @param  string[] $queries
+     * @return string[]
+     */
+    private function sanitizeQueries(array $queries): array
+    {
+        $result = [];
+
+        foreach ($queries as $q) {
+            $q = trim($q);
+            // Strip surrounding quote characters (straight, typographic, guillemets)
+            $q = trim($q, "\"'«»\u{201C}\u{201D}\u{2018}\u{2019}");
+            $q = preg_replace('/\s+/', ' ', $q);
+            $q = mb_substr($q, 0, 200);
+
+            if ($q !== '') {
+                $result[] = $q;
+            }
+        }
+
+        return $result;
+    }
+
     // ── Result formatting ─────────────────────────────────────────────────────
 
     /**
      * Format all sources into a single RAG context block for the system prompt.
+     *
+     * @param string[]  $queries        All queries used this cycle (for the header).
+     * @param array     $primaryResults Associative / main vector results.
+     * @param array     $supplementResultsOnce Flat dedup complement from primary query.
+     * @param array     $flatResults    Flat results collected across all queries.
+     * @param array     $skillResults   Skill search results.
+     * @param array     $journalResults Journal entries collected across all queries.
      */
     protected function formatResults(
         AiPreset $preset,
-        string $query,
+        array  $queries,
         string $mode,
         string $engine,
         array  $primaryResults,
-        array  $supplementResults,
+        array  $supplementResultsOnce,
+        array  $flatResults,
         array  $skillResults,
         array  $journalResults = [],
-        int $maxContentLimit = 400,
+        int    $maxContentLimit = 400,
     ): string {
-        $lines = ["[RAG CONTEXT — query: \"{$query}\"]", ''];
+        // Header — show all queries when there are several
+        $queryHeader = count($queries) === 1
+            ? "query: \"{$queries[0]}\""
+            : 'queries: ' . implode(' | ', array_map(fn ($q) => "\"{$q}\"", $queries));
+
+        $lines = ["[RAG CONTEXT — {$queryHeader}]", ''];
 
         // Primary memory results — label depends on active mode
         if (!empty($primaryResults)) {
@@ -331,34 +467,31 @@ class RagContextEnricher implements RagContextEnricherInterface
             $lines[] = $label;
 
             foreach ($primaryResults as $i => $result) {
-                $memory  = $result['document'] ?? $result['memory'];
-                $score   = round(($result['composite_score'] ?? $result['similarity']) * 100, 1);
-                $content = mb_substr($memory->getTextContent(), 0, $maxContentLimit);
-                $createdAt = $memory->getCreatedAt();
-                $dateStr   = $createdAt->format('Y-m-d');
-                if ($this->showRelativeDate) {
-                    $dateStr .= ' (' . $this->formatRelativeDate($createdAt) . ')';
-                }
-                $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $dateStr, $score, $content);
+                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, composite: true);
             }
 
             $lines[] = '';
         }
 
-        // TF-IDF supplement — records without embedding yet
-        if (!empty($supplementResults)) {
+        // Supplement from primary query (associative complement / tfidf fallback)
+        if (!empty($supplementResultsOnce)) {
             $lines[] = '[KEYWORD MEMORY — no embedding yet]';
 
-            foreach ($supplementResults as $i => $result) {
-                $memory  = $result['document'] ?? $result['memory'];
-                $score   = round(($result['similarity'] ?? 0) * 100, 1);
-                $content = mb_substr($memory->getTextContent(), 0, $maxContentLimit);
-                $createdAt = $memory->getCreatedAt();
-                $dateStr   = $createdAt->format('Y-m-d');
-                if ($this->showRelativeDate) {
-                    $dateStr .= ' (' . $this->formatRelativeDate($createdAt) . ')';
-                }
-                $lines[] = sprintf('%d. [%s | %s%%] %s', $i + 1, $dateStr, $score, $content);
+            foreach ($supplementResultsOnce as $i => $result) {
+                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, composite: false);
+            }
+
+            $lines[] = '';
+        }
+
+        // Flat results collected across all queries
+        if (!empty($flatResults)) {
+            $lines[] = count($queries) > 1
+                ? '[MULTI-QUERY MEMORY]'
+                : '[ADDITIONAL MEMORY]';
+
+            foreach ($flatResults as $i => $result) {
+                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, composite: false);
             }
 
             $lines[] = '';
@@ -400,8 +533,7 @@ class RagContextEnricher implements RagContextEnricherInterface
 
             uasort(
                 $timeline,
-                fn ($a, $b) =>
-                $a['entry']->recorded_at <=> $b['entry']->recorded_at
+                fn ($a, $b) => $a['entry']->recorded_at <=> $b['entry']->recorded_at
             );
 
             foreach ($timeline as ['entry' => $entry, 'is_anchor' => $isAnchor]) {
@@ -440,6 +572,26 @@ class RagContextEnricher implements RagContextEnricherInterface
     }
 
     /**
+     * Format a single memory result line.
+     *
+     * @param bool $composite Use composite_score when true, similarity otherwise.
+     */
+    private function formatMemoryLine(int $num, array $result, int $maxContentLimit, bool $composite): string
+    {
+        $memory    = $result['document'] ?? $result['memory'];
+        $score     = round((($composite ? ($result['composite_score'] ?? null) : null) ?? $result['similarity']) * 100, 1);
+        $content   = mb_substr($memory->getTextContent(), 0, $maxContentLimit);
+        $createdAt = $memory->getCreatedAt();
+        $dateStr   = $createdAt->format('Y-m-d');
+
+        if ($this->showRelativeDate) {
+            $dateStr .= ' (' . $this->formatRelativeDate($createdAt) . ')';
+        }
+
+        return sprintf('%d. [%s | %s%%] %s', $num, $dateStr, $score, $content);
+    }
+
+    /**
      * Human-readable section label for the primary results block.
      */
     private function primarySectionLabel(string $mode, string $engine): string
@@ -454,37 +606,31 @@ class RagContextEnricher implements RagContextEnricherInterface
 
     private function formatRelativeDate(\DateTimeInterface|Carbon $date): string
     {
-        $now = now();
+        $now  = now();
         $diff = abs($now->diffInSeconds($date, false));
 
-        return match(true) {
+        return match (true) {
             $diff < 60         => 'just now',
-            $diff < 3600       => (int)($diff / 60) . 'm ago',
-            $diff < 86400      => (int)($diff / 3600) . 'h ago',
-            $diff < 86400 * 7  => (int)($diff / 86400) . 'd ago',
-            $diff < 86400 * 30 => (int)($diff / (86400 * 7)) . 'w ago',
-            default            => (int)($diff / (86400 * 30)) . 'mo ago',
+            $diff < 3600       => (int) ($diff / 60) . 'm ago',
+            $diff < 86400      => (int) ($diff / 3600) . 'h ago',
+            $diff < 86400 * 7  => (int) ($diff / 86400) . 'd ago',
+            $diff < 86400 * 30 => (int) ($diff / (86400 * 7)) . 'w ago',
+            default            => (int) ($diff / (86400 * 30)) . 'mo ago',
         };
     }
 
     /**
      * Create system message
-     *
-     * @param string $content
-     * @param int $presetId
-     * @param string $role
-     * @param array $metadata
-     * @return Message
      */
     protected function createMessage(string $content, int $presetId, string $role, array $metadata = []): Message
     {
         return $this->messageModel->create([
-            'role' => 'system',
-            'content' => $content,
-            'from_user_id' => null,
-            'preset_id' => $presetId,
+            'role'               => 'system',
+            'content'            => $content,
+            'from_user_id'       => null,
+            'preset_id'          => $presetId,
             'is_visible_to_user' => true,
-            'metadata' => $metadata
+            'metadata'           => $metadata,
         ]);
     }
 

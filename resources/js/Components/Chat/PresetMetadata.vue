@@ -15,7 +15,7 @@
                 <button v-if="canToggle" @click="toggleAll" :class="['text-xs px-1.5 py-0.5 rounded transition-colors',
                     isDark ? 'bg-blue-900 text-blue-200 hover:bg-blue-800' : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
                 ]">
-                    {{ allExpanded ? '−' : '+' }}
+                    {{ expandSignal?.expand ? '−' : '+' }}
                 </button>
             </div>
         </div>

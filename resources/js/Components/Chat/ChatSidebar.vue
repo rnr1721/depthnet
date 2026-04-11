@@ -51,56 +51,52 @@
 
       <!-- User info + nav links -->
       <div class="mt-4 flex flex-wrap gap-2">
-        <Link :href="route('profile.show')" :class="linkClass">
-          {{ user.name }}
-        </Link>
+        <Link :href="route('profile.show')" :class="linkClass">{{ user.name }}</Link>
         <template v-if="isAdmin">
-          <Link :href="route('admin.settings')" :class="linkClass">
-            {{ t('chat_settings') }}
-          </Link>
-          <Link :href="route('admin.presets.index')" :class="linkClass">
-            {{ t('chat_presets') }}
-          </Link>
-          <Link :href="pluginsLink" :class="linkClass">
-            {{ t('plugins') }}
-          </Link>
-          <Link :href="route('admin.agents.index')" :class="linkClass">
-            {{ t('agents') }}
-          </Link>
-          <Link :href="agentTasksLink" :class="linkClass">
-            {{ t('agent_tasks') }}
-          </Link>
-          <!-- Preset-aware links: carry current preset_id -->
-          <Link :href="memoryLink" :class="linkClass">
-            {{ t('memory') }}
-          </Link>
-          <Link :href="vectorMemoryLink" :class="linkClass">
-            {{ t('vm_vector_memory') }}
-          </Link>
-          <Link :href="skillsLink" :class="linkClass">
-            {{ t('skills') }}
-          </Link>
-          <Link :href="workspaceLink" :class="linkClass">
-            {{ t('workspace') }}
-          </Link>
-          <Link :href="goalsLink" :class="linkClass">
-            {{ t('goals') }}
-          </Link>
-          <Link :href="journalLink" :class="linkClass">
-            {{ t('journal') }}
-          </Link>
-          <Link :href="personLink" :class="linkClass">
-            {{ t('person_memory') }}
-          </Link>
-          <Link :href="knownSourcesLink" :class="linkClass">
-            {{ t('known_sources') }}
-          </Link>
-          <Link :href="route('admin.users.index')" :class="linkClass">
-            {{ t('chat_users') }}
-          </Link>
-          <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')" :class="linkClass">
-            {{ t('hypervisor') }}
-          </Link>
+          
+          <Link :href="route('admin.presets.index')" :class="linkClass">{{ t('chat_presets') }}</Link>
+          <Link :href="pluginsLink" :class="linkClass">{{ t('plugins') }}</Link>
+
+          <Link :href="knownSourcesLink" :class="linkClass">{{ t('known_sources') }}</Link>
+          <Link :href="route('admin.agents.index')" :class="linkClass">{{ t('agents') }}</Link>
+          <!-- Memory group -->
+          <div class="w-full">
+            <button @click="memoryGroupOpen = !memoryGroupOpen" :class="[
+              'inline-flex items-center gap-1 text-sm px-3 py-2 rounded-md transition-colors w-full text-left',
+              isDark ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700' : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
+            ]">
+              <span class="transition-transform duration-200" :class="{ 'rotate-90': memoryGroupOpen }">▶</span>
+              {{ t('memory') }}
+            </button>
+            <div v-if="memoryGroupOpen" class="flex flex-wrap gap-2 pl-3 mt-1">
+              <Link :href="memoryLink" :class="linkClass">{{ t('memory') }}</Link>
+              <Link :href="vectorMemoryLink" :class="linkClass">{{ t('vm_vector_memory') }}</Link>
+              <Link :href="journalLink" :class="linkClass">{{ t('journal') }}</Link>
+              <Link :href="personLink" :class="linkClass">{{ t('person_memory') }}</Link>
+              <Link :href="skillsLink" :class="linkClass">{{ t('skills') }}</Link>
+              <Link :href="goalsLink" :class="linkClass">{{ t('goals') }}</Link>
+              <Link :href="workspaceLink" :class="linkClass">{{ t('workspace') }}</Link>
+              <Link :href="agentTasksLink" :class="linkClass">{{ t('agent_tasks') }}</Link>
+            </div>
+          </div>
+
+          <!-- System group -->
+          <div class="w-full">
+            <button @click="systemGroupOpen = !systemGroupOpen" :class="[
+              'inline-flex items-center gap-1 text-sm px-3 py-2 rounded-md transition-colors w-full text-left',
+              isDark ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700' : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
+            ]">
+              <span class="transition-transform duration-200" :class="{ 'rotate-90': systemGroupOpen }">▶</span>
+              {{ t('chat_system') }}
+            </button>
+            <div v-if="systemGroupOpen" class="flex flex-wrap gap-2 pl-3 mt-1">
+              <Link :href="route('admin.users.index')" :class="linkClass">{{ t('chat_users') }}</Link>
+              <Link v-if="$page.props.sandboxEnabled" :href="route('admin.sandboxes.index')" :class="linkClass">
+                {{ t('hypervisor') }}
+              </Link>
+              <Link :href="route('admin.settings')" :class="linkClass">{{ t('chat_settings') }}</Link>
+            </div>
+          </div>
         </template>
       </div>
     </div>
@@ -192,7 +188,7 @@
 
 <script setup>
 import { Link } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ModelActiveToggle from './ModelActiveToggle.vue';
 import ChatExport from './ChatExport.vue';
@@ -227,6 +223,12 @@ defineEmits([
   'update:selectedExportFormat',
   'exportChat',
 ]);
+
+const memoryGroupOpen = ref(localStorage.getItem('sidebar_memory_open') === 'true');
+const systemGroupOpen = ref(localStorage.getItem('sidebar_system_open') === 'true');
+
+watch(memoryGroupOpen, val => localStorage.setItem('sidebar_memory_open', val));
+watch(systemGroupOpen, val => localStorage.setItem('sidebar_system_open', val));
 
 // Preset-aware links: carry the currently selected preset_id
 const memoryLink = computed(() =>

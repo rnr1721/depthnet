@@ -136,6 +136,59 @@ make sandbox-control action="destroy" name="test"
 make sandbox-cleanup
 ```
 
+## Browser Service
+
+The browser service gives agents a persistent Playwright-powered browser. Sessions are scoped per preset and survive across thinking cycles — an agent can open a page, reason about it for several cycles, and return without losing context.
+
+### Enable / Disable
+
+```bash
+# Enable browser service
+make browser-enable
+# or: ./docker/manager.sh browser-toggle enable
+
+# Disable browser service
+make browser-disable
+# or: ./docker/manager.sh browser-toggle disable
+
+# After toggling, restart containers
+make restart
+```
+
+### Check Browser Status
+
+```bash
+make status  # browser-service will appear in the list if enabled
+
+# View browser service logs
+make logs-service service="browser-service"
+```
+
+### Browser vs Crawler
+
+| | Browser Plugin | Crawler Plugin |
+|---|---|---|
+| Engine | Playwright (Chromium) | HTTP fetch |
+| JavaScript | ✅ Full support | ❌ No |
+| Session / cookies | ✅ Persistent per preset | ❌ Stateless |
+| Click / type / scroll | ✅ | ❌ |
+| Docker required | ✅ (profile: browser) | ❌ |
+| Best for | Interactive sites, SPAs | Simple scraping |
+
+### Resource Requirements
+
+The browser service runs a full Chromium instance per active session. Each session uses approximately 150–300 MB RAM. Keep this in mind when setting `BROWSER_MAX_SESSIONS` (default: 10).
+
+### Configuration (`.env`)
+
+```bash
+BROWSER_SERVICE_URL=http://browser-service:3001  # internal URL (do not change for Docker)
+BROWSER_SESSION_TTL=3600       # session lifetime in seconds (default: 1 hour)
+BROWSER_MAX_SESSIONS=10        # max concurrent browser sessions
+BROWSER_SNAPSHOT_TEXT_LIMIT=3000  # max characters of page text returned to agent
+BROWSER_SNAPSHOT_LINKS_LIMIT=30   # max links returned in snapshot
+```
+
 ## Two Ways to Use
 
 ### Option 1: Make Commands (Recommended)
@@ -202,6 +255,16 @@ cp .env.example.docker .env
 echo "COMPOSE_PROFILES=sandbox" >> .env
 docker compose --profile sandbox up -d --build
 
+# Development (with browser service)
+cp .env.example.docker .env
+echo "COMPOSE_PROFILES=browser" >> .env
+docker compose --profile browser up -d --build
+
+# Development (sandbox + browser)
+cp .env.example.docker .env
+echo "COMPOSE_PROFILES=sandbox,browser" >> .env
+docker compose --profile sandbox --profile browser up -d --build
+
 # Production (no sandbox)
 cp .env.example.docker.prod .env
 # Edit .env file (set APP_URL, passwords, etc.)
@@ -248,6 +311,11 @@ Output example:
 
 The sandbox manager is only started when `COMPOSE_PROFILES=sandbox` is set in your `.env` file.
 
+### Optional Services (Browser Profile)
+- **browser-service** - Playwright browser service for agents
+
+The browser service gives agents a persistent, stateful browser with session memory that survives across thinking cycles. It is only started when `COMPOSE_PROFILES=browser` (or `full`) is set in your `.env` file.
+
 ## User Management & Security
 
 The application automatically detects your host UID/GID and creates matching user inside container to prevent permission issues:
@@ -291,6 +359,12 @@ make sandbox-control action="start" name="test"       # Start sandbox
 make sandbox-control action="stop" name="test"        # Stop sandbox
 make sandbox-control action="restart" name="test"     # Restart sandbox
 make sandbox-control action="destroy" name="test"     # Destroy sandbox
+```
+
+### Browser Service Management
+```bash
+make browser-enable     # Enable Playwright browser service
+make browser-disable    # Disable browser service
 ```
 
 ### Container Management
@@ -572,6 +646,23 @@ make restart
 make logs-service service="sandbox-manager"
 ```
 
+**Browser service not working:**
+```bash
+# Check if browser service is enabled
+make status  # look for browser-service in the list
+
+# Enable if needed
+make browser-enable
+make restart
+
+# Check browser service logs
+make logs-service service="browser-service"
+
+# Test browser service directly
+docker exec depthnet-browser-service-1 wget -qO- http://localhost:3001/health
+# Expected: {"ok":true,"sessions":0}
+```
+
 **HTTPS / Vite HMR not connecting:**
 ```bash
 # Accept Vite certificate in browser
@@ -615,6 +706,7 @@ make start   # rebuilds from scratch
 ./docker/manager.sh setup-dev
 ./docker/manager.sh setup-dev-full
 ./docker/manager.sh sandbox-toggle enable
+./docker/manager.sh browser-toggle enable
 ./docker/manager.sh start
 ./docker/manager.sh shell
 ./docker/manager.sh artisan "migrate"
@@ -661,7 +753,9 @@ docker compose --profile sandbox up -d
 | Mode | Startup Time | RAM Usage | Disk Usage | Use Case |
 |------|-------------|-----------|------------|----------|
 | **Lightweight** | ~30s | ~500MB | ~1GB | Web apps, APIs |
-| **Full** | ~2min | ~1.5GB | ~3GB | AI features, code execution |
+| **Full (sandbox)** | ~2min | ~1.5GB | ~3GB | AI features, code execution |
+| **Full (browser)** | ~45s | ~800MB+ | ~2GB | Agents with web browsing |
+| **Full (all)** | ~2min | ~2GB+ | ~4GB | Everything enabled |
 
 Choose the mode that best fits your needs and available resources.
 

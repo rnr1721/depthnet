@@ -1,4 +1,4 @@
-.PHONY: help setup-dev setup-dev-full setup-prod setup-prod-full sandbox-toggle start stop restart up status logs shell rootshell sandbox sandbox-control artisan composer urls ports clean reset fix-permissions
+.PHONY: help setup-dev setup-dev-full setup-prod setup-prod-full sandbox-toggle start stop restart up status logs shell rootshell sandbox sandbox-control artisan composer urls ports clean reset fix-permissions browser-toggle browser-enable browser-disable
 
 # All functionality is delegated to docker/manager.sh script
 MANAGER := ./docker/manager.sh
@@ -88,6 +88,16 @@ sandbox-list: ## List all sandbox containers
 
 sandbox-cleanup: ## Destroy all sandbox containers
 	@$(MANAGER) sandbox-control cleanup
+
+# Browser service management
+browser-toggle: ## Toggle browser service on/off (use: make browser-toggle action="enable" or action="disable")
+	@$(MANAGER) browser-toggle "$(action)"
+
+browser-enable: ## Enable browser service (Playwright)
+	@$(MANAGER) browser-toggle enable
+
+browser-disable: ## Disable browser service
+	@$(MANAGER) browser-toggle disable
 
 # Laravel commands
 artisan: ## Run artisan command (use: make artisan cmd="migrate")

@@ -109,6 +109,7 @@ use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\NodePlugin;
 use App\Services\Agent\Plugins\PersonPlugin;
 use App\Services\Agent\Plugins\PHPPlugin;
+use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
 use App\Services\Agent\Plugins\PythonPlugin;
@@ -125,6 +126,7 @@ use App\Services\Agent\PresetPromptService;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetSandboxService;
 use App\Services\Agent\PresetService;
+use App\Services\Agent\Providers\DeepSeekModel;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
@@ -346,6 +348,7 @@ class AiServiceProvider extends ServiceProvider
             DopaminePlugin::class,
             MoodPlugin::class,
             PuppeteerBrowserPlugin::class,
+            PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,
             AgentTaskPlugin::class,
@@ -494,6 +497,8 @@ class AiServiceProvider extends ServiceProvider
                 return new GeminiModel($httpFactory, $logger, $cache, $config);
             case 'fireworks':
                 return new FireworksModel($httpFactory, $logger, $cache, $config);
+            case 'deepseek':
+                return new DeepSeekModel($httpFactory, $logger, $cache, $config);
             default:
                 $logger->warning("Unknown AI engine: {$engineName}");
                 return null;

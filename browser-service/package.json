@@ -1,0 +1,14 @@
+{
+    "name": "depthnet-browser-service",
+    "version": "1.0.0",
+    "description": "Playwright browser service for DepthNet agents",
+    "type": "module",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "express": "^4.18.2",
+        "playwright": "1.59.1"
+    }
+}

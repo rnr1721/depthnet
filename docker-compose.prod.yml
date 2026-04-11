@@ -38,6 +38,7 @@ services:
       - NODE_ENV=production
       - CORS_MAX_AGE=${CORS_MAX_AGE:-0}
       - TZ=${TZ:-UTC}
+      - BROWSER_SERVICE_URL=${BROWSER_SERVICE_URL:-http://browser-service:3001}
     hostname: depthnet
     depends_on:
       mysql:
@@ -122,6 +123,28 @@ services:
       - depthnet
     privileged: true                               # We need to control Docker
     restart: unless-stopped
+
+  browser-service:
+    profiles: ["browser", "full"]
+    build:
+      context: ./browser-service
+      dockerfile: Dockerfile
+    environment:
+      - BROWSER_SERVICE_PORT=3001
+      - SESSION_TTL=${BROWSER_SESSION_TTL:-3600}
+      - MAX_SESSIONS=${BROWSER_MAX_SESSIONS:-10}
+      - SNAPSHOT_TEXT_LIMIT=${BROWSER_SNAPSHOT_TEXT_LIMIT:-3000}
+      - SNAPSHOT_LINKS_LIMIT=${BROWSER_SNAPSHOT_LINKS_LIMIT:-30}
+    networks:
+      - depthnet
+    restart: unless-stopped
+    # Chrome needs /dev/shm larger than the default 64MB
+    shm_size: '512mb'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   mysql_data:

@@ -15,14 +15,14 @@
                 <button v-if="canToggle" @click="toggleAll" :class="['text-xs px-1.5 py-0.5 rounded transition-colors',
                     isDark ? 'bg-blue-900 text-blue-200 hover:bg-blue-800' : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
                 ]">
-                    {{ allExpanded ? '−' : '+' }}
+                    {{ expandSignal?.expand ? '−' : '+' }}
                 </button>
             </div>
         </div>
 
         <div class="space-y-1 max-h-48 overflow-y-auto">
             <CompactMetadataItem v-for="(value, key) in metadata" :key="key" :name="key" :value="value"
-                :is-dark="isDark" :level="0" :force-expand="allExpanded" />
+                :is-dark="isDark" :level="0" :force-expand="expandSignal" />
         </div>
     </div>
 
@@ -64,7 +64,7 @@ const props = defineProps({
     }
 });
 
-const allExpanded = ref(false);
+const expandSignal = ref(null);
 
 const hasMetadata = computed(() => {
     return props.metadata && Object.keys(props.metadata).length > 0;
@@ -79,6 +79,6 @@ const canToggle = computed(() => {
 });
 
 const toggleAll = () => {
-    allExpanded.value = !allExpanded.value;
+    expandSignal.value = { expand: !expandSignal.value?.expand };
 };
 </script>

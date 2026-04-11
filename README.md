@@ -4,7 +4,7 @@
 ![Laravel](https://img.shields.io/badge/Laravel-12.0-FF2D20?style=flat-square&logo=laravel)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
-![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
+![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
 **Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.0
@@ -39,7 +39,7 @@ Both modes share the same provider abstraction, plugin system, memory infrastruc
 - Composer
 - Node.js and npm
 - **Supervisor**
-- MySQL/PostrgreSQL database (optional, SQLite works out of the box)
+- MySQL/PostgreSQL database (optional, SQLite works out of the box)
 
 ⚠️ **Without Supervisor, agents won't be able to "think" autonomously!**
 
@@ -61,6 +61,7 @@ Choose your preferred installation method:
 Built-in support for multiple AI engines with easy preset management:
 
 - **Claude** (3.5 Sonnet, Opus, Haiku)
+- **DeepSeek** (v3.X, 4x as soon)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
 - **Novita Ai** (Cheap fast models)
 - **Fireworks** (Fast inference provider)
@@ -120,7 +121,8 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
 - **Agent Plugin**: Agent loop mode can stopped or started by model
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
-- **Browser Plugin**: Experimental Puppeteer browser (alpha). If you need it, please run npx puppeteer browsers install chrome
+- **Browser Plugin**: Persistent web browser powered by Playwright. Agents can open pages, click, type, search, and read structured page snapshots — all with session memory that survives across thinking cycles. Requires the browser-service Docker container (profile: browser). See [Browser Service](#browser-service) below.
+- **Crawler Plugin**: Lightweight stateless web page fetcher (formerly Browser Plugin). Fetches and returns page content without JavaScript support or session state. Useful for simple scraping tasks that don't require interaction.
 - **Skills Plugin**: Manager of knowledge and reused skills. Vector tf-idf search in skills
 - **Goal Plugin**: Management of goals and objectives, with statuses.
 - **Person Plugin**: Storing information about individuals with semantic search. 
@@ -136,13 +138,6 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
   `[rag query]what to find[/rag]` when you know exactly what memory to retrieve. 
   Falls back to automatic formulation if no query is set.
 - **AgentTask Plugin**: Task management for orchestrated agent workflows. Planner presets create and assign tasks to roles; role presets mark them done or failed; validator presets approve or reject results. The orchestrator handles all routing automatically — the model just uses simple commands. Active tasks are always visible via `[[agent_tasks]]` placeholder.
-
-For user browser, please install chrome:
-
-```bash
-make shell
-npx puppeteer browsers install chrome
-```
 
 Visual memory management is available using MemoryManager and VectorMemoryManager (Vector and normal memory is individual for each preset).
 
@@ -266,6 +261,20 @@ The AI communicates through special command tags that trigger plugin execution:
 [rag show][/rag]
 [rag clear][/rag]
 
+# Browser — persistent Playwright browser with session memory
+[browser open]https://example.com[/browser]
+[browser search]best php frameworks 2026[/browser]
+[browser snapshot][/browser]
+[browser click]text=Submit[/browser]
+[browser type]{"selector":"input[name=q]","text":"hello"}[/browser]
+[browser press]Enter[/browser]
+[browser scroll]500[/browser]
+[browser back][/browser]
+[browser close][/browser]
+
+# Crawler — lightweight stateless page fetcher (no JS, no session)
+[crawler]https://example.com[/crawler]
+
 # Orchestrated task management (AgentTask Plugin)
 # --- Planner preset ---
 [task]Write a market summary | role: writer | Focus on Q1 2025 data[/task]
@@ -293,9 +302,62 @@ The AI communicates through special command tags that trigger plugin execution:
 2. **CommandParser** extracts valid commands and prepares execution data
 3. **CommandExecutor** routes commands to appropriate plugins 
 4. **Plugin execution** runs the actual code/action with security controls
-5. **Results integration** automatically appends outputs to AI's message for next cycle
+5. **Results integration** automatically appends outputs to AI message for next cycle
 
 This creates a continuous feedback loop where the AI can see the results of its actions and adapt accordingly. A user with the Admin role can also execute commands just like a model.
+
+## Browser Service
+
+DepthNet includes an optional Playwright-based browser service that gives agents a persistent, stateful browser — sessions survive across thinking cycles, so an agent can open a page, reason about it, and return to it several cycles later without losing context.
+
+The browser service runs as a separate Docker container and communicates with the Laravel app over HTTP. Each preset gets its own browser session identified by preset ID.
+
+**Enabling the browser service:**
+
+```bash
+make browser-enable
+make restart
+```
+
+**Disabling:**
+
+```bash
+make browser-disable
+make restart
+```
+
+**What the agent sees** — instead of raw HTML, the browser returns a structured snapshot:
+
+```
+📄 Page Title
+🔗 https://example.com
+
+── Content ──
+Main page text, cleaned of nav/footer/scripts...
+
+── Inputs ──
+  [search] q (Search...)  selector: input[name=q]
+
+── Buttons ──
+  [Submit]  selector: #submit-btn
+
+── Links ──
+  About  →  https://example.com/about
+  Docs   →  https://example.com/docs
+```
+
+This gives the model enough to reason, navigate, and interact — without drowning in HTML noise.
+
+**Browser vs Crawler:**
+
+| | Browser Plugin | Crawler Plugin |
+|---|---|---|
+| Engine | Playwright (Chromium) | HTTP fetch |
+| JavaScript | ✅ Full support | ❌ No |
+| Session/cookies | ✅ Persistent per preset | ❌ Stateless |
+| Click / type / scroll | ✅ | ❌ |
+| Docker required | ✅ (profile: browser) | ❌ |
+| Best for | Interactive sites, SPAs | Simple scraping |
 
 ## Architecture Overview
 

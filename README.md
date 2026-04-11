@@ -4,7 +4,7 @@
 ![Laravel](https://img.shields.io/badge/Laravel-12.0-FF2D20?style=flat-square&logo=laravel)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
-![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
+![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
 **Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.0
@@ -61,6 +61,7 @@ Choose your preferred installation method:
 Built-in support for multiple AI engines with easy preset management:
 
 - **Claude** (3.5 Sonnet, Opus, Haiku)
+- **DeepSeek** (v3.X, 4x as soon)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
 - **Novita Ai** (Cheap fast models)
 - **Fireworks** (Fast inference provider)

@@ -1322,6 +1322,154 @@ return [
 
         /*
         |--------------------------------------------------------------------------
+        | DeepSeek provider
+        |--------------------------------------------------------------------------
+        */
+        'deepseek' => [
+            'enabled' => env('AI_DEEPSEEK_ENABLED', false),
+            'is_default' => env('AI_DEEPSEEK_DEFAULT', false),
+            'display_name' => 'DeepSeek',
+            'description' => 'DeepSeek provides powerful language models including DeepSeek-V3.2 in standard and thinking (CoT) modes. OpenAI-compatible API with 128K context window.',
+
+            // Default model settings
+            'model' => env('DEEPSEEK_MODEL', 'deepseek-chat'),
+            'api_key' => env('DEEPSEEK_API_KEY', ''),
+            'server_url' => env('DEEPSEEK_SERVER_URL', 'https://api.deepseek.com/chat/completions'),
+            'models_endpoint' => env('DEEPSEEK_MODELS_ENDPOINT', 'https://api.deepseek.com/models'),
+
+            // Generation parameters
+            'temperature' => (float) env('DEEPSEEK_TEMPERATURE', 1.0),
+            'max_tokens' => (int) env('DEEPSEEK_MAX_TOKENS', 4096),
+            'top_p' => (float) env('DEEPSEEK_TOP_P', 1.0),
+            'frequency_penalty' => (float) env('DEEPSEEK_FREQUENCY_PENALTY', 0.0),
+            'presence_penalty' => (float) env('DEEPSEEK_PRESENCE_PENALTY', 0.0),
+
+            // System settings
+            'timeout' => (int) env('DEEPSEEK_TIMEOUT', 120),
+            'agent_results_role' => env('DEEPSEEK_AGENT_RESULTS_ROLE', 'assistant'),
+            'system_prompt' => env('DEEPSEEK_SYSTEM_PROMPT', 'You are a useful AI assistant.'),
+            'log_usage' => env('DEEPSEEK_LOG_USAGE', true),
+
+            // Validation rules for configuration fields
+            'validation' => [
+                'temperature' => ['min' => 0, 'max' => 2],
+                'top_p' => ['min' => 0, 'max' => 1],
+                'frequency_penalty' => ['min' => -2, 'max' => 2],
+                'presence_penalty' => ['min' => -2, 'max' => 2],
+                'max_tokens' => ['min' => 1, 'max' => 65536],
+            ],
+
+            // Fallback models when API is unavailable
+            'models' => [
+                'deepseek-chat' => [
+                    'display_name' => 'DeepSeek V3 (Chat)',
+                    'owned_by' => 'deepseek',
+                    'description' => 'DeepSeek-V3.2 standard mode. Max output: 8K tokens.',
+                    'recommended' => true,
+                ],
+                'deepseek-reasoner' => [
+                    'display_name' => 'DeepSeek V3 (Reasoner / CoT)',
+                    'owned_by' => 'deepseek',
+                    'description' => 'DeepSeek-V3.2 thinking mode with Chain-of-Thought reasoning. Max output: 64K tokens.',
+                    'recommended' => true,
+                ],
+            ],
+
+            'models_cache_lifetime' => env('DEEPSEEK_MODELS_CACHE_LIFETIME', 3600),
+
+            'recommended_presets' => [
+                [
+                    'name' => 'DeepSeek V3 - Conversation',
+                    'description' => 'Standard mode optimized for general conversation',
+                    'config' => [
+                        'model' => 'deepseek-chat',
+                        'temperature' => 1.3,
+                        'top_p' => 1.0,
+                        'max_tokens' => 4096,
+                    ],
+                ],
+                [
+                    'name' => 'DeepSeek V3 - Coding',
+                    'description' => 'Standard mode optimized for coding and math',
+                    'config' => [
+                        'model' => 'deepseek-chat',
+                        'temperature' => 0.0,
+                        'top_p' => 1.0,
+                        'max_tokens' => 8192,
+                    ],
+                ],
+                [
+                    'name' => 'DeepSeek Reasoner - Thinking',
+                    'description' => 'Thinking mode with extended Chain-of-Thought reasoning',
+                    'config' => [
+                        'model' => 'deepseek-reasoner',
+                        'temperature' => 1.0,
+                        'top_p' => 1.0,
+                        'max_tokens' => 32768,
+                    ],
+                ],
+                [
+                    'name' => 'DeepSeek V3 - Creative',
+                    'description' => 'Standard mode optimized for creative writing and poetry',
+                    'config' => [
+                        'model' => 'deepseek-chat',
+                        'temperature' => 1.5,
+                        'top_p' => 1.0,
+                        'max_tokens' => 4096,
+                    ],
+                ],
+            ],
+
+            'mode_presets' => [
+                'creative' => [
+                    'temperature' => 1.5,
+                    'top_p' => 1.0,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 4096,
+                ],
+                'focused' => [
+                    'temperature' => 0.0,
+                    'top_p' => 1.0,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 8192,
+                ],
+                'balanced' => [
+                    'temperature' => 1.0,
+                    'top_p' => 1.0,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 4096,
+                ],
+                'coding' => [
+                    'temperature' => 0.0,
+                    'top_p' => 1.0,
+                    'frequency_penalty' => 0.0,
+                    'presence_penalty' => 0.0,
+                    'max_tokens' => 8192,
+                ],
+            ],
+
+            'cleanup' => [
+                'role_prefixes' => '/^(Assistant|AI|DeepSeek):\s*/i',
+            ],
+
+            'error_messages' => [
+                400 => 'Invalid request format. Please check your configuration.',
+                401 => 'Authentication failed. Please check your DeepSeek API key.',
+                402 => 'Insufficient balance. Please top up your DeepSeek account at https://platform.deepseek.com.',
+                422 => 'Invalid parameters. Please check your model configuration.',
+                429 => 'Rate limit reached. Please slow down your requests.',
+                500 => 'DeepSeek server error. Please try again later.',
+                503 => 'DeepSeek server overloaded. Please retry after a short wait.',
+                'connection_failed' => 'Failed to connect to DeepSeek API. Check your internet connection.',
+                'general' => 'Error contacting DeepSeek. Please try again.',
+            ],
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
         | Mock Engine (for testing)
         |--------------------------------------------------------------------------
         */

@@ -126,6 +126,7 @@ use App\Services\Agent\PresetPromptService;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetSandboxService;
 use App\Services\Agent\PresetService;
+use App\Services\Agent\Providers\DeepSeekModel;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
@@ -496,6 +497,8 @@ class AiServiceProvider extends ServiceProvider
                 return new GeminiModel($httpFactory, $logger, $cache, $config);
             case 'fireworks':
                 return new FireworksModel($httpFactory, $logger, $cache, $config);
+            case 'deepseek':
+                return new DeepSeekModel($httpFactory, $logger, $cache, $config);
             default:
                 $logger->warning("Unknown AI engine: {$engineName}");
                 return null;

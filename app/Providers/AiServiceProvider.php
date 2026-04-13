@@ -49,6 +49,7 @@ use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
+use App\Contracts\Agent\VectorMemory\DefragServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
@@ -133,6 +134,7 @@ use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\VectorMemory\DefragService;
 use App\Services\Agent\VectorMemory\EmbeddingAssociativeVectorMemoryService;
 use App\Services\Agent\VectorMemory\EmbeddingVectorMemoryService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
@@ -205,6 +207,8 @@ class AiServiceProvider extends ServiceProvider
                 associativeEmbedding:  $app->make(EmbeddingAssociativeVectorMemoryService::class),
             );
         });
+
+        $this->app->bind(DefragServiceInterface::class, DefragService::class);
 
         $this->app->bind(WorkspaceServiceInterface::class, WorkspaceService::class);
 

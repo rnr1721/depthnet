@@ -32,6 +32,9 @@ class AiPreset extends Model
         'rag_skills_limit',
         'rag_content_limit',
         'rag_journal_context_window',
+        'defrag_enabled',
+        'defrag_prompt',
+        'defrag_keep_per_day',
         'voice_preset_id',
         'voice_context_limit',
         'cycle_prompt_preset_id',
@@ -73,6 +76,8 @@ class AiPreset extends Model
         'rag_skills_limit'            => 'integer',
         'rag_content_limit'           => 'integer',
         'rag_journal_context_window'  => 'integer',
+        'defrag_enabled'      => 'boolean',
+        'defrag_keep_per_day' => 'integer',
         'voice_preset_id' => 'integer',
         'voice_context_limit' => 'integer',
         'cycle_prompt_preset_id' => 'integer',
@@ -600,6 +605,37 @@ class AiPreset extends Model
     public function getRagJournalContextWindow(): int
     {
         return $this->rag_journal_context_window;
+    }
+
+    /**
+     * Whether vector memory defragmentation is enabled for this preset.
+     *
+     * @return bool
+     */
+    public function getDefragEnabled(): bool
+    {
+        return $this->defrag_enabled ?? false;
+    }
+
+    /**
+     * Custom defrag prompt for this preset.
+     * Null means the default prompt from data/defrag/default_prompt.txt is used.
+     *
+     * @return string|null
+     */
+    public function getDefragPrompt(): ?string
+    {
+        return $this->defrag_prompt;
+    }
+
+    /**
+     * Number of distilled summaries to keep per calendar day after defrag.
+     *
+     * @return int
+     */
+    public function getDefragKeepPerDay(): int
+    {
+        return $this->defrag_keep_per_day ?? 3;
     }
 
     /**

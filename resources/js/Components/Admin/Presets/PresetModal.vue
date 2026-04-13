@@ -84,6 +84,9 @@
                 <!-- Integrations Component -->
                 <PresetIntegrations v-model="form" :is-dark="isDark" :errors="errors" :preset-id="preset?.id ?? null" />
 
+                <!-- Preset Vector memory defrag -->
+                <PresetDefrag v-model="form" :is-dark="isDark" :errors="errors" />
+
                 <!-- Engine Config Component -->
                 <PresetEngineConfig v-model="form" :engine-name="form.engine_name" :engines="engines" :is-dark="isDark"
                     :errors="errors" @validation-errors="onValidationErrors" @success="showNotification"
@@ -121,6 +124,7 @@ import PresetLogicInfo from './PresetLogicInfo.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
 import PresetIntegrations from './PresetIntegrations.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';
+import PresetDefrag from './PresetDefrag.vue';
 
 const { t } = useI18n();
 
@@ -182,6 +186,9 @@ const form = ref({
     rag_skills_limit: props.preset?.rag_skills_limit ?? 3,
     rag_content_limit: props.preset?.rag_content_limit ?? 400,
     rag_journal_context_window: props.preset?.rag_journal_context_window ?? 0,
+    defrag_enabled: props.preset?.defrag_enabled ?? false,
+    defrag_prompt: props.preset?.defrag_prompt ?? null,
+    defrag_keep_per_day: props.preset?.defrag_keep_per_day ?? 3,
     voice_context_limit: props.preset?.voice_context_limit || 4,
     cp_context_limit: props.preset?.cp_context_limit || 5,
     voice_mp_commands: props.preset?.voice_mp_commands || '',

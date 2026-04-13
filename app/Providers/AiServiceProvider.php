@@ -54,6 +54,7 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
+use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
@@ -120,6 +121,7 @@ use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
+use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
@@ -143,6 +145,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
 use App\Services\Agent\Workspace\WorkspaceService;
+use App\Services\Integrations\Telegram\TelegramService;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -281,6 +284,14 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(PresetCleanupServiceInterface::class, PresetCleanupService::class);
 
+        $this->app->singleton(TelegramServiceInterface::class, function () {
+            return new TelegramService(
+                binary:      env('TELEGRAM_BINARY', 'telegram'),
+                baseDataDir: env('TELEGRAM_DATA_DIR', '/shared/telegram'),
+                timeout:     (int) env('TELEGRAM_TIMEOUT', 30),
+            );
+        });
+
     }
 
     /**
@@ -361,7 +372,8 @@ class AiServiceProvider extends ServiceProvider
             CodeCraftPlugin::class,
             HeartPlugin::class,
             BeingPlugin::class,
-            RhythmPlugin::class
+            RhythmPlugin::class,
+            TelegramPlugin::class,
         ];
     }
 

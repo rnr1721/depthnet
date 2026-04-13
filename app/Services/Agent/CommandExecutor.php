@@ -166,10 +166,12 @@ class CommandExecutor implements CommandExecutorInterface
 
             if ($customSuccessMessage) {
                 $customSuccessMessage = str_replace($search, $replace, $customSuccessMessage);
+                $successMessage = $customSuccessMessage;
             }
 
             if ($customErrorMessage) {
                 $customErrorMessage = str_replace($search, $replace, $customErrorMessage);
+                $errorMessage = $customErrorMessage;
             }
 
             if ($result->success) {

@@ -17,6 +17,7 @@ use App\Http\Controllers\Admin\PresetSandboxController;
 use App\Http\Controllers\Admin\SandboxController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SkillController;
+use App\Http\Controllers\Admin\TelegramController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
 use App\Http\Controllers\Admin\WorkspaceController;
@@ -113,12 +114,23 @@ Route::middleware('auth')->group(function () {
                 });
             }
 
+            // MCP management routes
             Route::prefix('/{presetId}/mcp')->name('mcp.')->group(function () {
                 Route::get('/', [PresetMcpController::class, 'index'])->name('index');
                 Route::post('/', [PresetMcpController::class, 'store'])->name('store');
                 Route::delete('/{serverId}', [PresetMcpController::class, 'destroy'])->name('destroy');
                 Route::patch('/{serverId}/toggle', [PresetMcpController::class, 'toggle'])->name('toggle');
                 Route::post('/{serverId}/ping', [PresetMcpController::class, 'ping'])->name('ping');
+            });
+
+            // Telegram integration routes
+            Route::prefix('/{presetId}/telegram')->name('telegram.')->group(function () {
+                Route::get('/status', [TelegramController::class, 'status'])->name('status');
+                Route::post('/auth/init', [TelegramController::class, 'authInit'])->name('auth.init');
+                Route::post('/auth/phone', [TelegramController::class, 'authPhone'])->name('auth.phone');
+                Route::post('/auth/code', [TelegramController::class, 'authCode'])->name('auth.code');
+                Route::post('/auth/password', [TelegramController::class, 'authPassword'])->name('auth.password');
+                Route::delete('/session', [TelegramController::class, 'destroySession'])->name('session.destroy');
             });
 
             // Preset Prompts

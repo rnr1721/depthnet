@@ -7,7 +7,7 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
-**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.0
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.5
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 
@@ -123,6 +123,9 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
 - **Browser Plugin**: Persistent web browser powered by Playwright. Agents can open pages, click, type, search, and read structured page snapshots — all with session memory that survives across thinking cycles. Requires the browser-service Docker container (profile: browser). See [Browser Service](#browser-service) below.
 - **Crawler Plugin**: Lightweight stateless web page fetcher (formerly Browser Plugin). Fetches and returns page content without JavaScript support or session state. Useful for simple scraping tasks that don't require interaction.
+- **Telegram Plugin**: Full Telegram access via tgcli. Read dialogs, channels and 
+  groups, send messages, search — using a real user account (MTProto), not Bot API. 
+  Per-preset session isolation. Authorization UI built into preset settings.
 - **Skills Plugin**: Manager of knowledge and reused skills. Vector tf-idf search in skills
 - **Goal Plugin**: Management of goals and objectives, with statuses.
 - **Person Plugin**: Storing information about individuals with semantic search. 
@@ -291,6 +294,17 @@ The AI communicates through special command tags that trigger plugin execution:
 [task approve]42 | Looks good, meets requirements[/task]
 [task reject]42 | Missing Q1 breakdown, please revise[/task]
 
+# Telegram — full MTProto access via user account
+[telegram dialogs][/telegram]
+[telegram dialogs]50 channels[/telegram]
+[telegram read]@username 20[/telegram]
+[telegram send]@username Hello![/telegram]
+[telegram unread][/telegram]
+[telegram search]@groupname keyword[/telegram]
+[telegram info]@username[/telegram]
+[telegram mark_read]@username[/telegram]
+[telegram me][/telegram]
+
 ```
 
 <a href="docs/screenshots/chat.png">
@@ -384,6 +398,8 @@ Built on modern Laravel principles with dependency injection:
 - `AiServiceProvider` - Registers agents, engines, plugins, presets
 - `ChatServiceProvider` - Conversation handling and export functionality
 - `AppServiceProvider` - Authentication, settings, user management
+
+Integrations (Telegram, Rhasspy) are configured per-preset — each agent can use its own account and credentials, stored in isolated directories under /shared/.
 
 <a href="docs/screenshots/presets.png">
   <img src="docs/screenshots/presets.png" alt="Main Interface" height="300">
@@ -687,6 +703,8 @@ php artisan vectormemory:embed --preset=1 --persons --dry-run
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year 
     progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
+  - `[[telegram_account]]` - Current Telegram account info (username, name, ID). 
+  Cached, injected when Telegram plugin is enabled and authorized.
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**

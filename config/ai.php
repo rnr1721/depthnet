@@ -1923,6 +1923,7 @@ return [
             'task',
             'mood',
             'rhythm',
+            'telegram'
         ],
 
         'defaults' => [
@@ -2133,6 +2134,14 @@ return [
                 'weather_cache_minutes' => 30,
                 'timezone'              => '',
             ],
+
+            'telegram' => [
+                'enabled'            => false,
+                'binary'             => 'telegram',
+                'timeout'            => 30,
+                'default_read_limit' => 15,
+            ]
+            
         ],
 
         /*

@@ -90,6 +90,56 @@ class TelegramPlugin implements CommandPluginInterface
     }
 
     /**
+     * Tool schema for tool_calls mode.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        return [
+            'name'        => 'telegram',
+            'description' => 'Access Telegram via a real user account (MTProto). '
+                . 'Read and send messages, browse dialogs, channels and groups, search, get user info.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Telegram operation to perform',
+                        'enum'        => [
+                            'dialogs',    // list dialogs
+                            'read',       // read messages from a dialog
+                            'send',       // send a message
+                            'unread',     // show unread dialogs
+                            'search',     // search in a chat
+                            'info',       // user or channel info
+                            'mark_read',  // mark dialog as read
+                            'me',         // current account info
+                            'execute',    // raw tgcli command (fallback)
+                        ],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'dialogs: optional "[limit] [users|groups|channels]", e.g. "50 channels" or leave empty.',
+                            'read: "@username" or "@username 30" — target and optional message count.',
+                            'send: "@username message text" — target followed by the message, e.g. "@Eugeny Hello!".',
+                            'unread: optional limit, e.g. "20" or leave empty.',
+                            'search: "@chat keyword" — chat target followed by search query, e.g. "@groupname депозит".',
+                            'info: "@username" or numeric id.',
+                            'mark_read: "@username" or numeric id.',
+                            'me: leave empty.',
+                            'execute: raw tgcli command string (fallback for unsupported operations).',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
+    /**
      * @inheritDoc
      */
     public function getCustomSuccessMessage(): ?string

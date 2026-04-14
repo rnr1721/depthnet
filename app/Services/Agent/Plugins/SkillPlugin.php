@@ -74,6 +74,50 @@ class SkillPlugin implements CommandPluginInterface
         ];
     }
 
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        return [
+            'name'        => 'skill',
+            'description' => 'Persistent knowledge base. '
+                . 'Store reusable knowledge as named skills with items. '
+                . 'Items are semantically searchable. '
+                . 'Use for stable, reusable knowledge you want to recall later — '
+                . 'not for episodic events (use journal) or session state (use workspace).',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'add', 'update', 'delete', 'show', 'list', 'search'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (create skill): "title" or "title | first item content".',
+                            'Example: "PHP tips | Use array_map instead of foreach for transformations".',
+                            'add (add item to skill): "skillNumber | item content".',
+                            'Example: "1 | EXPLAIN ANALYZE shows actual vs estimated row counts".',
+                            'update (update item): "skillNumber.itemNumber | new content".',
+                            'Example: "1.2 | Updated explanation here".',
+                            'delete: "skillNumber" to delete whole skill, or "skillNumber.itemNumber" to delete one item.',
+                            'show: skill number to display all items.',
+                            'search: natural language query to find relevant items.',
+                            'list: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getConfigFields(): array
     {
         return [
@@ -150,7 +194,7 @@ class SkillPlugin implements CommandPluginInterface
         $title = trim($parts[0]);
 
         if (empty($title)) {
-            return "Error: Skill title cannot be empty. Use [skill]title[/skill] or [skill]title | first item[/skill]";
+            return "Error: Skill title cannot be empty. Use correct syntax";
         }
 
         $firstItem = isset($parts[1]) ? trim($parts[1]) : null;
@@ -172,7 +216,7 @@ class SkillPlugin implements CommandPluginInterface
         $parts = explode('|', $content, 2);
 
         if (count($parts) !== 2) {
-            return "Error: Invalid format. Use [skill add]1 | item content[/skill]";
+            return "Error: Invalid format. Use correct syntax";
         }
 
         $skillNumber = (int) trim($parts[0]);
@@ -200,7 +244,7 @@ class SkillPlugin implements CommandPluginInterface
         $parts = explode('|', $content, 2);
 
         if (count($parts) !== 2) {
-            return "Error: Invalid format. Use [skill update]1.2 | new content[/skill]";
+            return "Error: Invalid format. Use correct syntax";
         }
 
         [$skillNumber, $itemNumber] = $this->parseItemRef(trim($parts[0]));

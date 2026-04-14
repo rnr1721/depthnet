@@ -102,6 +102,60 @@ class AgentPlugin implements CommandPluginInterface
     }
 
     /**
+     * Tool schema for tool_calls mode.
+     *
+     * Provides precise descriptions for each method so the model
+     * knows exactly what to put in 'content' for speak and handoff.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        $methods = ['speak', 'status'];
+
+        if ($this->config['allow_pause'] ?? true) {
+            $methods[] = 'pause';
+        }
+
+        if ($this->config['allow_resume'] ?? true) {
+            $methods[] = 'resume';
+        }
+
+        if ($this->config['allow_handoff'] ?? true) {
+            $methods[] = 'handoff';
+        }
+
+        return [
+            'name'        => 'agent',
+            'description' => 'Control agent lifecycle and communicate with the user. '
+                . 'Use speak to send a visible message to the user. '
+                . 'Use handoff to delegate to another preset. '
+                . 'Use pause/resume to control thinking cycles.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => $methods,
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method:',
+                            'speak — the message text to show the user (required);',
+                            'handoff — "preset_code" or "preset_code:message to pass" (required);',
+                            'pause/resume — optional reason text;',
+                            'status — leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
+    /**
      * PluginMethodTrait routes [agent agent_code]...[/agent] here via callMethod().
      *
      * But agent_code is the "method" in command syntax, so we need to intercept
@@ -243,7 +297,7 @@ class AgentPlugin implements CommandPluginInterface
             return "Error: Agent control plugin is disabled.";
         }
 
-        return "Invalid format. Use '[agent pause][/agent]', '[agent resume][/agent]', or '[agent status][/agent]'";
+        return "Invalid format. Please use correct syntax.";
     }
 
     /**

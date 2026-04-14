@@ -49,6 +49,8 @@ use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
+use App\Contracts\Agent\ToolCallParserInterface;
+use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Agent\VectorMemory\DefragServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
@@ -136,6 +138,8 @@ use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\ToolCallParser;
+use App\Services\Agent\ToolSchemaBuilder;
 use App\Services\Agent\VectorMemory\DefragService;
 use App\Services\Agent\VectorMemory\EmbeddingAssociativeVectorMemoryService;
 use App\Services\Agent\VectorMemory\EmbeddingVectorMemoryService;
@@ -243,6 +247,10 @@ class AiServiceProvider extends ServiceProvider
             }
             return $app->make(CommandParser::class);
         });
+
+        $this->app->bind(ToolCallParserInterface::class, ToolCallParser::class);
+        $this->app->bind(ToolSchemaBuilderInterface::class, ToolSchemaBuilder::class);
+
         $this->app->bind(CommandExecutorInterface::class, CommandExecutor::class);
         $this->app->bind(CommandLinterInterface::class, CommandLinter::class);
 

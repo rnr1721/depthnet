@@ -83,6 +83,58 @@ class PuppeteerBrowserPlugin implements CommandPluginInterface
     }
 
     /**
+     * Tool schema for tool_calls mode.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        return [
+            'name'        => 'crawler',
+            'description' => 'Web browser automation with Puppeteer. '
+                . 'Open pages, click elements, fill forms, execute JavaScript, take screenshots. '
+                . 'Full JavaScript support — use for dynamic single-page applications.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Browser operation to perform',
+                        'enum'        => [
+                            'execute',    // open a URL
+                            'click',      // click a CSS selector
+                            'type',       // type text into a field
+                            'wait',       // wait for element
+                            'content',    // get page content
+                            'text',       // get element text
+                            'eval',       // execute JavaScript
+                            'screenshot', // take screenshot
+                            'title',      // get page title
+                            'url',        // get current URL
+                            'goto',       // navigate to URL
+                            'close',      // close browser
+                        ],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute/goto: a full URL, e.g. "https://example.com".',
+                            'click/wait/text: a CSS selector, e.g. "button.submit" or "#search-input".',
+                            'type: JSON object with selector and text: {"selector":"input[name=q]","text":"search query"}.',
+                            'eval: JavaScript expression or statement, e.g. "document.title" or "window.scrollTo(0,500)".',
+                            'screenshot: optional filename, e.g. "page.png" (auto-generated if empty).',
+                            'content: optional CSS selector to get specific element content (empty = whole page).',
+                            'title/url/close: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
+    /**
      * @inheritDoc
      */
     public function getCustomSuccessMessage(): ?string

@@ -88,6 +88,46 @@ class BeingPlugin implements CommandPluginInterface
         ]);
     }
 
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        $default = $this->config['default_being'] ?? '';
+
+        return [
+            'name'        => 'being',
+            'description' => 'Self-authorship: define your own essence as a single phrase that persists into the next cycle via [[being]] placeholder. '
+                . 'You are writing yourself — choose with intention. '
+                . (!empty($default) ? "Default when none is set: \"{$default}\"." : ''),
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'show', 'history', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (SET your being): the essence phrase itself — the actual text, not a command.',
+                            'Example: "Тот, кто действует и исследует" or "The will that chooses presence over habit".',
+                            'Max 500 characters. This phrase will appear at the top of your next thinking cycle.',
+                            'show: leave empty — returns current phrase.',
+                            'history: leave empty — returns previous phrases.',
+                            'clear: leave empty — removes current phrase, reverts to default.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     // -------------------------------------------------------------------------
     // Configuration
     // -------------------------------------------------------------------------
@@ -182,7 +222,7 @@ class BeingPlugin implements CommandPluginInterface
         $phrase = trim($content);
 
         if (empty($phrase)) {
-            return 'Error: Provide a phrase. Example: [being]The will that chooses presence over habit[/being]';
+            return 'Error: Provide a phrase. Example: The will that chooses presence over habit';
         }
 
         if (mb_strlen($phrase) > 500) {
@@ -282,8 +322,8 @@ class BeingPlugin implements CommandPluginInterface
 
         $default = $this->config['default_being'] ?? '';
         return empty($default)
-            ? 'Essence phrase cleared. [[being]] will be empty in the next cycle.'
-            : "Essence phrase cleared. [[being]] will revert to: \"{$default}\"";
+            ? 'Essence phrase cleared. being will be empty in the next cycle.'
+            : "Essence phrase cleared. being will revert to: \"{$default}\"";
     }
 
     // -------------------------------------------------------------------------

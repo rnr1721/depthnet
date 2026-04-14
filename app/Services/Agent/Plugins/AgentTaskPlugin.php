@@ -188,7 +188,7 @@ class AgentTaskPlugin implements CommandPluginInterface
 
         $parts = explode('|', $content, 2);
         if (count($parts) !== 2) {
-            return 'Error: Invalid format. Use [task done]42 | result here[/task]';
+            return 'Error: Invalid format. Please use correct syntax';
         }
 
         $taskId = $this->parseTaskId($parts[0]);
@@ -214,7 +214,7 @@ class AgentTaskPlugin implements CommandPluginInterface
 
         $parts = explode('|', $content, 2);
         if (count($parts) !== 2) {
-            return 'Error: Invalid format. Use [task fail]42 | reason here[/task]';
+            return 'Error: Invalid format. Please use correct syntax';
         }
 
         $taskId = $this->parseTaskId($parts[0]);
@@ -262,7 +262,7 @@ class AgentTaskPlugin implements CommandPluginInterface
 
         $parts = explode('|', $content, 2);
         if (count($parts) !== 2) {
-            return 'Error: Invalid format. Use [task reject]42 | feedback here[/task]';
+            return 'Error: Invalid format. Please use correct syntax';
         }
 
         $taskId   = (int) trim($parts[0]);

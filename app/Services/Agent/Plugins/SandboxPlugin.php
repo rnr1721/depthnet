@@ -110,6 +110,64 @@ class SandboxPlugin implements CommandPluginInterface
     }
 
     /**
+     * Tool schema for tool_calls mode.
+     *
+     * SandboxPlugin uses 'method' as the execution language, not an operation
+     * name. 'content' is the code or command to run. The enum is built
+     * dynamically from the enabled languages in the preset config.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        // Build enum from languages enabled in the current preset config
+        $enabledLanguages = array_values(array_filter(
+            $this->languages,
+            fn ($lang) => $this->isLanguageEnabled($lang)
+        ));
+
+        $languageDescriptions = [
+            'shell'  => 'shell commands (bash)',
+            'php'    => 'PHP code',
+            'python' => 'Python code',
+            'node'   => 'Node.js / JavaScript code',
+        ];
+
+        $langList = implode(', ', array_map(
+            fn ($lang) => $lang . ' (' . ($languageDescriptions[$lang] ?? $lang) . ')',
+            $enabledLanguages
+        ));
+
+        return [
+            'name'        => 'run',
+            'description' => 'Execute code or shell commands in an isolated Docker sandbox. '
+                . 'Requires a sandbox to be assigned to this preset. '
+                . "Available languages: {$langList}.",
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Execution language / runtime',
+                        'enum'        => array_values($enabledLanguages),
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'The code or command to execute.',
+                            'shell: a shell command or script, e.g. "ls -la /tmp".',
+                            'php: PHP code without opening tags, e.g. "echo date(\'Y-m-d\');".',
+                            'python: Python code, e.g. "import os; print(os.getcwd())".',
+                            'node: Node.js code, e.g. "console.log(process.version)".',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method', 'content'],
+            ],
+        ];
+    }
+
+    /**
      * @inheritDoc
      */
     public function getCustomSuccessMessage(): ?string

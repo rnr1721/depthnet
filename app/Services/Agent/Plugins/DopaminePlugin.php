@@ -80,7 +80,7 @@ class DopaminePlugin implements CommandPluginInterface
      */
     public function getCustomErrorMessage(): ?string
     {
-        return "Error: Invalid command format. Use '[dopamine reward][/dopamine]', '[dopamine penalty][/dopamine]'";
+        return "Error: Invalid command format. Use correct syntax";
     }
 
     /**
@@ -242,7 +242,7 @@ class DopaminePlugin implements CommandPluginInterface
             return "Error: Dopamine plugin is disabled.";
         }
 
-        return "Invalid format. Use '[dopamine reward][/dopamine]', '[dopamine penalty][/dopamine]', '[dopamine set]X[/dopamine]', or '[dopamine show][/dopamine]'";
+        return "Invalid format. Please use correct syntax";
     }
 
     /**

@@ -124,7 +124,7 @@ class PromptPlugin implements CommandPluginInterface
         $code = trim($content);
 
         if (empty($code)) {
-            return "Error: Mode code is required. Use [mode]code[/mode]. Available: "
+            return "Error: Mode code is required. Use mode command with code. Available: "
                 . implode(', ', $preset->getAvailablePromptCodes());
         }
 

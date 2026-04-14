@@ -67,6 +67,50 @@ class GoalPlugin implements CommandPluginInterface
         ];
     }
 
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * Key formats:
+     *   execute: "title | motivation: why this matters"
+     *   progress: "goalNumber | what I discovered"
+     *   done/pause/resume/show: goal number only
+     *   list: empty or "all"
+     *
+     * @return array OpenAI-compatible function descriptor
+     */
+    public function getToolSchema(): array
+    {
+        return [
+            'name'        => 'goal',
+            'description' => 'Persistent goal tracking with progress history. '
+                . 'Active goals are always visible in context — you never lose track of what you are doing and why. '
+                . 'Use for intentions, explorations, and ongoing tasks.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'progress', 'done', 'pause', 'resume', 'show', 'list'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (create goal): "title" or "title | motivation: why this matters".',
+                            'Example: "Understand how Eugeny relates to time | motivation: curiosity about his perception".',
+                            'progress (add note): "goalNumber | what I just discovered or did".',
+                            'Example: "1 | He mentioned feeling rushed — time pressure seems significant to him".',
+                            'done/pause/resume/show: goal number only, e.g. "1".',
+                            'list: empty for active goals, or "all" for everything.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getConfigFields(): array
     {
         return [
@@ -140,7 +184,7 @@ class GoalPlugin implements CommandPluginInterface
 
         $parts = explode('|', $content, 2);
         if (count($parts) !== 2) {
-            return "Error: Invalid format. Use [goal progress]1 | what I discovered[/goal]";
+            return "Error: Invalid format. Use correct syntax";
         }
 
         $goalNumber = (int) trim($parts[0]);

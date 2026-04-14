@@ -74,7 +74,7 @@ class McpPlugin implements CommandPluginInterface
             return 'Error: MCP plugin is disabled.';
         }
 
-        return 'Error: Use [mcp server_key]tool_name[/mcp] or [mcp list][/mcp]. No server specified.';
+        return 'Error: Use correct syntax. No server specified.';
     }
 
     /**
@@ -106,7 +106,7 @@ class McpPlugin implements CommandPluginInterface
                     $lines[] = "    • {$tool['name']}" . ($desc ? ": {$desc}" : '');
                 }
             } else {
-                $lines[] = '    (no tools cached — call [mcp tools]' . $server->getKey() . '[/mcp] to fetch)';
+                $lines[] = '    (no tools cached — call mcp tools' . $server->getKey() . '[/mcp] to fetch)';
             }
         }
 
@@ -125,7 +125,7 @@ class McpPlugin implements CommandPluginInterface
 
         $serverKey = trim($content);
         if (empty($serverKey)) {
-            return 'Error: Specify server key. Use [mcp tools]server_key[/mcp]';
+            return 'Error: Specify server key.';
         }
 
         $server = $this->serverRepository->findByKey($preset, $serverKey);
@@ -173,7 +173,7 @@ class McpPlugin implements CommandPluginInterface
 
         $data = json_decode(trim($content), true);
         if (json_last_error() !== JSON_ERROR_NONE || empty($data['url'])) {
-            return 'Error: Invalid JSON. Use [mcp connect]{"url":"https://...","name":"Label","server_key":"key"}[/mcp]';
+            return 'Error: Invalid JSON. Use correct command and credentials syntax: {"url":"https://...","name":"Label","server_key":"key"}';
         }
 
         $serverKey = $data['server_key'] ?? $this->keyFromUrl($data['url']);
@@ -205,7 +205,7 @@ class McpPlugin implements CommandPluginInterface
                 $this->serverRepository->cacheTools($server, $tools);
                 $this->serverRepository->updateHealth($server, 'ok');
                 $toolCount = count($tools);
-                return "Connected to '{$name}' [{$serverKey}]. Found {$toolCount} tool(s). Use [mcp tools]{$serverKey}[/mcp] to see them.";
+                return "Connected to '{$name}' [{$serverKey}]. Found {$toolCount} tool(s). Use mcp tools with key {$serverKey} to see them.";
             }
 
             return "Connected to '{$name}' [{$serverKey}], but server did not respond to ping. Check the URL.";
@@ -359,7 +359,7 @@ class McpPlugin implements CommandPluginInterface
     {
         $server = $this->serverRepository->findByKey($preset, $serverKey);
         if (!$server) {
-            return "Error: MCP server '{$serverKey}' not found. Use [mcp list][/mcp] to see connected servers.";
+            return "Error: MCP server '{$serverKey}' not found. Use mcp list command to see connected servers.";
         }
 
         if (!$server->isEnabled()) {

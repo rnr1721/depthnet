@@ -73,6 +73,47 @@ class WorkspacePlugin implements CommandPluginInterface
         ];
     }
 
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * Overrides the default ToolSchemaBuilder schema to provide precise
+     * parameter descriptions, especially the "key: value" content format
+     * required by set/append operations.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        return [
+            'name'        => self::PLUGIN_NAME,
+            'description' => 'Persistent cross-session key-value scratchpad. '
+                . 'Stores named, independently updatable keys that survive across thinking cycles. '
+                . 'Use for active task state, working variables, drafts, plans.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['set', 'append', 'get', 'delete', 'list', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument for the operation.',
+                            'set/append: "key: value" — exactly one key per call, colon-separated.',
+                            'get/delete: key name only.',
+                            'list/clear: leave empty.',
+                            'Example for set: "current_task: analyzing logs"',
+                            'Example for append: "notes: also check error rate"',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getCustomSuccessMessage(): ?string
     {
         return null;
@@ -294,4 +335,5 @@ class WorkspacePlugin implements CommandPluginInterface
 
         return [$key, $value];
     }
+
 }

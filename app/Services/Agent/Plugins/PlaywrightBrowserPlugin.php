@@ -58,6 +58,60 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
         ];
     }
 
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * Playwright-based persistent browser with session memory.
+     * Sessions survive across thinking cycles — open a page, come back later.
+     *
+     * @return array OpenAI-compatible function descriptor
+     */
+    public function getToolSchema(): array
+    {
+        return [
+            'name'        => 'browser',
+            'description' => 'Persistent Playwright browser with session memory. '
+                . 'Sessions survive across thinking cycles — open a page, reason about it, return later. '
+                . 'Each preset gets its own session. '
+                . 'Use for interactive sites, SPAs, and pages requiring JavaScript.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Browser operation to perform',
+                        'enum'        => [
+                            'open',       // open a URL
+                            'search',     // search the web
+                            'snapshot',   // get structured page snapshot
+                            'click',      // click element
+                            'type',       // type into input
+                            'press',      // press keyboard key
+                            'scroll',     // scroll page
+                            'back',       // go back
+                            'close',      // close session
+                        ],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'open: full URL, e.g. "https://example.com".',
+                            'search: search query string, e.g. "best PHP frameworks 2026".',
+                            'snapshot: leave empty — returns structured page with links, inputs, buttons.',
+                            'click: element selector or text, e.g. "text=Submit" or "#login-btn".',
+                            'type: JSON {"selector":"input[name=q]","text":"hello"} .',
+                            'press: key name, e.g. "Enter" or "Tab".',
+                            'scroll: pixels to scroll, e.g. "500".',
+                            'back/close: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getCustomSuccessMessage(): ?string
     {
         return null;
@@ -194,7 +248,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return $this->dispatchAction($preset, 'open', ['url' => $content]);
         }
 
-        return 'Error: Use [browser open]https://...[/browser] to navigate. ' . $this->helpText();
+        return 'Error: Use correct syntax to navigate. ' . $this->helpText();
     }
 
     // ── Sub-command handlers (called via PluginMethodTrait magic) ────────────
@@ -489,14 +543,14 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     private function helpText(): string
     {
         return "Browser commands:\n"
-            . "  [browser open]https://...[/browser]\n"
-            . "  [browser search]query[/browser]\n"
-            . "  [browser snapshot][/browser]\n"
-            . "  [browser click]selector or text[/browser]\n"
-            . '  [browser type]{"selector":"...","text":"..."}[/browser]' . "\n"
-            . "  [browser press]Enter[/browser]\n"
-            . "  [browser scroll]500[/browser]\n"
-            . "  [browser back][/browser]\n"
-            . "  [browser close][/browser]";
+            . "  browser open https://...\n"
+            . "  browser search query\n"
+            . "  browser snapshot\n"
+            . "  browser click selector or text\n"
+            . '  browser type {"selector":"...","text":"..."}' . "\n"
+            . "  browser press Enter\n"
+            . "  browser scroll 500\n"
+            . "  browser back\n"
+            . "  browser close";
     }
 }

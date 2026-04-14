@@ -175,6 +175,15 @@ class ContextEnricher implements ContextEnricherInterface
         try {
             $this->pluginRegistry->applyPreset($voicePreset);
 
+            // tool_calls mode is not supported for voice presets —
+            // they run in a synthetic flat context, not a real conversation history
+            if ($voicePreset->getAgentResultMode() === 'tool_calls') {
+                $this->logger->warning('ContextEnricher: tool_calls mode is not supported for voice presets', [
+                    'voice_preset' => $voicePreset->getName(),
+                ]);
+                return null;
+            }
+
             if ($voicePreset->getAgentResultMode() === 'internal') {
                 $this->shortcodeManagerService->registerShortcodeForPreset(
                     $voicePreset->getId(),

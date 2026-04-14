@@ -74,6 +74,52 @@ class JournalPlugin implements CommandPluginInterface
         ];
     }
 
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * Provides precise description of the pipe-separated entry format
+     * and available entry types, so the model doesn't have to guess
+     * the structure from implicit context.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        return [
+            'name'        => 'journal',
+            'description' => 'Episodic memory chronicle. '
+                . 'Records what happened — actions, decisions, errors, interactions — with timestamps. '
+                . 'Use for logging events, not for storing knowledge (use vectormemory for that).',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'recent', 'search', 'show', 'delete', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (add entry): pipe-separated format:',
+                            '"type | summary" or',
+                            '"type | summary | details" or',
+                            '"type | summary | details | outcome:success".',
+                            'Types: action, decision, interaction, error, observation, event.',
+                            'Example: "interaction | Eugeny introduced himself as viking | told me his name | outcome:success".',
+                            'recent: number of entries to return (default 10).',
+                            'search: query string, optionally prefixed with date: "yesterday | errors" or "2024-03-15 | memory".',
+                            'show/delete: numeric entry ID.',
+                            'clear: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getConfigFields(): array
     {
         return [
@@ -172,7 +218,7 @@ class JournalPlugin implements CommandPluginInterface
 
         $id = (int) trim($content);
         if ($id <= 0) {
-            return 'Error: Provide a valid entry ID. Use [journal show]42[/journal]';
+            return 'Error: Provide a valid entry ID.';
         }
 
         $result = $this->journalService->show($preset, $id);
@@ -193,7 +239,7 @@ class JournalPlugin implements CommandPluginInterface
 
         $query = trim($content);
         if (empty($query)) {
-            return 'Error: Provide a search query. Use [journal search]memory optimization[/journal]';
+            return 'Error: Provide a search query.';
         }
 
         $limit  = $this->config['default_limit'] ?? 10;

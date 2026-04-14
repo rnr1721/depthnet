@@ -166,6 +166,7 @@ class DeepSeekModel implements AIModelEngineInterface
                     'system'    => 'system',
                     'assistant' => 'assistant',
                     'user'      => 'user',
+                    'tool'      => 'tool',
                 ],
                 'required' => false,
             ],
@@ -306,6 +307,23 @@ class DeepSeekModel implements AIModelEngineInterface
     /**
      * @inheritDoc
      */
+    /**
+     * Generate an AI response, optionally with tool_calls support.
+     *
+     * When the preset operates in command_mode='tool_calls', Agent attaches
+     * OpenAI-compatible tool schemas via ModelRequestDTO::additionalParams['tools'].
+     * This method forwards them to the DeepSeek API and handles two response paths:
+     *
+     * - finish_reason='tool_calls': model wants to invoke plugins.
+     *   tool_calls are serialized as JSON and returned as the response string.
+     *   ToolCallParser in AgentActions will deserialize and execute them.
+     *
+     * - finish_reason='stop' (or absent): normal text response.
+     *   Processed identically to the non-tool_calls path.
+     *
+     * @param  AiModelRequestInterface  $request
+     * @return AiModelResponseInterface
+     */
     public function generate(AiModelRequestInterface $request): AiModelResponseInterface
     {
         try {
@@ -322,6 +340,15 @@ class DeepSeekModel implements AIModelEngineInterface
                 'stream'            => false,
             ];
 
+            // Attach tool schemas when preset is in tool_calls mode.
+            // tool_choice='auto' lets the model decide whether to call a tool
+            // or respond with plain text — we never force a tool call.
+            $tools = $request->getAdditionalParam('tools', []);
+            if (!empty($tools)) {
+                $data['tools']       = $tools;
+                $data['tool_choice'] = 'auto';
+            }
+
             $response = $this->http
                 ->withHeaders($this->getRequestHeaders())
                 ->timeout((int) config('ai.engines.deepseek.timeout', 120))
@@ -333,28 +360,12 @@ class DeepSeekModel implements AIModelEngineInterface
                 throw new AiModelException("DeepSeek API Error ({$response->status()}): {$errorMessage}");
             }
 
-            $result = $response->json();
+            $result      = $response->json();
+            $choice      = $result['choices'][0] ?? null;
+            $finishReason = $choice['finish_reason'] ?? null;
+            $message     = $choice['message'] ?? null;
 
-            if (!isset($result['choices'][0]['message']['content'])) {
-                $this->logger->warning('Invalid DeepSeek response format', [
-                    'response' => $result,
-                    'model'    => $this->model,
-                ]);
-                throw new AiModelException(
-                    config('ai.global.error_messages.invalid_format', 'Invalid response format from DeepSeek API')
-                );
-            }
-
-            // Log reasoning_content if present (deepseek-reasoner)
-            $reasoningContent = $result['choices'][0]['message']['reasoning_content'] ?? null;
-            if ($reasoningContent) {
-                $this->logger->info('DeepSeek reasoning content received', [
-                    'model'             => $this->model,
-                    'reasoning_length'  => strlen($reasoningContent),
-                ]);
-            }
-
-            // Log token usage
+            // Log token usage if enabled
             if (isset($result['usage']) && config('ai.engines.deepseek.log_usage', true)) {
                 $this->logger->info('DeepSeek tokens used', [
                     'model'             => $this->model,
@@ -364,8 +375,42 @@ class DeepSeekModel implements AIModelEngineInterface
                 ]);
             }
 
+            // Tool-calls path: model chose to invoke one or more plugins.
+            // Serialize tool_calls as JSON — ToolCallParser::parse() expects this format:
+            //   {"tool_calls":[{"type":"function","function":{"name":"..","arguments":"{..}"}}]}
+            if ($finishReason === 'tool_calls' && !empty($message['tool_calls'])) {
+                $this->logger->info('DeepSeek tool_calls received', [
+                    'model' => $this->model,
+                    'count' => count($message['tool_calls']),
+                ]);
+
+                return new ModelResponseDTO(
+                    json_encode(['tool_calls' => $message['tool_calls']])
+                );
+            }
+
+            // Normal text response path
+            if (!isset($message['content'])) {
+                $this->logger->warning('Invalid DeepSeek response format', [
+                    'response' => $result,
+                    'model'    => $this->model,
+                ]);
+                throw new AiModelException(
+                    config('ai.global.error_messages.invalid_format', 'Invalid response format from DeepSeek API')
+                );
+            }
+
+            // Log reasoning_content when using deepseek-reasoner (CoT mode)
+            $reasoningContent = $message['reasoning_content'] ?? null;
+            if ($reasoningContent) {
+                $this->logger->info('DeepSeek reasoning content received', [
+                    'model'            => $this->model,
+                    'reasoning_length' => strlen($reasoningContent),
+                ]);
+            }
+
             return new ModelResponseDTO(
-                $this->cleanOutput($result['choices'][0]['message']['content'])
+                $this->cleanOutput($message['content'])
             );
 
         } catch (\Exception $e) {
@@ -532,14 +577,26 @@ class DeepSeekModel implements AIModelEngineInterface
     // ─── Protected helpers ────────────────────────────────────────────────────
 
     /**
-     * Build messages array for DeepSeek API.
+     * Build messages array for the DeepSeek API.
      *
-     * DeepSeek is OpenAI-compatible, so system prompt goes as first message.
-     * Per spec: reasoning_content from previous turns must NOT be included
-     * in context (we never store it, so nothing extra to do here).
+     * DeepSeek is OpenAI-compatible, so the system prompt goes as the first
+     * message. Per DeepSeek spec, reasoning_content from previous turns must
+     * NOT be included in context (we never store it, so nothing to do here).
+     *
+     * Role mapping:
+     *   user    → role: user
+     *   command → role: assistant + tool_calls (if tool_calls_raw in metadata)
+     *             role: assistant (plain, for tag-mode command messages)
+     *   result  → role: tool + tool_call_id    (if tool_call_id in metadata)
+     *             role: agent_results_role      (plain, for tag-mode result messages)
+     *   default → role: assistant
+     *
+     * @param  AiModelRequestInterface $request
+     * @return array                   Messages array ready for the DeepSeek API
      */
     protected function buildMessages(AiModelRequestInterface $request): array
     {
+
         $systemMessage = $this->prepareMessage($request);
         $messages      = [];
 
@@ -553,8 +610,12 @@ class DeepSeekModel implements AIModelEngineInterface
         foreach ($request->getContext() as $entry) {
             $role    = $entry['role']    ?? 'assistant';
             $content = $entry['content'] ?? '';
+            $metadata = $entry['metadata'] ?? [];
 
-            if (empty(trim($content))) {
+            $hasToolCalls   = $role === 'command' && !empty($metadata['tool_calls_raw']);
+            $hasToolResults = $role === 'result'  && !empty($metadata['tool_results']);
+
+            if (empty(trim((string)$content)) && !$hasToolCalls && !$hasToolResults) {
                 continue;
             }
 
@@ -562,18 +623,59 @@ class DeepSeekModel implements AIModelEngineInterface
                 case 'user':
                     $messages[] = ['role' => 'user', 'content' => $content];
                     break;
+                case 'command':
+                    // tool_calls mode: restore structured assistant+tool_calls turn.
+                    // The engine stored the raw tool_calls JSON in metadata when it
+                    // detected finish_reason='tool_calls' from the API.
+                    $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    if ($toolCallsRaw) {
+                        $decoded    = json_decode($toolCallsRaw, true);
+                        $toolCalls  = $decoded['tool_calls'] ?? [];
+
+                        if (!empty($toolCalls)) {
+                            // Emit null content — OpenAI spec requires content=null
+                            // when tool_calls are present in the assistant turn
+                            $messages[] = [
+                                'role'       => 'assistant',
+                                'content'    => null,
+                                'tool_calls' => $toolCalls,
+                            ];
+                            break;
+                        }
+                    }
+
+                    // tag-mode fallback: plain assistant message
+                    $messages[] = ['role' => 'assistant', 'content' => $content];
+                    break;
                 case 'result':
-                    $messages[] = [
-                        'role'    => $this->config['agent_results_role'] ?? 'assistant',
-                        'content' => $content,
-                    ];
+                    $toolResults = $metadata['tool_results'] ?? null;
+                    if ($toolResults && is_array($toolResults)) {
+                        foreach ($toolResults as $tr) {
+                            if (empty($tr['tool_call_id'])) {
+                                continue;
+                            }
+                            $messages[] = [
+                                'role'         => 'tool',
+                                'tool_call_id' => $tr['tool_call_id'],
+                                'content'      => $tr['content'] ?? '',
+                            ];
+                        }
+                    } else {
+                        $fallbackRole = $this->config['agent_results_role'] ?? 'assistant';
+                        if ($fallbackRole === 'tool') {
+                            $fallbackRole = 'assistant';
+                        }
+                        $messages[] = [
+                            'role'    => $fallbackRole,
+                            'content' => $content,
+                        ];
+                    }
                     break;
                 default:
                     $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
             }
         }
-
         return $messages;
     }
 

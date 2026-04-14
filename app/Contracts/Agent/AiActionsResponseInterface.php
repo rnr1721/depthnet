@@ -46,4 +46,30 @@ interface AiActionsResponseInterface
      * @return array|null
      */
     public function getHandoff(): ?array;
+
+    /**
+     * Return a copy of this response with additional text appended to the result.
+     *
+     * Allows AgentActions to attach lint error output or other supplementary
+     * text to an already-built response without mutating the original instance
+     * or exposing a setter. All fields other than result are preserved as-is.
+     *
+     * @param  string                   $extra Text to append to the existing result
+     * @return AiActionsResponseInterface       New instance with appended result
+     */
+    public function withAppendedResult(string $extra): AiActionsResponseInterface;
+
+    /**
+     * Get the individual CommandResult objects from this cycle.
+     *
+     * Used by AgentActionsHandler::buildToolResults() in tool_calls mode
+     * to build a per-tool result array with exact tool_call_id mapping.
+     * Each CommandResult carries the toolCallId set by ToolCallParser.
+     *
+     * Returns an empty array in tag mode (CommandResults are not needed
+     * downstream in that path).
+     *
+     * @return \App\Services\Agent\Plugins\DTO\CommandResult[]
+     */
+    public function getCommandResults(): array;
 }

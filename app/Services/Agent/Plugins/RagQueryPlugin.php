@@ -80,7 +80,7 @@ class RagQueryPlugin implements CommandPluginInterface
     /** @inheritDoc */
     public function execute(string $content, AiPreset $preset): string
     {
-        return "Invalid format. Use '[rag query]your query[/rag]', '[rag show][/rag]', or '[rag clear][/rag]'";
+        return "Invalid format. Use correct syntax";
     }
 
     /**

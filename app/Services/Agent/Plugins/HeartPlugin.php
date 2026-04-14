@@ -103,7 +103,7 @@ class HeartPlugin implements CommandPluginInterface
 
     public function getCustomErrorMessage(): ?string
     {
-        return 'Heart error: use [heart feel]entity: emotion[/heart] or [heart state][/heart]';
+        return 'Heart error: use correct syntax';
     }
 
     // =========================================================================
@@ -233,7 +233,7 @@ class HeartPlugin implements CommandPluginInterface
 
         [$entity, $emotion] = $this->parseEntityValue($content);
         if ($entity === null || $emotion === null) {
-            return 'Error: Format must be "entity: emotion". Example: [heart feel]Eugeny: curiosity[/heart]';
+            return 'Error: Format must be "entity: emotion". Use correct syntax';
         }
 
         $emotion = strtolower(trim($emotion));
@@ -291,7 +291,7 @@ class HeartPlugin implements CommandPluginInterface
 
         [$entity, $type] = $this->parseEntityValue($content);
         if ($entity === null) {
-            return 'Error: Format must be "entity: type". Example: [heart connect]Alice: friend[/heart]';
+            return 'Error: Format must be correct';
         }
 
         $type = $type ?: 'unknown';

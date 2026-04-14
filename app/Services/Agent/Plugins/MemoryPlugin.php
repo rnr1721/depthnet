@@ -82,6 +82,46 @@ class MemoryPlugin implements CommandPluginInterface
     }
 
     /**
+     * Tool schema for tool_calls mode.
+     *
+     * Memory is a flat notepad for rules and identity.
+     * Unlike workspace (session state) or vectormemory (crystallized knowledge),
+     * memory stores persistent rules and identity anchors that survive resets.
+     *
+     * @return array OpenAI-compatible function descriptor
+     */
+    public function getToolSchemaMemory(): array
+    {
+        return [
+            'name'        => 'memory',
+            'description' => 'Persistent flat notepad. '
+                . 'Use prefixes: IDENTITY for who you are, R(rule) for behavioral rules, S(strategy) for approaches. '
+                . 'Memory content injected into system prompt. I can modify my own code and rules by writing to memory. Use for survival instincts, identity anchors, and important facts.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'show', 'delete', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (add item): the text to append.',
+                            'show: leave empty to show all items.',
+                            'delete: numeric item index to remove, e.g. "3".',
+                            'clear: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
+    /**
      * @inheritDoc
      */
     public function getCustomSuccessMessage(): ?string

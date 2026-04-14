@@ -77,6 +77,56 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
+     * Tool schema for tool_calls mode.
+     *
+     * Explicitly separates the store (execute) and search operations
+     * since both take a string argument but serve opposite purposes.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(): array
+    {
+        $engine = $this->config['memory_engine'] ?? 'tfidf';
+        $mode   = $this->config['memory_mode']   ?? 'flat';
+
+        $engineLabel = $engine === 'embedding' ? 'semantic embedding' : 'TF-IDF keyword';
+        $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat top-K';
+
+        return [
+            'name'        => 'vectormemory',
+            'description' => 'Semantic memory: store crystallized knowledge and retrieve it by meaning. '
+                . "Uses {$engineLabel} similarity with {$modeLabel} retrieval. "
+                . 'Store insights, confirmed facts, patterns, events. '
+                . 'Different from journal (which records what happened) — '
+                . 'vectormemory stores what you know.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'search', 'recent', 'show', 'delete', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (STORE): the text to remember — an insight, fact, pattern, or event.',
+                            'Example: "Eugeny prefers concise responses and dislikes excessive formality".',
+                            'search: a natural language query to find semantically similar memories.',
+                            'Example: "what do I know about Eugeny preferences".',
+                            'recent: number of entries to return, e.g. "5" (default 5).',
+                            'show/delete: numeric memory ID.',
+                            'clear: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
+    /**
      * @inheritDoc
      */
     public function getCustomSuccessMessage(): ?string

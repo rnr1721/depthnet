@@ -254,7 +254,7 @@ class NovitaModel implements AIModelEngineInterface
             'api_key' => config('ai.engines.novita.api_key', ''),
             'server_url' => config('ai.engines.novita.server_url', 'https://api.novita.ai/v3/openai/chat/completions'),
             'models_endpoint' => config('ai.engines.novita.models_endpoint', 'https://api.novita.ai/v3/openai/models'),
-            'agent_results_role' => config('ai.engines.novita.agent_results_role', 'system'),
+            'agent_results_role' => config('ai.engines.novita.agent_results_role', 'assistant'),
             'system_prompt' => config('ai.engines.novita.system_prompt', 'You are a useful AI assistant.')
         ];
     }
@@ -541,35 +541,49 @@ class NovitaModel implements AIModelEngineInterface
     }
 
     /**
-     * @inheritDoc
+     * Generate an AI response, optionally with tool_calls support.
+     *
+     * When the preset operates in command_mode='tool_calls', Agent attaches
+     * OpenAI-compatible tool schemas via ModelRequestDTO::additionalParams['tools'].
+     * This method forwards them to the Novita API and handles two response paths:
+     *
+     * - finish_reason='tool_calls': model wants to invoke plugins.
+     *   tool_calls are serialized as JSON and returned as the response string.
+     *   ToolCallParser in AgentActions will deserialize and execute them.
+     *
+     * - finish_reason='stop' (or absent): normal text response.
+     *   Processed identically to the non-tool_calls path.
+     *
+     * @param  AiModelRequestInterface  $request
+     * @return AiModelResponseInterface
      */
-    public function generate(
-        AiModelRequestInterface $request
-    ): AiModelResponseInterface {
+    public function generate(AiModelRequestInterface $request): AiModelResponseInterface
+    {
         try {
             $messages = $this->buildMessages($request);
 
             $data = [
-                'model' => $this->model,
-                'messages' => $messages,
-                'max_tokens' => (int) $this->config['max_tokens'],
-                'temperature' => (float) $this->config['temperature'],
-                'top_p' => (float) $this->config['top_p'],
+                'model'             => $this->model,
+                'messages'          => $messages,
+                'max_tokens'        => (int)   $this->config['max_tokens'],
+                'temperature'       => (float) $this->config['temperature'],
+                'top_p'             => (float) $this->config['top_p'],
                 'frequency_penalty' => (float) $this->config['frequency_penalty'],
-                'presence_penalty' => (float) $this->config['presence_penalty'],
-                'stream' => false
+                'presence_penalty'  => (float) $this->config['presence_penalty'],
+                'stream'            => false,
             ];
+
+            // Attach tool schemas when preset is in tool_calls mode.
+            // tool_choice='auto' lets the model decide whether to call a tool
+            // or respond with plain text — we never force a tool call.
+            $tools = $request->getAdditionalParam('tools', []);
+            if (!empty($tools)) {
+                $data['tools']       = $tools;
+                $data['tool_choice'] = 'auto';
+            }
 
             $headers = $this->getRequestHeaders();
             $timeout = (int) config('ai.engines.novita.timeout', 120);
-
-            /*
-            \Log::info('connect info',[
-                'headers' => $headers,
-                'server_url' => $this->serverUrl,
-                'data' => $data
-            ]);
-            */
 
             $response = $this->http
                 ->withHeaders($headers)
@@ -577,41 +591,62 @@ class NovitaModel implements AIModelEngineInterface
                 ->post($this->serverUrl, $data);
 
             if ($response->failed()) {
-                $errorBody = $response->json();
-                $errorMessage = $errorBody['error']['message'] ?? config('ai.global.error_messages.connection_failed', 'Unknown error');
-                $errorCode = $errorBody['error']['code'] ?? 'unknown';
+                $errorBody    = $response->json();
+                $errorMessage = $errorBody['error']['message']
+                    ?? config('ai.global.error_messages.connection_failed', 'Unknown error');
+                $errorCode    = $errorBody['error']['code'] ?? 'unknown';
                 throw new AiModelException("Novita AI API Error ({$response->status()}, {$errorCode}): $errorMessage");
             }
 
-            $result = $response->json();
-
-            if (!isset($result['choices'][0]['message']['content'])) {
-                $this->logger->warning("Invalid Novita AI response format", [
-                    'response' => $result,
-                    'model' => $this->model
-                ]);
-                $errorMessage = config('ai.global.error_messages.invalid_format', 'Invalid response format from Novita AI API');
-                throw new AiModelException($errorMessage);
-            }
+            $result       = $response->json();
+            $choice       = $result['choices'][0] ?? null;
+            $finishReason = $choice['finish_reason'] ?? null;
+            $message      = $choice['message'] ?? null;
 
             // Log token usage if enabled
             if (isset($result['usage']) && config('ai.engines.novita.log_usage', true)) {
-                $this->logger->info("Novita AI tokens used", [
-                    'model' => $this->model,
-                    'prompt_tokens' => $result['usage']['prompt_tokens'],
+                $this->logger->info('Novita AI tokens used', [
+                    'model'             => $this->model,
+                    'prompt_tokens'     => $result['usage']['prompt_tokens'],
                     'completion_tokens' => $result['usage']['completion_tokens'],
-                    'total_tokens' => $result['usage']['total_tokens']
+                    'total_tokens'      => $result['usage']['total_tokens'],
                 ]);
             }
 
+            // Tool-calls path: model chose to invoke one or more plugins.
+            // Serialize tool_calls as JSON — ToolCallParser::parse() expects this format:
+            //   {"tool_calls":[{"id":"call_x","type":"function","function":{"name":"..","arguments":"{..}"}}]}
+            if ($finishReason === 'tool_calls' && !empty($message['tool_calls'])) {
+                $this->logger->info('Novita AI tool_calls received', [
+                    'model' => $this->model,
+                    'count' => count($message['tool_calls']),
+                ]);
+
+                return new ModelResponseDTO(
+                    json_encode(['tool_calls' => $message['tool_calls']])
+                );
+            }
+
+            // Normal text response path
+            if (!isset($message['content'])) {
+                $this->logger->warning('Invalid Novita AI response format', [
+                    'response' => $result,
+                    'model'    => $this->model,
+                ]);
+                throw new AiModelException(
+                    config('ai.global.error_messages.invalid_format', 'Invalid response format from Novita AI API')
+                );
+            }
+
             return new ModelResponseDTO(
-                $this->cleanOutput($result['choices'][0]['message']['content'])
+                $this->cleanOutput($message['content'])
             );
+
         } catch (\Exception $e) {
-            $this->logger->error("NovitaModel error: " . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
+            $this->logger->error('NovitaModel error: ' . $e->getMessage(), [
+                'trace'        => $e->getTraceAsString(),
                 'context_size' => count($request->getContext()),
-                'model' => $this->model
+                'model'        => $this->model,
             ]);
 
             return $this->handleError($e);
@@ -734,61 +769,103 @@ class NovitaModel implements AIModelEngineInterface
     }
 
     /**
-     * Build messages array for Novita AI API
+     * Build messages array for the Novita AI API.
      *
-     * @param AiModelRequestInterface $request
-     * @return array
+     * Novita AI is OpenAI-compatible — system prompt goes as first message.
+     *
+     * Role mapping:
+     *   user    → role: user
+     *   command → role: assistant + tool_calls (if tool_calls_raw in metadata)
+     *             role: assistant (plain, for tag-mode command messages)
+     *   result  → role: tool + tool_call_id per entry (if tool_results in metadata)
+     *             role: agent_results_role             (plain, for tag-mode result messages)
+     *   default → role: assistant
+     *
+     * @param  AiModelRequestInterface $request
+     * @return array                   Messages array ready for the Novita AI API
      */
     protected function buildMessages(AiModelRequestInterface $request): array
     {
+
         $systemMessage = $this->prepareMessage($request);
-        $messages = [];
+        $messages      = [];
 
-        // Novita AI uses system role like OpenAI
-        $messages[] = [
-            'role' => 'system',
-            'content' => $systemMessage
-        ];
+        if (!empty(trim($systemMessage))) {
+            $messages[] = [
+                'role'    => 'system',
+                'content' => $systemMessage,
+            ];
+        }
 
-        $context = $request->getContext();
-
-        foreach ($context as $entry) {
-            $role = $entry['role'] ?? 'assistant';
+        foreach ($request->getContext() as $entry) {
+            $role    = $entry['role']    ?? 'assistant';
             $content = $entry['content'] ?? '';
+            $metadata = $entry['metadata'] ?? [];
 
-            if (empty(trim($content))) {
+            $hasToolCalls   = $role === 'command' && !empty($metadata['tool_calls_raw']);
+            $hasToolResults = $role === 'result'  && !empty($metadata['tool_results']);
+
+            if (empty(trim((string)$content)) && !$hasToolCalls && !$hasToolResults) {
                 continue;
             }
 
-            // Map roles for Novita AI (OpenAI-compatible)
             switch ($role) {
                 case 'user':
-                    $messages[] = [
-                        'role' => 'user',
-                        'content' => $content
-                    ];
+                    $messages[] = ['role' => 'user', 'content' => $content];
                     break;
                 case 'command':
-                    $messages[] = [
-                        'role' => 'assistant',
-                        'content' => $content
-                    ];
+                    // tool_calls mode: restore structured assistant+tool_calls turn.
+                    // The engine stored the raw tool_calls JSON in metadata when it
+                    // detected finish_reason='tool_calls' from the API.
+                    $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    if ($toolCallsRaw) {
+                        $decoded    = json_decode($toolCallsRaw, true);
+                        $toolCalls  = $decoded['tool_calls'] ?? [];
+
+                        if (!empty($toolCalls)) {
+                            // Emit null content — OpenAI spec requires content=null
+                            // when tool_calls are present in the assistant turn
+                            $messages[] = [
+                                'role'       => 'assistant',
+                                'content'    => null,
+                                'tool_calls' => $toolCalls,
+                            ];
+                            break;
+                        }
+                    }
+
+                    // tag-mode fallback: plain assistant message
+                    $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
                 case 'result':
-                    $messages[] = [
-                        'role' => $this->config['agent_results_role'] ?? 'assistant',
-                        'content' => $content
-                    ];
+                    $toolResults = $metadata['tool_results'] ?? null;
+                    if ($toolResults && is_array($toolResults)) {
+                        foreach ($toolResults as $tr) {
+                            if (empty($tr['tool_call_id'])) {
+                                continue;
+                            }
+                            $messages[] = [
+                                'role'         => 'tool',
+                                'tool_call_id' => $tr['tool_call_id'],
+                                'content'      => $tr['content'] ?? '',
+                            ];
+                        }
+                    } else {
+                        $fallbackRole = $this->config['agent_results_role'] ?? 'assistant';
+                        if ($fallbackRole === 'tool') {
+                            $fallbackRole = 'assistant';
+                        }
+                        $messages[] = [
+                            'role'    => $fallbackRole,
+                            'content' => $content,
+                        ];
+                    }
                     break;
                 default:
-                    $messages[] = [
-                        'role' => 'assistant',
-                        'content' => $content
-                    ];
+                    $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
             }
         }
-
         return $messages;
     }
 

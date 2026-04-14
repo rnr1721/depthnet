@@ -138,7 +138,7 @@ class PersonPlugin implements CommandPluginInterface
 
         $parts = explode('|', $content, 2);
         if (count($parts) !== 2) {
-            return 'Error: Invalid format. Use [person]Name | fact about them[/person]';
+            return 'Error: Invalid format. Use correct syntax';
         }
 
         $personName = trim($parts[0]);
@@ -163,7 +163,7 @@ class PersonPlugin implements CommandPluginInterface
 
         $nameOrId = trim($content);
         if (empty($nameOrId)) {
-            return 'Error: Provide a name or fact ID. Use [person recall]Женя[/person]';
+            return 'Error: Provide a name or fact ID. Use person recall.';
         }
 
         $result = $this->personMemoryService->recallPerson($preset, $nameOrId);
@@ -181,7 +181,7 @@ class PersonPlugin implements CommandPluginInterface
 
         $term = trim($content);
         if (empty($term)) {
-            return 'Error: Provide a search term. Use [person find]Name[/person]';
+            return 'Error: Provide a search term. Use person find';
         }
 
         $result = $this->personMemoryService->findByMention($preset, $term);
@@ -199,7 +199,7 @@ class PersonPlugin implements CommandPluginInterface
 
         $query = trim($content);
         if (empty($query)) {
-            return 'Error: Provide a search query. Use [person search]punk aesthetic[/person]';
+            return 'Error: Provide a search query. Use person search';
         }
 
         $limit  = (int) ($this->config['search_limit'] ?? 5);
@@ -225,7 +225,7 @@ class PersonPlugin implements CommandPluginInterface
         $parts = array_map('trim', explode('|', $content, 3));
 
         if (count($parts) < 3) {
-            return 'Error: Invalid format. Use [person alias add]1 | Alias[/person] or [person alias remove]1 | Alias[/person]';
+            return 'Error: Invalid format. Use correct syntax to work with aliases';
         }
 
         [$subcommand, $idStr, $alias] = $parts;
@@ -253,7 +253,7 @@ class PersonPlugin implements CommandPluginInterface
 
         $factId = (int) trim($content);
         if ($factId <= 0) {
-            return 'Error: Provide a valid fact ID. Use [person delete]42[/person]';
+            return 'Error: Provide a valid fact ID. Use person delete using ID';
         }
 
         $result = $this->personMemoryService->deleteFact($preset, $factId);
@@ -271,7 +271,7 @@ class PersonPlugin implements CommandPluginInterface
 
         $nameOrId = trim($content);
         if (empty($nameOrId)) {
-            return 'Error: Provide a name or fact ID. Use [person forget]Женя[/person]';
+            return 'Error: Provide a name or fact ID. Use person forget with name';
         }
 
         $result = $this->personMemoryService->forgetPerson($preset, $nameOrId);

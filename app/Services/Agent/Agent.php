@@ -155,7 +155,7 @@ class Agent implements AgentInterface
     protected function setupPresetEnvironment(AiPreset $preset): void
     {
         $this->pluginRegistry->applyPreset($preset);
-        $this->shortcodeManagerService->setDefaultShortcodes();
+        $this->shortcodeManagerService->setDefaultShortcodes($preset);
 
         if ($preset->getAgentResultMode() === 'tool_calls') {
             // Override the global [[command_instructions]] with an empty value

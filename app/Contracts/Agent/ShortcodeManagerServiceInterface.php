@@ -2,14 +2,17 @@
 
 namespace App\Contracts\Agent;
 
+use App\Models\AiPreset;
+
 interface ShortcodeManagerServiceInterface
 {
     /**
      * Set all default shortcodes for AI context (registered globally)
      *
+     * @param AiPreset $preset Preset for which to set up shortcodes (some shortcodes may be conditional on preset settings)
      * @return void
      */
-    public function setDefaultShortcodes(): void;
+    public function setDefaultShortcodes(AiPreset $preset): void;
 
     /**
      * Register a custom shortcode in the global scope

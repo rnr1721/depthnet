@@ -44,12 +44,6 @@
                         ]">
                             {{ plugin.enabled ? t('plugins_enabled') : t('plugins_disabled') }}
                         </span>
-                        <span :class="[
-                            'inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium',
-                            getHealthStatusBadge(plugin.health_status)
-                        ]">
-                            {{ t(`plugins_status_${plugin.health_status}`) }}
-                        </span>
                     </div>
                 </div>
                 <div class="flex items-center space-x-2">
@@ -203,28 +197,6 @@
         <div class="px-6 py-4">
             <div class="flex items-center justify-between space-x-2">
                 <div class="flex space-x-2">
-                    <!-- Test Button -->
-                    <button v-if="plugin.enabled" @click="testPlugin" :disabled="testLoading" :class="[
-                        'inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium transition-all hover:scale-105',
-                        'disabled:opacity-50 disabled:cursor-not-allowed',
-                        isDark
-                            ? 'bg-blue-900 bg-opacity-50 text-blue-200 hover:bg-opacity-70'
-                            : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
-                    ]">
-                        <svg v-if="testLoading" class="w-3 h-3 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                            </circle>
-                            <path class="opacity-75" fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                            </path>
-                        </svg>
-                        <svg v-else class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        {{ t('plugins_test') }}
-                    </button>
-
                     <!-- Reset Config Button -->
                     <button v-if="plugin.enabled && hasConfigFields" @click="resetConfig" :disabled="resetLoading"
                         :class="[
@@ -273,25 +245,6 @@
                 </button>
             </div>
 
-            <!-- Test Results -->
-            <div v-if="testResult" :class="[
-                'mt-3 p-3 rounded-lg text-sm',
-                testResult.is_working
-                    ? (isDark ? 'bg-green-900 bg-opacity-50 text-green-200' : 'bg-green-50 text-green-800')
-                    : (isDark ? 'bg-red-900 bg-opacity-50 text-red-200' : 'bg-red-50 text-red-800')
-            ]">
-                <div class="flex items-center">
-                    <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                        <path v-if="testResult.is_working" fill-rule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                            clip-rule="evenodd"></path>
-                        <path v-else fill-rule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                            clip-rule="evenodd"></path>
-                    </svg>
-                    <span>{{ testResult.message }}</span>
-                </div>
-            </div>
         </div>
     </div>
 </template>
@@ -317,14 +270,12 @@ const props = defineProps({
     }
 });
 
-const emit = defineEmits(['toggle', 'test', 'updateConfig', 'resetConfig']);
+const emit = defineEmits(['toggle', 'updateConfig', 'resetConfig']);
 
 // State
 const toggleLoading = ref(false);
-const testLoading = ref(false);
 const saveLoading = ref(false);
 const resetLoading = ref(false);
-const testResult = ref(null);
 const localConfig = ref({});
 const originalConfig = ref({});
 
@@ -348,17 +299,6 @@ const togglePlugin = async () => {
         await emit('toggle', props.plugin.name);
     } finally {
         toggleLoading.value = false;
-    }
-};
-
-const testPlugin = async () => {
-    testLoading.value = true;
-    testResult.value = null;
-    try {
-        const result = await emit('test', props.plugin.name);
-        testResult.value = result;
-    } finally {
-        testLoading.value = false;
     }
 };
 
@@ -422,19 +362,6 @@ const resetConfig = async () => {
         }
     } finally {
         resetLoading.value = false;
-    }
-};
-
-const getHealthStatusBadge = (status) => {
-    switch (status) {
-        case 'healthy':
-            return props.isDark ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-800';
-        case 'warning':
-            return props.isDark ? 'bg-yellow-900 text-yellow-200' : 'bg-yellow-100 text-yellow-800';
-        case 'error':
-            return props.isDark ? 'bg-red-900 text-red-200' : 'bg-red-100 text-red-800';
-        default:
-            return props.isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600';
     }
 };
 

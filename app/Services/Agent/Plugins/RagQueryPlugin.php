@@ -6,10 +6,10 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -51,7 +51,6 @@ class RagQueryPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface            $placeholderService,
         protected PluginMetadataServiceInterface         $pluginMetadata,
     ) {
-        $this->initializeConfig();
     }
 
     /** @inheritDoc */
@@ -61,14 +60,14 @@ class RagQueryPlugin implements CommandPluginInterface
     }
 
     /** @inheritDoc */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Queue one or more explicit RAG search queries for the next cycle. '
             . 'Multiple calls accumulate — each adds a new query angle instead of overwriting.';
     }
 
     /** @inheritDoc */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Add a RAG query for next cycle (call multiple times for different aspects): [rag query]your search query here[/rag]',
@@ -78,7 +77,7 @@ class RagQueryPlugin implements CommandPluginInterface
     }
 
     /** @inheritDoc */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
         return "Invalid format. Use correct syntax";
     }
@@ -87,9 +86,9 @@ class RagQueryPlugin implements CommandPluginInterface
      * Append a pending RAG query for the next cycle.
      * Each call adds to the list — does NOT overwrite previous queries.
      */
-    public function query(string $content, AiPreset $preset): string
+    public function query(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: RAG query plugin is disabled.';
         }
 
@@ -103,7 +102,7 @@ class RagQueryPlugin implements CommandPluginInterface
             return sprintf('Error: RAG query is too long (max %d characters).', self::MAX_QUERY_LENGTH);
         }
 
-        $queries = $this->loadQueries($preset);
+        $queries = $this->loadQueries($context);
 
         if (count($queries) >= self::MAX_QUERIES) {
             return sprintf(
@@ -113,10 +112,10 @@ class RagQueryPlugin implements CommandPluginInterface
         }
 
         $queries[] = $query;
-        $this->saveQueries($preset, $queries);
+        $this->saveQueries($context, $queries);
 
         $this->logger->info('RagQueryPlugin: query appended', [
-            'preset_id'   => $preset->getId(),
+            'preset_id'   => $context->preset->getId(),
             'query'       => $query,
             'total_count' => count($queries),
         ]);
@@ -130,13 +129,13 @@ class RagQueryPlugin implements CommandPluginInterface
     /**
      * Show current pending RAG queries (if any).
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: RAG query plugin is disabled.';
         }
 
-        $queries = $this->loadQueries($preset);
+        $queries = $this->loadQueries($context);
 
         if (empty($queries)) {
             return 'No pending RAG queries. Automatic query formulation will be used on next cycle.';
@@ -153,19 +152,19 @@ class RagQueryPlugin implements CommandPluginInterface
     /**
      * Clear all pending RAG queries.
      */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: RAG query plugin is disabled.';
         }
 
-        $this->pluginMetadata->remove($preset, self::PLUGIN_NAME, self::META_KEY);
+        $this->pluginMetadata->remove($context->preset, self::PLUGIN_NAME, self::META_KEY);
 
         return 'All pending RAG queries cleared. Automatic query formulation will be used on next cycle.';
     }
 
     /** @inheritDoc */
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
         // No placeholders needed for this plugin
     }
@@ -210,12 +209,6 @@ class RagQueryPlugin implements CommandPluginInterface
     }
 
     /** @inheritDoc */
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
-    /** @inheritDoc */
     public function canBeMerged(): bool
     {
         return false;
@@ -240,9 +233,9 @@ class RagQueryPlugin implements CommandPluginInterface
      *
      * @return string[]
      */
-    private function loadQueries(AiPreset $preset): array
+    private function loadQueries(PluginExecutionContext $context): array
     {
-        $raw = $this->pluginMetadata->get($preset, self::PLUGIN_NAME, self::META_KEY);
+        $raw = $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, self::META_KEY);
 
         if (empty($raw)) {
             return [];
@@ -258,10 +251,10 @@ class RagQueryPlugin implements CommandPluginInterface
      *
      * @param string[] $queries
      */
-    private function saveQueries(AiPreset $preset, array $queries): void
+    private function saveQueries(PluginExecutionContext $context, array $queries): void
     {
         $this->pluginMetadata->set(
-            $preset,
+            $context->preset,
             self::PLUGIN_NAME,
             self::META_KEY,
             json_encode(array_values($queries), JSON_UNESCAPED_UNICODE)

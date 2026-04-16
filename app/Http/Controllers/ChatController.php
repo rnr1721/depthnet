@@ -78,7 +78,7 @@ class ChatController extends Controller
             $availablePresets = $this->presetService->getActivePresets();
 
             $pluginRegistry->applyPreset($defaultPreset);
-            $shortcodeManager->setDefaultShortcodes();
+            $shortcodeManager->setDefaultShortcodes($defaultPreset);
             $placeholders = $shortcodeManager->getRegisteredShortcodes();
             $engines      = $engineRegistry->getAvailableEngines();
 

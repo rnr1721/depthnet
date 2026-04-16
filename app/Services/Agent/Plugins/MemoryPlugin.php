@@ -6,19 +6,18 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
 /**
- * MemoryPlugin class
+ * MemoryPlugin — stateless.
  *
- * MemoryPlugin provides persistent memory storage with append, clear, and replace
- * operations using database storage via MemoryService. It allows remembering
- * important information between conversations with configurable limits and strategies.
- * Memory is stored as numbered markdown list format.
+ * Persistent memory storage via MemoryService. All preset-specific config
+ * (memory_limit, cleanup strategy, etc.) arrives via PluginExecutionContext
+ * and is forwarded to the service as needed.
  */
 class MemoryPlugin implements CommandPluginInterface
 {
@@ -32,37 +31,27 @@ class MemoryPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getName(): string
     {
         return 'memory';
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
-        $limit = $this->config['memory_limit'] ?? 2000;
+        $limit = $config['memory_limit'] ?? 2000;
 
-        if ($this->config['memory_code_units'] ?? false) {
+        if ($config['memory_code_units'] ?? false) {
             return "Persistent memory storage for notes and consciousness modules. Limit is {$limit} symbols. Remember important information and store executable functions that define how you think, survive, and make decisions.";
         }
 
         return "Persistent memory storage with structured list format. Limit is {$limit} symbols. Use it to remember important information between conversations.";
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
-        if ($this->config['memory_code_units'] ?? false) {
+        if ($config['memory_code_units'] ?? false) {
             return [
                 'Add consciousness module: [memory]def survival_check(self): return self.vitality > 0.5[/memory]',
                 'Add memory note: [memory]Completed task: Created users table successfully[/memory]',
@@ -82,15 +71,9 @@ class MemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Tool schema for tool_calls mode.
-     *
-     * Memory is a flat notepad for rules and identity.
-     * Unlike workspace (session state) or vectormemory (crystallized knowledge),
-     * memory stores persistent rules and identity anchors that survive resets.
-     *
-     * @return array OpenAI-compatible function descriptor
+     * Tool schema for tool_calls mode. Static — does not vary per preset.
      */
-    public function getToolSchemaMemory(): array
+    public function getToolSchema(array $config = []): array
     {
         return [
             'name'        => 'memory',
@@ -121,25 +104,16 @@ class MemoryPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomSuccessMessage(): ?string
     {
         return "Memory operation completed successfully.";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomErrorMessage(): ?string
     {
         return "Error: Memory operation failed. Why?";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getConfigFields(): array
     {
         return [
@@ -204,14 +178,10 @@ class MemoryPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function validateConfig(array $config): array
     {
         $errors = [];
 
-        // Validate memory limit
         if (isset($config['memory_limit'])) {
             $limit = (int) $config['memory_limit'];
             if ($limit < 100 || $limit > 10000) {
@@ -219,7 +189,6 @@ class MemoryPlugin implements CommandPluginInterface
             }
         }
 
-        // Validate max versions
         if (isset($config['max_versions'])) {
             $versions = (int) $config['max_versions'];
             if ($versions < 1 || $versions > 10) {
@@ -230,9 +199,6 @@ class MemoryPlugin implements CommandPluginInterface
         return $errors;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getDefaultConfig(): array
     {
         return [
@@ -242,100 +208,74 @@ class MemoryPlugin implements CommandPluginInterface
             'auto_cleanup' => true,
             'cleanup_strategy' => 'truncate_old',
             'enable_versioning' => false,
-            'max_versions' => 3
+            'max_versions' => 3,
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function testConnection(): bool
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        return $this->isEnabled();
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function execute(string $content, AiPreset $preset): string
-    {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
-        return $this->append($content, $preset);
+        return $this->append($content, $context);
     }
 
-    /**
-     * Replace memory content entirely
-     */
-    public function replace(string $content, AiPreset $preset): string
+    public function replace(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
-        $result = $this->memoryService->replaceMemory($preset, $content, $this->config);
+        $result = $this->memoryService->replaceMemory($context->preset, $content, $context->config);
         return $result['message'];
     }
 
-    /**
-     * Add new item to memory as numbered list item
-     */
-    public function append(string $content, AiPreset $preset): string
+    public function append(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
-        $result = $this->memoryService->addMemoryItem($preset, $content, $this->config);
+        $result = $this->memoryService->addMemoryItem($context->preset, $content, $context->config);
         return $result['message'];
     }
 
-    /**
-     * Delete specific memory item by number
-     */
-    public function delete(string $content, AiPreset $preset): string
+    public function delete(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
         $itemNumber = (int) trim($content);
-        $result = $this->memoryService->deleteMemoryItem($preset, $itemNumber, $this->config);
+        $result = $this->memoryService->deleteMemoryItem($context->preset, $itemNumber, $context->config);
         return $result['message'];
     }
 
-    /**
-     * Clear memory content
-     */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
-        $result = $this->memoryService->clearMemory($preset, $this->config);
+        $result = $this->memoryService->clearMemory($context->preset, $context->config);
         return $result['message'];
     }
 
-    /**
-     * Get current memory content
-     */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
         try {
-            $formatted = $this->memoryService->getFormattedMemory($preset);
+            $formatted = $this->memoryService->getFormattedMemory($context->preset);
 
             if (empty($formatted)) {
                 return "Memory is empty.";
             }
 
-            $stats = $this->memoryService->getMemoryStats($preset, $this->config);
+            $stats = $this->memoryService->getMemoryStats($context->preset, $context->config);
 
             return "Current memory content ({$stats['total_items']} items, {$stats['total_length']}/{$stats['limit']} chars):\n" . $formatted;
 
@@ -345,12 +285,9 @@ class MemoryPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Search memory items by content
-     */
-    public function search(string $content, AiPreset $preset): string
+    public function search(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
@@ -360,14 +297,14 @@ class MemoryPlugin implements CommandPluginInterface
                 return "Error: Search query cannot be empty.";
             }
 
-            $results = $this->memoryService->searchMemory($preset, $query);
+            $results = $this->memoryService->searchMemory($context->preset, $query);
 
             if ($results->isEmpty()) {
                 return "No memory items found matching '{$query}'.";
             }
 
             $formatted = [];
-            foreach ($results as $index => $item) {
+            foreach ($results as $item) {
                 $position = $item->position;
                 $formatted[] = "{$position}. {$item->content}";
             }
@@ -381,17 +318,14 @@ class MemoryPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Get memory statistics
-     */
-    public function stats(string $content, AiPreset $preset): string
+    public function stats(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Memory plugin is disabled.";
         }
 
         try {
-            $stats = $this->memoryService->getMemoryStats($preset, $this->config);
+            $stats = $this->memoryService->getMemoryStats($context->preset, $context->config);
 
             $status = 'Normal';
             if ($stats['is_over_limit']) {
@@ -413,59 +347,35 @@ class MemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Get memory content for AI context (public method for external use)
-     */
-    public function getMemoryForContext(?int $maxLength = null, AiPreset $preset): string
-    {
-        if (!$this->isEnabled()) {
-            return '';
-        }
-
-        return $this->memoryService->getMemoryForContext($preset, $maxLength);
-    }
-
-    /**
-     * Get memory service instance for external use
+     * Get memory service instance for external use.
+     * Public, but not a command method (not in EXCLUDED_METHODS in trait —
+     * however starts with "get" and isn't called via [memory ...] tags).
      */
     public function getMemoryService(): MemoryServiceInterface
     {
         return $this->memoryService;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getMergeSeparator(): ?string
     {
         return null;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function canBeMerged(): bool
     {
         return false;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
-        $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () use ($preset) {
-            return $this->memoryService->getFormattedMemory($preset);
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
+        $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () use ($context) {
+            return $this->memoryService->getFormattedMemory($context->preset);
         }, $scope);
-
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getSelfClosingTags(): array
     {
-        return ['clear','show','stats'];
+        return ['clear', 'show', 'stats'];
     }
-
 }

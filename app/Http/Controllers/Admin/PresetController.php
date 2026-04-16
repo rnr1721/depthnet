@@ -38,7 +38,7 @@ class PresetController extends Controller
 
         $defaultPreset = $this->presetService->getDefaultPreset();
         $this->pluginRegistry->applyPreset($defaultPreset);
-        $this->shortcodeManager->setDefaultShortcodes();
+        $this->shortcodeManager->setDefaultShortcodes($defaultPreset);
         $placeholders = $this->shortcodeManager->getRegisteredShortcodes();
 
         return Inertia::render('Admin/Presets/Index', [
@@ -76,7 +76,7 @@ class PresetController extends Controller
             }
 
             $this->pluginRegistry->applyPreset($preset);
-            $this->shortcodeManager->setDefaultShortcodes();
+            $this->shortcodeManager->setDefaultShortcodes($preset);
 
             $preset->load('prompts'); // eager load for PresetDetailResource
 

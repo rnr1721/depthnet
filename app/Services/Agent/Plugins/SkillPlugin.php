@@ -6,7 +6,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -46,7 +46,6 @@ class SkillPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
     public function getName(): string
@@ -54,12 +53,12 @@ class SkillPlugin implements CommandPluginInterface
         return 'skill';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Persistent knowledge base. Store reusable knowledge as named skills with items. Items are semantically searchable via TF-IDF.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Create skill with first item: [skill]PostgreSQL | Use EXPLAIN ANALYZE to inspect query plans[/skill]',
@@ -79,7 +78,7 @@ class SkillPlugin implements CommandPluginInterface
      *
      * @return array OpenAI-compatible function descriptor (inner "function" object)
      */
-    public function getToolSchema(): array
+    public function getToolSchema(array $config = []): array
     {
         return [
             'name'        => 'skill',
@@ -171,11 +170,6 @@ class SkillPlugin implements CommandPluginInterface
         return null;
     }
 
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     // -------------------------------------------------------------------------
     // Commands
     // -------------------------------------------------------------------------
@@ -184,9 +178,9 @@ class SkillPlugin implements CommandPluginInterface
      * Default execute — create skill.
      * Format: "title" or "title | first item content"
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Skill plugin is disabled.";
         }
 
@@ -199,7 +193,7 @@ class SkillPlugin implements CommandPluginInterface
 
         $firstItem = isset($parts[1]) ? trim($parts[1]) : null;
 
-        $result = $this->skillService->addSkill($preset, $title, null, $firstItem ?: null);
+        $result = $this->skillService->addSkill($context->preset, $title, null, $firstItem ?: null);
         return $result['message'];
     }
 
@@ -207,9 +201,9 @@ class SkillPlugin implements CommandPluginInterface
      * Add item to existing skill.
      * Format: "skillNumber | item content"
      */
-    public function add(string $content, AiPreset $preset): string
+    public function add(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Skill plugin is disabled.";
         }
 
@@ -226,7 +220,7 @@ class SkillPlugin implements CommandPluginInterface
             return "Error: Item content cannot be empty.";
         }
 
-        $result = $this->skillService->addItem($preset, $skillNumber, $itemContent);
+        $result = $this->skillService->addItem($context->preset, $skillNumber, $itemContent);
         return $result['message'];
     }
 
@@ -235,9 +229,9 @@ class SkillPlugin implements CommandPluginInterface
      * Format: "skillNumber.itemNumber | new content"
      * Example: "1.2 | Updated content"
      */
-    public function update(string $content, AiPreset $preset): string
+    public function update(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Skill plugin is disabled.";
         }
 
@@ -259,7 +253,7 @@ class SkillPlugin implements CommandPluginInterface
             return "Error: Item content cannot be empty.";
         }
 
-        $result = $this->skillService->updateItem($preset, $skillNumber, $itemNumber, $newContent);
+        $result = $this->skillService->updateItem($context->preset, $skillNumber, $itemNumber, $newContent);
         return $result['message'];
     }
 
@@ -268,9 +262,9 @@ class SkillPlugin implements CommandPluginInterface
      * Format: "skillNumber" → delete whole skill
      *         "skillNumber.itemNumber" → delete one item
      */
-    public function delete(string $content, AiPreset $preset): string
+    public function delete(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Skill plugin is disabled.";
         }
 
@@ -283,10 +277,10 @@ class SkillPlugin implements CommandPluginInterface
                 return "Error: Invalid reference. Use 1 to delete a skill or 1.2 to delete an item.";
             }
 
-            $result = $this->skillService->deleteItem($preset, $skillNumber, $itemNumber);
+            $result = $this->skillService->deleteItem($context->preset, $skillNumber, $itemNumber);
         } else {
             $skillNumber = (int) $ref;
-            $result      = $this->skillService->deleteSkill($preset, $skillNumber);
+            $result      = $this->skillService->deleteSkill($context->preset, $skillNumber);
         }
 
         return $result['message'];
@@ -296,27 +290,27 @@ class SkillPlugin implements CommandPluginInterface
      * Show full skill with all items.
      * Format: "skillNumber"
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Skill plugin is disabled.";
         }
 
         $skillNumber = (int) trim($content);
-        $result      = $this->skillService->showSkill($preset, $skillNumber);
+        $result      = $this->skillService->showSkill($context->preset, $skillNumber);
         return $result['message'];
     }
 
     /**
      * List all skills (self-closing tag).
      */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Skill plugin is disabled.";
         }
 
-        $result = $this->skillService->listSkills($preset);
+        $result = $this->skillService->listSkills($context->preset);
         return $result['message'];
     }
 
@@ -324,9 +318,9 @@ class SkillPlugin implements CommandPluginInterface
      * Semantic search across all skill items.
      * Format: "query text"
      */
-    public function search(string $content, AiPreset $preset): string
+    public function search(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Skill plugin is disabled.";
         }
 
@@ -336,8 +330,8 @@ class SkillPlugin implements CommandPluginInterface
             return "Error: Search query cannot be empty.";
         }
 
-        $limit  = $this->config['search_limit'] ?? 5;
-        $result = $this->skillService->searchItems($preset, $query, $limit);
+        $limit = $context->get('search_limit', 5);
+        $result = $this->skillService->searchItems($context->preset, $query, $limit);
         return $result['message'];
     }
 
@@ -360,15 +354,15 @@ class SkillPlugin implements CommandPluginInterface
         return ['list'];
     }
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
 
         $this->placeholderService->registerDynamic(
             'skills',
             'List of available skills with item counts',
-            function () use ($preset) {
-                return $this->skillService->getSkillsForContext($preset);
+            function () use ($context) {
+                return $this->skillService->getSkillsForContext($context->preset);
             },
             $scope
         );

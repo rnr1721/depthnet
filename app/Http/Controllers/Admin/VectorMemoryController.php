@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Models\PresetRegistryInterface;
-use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\VectorMemory\{
@@ -16,6 +16,7 @@ use App\Http\Requests\Admin\VectorMemory\{
     ClearVectorMemoryRequest,
     StatsVectorMemoryRequest,
 };
+use App\Models\AiPreset;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -30,9 +31,17 @@ class VectorMemoryController extends Controller
     public function __construct(
         protected VectorMemoryFactoryInterface $vectorMemoryFactory,
         protected PresetRegistryInterface $presetRegistry,
-        protected PluginRegistryInterface $pluginRegistry
+        protected PluginManagerFactoryInterface $pluginManagerFactory
     ) {
-        $this->config = $pluginRegistry->get('vectormemory')->getConfig();
+    }
+
+    /**
+     * Resolve the vectormemory plugin's resolved config for a given preset.
+     */
+    protected function getVectorMemoryConfig(AiPreset $preset): array
+    {
+        $info = $this->pluginManagerFactory->get()->getPluginInfoForPreset('vectormemory', $preset);
+        return $info['current_config'] ?? [];
     }
 
     /**
@@ -44,7 +53,7 @@ class VectorMemoryController extends Controller
             ->map(fn ($preset) => [
                 'id' => $preset->id,
                 'name' => $preset->name,
-                'is_default' => $preset->is_default
+                'is_default' => $preset->is_default,
             ])
             ->sortByDesc('is_default')
             ->values();
@@ -54,18 +63,18 @@ class VectorMemoryController extends Controller
         $currentPresetId = $request->get('preset_id', $this->presetRegistry->getDefaultPreset()->id);
         $currentPreset = $this->presetRegistry->getPresetOrDefault($currentPresetId);
 
-        $perPage = max(10, min(100, (int) $request->get('per_page', 20))); // Between 10 and 100
+        $perPage = max(10, min(100, (int) $request->get('per_page', 20)));
 
         $vectorMemories = collect();
         $memoryStats = [];
         $searchResults = [];
+        $config = [];
+        $paginatedMemories = null;
 
         if ($currentPreset) {
-            // Get paginated memories using Laravel pagination
-            $paginatedMemories = $vectorMemoryService->getPaginatedVectorMemories(
-                $currentPreset,
-                $perPage
-            );
+            $config = $this->getVectorMemoryConfig($currentPreset);
+
+            $paginatedMemories = $vectorMemoryService->getPaginatedVectorMemories($currentPreset, $perPage);
 
             $vectorMemories = $paginatedMemories->map(function ($memory) {
                 return [
@@ -80,14 +89,13 @@ class VectorMemoryController extends Controller
                 ];
             });
 
-            $memoryStats = $vectorMemoryService->getVectorMemoryStats($currentPreset, $this->config);
+            $memoryStats = $vectorMemoryService->getVectorMemoryStats($currentPreset, $config);
 
-            // Handle search - search results are not paginated for now (can be added later)
             if ($request->filled('search')) {
                 $searchResult = $vectorMemoryService->searchVectorMemories(
                     $currentPreset,
                     $request->get('search'),
-                    $this->config
+                    $config
                 );
 
                 if ($searchResult['success']) {
@@ -113,13 +121,13 @@ class VectorMemoryController extends Controller
             'currentPreset' => [
                 'id' => $currentPreset->id,
                 'name' => $currentPreset->name,
-                'is_default' => $currentPreset->is_default
+                'is_default' => $currentPreset->is_default,
             ],
             'vectorMemories' => $vectorMemories,
-            'pagination' => $currentPreset ? $paginatedMemories->toArray() : null,
+            'pagination' => $paginatedMemories?->toArray(),
             'memoryStats' => $memoryStats,
             'searchResults' => $searchResults,
-            'config' => $this->config,
+            'config' => $config,
             'searchQuery' => $request->get('search', ''),
             'perPage' => $perPage,
         ]);
@@ -135,14 +143,12 @@ class VectorMemoryController extends Controller
         $result = $vectorMemoryService->storeVectorMemory(
             $preset,
             $request->getValidatedContent(),
-            $this->config
+            $this->getVectorMemoryConfig($preset)
         );
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -158,11 +164,9 @@ class VectorMemoryController extends Controller
             $request->getImportance()
         );
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -174,11 +178,9 @@ class VectorMemoryController extends Controller
         $vectorMemoryService = $this->vectorMemoryFactory->make();
         $result = $vectorMemoryService->deleteVectorMemory($preset, $memoryId);
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -190,11 +192,9 @@ class VectorMemoryController extends Controller
         $vectorMemoryService = $this->vectorMemoryFactory->make();
         $result = $vectorMemoryService->clearVectorMemories($preset);
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -204,7 +204,7 @@ class VectorMemoryController extends Controller
     {
         return redirect()->route('admin.vector-memory.index', [
             'preset_id' => $request->validated('preset_id'),
-            'search' => $request->getSearchQuery()
+            'search' => $request->getSearchQuery(),
         ]);
     }
 
@@ -241,7 +241,7 @@ class VectorMemoryController extends Controller
                 $importData['content'],
                 $importData['is_json'],
                 $importData['replace_existing'],
-                $this->config
+                $this->getVectorMemoryConfig($preset)
             );
 
             if ($result['success']) {
@@ -267,7 +267,7 @@ class VectorMemoryController extends Controller
     {
         $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
         $vectorMemoryService = $this->vectorMemoryFactory->make();
-        $stats = $vectorMemoryService->getVectorMemoryStats($preset, $this->config);
+        $stats = $vectorMemoryService->getVectorMemoryStats($preset, $this->getVectorMemoryConfig($preset));
 
         return response()->json($stats);
     }

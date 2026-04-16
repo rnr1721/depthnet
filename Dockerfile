@@ -31,20 +31,6 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     gnupg \
     lsb-release \
-    libnss3 \
-    libnspr4 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libxss1 \
-    libasound2 \
-    libatspi2.0-0 \
-    libgtk-3-0 \
-    libgdk-pixbuf-xlib-2.0-0 \
-    libxshmfence1 \
     && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (LTS version)
@@ -73,10 +59,6 @@ RUN git clone --branch 1.0.0 https://github.com/rnr1721/tgcli.git /usr/local/lib
 
 # tgcli data dir (session survives rebuilds via /shared volume)
 ENV TELEGRAM_DATA_DIR=/shared/telegram
-
-# Install Puppeteer and Chrome globally
-RUN npm install -g puppeteer \
- && npx puppeteer browsers install chrome
 
 # Latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

@@ -6,7 +6,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -40,7 +40,6 @@ class GoalPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
     public function getName(): string
@@ -48,12 +47,12 @@ class GoalPlugin implements CommandPluginInterface
         return 'goal';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Persistent goal tracking with progress history. Active goals are always visible in context so you never lose track of what you are doing and why.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Create goal: [goal]Explore memory architecture | motivation: curiosity about persistence[/goal]',
@@ -78,7 +77,7 @@ class GoalPlugin implements CommandPluginInterface
      *
      * @return array OpenAI-compatible function descriptor
      */
-    public function getToolSchema(): array
+    public function getToolSchema(array $config = []): array
     {
         return [
             'name'        => 'goal',
@@ -143,18 +142,13 @@ class GoalPlugin implements CommandPluginInterface
         return null;
     }
 
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     /**
      * Default execute — create a new goal
      * Format: "title | motivation: why"
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Goal plugin is disabled.";
         }
 
@@ -168,7 +162,7 @@ class GoalPlugin implements CommandPluginInterface
             $motivation = preg_replace('/^motivation:\s*/i', '', $mot);
         }
 
-        $result = $this->goalService->addGoal($preset, $title, $motivation);
+        $result = $this->goalService->addGoal($context->preset, $title, $motivation);
         return $result['message'];
     }
 
@@ -176,9 +170,9 @@ class GoalPlugin implements CommandPluginInterface
      * Add progress note to a goal
      * Format: "goalNumber | progress note"
      */
-    public function progress(string $content, AiPreset $preset): string
+    public function progress(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Goal plugin is disabled.";
         }
 
@@ -190,63 +184,63 @@ class GoalPlugin implements CommandPluginInterface
         $goalNumber = (int) trim($parts[0]);
         $note = trim($parts[1]);
 
-        $result = $this->goalService->addProgress($preset, $goalNumber, $note);
+        $result = $this->goalService->addProgress($context->preset, $goalNumber, $note);
         return $result['message'];
     }
 
     /**
      * Mark goal as done
      */
-    public function done(string $content, AiPreset $preset): string
+    public function done(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->setStatus($preset, $goalNumber, 'done');
+        $result = $this->goalService->setStatus($context->preset, $goalNumber, 'done');
         return $result['message'];
     }
 
     /**
      * Pause a goal
      */
-    public function pause(string $content, AiPreset $preset): string
+    public function pause(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->setStatus($preset, $goalNumber, 'paused');
+        $result = $this->goalService->setStatus($context->preset, $goalNumber, 'paused');
         return $result['message'];
     }
 
     /**
      * Resume a paused goal
      */
-    public function resume(string $content, AiPreset $preset): string
+    public function resume(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->setStatus($preset, $goalNumber, 'active');
+        $result = $this->goalService->setStatus($context->preset, $goalNumber, 'active');
         return $result['message'];
     }
 
     /**
      * Show full goal details with progress history
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Goal plugin is disabled.";
         }
 
         $goalNumber = (int) trim($content);
-        $result = $this->goalService->showGoal($preset, $goalNumber);
+        $result = $this->goalService->showGoal($context->preset, $goalNumber);
         return $result['message'];
     }
 
@@ -254,9 +248,9 @@ class GoalPlugin implements CommandPluginInterface
      * List goals
      * Default: active only. Pass "all" for everything.
      */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Goal plugin is disabled.";
         }
 
@@ -265,7 +259,7 @@ class GoalPlugin implements CommandPluginInterface
             $status = 'active';
         }
 
-        $result = $this->goalService->listGoals($preset, $status);
+        $result = $this->goalService->listGoals($context->preset, $status);
         return $result['message'];
     }
 
@@ -279,14 +273,14 @@ class GoalPlugin implements CommandPluginInterface
         return false;
     }
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
         $this->placeholderService->registerDynamic(
             'active_goals',
             'Currently active goals with last progress note',
-            function () use ($preset) {
-                return $this->goalService->getActiveGoalsForContext($preset);
+            function () use ($context) {
+                return $this->goalService->getActiveGoalsForContext($context->preset);
             },
             $scope
         );

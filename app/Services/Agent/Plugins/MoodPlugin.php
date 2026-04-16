@@ -6,22 +6,15 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Carbon\Carbon;
 
 /**
-* Mood Plugin - control the mood and tone of the AI ​​assistant
-*
-* Commands:
-* - mood set <mood> - set the mood
-* - mood get - get the current mood
-* - mood list - list of available moods
-* - mood reset - reset to neutral
-* - mood history - history of mood changes
-*/
+ * Mood Plugin — control the mood and tone of the AI assistant.
+ */
 class MoodPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
@@ -101,47 +94,31 @@ class MoodPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected PluginMetadataServiceInterface $pluginMetadataService
     ) {
-        $this->initializeConfig();
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getName(): string
     {
         return self::PLUGIN_NAME;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Manage AI assistant mood and conversation tone. Set emotional context for responses.';
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomSuccessMessage(): ?string
     {
         return "Mood command executed successfully. 🎭";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomErrorMessage(): ?string
     {
         return "Error executing mood command. Please check your input.";
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Mood plugin is disabled.";
         }
 
@@ -150,21 +127,19 @@ class MoodPlugin implements CommandPluginInterface
         $command = $parts[0] ?? 'get';
         $args = $parts[1] ?? '';
 
-        return $this->callMethod($command, $args, $preset);
+        return $this->callMethod($command, $args, $context);
     }
 
     /**
-     * @inheritDoc
+     * Explicit list — overrides PluginMethodTrait::getAvailableMethods()
+     * because we want to advertise only public commands, not internal helpers.
      */
     public function getAvailableMethods(): array
     {
         return ['set', 'get', 'list', 'reset', 'history', 'stats'];
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Set mood: [mood set]friendly[/mood] - Changes conversation tone to friendly',
@@ -176,25 +151,16 @@ class MoodPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getMergeSeparator(): ?string
     {
         return "\n---\n";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function canBeMerged(): bool
     {
         return false; // Mood commands should be executed individually
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getConfigFields(): array
     {
         return [
@@ -234,9 +200,6 @@ class MoodPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function validateConfig(array $config): array
     {
         $errors = [];
@@ -255,9 +218,6 @@ class MoodPlugin implements CommandPluginInterface
         return $errors;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getDefaultConfig(): array
     {
         return [
@@ -268,26 +228,11 @@ class MoodPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     // ============================================
     // Mood Methods (called via callMethod)
     // ============================================
 
-    /**
-     * Set the mood
-     *
-     * @param string $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function set(string $content, AiPreset $preset): string
+    public function set(string $content, PluginExecutionContext $context): string
     {
         $mood = strtolower(trim($content));
 
@@ -299,21 +244,16 @@ class MoodPlugin implements CommandPluginInterface
             return "Unknown mood: '{$mood}'. Available moods:\n" . $this->formatMoodList();
         }
 
-        $previousMood = $this->getMeta($preset, 'current', 'neutral');
+        $previousMood = $this->getMeta($context, 'current', 'neutral');
         $now = Carbon::now();
 
-        // Maintaining the new mood
-        $this->updateMeta(
-            $preset,
-            [
+        $this->updateMeta($context, [
             'current' => $mood,
             'changed_at' => $now->toISOString(),
-            'previous' => $previousMood
-        ]
-        );
+            'previous' => $previousMood,
+        ]);
 
-        // Add to history
-        $this->addToHistory($preset, $mood, $previousMood, $now);
+        $this->addToHistory($context, $mood, $previousMood, $now);
 
         $moodData = self::MOODS[$mood];
         return "🎭 Mood set to: **{$moodData['name']}** {$moodData['emoji']}\n" .
@@ -321,17 +261,10 @@ class MoodPlugin implements CommandPluginInterface
                "Time: {$now->format('Y-m-d H:i:s')}";
     }
 
-    /**
-     * Get current mood
-     *
-     * @param string $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function get(string $content, AiPreset $preset): string
+    public function get(string $content, PluginExecutionContext $context): string
     {
-        $currentMood = $this->getMeta($preset, 'current', 'neutral');
-        $changedAt = $this->getMeta($preset, 'changed_at');
+        $currentMood = $this->getMeta($context, 'current', 'neutral');
+        $changedAt = $this->getMeta($context, 'changed_at');
 
         $moodData = self::MOODS[$currentMood];
 
@@ -347,16 +280,9 @@ class MoodPlugin implements CommandPluginInterface
         return $response;
     }
 
-    /**
-     * List of available moods
-     *
-     * @param string $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        $currentMood = $this->getMeta($preset, 'current', 'neutral');
+        $currentMood = $this->getMeta($context, 'current', 'neutral');
 
         $response = "🎭 **Available Moods:**\n\n";
 
@@ -370,47 +296,30 @@ class MoodPlugin implements CommandPluginInterface
         return $response;
     }
 
-    /**
-     * Reset mood
-     *
-     * @param string $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function reset(string $content, AiPreset $preset): string
+    public function reset(string $content, PluginExecutionContext $context): string
     {
-        $previousMood = $this->getMeta($preset, 'current', 'neutral');
+        $previousMood = $this->getMeta($context, 'current', 'neutral');
         $now = Carbon::now();
 
         if ($previousMood === 'neutral') {
             return "🎭 Mood is already neutral " . self::MOODS['neutral']['emoji'];
         }
 
-        $this->updateMeta(
-            $preset,
-            [
+        $this->updateMeta($context, [
             'current' => 'neutral',
             'changed_at' => $now->toISOString(),
-            'previous' => $previousMood
-            ]
-        );
+            'previous' => $previousMood,
+        ]);
 
-        $this->addToHistory($preset, 'neutral', $previousMood, $now);
+        $this->addToHistory($context, 'neutral', $previousMood, $now);
 
         return "🎭 Mood reset to: **Neutral** " . self::MOODS['neutral']['emoji'] . "\n" .
                "Previous mood: " . self::MOODS[$previousMood]['name'];
     }
 
-    /**
-     * History of mood changes
-     *
-     * @param string $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function history(string $content, AiPreset $preset): string
+    public function history(string $content, PluginExecutionContext $context): string
     {
-        $history = $this->getMeta($preset, 'history', []);
+        $history = $this->getMeta($context, 'history', []);
 
         if (empty($history)) {
             return "🎭 No mood history available";
@@ -418,7 +327,6 @@ class MoodPlugin implements CommandPluginInterface
 
         $response = "🎭 **Mood History** (last 10 changes):\n\n";
 
-        // Showing the last 10 entries
         $recentHistory = array_slice($history, -10);
 
         foreach (array_reverse($recentHistory) as $entry) {
@@ -433,20 +341,11 @@ class MoodPlugin implements CommandPluginInterface
         return $response;
     }
 
-    /**
-     * Usage statistics
-     *
-     * @param string $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function stats(string $content, AiPreset $preset): string
+    public function stats(string $content, PluginExecutionContext $context): string
     {
-        $currentMood = $this->getMeta($preset, 'current', 'neutral');
-        //$changedAt = $this->getMeta('changed_at');
-        $history = $this->getMeta($preset, 'history', []);
+        $currentMood = $this->getMeta($context, 'current', 'neutral');
+        $history = $this->getMeta($context, 'history', []);
 
-        // Counting sentiment usage
         $moodUsage = [];
         foreach ($history as $entry) {
             $mood = $entry['to'];
@@ -470,52 +369,50 @@ class MoodPlugin implements CommandPluginInterface
         return $response;
     }
 
+    /**
+     * Renamed from pluginReady(). Now receives PluginExecutionContext, and
+     * the closure captures it instead of a bare preset.
+     */
+    public function registerShortcodes(PluginExecutionContext $context): void
+    {
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
+        $this->placeholderService->registerDynamic('mood', 'Mood state', function () use ($context) {
+            return $this->getMeta($context, 'current', 'neutral');
+        }, $scope);
+    }
+
+    public function getSelfClosingTags(): array
+    {
+        return ['get', 'list', 'reset', 'history'];
+    }
+
     // ============================================
     // Helper Methods
     // ============================================
 
     /**
-     * Get instructions for system prompt
+     * Helper that needs both the preset AND config (for history_limit).
+     * Took $context as input — could have stayed AiPreset + extra arg, but
+     * passing $context is cleaner.
      */
-    public function getSystemPromptInstructions(): string
+    protected function addToHistory(PluginExecutionContext $context, string $toMood, string $fromMood, Carbon $timestamp): void
     {
-        if (!$this->config['auto_system_prompt'] ?? true) {
-            return '';
-        }
-
-        $currentMood = $this->getMeta('current', 'neutral');
-        $moodData = self::MOODS[$currentMood];
-
-        return "CONVERSATION TONE: Adopt a {$moodData['tone']} tone in all responses. " .
-               "This means being {$moodData['description']}. " .
-               "Maintain this tone consistently throughout the conversation while staying helpful and accurate.";
-    }
-
-    /**
-     * Add entry to history
-     */
-    protected function addToHistory(AiPreset $preset, string $toMood, string $fromMood, Carbon $timestamp): void
-    {
-        $history = $this->getMeta($preset, 'history', []);
+        $history = $this->getMeta($context, 'history', []);
 
         $history[] = [
             'from' => $fromMood,
             'to' => $toMood,
-            'timestamp' => $timestamp->toISOString()
+            'timestamp' => $timestamp->toISOString(),
         ];
 
-        // Limiting history to settings
-        $limit = $this->config['history_limit'] ?? 50;
+        $limit = $context->get('history_limit', 50);
         if (count($history) > $limit) {
             $history = array_slice($history, -$limit);
         }
 
-        $this->setMeta($preset, 'history', $history);
+        $this->setMeta($context, 'history', $history);
     }
 
-    /**
-     * Format mood list
-     */
     protected function formatMoodList(): string
     {
         $list = "";
@@ -525,49 +422,21 @@ class MoodPlugin implements CommandPluginInterface
         return $list;
     }
 
-    public function pluginReady(AiPreset $preset): void
-    {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
-        $this->placeholderService->registerDynamic('mood', 'Mood state', function () use ($preset) {
-            return $this->getMeta($preset, 'current', 'neutral');
-        }, $scope);
+    // Metadata helpers — these only need AiPreset, no config involved.
+    // No reason to make them take a context.
 
+    private function updateMeta(PluginExecutionContext $context, array $data): void
+    {
+        $this->pluginMetadataService->update($context->preset, self::PLUGIN_NAME, $data);
     }
 
-    private function updateMeta(AiPreset $preset, array $data): void
+    private function setMeta(PluginExecutionContext $context, string $key, mixed $value): void
     {
-        $this->pluginMetadataService->update(
-            $preset,
-            self::PLUGIN_NAME,
-            $data
-        );
+        $this->pluginMetadataService->set($context->preset, self::PLUGIN_NAME, $key, $value);
     }
 
-    private function setMeta(AiPreset $preset, string $key, mixed $value): void
+    private function getMeta(PluginExecutionContext $context, string $key, mixed $default = null)
     {
-        $this->pluginMetadataService->set(
-            $preset,
-            self::PLUGIN_NAME,
-            $key,
-            $value
-        );
+        return $this->pluginMetadataService->get($context->preset, self::PLUGIN_NAME, $key);
     }
-
-    private function getMeta(AiPreset $preset, string $key, mixed $default = null)
-    {
-        return $this->pluginMetadataService->get(
-            $preset,
-            self::PLUGIN_NAME,
-            $key
-        );
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function getSelfClosingTags(): array
-    {
-        return ['get','list','reset','history'];
-    }
-
 }

@@ -3,7 +3,7 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -28,7 +28,6 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     public function __construct(
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
     // ── CommandPluginInterface identity ──────────────────────────────────────
@@ -38,12 +37,12 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
         return 'browser';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Persistent web browser with session memory. Open pages, click, type, read structured snapshots. Session survives between thinking cycles.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Open page:          [browser open]https://example.com[/browser]',
@@ -66,7 +65,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
      *
      * @return array OpenAI-compatible function descriptor
      */
-    public function getToolSchema(): array
+    public function getToolSchema(array $config = []): array
     {
         return [
             'name'        => 'browser',
@@ -203,22 +202,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
         return $errors;
     }
 
-    public function testConnection(): bool
-    {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-
-        try {
-            $response = Http::timeout(5)->get($this->serviceUrl() . '/health');
-            return $response->ok() && ($response->json('ok') === true);
-        } catch (\Throwable $e) {
-            $this->logger->error('PlaywrightBrowserPlugin::testConnection failed: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
         // Nothing to prepare — the browser-service manages its own state
     }
@@ -231,9 +215,9 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
      * The $content arrives as "<subcommand> <payload>" or just "<subcommand>".
      * For the default tag [browser]url[/browser] the subcommand is treated as "open".
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Browser plugin is disabled.';
         }
 
@@ -245,7 +229,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
 
         // If it looks like a plain URL → treat as "open"
         if (filter_var($content, FILTER_VALIDATE_URL)) {
-            return $this->dispatchAction($preset, 'open', ['url' => $content]);
+            return $this->dispatchAction($context, 'open', ['url' => $content]);
         }
 
         return 'Error: Use correct syntax to navigate. ' . $this->helpText();
@@ -256,7 +240,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     /**
      * [browser open]https://example.com[/browser]
      */
-    public function open(string $content, AiPreset $preset): string
+    public function open(string $content, PluginExecutionContext $context): string
     {
         $url = trim($content);
 
@@ -264,18 +248,18 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return 'Error: Invalid URL — ' . $url;
         }
 
-        if (!$this->isDomainAllowed($url)) {
+        if (!$this->isDomainAllowed($context, $url)) {
             return 'Error: Domain not allowed by security policy.';
         }
 
-        return $this->dispatchAction($preset, 'open', ['url' => $url]);
+        return $this->dispatchAction($context, 'open', ['url' => $url]);
     }
 
     /**
      * [browser search]query[/browser]
      * Convenience: opens Google and searches.
      */
-    public function search(string $content, AiPreset $preset): string
+    public function search(string $content, PluginExecutionContext $context): string
     {
         $query = trim($content);
 
@@ -285,23 +269,23 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
 
         $url = 'https://www.google.com/search?q=' . urlencode($query);
 
-        return $this->dispatchAction($preset, 'open', ['url' => $url]);
+        return $this->dispatchAction($context, 'open', ['url' => $url]);
     }
 
     /**
      * [browser snapshot][/browser]
      * Returns structured view of the current page.
      */
-    public function snapshot(string $content, AiPreset $preset): string
+    public function snapshot(string $content, PluginExecutionContext $context): string
     {
-        return $this->dispatchAction($preset, 'snapshot');
+        return $this->dispatchAction($context, 'snapshot');
     }
 
     /**
      * [browser click]text=Submit[/browser]
      * or [browser click]#my-button[/browser]
      */
-    public function click(string $content, AiPreset $preset): string
+    public function click(string $content, PluginExecutionContext $context): string
     {
         $selector = trim($content);
 
@@ -309,13 +293,13 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return 'Error: selector cannot be empty.';
         }
 
-        return $this->dispatchAction($preset, 'click', ['selector' => $selector]);
+        return $this->dispatchAction($context, 'click', ['selector' => $selector]);
     }
 
     /**
      * [browser type]{"selector":"input[name=q]","text":"hello"}[/browser]
      */
-    public function type(string $content, AiPreset $preset): string
+    public function type(string $content, PluginExecutionContext $context): string
     {
         $data = json_decode(trim($content), true);
 
@@ -323,7 +307,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return 'Error: expected JSON {"selector":"...","text":"..."}';
         }
 
-        return $this->dispatchAction($preset, 'type', [
+        return $this->dispatchAction($context, 'type', [
             'selector' => $data['selector'],
             'text'     => $data['text'],
         ]);
@@ -332,7 +316,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     /**
      * [browser press]Enter[/browser]
      */
-    public function press(string $content, AiPreset $preset): string
+    public function press(string $content, PluginExecutionContext $context): string
     {
         $key = trim($content);
 
@@ -340,33 +324,33 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return 'Error: key name cannot be empty (e.g. Enter, Tab, Escape).';
         }
 
-        return $this->dispatchAction($preset, 'press', ['key' => $key]);
+        return $this->dispatchAction($context, 'press', ['key' => $key]);
     }
 
     /**
      * [browser scroll]500[/browser]
      */
-    public function scroll(string $content, AiPreset $preset): string
+    public function scroll(string $content, PluginExecutionContext $context): string
     {
         $pixels = (int) trim($content) ?: 500;
 
-        return $this->dispatchAction($preset, 'scroll', ['pixels' => $pixels]);
+        return $this->dispatchAction($context, 'scroll', ['pixels' => $pixels]);
     }
 
     /**
      * [browser back][/browser]
      */
-    public function back(string $content, AiPreset $preset): string
+    public function back(string $content, PluginExecutionContext $context): string
     {
-        return $this->dispatchAction($preset, 'back');
+        return $this->dispatchAction($context, 'back');
     }
 
     /**
      * [browser close][/browser]
      */
-    public function close(string $content, AiPreset $preset): string
+    public function close(string $content, PluginExecutionContext $context): string
     {
-        return $this->dispatchAction($preset, 'close');
+        return $this->dispatchAction($context, 'close');
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
@@ -374,17 +358,17 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     /**
      * Send an action request to the browser-service and format the response.
      *
-     * @param  AiPreset  $preset
+     * @param  PluginExecutionContext $context
      * @param  string    $action
      * @param  array     $args
      * @return string
      */
-    private function dispatchAction(AiPreset $preset, string $action, array $args = []): string
+    private function dispatchAction(PluginExecutionContext $context, string $action, array $args = []): string
     {
         try {
-            $response = Http::timeout($this->config['request_timeout'] ?? 60)
-                ->post($this->serviceUrl() . '/action', [
-                    'sessionId' => $this->sessionId($preset),
+            $response = Http::timeout($context->get('request_timeout', 60))
+                ->post($this->serviceUrl($context) . '/action', [
+                    'sessionId' => $this->sessionId($context),
                     'action'    => $action,
                     'args'      => $args,
                 ]);
@@ -480,12 +464,12 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
      * Stable session ID scoped to the preset.
      * Uses preset ID so the session persists across thinking cycles.
      *
-     * @param  AiPreset  $preset
+     * @param  PluginExecutionContext $context
      * @return string
      */
-    private function sessionId(AiPreset $preset): string
+    private function sessionId(PluginExecutionContext $context): string
     {
-        return 'preset_' . $preset->id;
+        return 'preset_' . $context->preset->getId();
     }
 
     /**
@@ -493,9 +477,9 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
      *
      * @return string
      */
-    private function serviceUrl(): string
+    private function serviceUrl(PluginExecutionContext $context): string
     {
-        return rtrim($this->config['service_url'] ?? env('BROWSER_SERVICE_URL', 'http://browser-service:3001'), '/');
+        return rtrim($context->get('service_url', env('BROWSER_SERVICE_URL', 'http://browser-service:3001')), '/');
     }
 
     /**
@@ -504,9 +488,9 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
      * @param  string  $key
      * @return array
      */
-    private function getDomainList(string $key): array
+    private function getDomainList(PluginExecutionContext $context, string $key): array
     {
-        $raw = $this->config[$key] ?? '';
+        $raw = $context->get($key, '');
         if (empty($raw)) {
             return [];
         }
@@ -519,15 +503,15 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
      * @param  string  $url
      * @return bool
      */
-    private function isDomainAllowed(string $url): bool
+    private function isDomainAllowed(PluginExecutionContext $context, string $url): bool
     {
         $domain = parse_url($url, PHP_URL_HOST);
 
-        if (in_array($domain, $this->getDomainList('blocked_domains'))) {
+        if (in_array($domain, $this->getDomainList($context, 'blocked_domains'))) {
             return false;
         }
 
-        $allowed = $this->getDomainList('allowed_domains');
+        $allowed = $this->getDomainList($context, 'allowed_domains');
         if (!empty($allowed)) {
             return in_array($domain, $allowed);
         }

@@ -43,7 +43,6 @@ class AiPreset extends Model
         'default_call_message',
         'before_execution_wait',
         'plugins_disabled',
-        'plugin_configs',
         'engine_config',
         'metadata',
         'loop_interval',
@@ -65,7 +64,6 @@ class AiPreset extends Model
     protected $casts = [
         'engine_config' => 'array',
         'metadata' => 'array',
-        'plugin_configs' => 'array',
         'loop_interval' => 'integer',
         'active_prompt_id' => 'integer',
         'rag_preset_id' => 'integer',
@@ -105,7 +103,6 @@ class AiPreset extends Model
         'before_execution_wait' => 5,
         'engine_config' => '{}',
         'metadata' => '{}',
-        'plugin_configs' => '{}',
         'plugins_disabled' => '',
         'rag_context_limit' => 5,
         'rag_results' => 5,
@@ -354,127 +351,6 @@ class AiPreset extends Model
     public function getPluginsDisabled(): string
     {
         return $this->plugins_disabled ?? '';
-    }
-
-    /**
-     * Get plugin configurations (JSON approach)
-     *
-     * @return array
-     */
-    public function getPluginConfigs(): array
-    {
-        return $this->plugin_configs ?? [];
-    }
-
-    /**
-     * Get specific plugin configuration
-     *
-     * @param string $pluginName
-     * @return array|null
-     */
-    public function getPluginConfig(string $pluginName): ?array
-    {
-        $configs = $this->getPluginConfigs();
-        return $configs[$pluginName] ?? null;
-    }
-
-    /**
-     * Check if plugin is enabled for this preset
-     *
-     * @param string $pluginName
-     * @return bool
-     */
-    public function isPluginEnabled(string $pluginName): bool
-    {
-        // First check new plugin_configs
-        $config = $this->getPluginConfig($pluginName);
-        if ($config !== null) {
-            return $config['enabled'] ?? true;
-        }
-
-        // Fallback to old plugins_disabled field
-        $disabledPlugins = array_map('trim', explode(',', $this->getPluginsDisabled()));
-        return !in_array($pluginName, $disabledPlugins);
-    }
-
-    /**
-     * Set plugin configuration for this preset
-     *
-     * @param string $pluginName
-     * @param array $config
-     * @return bool
-     */
-    public function setPluginConfig(string $pluginName, array $config): bool
-    {
-        $configs = $this->getPluginConfigs();
-        $configs[$pluginName] = $config;
-
-        return $this->update(['plugin_configs' => $configs]);
-    }
-
-    /**
-     * Enable plugin for this preset
-     *
-     * @param string $pluginName
-     * @param array $config
-     * @return bool
-     */
-    public function enablePlugin(string $pluginName, array $config = []): bool
-    {
-        $configs = $this->getPluginConfigs();
-        $configs[$pluginName] = array_merge($config, ['enabled' => true]);
-
-        return $this->update(['plugin_configs' => $configs]);
-    }
-
-    /**
-     * Disable plugin for this preset
-     *
-     * @param string $pluginName
-     * @return bool
-     */
-    public function disablePlugin(string $pluginName): bool
-    {
-        $configs = $this->getPluginConfigs();
-        if (isset($configs[$pluginName])) {
-            $configs[$pluginName]['enabled'] = false;
-        } else {
-            $configs[$pluginName] = ['enabled' => false];
-        }
-
-        return $this->update(['plugin_configs' => $configs]);
-    }
-
-    /**
-     * Get all enabled plugins for this preset
-     *
-     * @return array Plugin names that are enabled
-     */
-    public function getEnabledPlugins(): array
-    {
-        $enabledPlugins = [];
-        $configs = $this->getPluginConfigs();
-
-        foreach ($configs as $pluginName => $config) {
-            if ($config['enabled'] ?? true) {
-                $enabledPlugins[] = $pluginName;
-            }
-        }
-
-        return $enabledPlugins;
-    }
-
-    /**
-     * Copy plugin configurations from another preset
-     *
-     * @param AiPreset $sourcePreset
-     * @return bool
-     */
-    public function copyPluginConfigsFrom(AiPreset $sourcePreset): bool
-    {
-        return $this->update([
-            'plugin_configs' => $sourcePreset->getPluginConfigs()
-        ]);
     }
 
     /**

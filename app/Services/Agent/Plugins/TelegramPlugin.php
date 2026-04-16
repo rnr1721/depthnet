@@ -6,31 +6,18 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 
 /**
- * TelegramPlugin class
+ * TelegramPlugin — stateless.
  *
- * Provides access to Telegram via TelegramServiceInterface.
- * All tgcli interaction is delegated to the service.
- *
- * Registers [[telegram_account]] placeholder so the agent always knows
- * which account it is authorized under.
- *
- * Supported tags:
- *   [telegram]<raw command>[/telegram]          — pass any command directly to tgcli
- *   [telegram dialogs]50 channels[/telegram]    — list dialogs
- *   [telegram read]@username 20[/telegram]      — read messages
- *   [telegram send]@username Text[/telegram]    — send a message
- *   [telegram unread][/telegram]                — unread dialogs
- *   [telegram search]@chat keyword[/telegram]   — search in chat
- *   [telegram info]@username[/telegram]         — info about user or channel
- *   [telegram mark_read]@username[/telegram]    — mark dialog as read
- *   [telegram me][/telegram]                    — current account info
+ * Provides access to Telegram via TelegramServiceInterface. All tgcli
+ * interaction is delegated to the service. Registers [[telegram_account]]
+ * placeholder so the agent always knows which account it is authorized under.
  */
 class TelegramPlugin implements CommandPluginInterface
 {
@@ -46,31 +33,19 @@ class TelegramPlugin implements CommandPluginInterface
         protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface            $placeholderService,
     ) {
-        $this->initializeConfig();
     }
 
-    // -- Identity -------------------------------------------------------------
-
-    /**
-     * @inheritDoc
-     */
     public function getName(): string
     {
         return 'telegram';
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Access Telegram: read and send messages, browse dialogs and channels, search, get user info.';
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'List all dialogs: [telegram dialogs][/telegram]',
@@ -89,12 +64,7 @@ class TelegramPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * Tool schema for tool_calls mode.
-     *
-     * @return array OpenAI-compatible function descriptor (inner "function" object)
-     */
-    public function getToolSchema(): array
+    public function getToolSchema(array $config = []): array
     {
         return [
             'name'        => 'telegram',
@@ -107,15 +77,8 @@ class TelegramPlugin implements CommandPluginInterface
                         'type'        => 'string',
                         'description' => 'Telegram operation to perform',
                         'enum'        => [
-                            'dialogs',    // list dialogs
-                            'read',       // read messages from a dialog
-                            'send',       // send a message
-                            'unread',     // show unread dialogs
-                            'search',     // search in a chat
-                            'info',       // user or channel info
-                            'mark_read',  // mark dialog as read
-                            'me',         // current account info
-                            'execute',    // raw tgcli command (fallback)
+                            'dialogs', 'read', 'send', 'unread', 'search',
+                            'info', 'mark_read', 'me', 'execute',
                         ],
                     ],
                     'content' => [
@@ -139,40 +102,24 @@ class TelegramPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomSuccessMessage(): ?string
     {
         return 'Telegram command executed. Method: {method}';
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomErrorMessage(): ?string
     {
         return 'Telegram command failed. Method: {method}';
     }
 
-    // -- Placeholder registration ---------------------------------------------
-
     /**
-     * Register [[telegram_account]] placeholder so the agent always knows
-     * which Telegram account it is authorized under.
-     * Account info is cached to avoid hitting tgcli on every cycle.
-     *
-     * @inheritDoc
+     * Register [[telegram_account]] placeholder.
      */
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        if (!$this->isEnabled()) {
-            return;
-        }
-
-        $presetId = $preset->getId();
-        $scope    = $this->shortcodeScopeResolver->preset($presetId);
-        $cacheMins = (int) ($this->config['account_cache_minutes'] ?? 60);
+        $presetId  = $context->preset->getId();
+        $scope     = $this->shortcodeScopeResolver->preset($presetId);
+        $cacheMins = (int) $context->get('account_cache_minutes', 60);
         $cacheKey  = self::ACCOUNT_CACHE_PREFIX . $presetId;
 
         $this->placeholderService->registerDynamic(
@@ -195,16 +142,9 @@ class TelegramPlugin implements CommandPluginInterface
         );
     }
 
-    // -- Default execute ------------------------------------------------------
-
-    /**
-     * Default execute — passes content as a raw tgcli command.
-     *
-     * @inheritDoc
-     */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return '[ERROR] Telegram plugin is disabled.';
         }
 
@@ -213,60 +153,34 @@ class TelegramPlugin implements CommandPluginInterface
             return '[ERROR] No command provided.';
         }
 
-        return $this->telegram->run($preset->getId(), $content);
+        return $this->telegram->run($context->preset->getId(), $content);
     }
 
-    // -- Methods --------------------------------------------------------------
-
-    /**
-     * List dialogs.
-     * Content: [limit] [users|groups|channels]
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function dialogs(string $content, AiPreset $preset): string
+    public function dialogs(string $content, PluginExecutionContext $context): string
     {
         $parts = preg_split('/\s+/', trim($content));
         $limit = isset($parts[0]) && is_numeric($parts[0]) ? (int) $parts[0] : 30;
         $kind  = $parts[1] ?? null;
 
-        return $this->telegram->dialogs($preset->getId(), $limit, $kind);
+        return $this->telegram->dialogs($context->preset->getId(), $limit, $kind);
     }
 
-    /**
-     * Read messages from a dialog / group / channel.
-     * Content: <@chat|id> [limit]
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function read(string $content, AiPreset $preset): string
+    public function read(string $content, PluginExecutionContext $context): string
     {
         $parts  = preg_split('/\s+/', trim($content), 2);
         $target = $parts[0] ?? '';
         $limit  = isset($parts[1]) && is_numeric($parts[1])
             ? (int) $parts[1]
-            : ($this->config['default_read_limit'] ?? 15);
+            : (int) $context->get('default_read_limit', 15);
 
         if ($target === '') {
             return '[ERROR] Target (@username or id) is required.';
         }
 
-        return $this->telegram->read($preset->getId(), $target, $limit);
+        return $this->telegram->read($context->preset->getId(), $target, $limit);
     }
 
-    /**
-     * Send a message.
-     * Content: <@user|id> <text...>
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function send(string $content, AiPreset $preset): string
+    public function send(string $content, PluginExecutionContext $context): string
     {
         $parts  = preg_split('/\s+/', trim($content), 2);
         $target = $parts[0] ?? '';
@@ -279,35 +193,19 @@ class TelegramPlugin implements CommandPluginInterface
             return '[ERROR] Message text is required.';
         }
 
-        return $this->telegram->send($preset->getId(), $target, $text);
+        return $this->telegram->send($context->preset->getId(), $target, $text);
     }
 
-    /**
-     * Show dialogs with unread messages.
-     * Content: [limit]
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function unread(string $content, AiPreset $preset): string
+    public function unread(string $content, PluginExecutionContext $context): string
     {
         $limit = trim($content);
         return $this->telegram->unread(
-            $preset->getId(),
+            $context->preset->getId(),
             ($limit !== '' && is_numeric($limit)) ? (int) $limit : 20
         );
     }
 
-    /**
-     * Search messages in a chat.
-     * Content: <@chat|id> <query...>
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function search(string $content, AiPreset $preset): string
+    public function search(string $content, PluginExecutionContext $context): string
     {
         $parts  = preg_split('/\s+/', trim($content), 2);
         $target = $parts[0] ?? '';
@@ -320,70 +218,40 @@ class TelegramPlugin implements CommandPluginInterface
             return '[ERROR] Search query is required.';
         }
 
-        return $this->telegram->search($preset->getId(), $target, $query);
+        return $this->telegram->search($context->preset->getId(), $target, $query);
     }
 
-    /**
-     * Get info about a user or channel.
-     * Content: <@user|channel|id>
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function info(string $content, AiPreset $preset): string
+    public function info(string $content, PluginExecutionContext $context): string
     {
         $target = trim($content);
         if ($target === '') {
             return '[ERROR] Target (@username or id) is required.';
         }
-        return $this->telegram->info($preset->getId(), $target);
+        return $this->telegram->info($context->preset->getId(), $target);
     }
 
-    /**
-     * Mark a dialog as read.
-     * Content: <@chat|id>
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function mark_read(string $content, AiPreset $preset): string
+    public function mark_read(string $content, PluginExecutionContext $context): string
     {
         $target = trim($content);
         if ($target === '') {
             return '[ERROR] Target (@username or id) is required.';
         }
-        return $this->telegram->markRead($preset->getId(), $target);
+        return $this->telegram->markRead($context->preset->getId(), $target);
     }
 
-    /**
-     * Show current account info.
-     * Bypasses cache — always fresh.
-     *
-     * @param string   $content
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function me(string $content, AiPreset $preset): string
+    public function me(string $content, PluginExecutionContext $context): string
     {
-        $output = $this->telegram->me($preset->getId());
+        $output = $this->telegram->me($context->preset->getId());
 
-        // Refresh cache after explicit me() call
         $this->cache->put(
-            self::ACCOUNT_CACHE_PREFIX . $preset->getId(),
+            self::ACCOUNT_CACHE_PREFIX . $context->preset->getId(),
             'Your current Telegram account:' . "\n" . trim($output),
-            now()->addMinutes((int) ($this->config['account_cache_minutes'] ?? 60))
+            now()->addMinutes((int) $context->get('account_cache_minutes', 60))
         );
 
         return $output;
     }
 
-    // -- Config ---------------------------------------------------------------
-
-    /**
-     * @inheritDoc
-     */
     public function getConfigFields(): array
     {
         return [
@@ -414,9 +282,6 @@ class TelegramPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getDefaultConfig(): array
     {
         return [
@@ -426,9 +291,6 @@ class TelegramPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function validateConfig(array $config): array
     {
         $errors = [];
@@ -450,38 +312,16 @@ class TelegramPlugin implements CommandPluginInterface
         return $errors;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function testConnection(): bool
-    {
-        if (!$this->isEnabled()) {
-            return false;
-        }
-        // Clear cache before test so we get a fresh result
-        // presetId unknown here — just return true, real test happens via status endpoint
-        return true;
-    }
-
-    /**
-     * @inheritDoc
-     */
     public function getMergeSeparator(): ?string
     {
         return "\n";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function canBeMerged(): bool
     {
         return false;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getSelfClosingTags(): array
     {
         return ['unread', 'me'];

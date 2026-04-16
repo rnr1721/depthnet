@@ -6,7 +6,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -36,7 +36,6 @@ class PromptPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
     // ── Identity ──────────────────────────────────────────────────────────────
@@ -46,12 +45,12 @@ class PromptPlugin implements CommandPluginInterface
         return 'mode';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Switch thinking mode (active prompt). Use to change personality, focus, or reasoning style mid-session.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Switch to a different thinking mode: [mode]code[/mode]',
@@ -104,20 +103,15 @@ class PromptPlugin implements CommandPluginInterface
         return null;
     }
 
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     // ── Commands ──────────────────────────────────────────────────────────────
 
     /**
      * Default execute — switch to the given mode code.
      * [mode]critic[/mode]
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Mode switching is disabled.";
         }
 
@@ -125,21 +119,21 @@ class PromptPlugin implements CommandPluginInterface
 
         if (empty($code)) {
             return "Error: Mode code is required. Use mode command with code. Available: "
-                . implode(', ', $preset->getAvailablePromptCodes());
+                . implode(', ', $context->preset->getAvailablePromptCodes());
         }
 
         // Already in this mode?
-        $current = $this->currentCode($preset);
+        $current = $this->currentCode($context);
         if ($current === $code) {
             return "Already in '{$code}' mode.";
         }
 
         try {
-            $prompt = $this->promptService->setActiveByCode($preset, $code);
+            $prompt = $this->promptService->setActiveByCode($context->preset, $code);
 
-            if ($this->config['log_switches'] ?? true) {
+            if ($context->get('log_switches', true)) {
                 $this->logger->info('PromptPlugin: mode switched', [
-                    'preset_id' => $preset->id,
+                    'preset_id' => $context->preset->id,
                     'from'      => $current,
                     'to'        => $code,
                 ]);
@@ -157,19 +151,19 @@ class PromptPlugin implements CommandPluginInterface
      * List all available modes for this preset.
      * [mode list][/mode]
      */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Mode switching is disabled.";
         }
 
-        $prompts = $this->promptService->getAll($preset);
+        $prompts = $this->promptService->getAll($context->preset);
 
         if ($prompts->isEmpty()) {
             return "No modes available for this preset.";
         }
 
-        $currentCode = $this->currentCode($preset);
+        $currentCode = $this->currentCode($context);
         $lines = ["Available modes:"];
 
         foreach ($prompts as $prompt) {
@@ -185,14 +179,14 @@ class PromptPlugin implements CommandPluginInterface
      * Show the current mode code.
      * [mode current][/mode]
      */
-    public function current(string $content, AiPreset $preset): string
+    public function current(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Mode switching is disabled.";
         }
 
-        $code = $this->currentCode($preset);
-        $prompt = $this->promptService->findByCode($preset, $code);
+        $code = $this->currentCode($context);
+        $prompt = $this->promptService->findByCode($context->preset, $code);
         $desc = $prompt?->getDescription() ? " — {$prompt->getDescription()}" : '';
 
         return "Current mode: '{$code}'{$desc}";
@@ -200,16 +194,16 @@ class PromptPlugin implements CommandPluginInterface
 
     // ── Placeholder registration ──────────────────────────────────────────────
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
 
         // [[current_mode]] — code of the currently active prompt
         $this->placeholderService->registerDynamic(
             'current_mode',
             'Current thinking mode (active prompt code)',
-            function () use ($preset) {
-                return $this->currentCode($preset);
+            function () use ($context) {
+                return $this->currentCode($context);
             },
             $scope
         );
@@ -221,9 +215,9 @@ class PromptPlugin implements CommandPluginInterface
      * Get the code of the currently active prompt.
      * Falls back to 'default' if nothing is set.
      */
-    private function currentCode(AiPreset $preset): string
+    private function currentCode(PluginExecutionContext $context): string
     {
-        $active = $this->promptService->getActive($preset);
+        $active = $this->promptService->getActive($context->preset);
         return $active?->getCode() ?? 'default';
     }
 

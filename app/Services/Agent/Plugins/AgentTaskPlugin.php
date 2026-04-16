@@ -6,7 +6,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -42,7 +42,6 @@ class AgentTaskPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
     public function getName(): string
@@ -50,12 +49,12 @@ class AgentTaskPlugin implements CommandPluginInterface
         return 'task';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Orchestrated task management. Planner creates and assigns tasks to roles. Roles complete or fail them. Validators approve or reject results. Orchestrator handles routing automatically.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             '— PLANNER —',
@@ -105,11 +104,6 @@ class AgentTaskPlugin implements CommandPluginInterface
         return null;
     }
 
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     public function getMergeSeparator(): ?string
     {
         return null;
@@ -132,13 +126,13 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Or:     "title | description"
      * Or:     "title"
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Task plugin is disabled.';
         }
 
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return 'Error: This preset is not part of any active agent.';
         }
@@ -175,13 +169,13 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Mark task as done with result.
      * Format: "taskId | result text"
      */
-    public function done(string $content, AiPreset $preset): string
+    public function done(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Task plugin is disabled.';
         }
 
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return 'Error: This preset is not part of any active agent.';
         }
@@ -201,13 +195,13 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Report task failure.
      * Format: "taskId | reason"
      */
-    public function fail(string $content, AiPreset $preset): string
+    public function fail(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Task plugin is disabled.';
         }
 
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return 'Error: This preset is not part of any active agent.';
         }
@@ -227,13 +221,13 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Approve validated task.
      * Format: "taskId | notes"
      */
-    public function approve(string $content, AiPreset $preset): string
+    public function approve(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Task plugin is disabled.';
         }
 
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return 'Error: This preset is not part of any active agent.';
         }
@@ -249,13 +243,13 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Reject validated task with feedback.
      * Format: "taskId | feedback"
      */
-    public function reject(string $content, AiPreset $preset): string
+    public function reject(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Task plugin is disabled.';
         }
 
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return 'Error: This preset is not part of any active agent.';
         }
@@ -275,13 +269,13 @@ class AgentTaskPlugin implements CommandPluginInterface
      * List tasks.
      * Default: active only. Pass "all" or status name for filtering.
      */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Task plugin is disabled.';
         }
 
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return 'Error: This preset is not part of any active agent.';
         }
@@ -294,13 +288,13 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Show single task detail.
      * Format: "taskId"
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Task plugin is disabled.';
         }
 
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return 'Error: This preset is not part of any active agent.';
         }
@@ -313,14 +307,14 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Register [[agent_tasks]] placeholder when plugin is applied to a preset.
      * Only registers if this preset belongs to an agent.
      */
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $agent = $this->agentTaskService->findAgentForPreset($preset);
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
         if (!$agent) {
             return;
         }
 
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
 
         $this->placeholderService->registerDynamic(
             'agent_tasks',

@@ -7,6 +7,7 @@ use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Models\AiPreset;
 
 class ShortcodeManagerService implements ShortcodeManagerServiceInterface
 {
@@ -21,10 +22,10 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     /**
      * @inheritDoc
      */
-    public function setDefaultShortcodes(): void
+    public function setDefaultShortcodes(AiPreset $preset): void
     {
         $this->setDateTime();
-        $this->setCommandBuilderInstructions();
+        $this->setCommandBuilderInstructions($preset);
         $this->setEnvironmentInfo();
         $this->setRagContext();
         $this->setInnerVoice();
@@ -37,6 +38,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
 
     /**
      * Register current date and time shortcode
+     *
+     * @return void
      */
     private function setDateTime(): void
     {
@@ -47,16 +50,21 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
 
     /**
      * Register plugin command instructions shortcode
+     *
+     * @param AiPreset $preset
+     * @return void
      */
-    private function setCommandBuilderInstructions(): void
+    private function setCommandBuilderInstructions(AiPreset $preset): void
     {
-        $this->placeholderService->registerDynamic('command_instructions', 'Instructions for plugin commands for model', function () {
-            return $this->commandInstructionBuilder->buildInstructions();
+        $this->placeholderService->registerDynamic('command_instructions', 'Instructions for plugin commands for model', function () use ($preset) {
+            return $this->commandInstructionBuilder->buildInstructions($preset);
         });
     }
 
     /**
      * Register environment information shortcode
+     *
+     * @return void
      */
     private function setEnvironmentInfo(): void
     {
@@ -69,6 +77,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
      * Register RAG context placeholder stub (global).
      * The actual content is injected per-preset by CycleContextBuilder
      * via registerShortcodeForPreset() which places it in the preset scope.
+     *
+     * @return void
      */
     private function setRagContext(): void
     {
@@ -82,6 +92,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     /**
      * Register inner voice placeholder stub (global).
      * Actual content is injected per-preset when the preset has inner voice enabled.
+     *
+     * @return void
      */
     private function setInnerVoice(): void
     {
@@ -95,6 +107,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     /**
      * Register the [[workspace]] placeholder stub (global).
      * The real implementation is provided per-preset by WorkspacePlugin::pluginReady().
+     *
+     * @return void
      */
     private function setWorkspace(): void
     {
@@ -108,6 +122,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     /**
      * Register a stub for the "agent_command_results" shortcode (global).
      * The actual value is injected dynamically during the agent's execution cycle.
+     *
+     * @return void
      */
     private function setAgentCommandResults(): void
     {
@@ -125,6 +141,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
      *
      * Add this call inside setDefaultShortcodes():
      *   $this->setKnownSources();
+     *
+     * @return void
      */
     private function setKnownSources(): void
     {
@@ -139,6 +157,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
      * Register pre_command_results placeholder stub (global).
      * Actual content is injected per-preset by CommandPreRunner
      * before each generation cycle when pre_run_commands are configured.
+     *
+     * @return void
      */
     private function setPreCommandResults(): void
     {
@@ -149,6 +169,13 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         );
     }
 
+    /**
+     * Register persons_context placeholder stub (global).
+     * The actual content is injected per-preset by PersonContextBuilder
+     * when the Person plugin is enabled and relevant facts are found in memory.
+     *
+     * @return void
+     */
     private function setPersonsContext(): void
     {
         $this->placeholderService->registerDynamic(

@@ -3,71 +3,68 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Models\PresetRegistryInterface;
+use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Agent\PluginManagerInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Plugin\CopyPluginConfigurationsRequest;
 use App\Http\Requests\Admin\Plugin\UpdatePluginConfigRequest;
 use App\Models\AiPreset;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 use Psr\Log\LoggerInterface;
 
 /**
- * Class PluginController
+ * Plugin management admin controller.
  *
- * Handles plugin management operations with full per-preset configuration support
- * All operations now work within the context of a specific preset
+ * The controller resolves PluginManager through the factory to avoid
+ * circular-dependency issues in the service container.
  */
 class PluginController extends Controller
 {
     public function __construct(
-        protected PluginManagerInterface $pluginManager,
+        protected PluginManagerFactoryInterface $pluginManagerFactory,
+        protected PluginRegistryInterface $pluginRegistry,
         protected PresetRegistryInterface $presetRegistry,
         protected LoggerInterface $logger
     ) {
     }
 
     /**
-     * Set current preset for plugin manager from request
-     *
-     * @param int|null $presetId
-     * @return AiPreset
+     * Resolve the plugin manager (lazy, via factory).
      */
-    private function setCurrentPresetFromRequest(?int $presetId): AiPreset
+    protected function manager(): PluginManagerInterface
     {
-        if ($presetId) {
-            $preset = $this->presetRegistry->getPreset($presetId);
-            $this->pluginManager->setCurrentPreset($preset);
-            return $preset;
-        } else {
-            $preset = $this->presetRegistry->getDefaultPreset();
-            $this->pluginManager->setCurrentPreset($preset);
-            return $preset;
-        }
+        return $this->pluginManagerFactory->get();
     }
 
     /**
-     * Display plugins management page for specific preset
-     *
-     * @param Request $request
-     * @param int|null $presetId
-     * @return Response
+     * Resolve the target preset from an optional preset id.
+     * Falls back to the default preset if no id is given.
+     */
+    protected function resolvePreset(?int $presetId): AiPreset
+    {
+        return $presetId
+            ? $this->presetRegistry->getPreset($presetId)
+            : $this->presetRegistry->getDefaultPreset();
+    }
+
+    /**
+     * Display plugins management page for a specific preset.
      */
     public function index(Request $request, ?int $presetId = null): Response
     {
         try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
+            $preset = $this->resolvePreset($presetId);
+            $manager = $this->manager();
 
-            $pluginsData = $this->pluginManager->getAllPluginsInfo();
-            $statistics = $this->pluginManager->getPluginStatistics();
-            $healthStatus = $this->pluginManager->getHealthStatus();
+            $pluginsData = $manager->getAllPluginsInfoForPreset($preset);
+            $statistics  = $manager->getPluginStatisticsForPreset($preset);
 
-            // Get all available presets for preset selector
             $availablePresets = $this->presetRegistry->getActivePresets();
 
-            // Convert plugins object to array for frontend
             $plugins = collect($pluginsData)->map(function ($pluginInfo, $pluginName) {
                 return array_merge($pluginInfo, [
                     'name' => $pluginName,
@@ -77,7 +74,7 @@ class PluginController extends Controller
             return Inertia::render('Admin/Plugins/Index', [
                 'plugins' => $plugins,
                 'statistics' => $statistics,
-                'health_status' => $healthStatus,
+                'health_status' => $this->getStubHealthStatus(),
                 'current_preset' => [
                     'id' => $preset->getId(),
                     'name' => $preset->getName(),
@@ -100,7 +97,6 @@ class PluginController extends Controller
                 'trace' => $e->getTraceAsString()
             ]);
 
-            // Return page with error state
             return Inertia::render('Admin/Plugins/Index', [
                 'plugins' => [],
                 'statistics' => $this->getEmptyStatistics(),
@@ -113,19 +109,15 @@ class PluginController extends Controller
     }
 
     /**
-     * Toggle plugin enabled/disabled state for specific preset
-     *
-     * @param Request $request
-     * @param string $pluginName
-     * @param int|null $presetId
-     * @return JsonResponse
+     * Toggle plugin enabled/disabled state for a specific preset.
      */
     public function toggle(Request $request, string $pluginName, ?int $presetId = null): JsonResponse
     {
         try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
+            $preset = $this->resolvePreset($presetId);
+            $manager = $this->manager();
 
-            $pluginsInfo = $this->pluginManager->getAllPluginsInfo();
+            $pluginsInfo = $manager->getAllPluginsInfoForPreset($preset);
             $currentPlugin = $pluginsInfo[$pluginName] ?? null;
 
             if (!$currentPlugin) {
@@ -138,7 +130,7 @@ class PluginController extends Controller
             $currentState = $currentPlugin['enabled'];
             $newState = !$currentState;
 
-            $result = $this->pluginManager->setPluginEnabled($pluginName, $newState);
+            $result = $manager->setPluginEnabledForPreset($pluginName, $preset, $newState);
 
             if ($result['success']) {
                 return response()->json([
@@ -177,100 +169,15 @@ class PluginController extends Controller
     }
 
     /**
-     * Test plugin connection for specific preset
-     *
-     * @param Request $request
-     * @param string $pluginName
-     * @param int|null $presetId
-     * @return JsonResponse
-     */
-    public function test(Request $request, string $pluginName, ?int $presetId = null): JsonResponse
-    {
-        try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
-
-            $pluginsInfo = $this->pluginManager->getAllPluginsInfo();
-            $plugin = $pluginsInfo[$pluginName] ?? null;
-
-            if (!$plugin) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Plugin '{$pluginName}' not found"
-                ], 404);
-            }
-
-            if (!$plugin['enabled']) {
-                return response()->json([
-                    'success' => false,
-                    'data' => [
-                        'is_working' => false,
-                        'message' => "Plugin '{$pluginName}' is disabled for preset '{$preset->getName()}'"
-                    ]
-                ], 400);
-            }
-
-            $testResults = $this->pluginManager->testAllPlugins();
-            $pluginTestResult = $testResults[$pluginName] ?? null;
-
-            if ($pluginTestResult) {
-                $isWorking = $pluginTestResult['connection_status'] ?? false;
-
-                return response()->json([
-                    'success' => true,
-                    'data' => [
-                        'is_working' => $isWorking,
-                        'message' => $isWorking
-                            ? "Plugin '{$pluginName}' is working correctly for preset '{$preset->getName()}'"
-                            : "Plugin '{$pluginName}' connection failed for preset '{$preset->getName()}'",
-                        'health_status' => $pluginTestResult['health_status'] ?? 'unknown',
-                        'preset_id' => $preset->getId(),
-                        'preset_name' => $preset->getName(),
-                        'response_time' => rand(50, 500)
-                    ]
-                ]);
-            }
-
-            return response()->json([
-                'success' => false,
-                'data' => [
-                    'is_working' => false,
-                    'message' => "Unable to test plugin '{$pluginName}' for preset '{$preset->getName()}'"
-                ]
-            ], 500);
-
-        } catch (\Exception $e) {
-            $this->logger->error("Failed to test plugin for preset", [
-                'plugin' => $pluginName,
-                'preset_id' => $presetId,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'data' => [
-                    'is_working' => false,
-                    'message' => "Plugin test failed: " . $e->getMessage()
-                ]
-            ], 500);
-        }
-    }
-
-    /**
-     * Update plugin configuration for specific preset
-     *
-     * @param UpdatePluginConfigRequest $request
-     * @param string $pluginName
-     * @param int|null $presetId
-     * @return JsonResponse
+     * Update plugin configuration for a specific preset.
      */
     public function update(UpdatePluginConfigRequest $request, string $pluginName, ?int $presetId = null): JsonResponse
     {
         try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
+            $preset = $this->resolvePreset($presetId);
             $config = $request->validated();
 
-            $result = $this->pluginManager->updatePluginConfig($pluginName, $config);
+            $result = $this->manager()->updatePluginConfigForPreset($pluginName, $preset, $config);
 
             if ($result['success']) {
                 return response()->json([
@@ -308,19 +215,14 @@ class PluginController extends Controller
     }
 
     /**
-     * Reset plugin configuration to defaults for specific preset
-     *
-     * @param Request $request
-     * @param string $pluginName
-     * @param int|null $presetId
-     * @return JsonResponse
+     * Reset plugin configuration to defaults for a specific preset.
      */
     public function reset(Request $request, string $pluginName, ?int $presetId = null): JsonResponse
     {
         try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
+            $preset = $this->resolvePreset($presetId);
 
-            $result = $this->pluginManager->resetPluginConfig($pluginName);
+            $result = $this->manager()->resetPluginConfigForPreset($pluginName, $preset);
 
             if ($result['success']) {
                 return response()->json([
@@ -356,19 +258,14 @@ class PluginController extends Controller
     }
 
     /**
-     * Get plugin information for specific preset
-     *
-     * @param string $pluginName
-     * @param int|null $presetId
-     * @return JsonResponse
+     * Get plugin information for a specific preset.
      */
     public function show(string $pluginName, ?int $presetId = null): JsonResponse
     {
         try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
+            $preset = $this->resolvePreset($presetId);
 
-            $pluginsInfo = $this->pluginManager->getAllPluginsInfo();
-            $plugin = $pluginsInfo[$pluginName] ?? null;
+            $plugin = $this->manager()->getPluginInfoForPreset($pluginName, $preset);
 
             if (!$plugin) {
                 return response()->json([
@@ -402,96 +299,33 @@ class PluginController extends Controller
     }
 
     /**
-     * Get system health status for specific preset
+     * Get plugin configuration schema.
      *
-     * @param int|null $presetId
-     * @return JsonResponse
-     */
-    public function health(?int $presetId = null): JsonResponse
-    {
-        try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
-
-            $healthStatus = $this->pluginManager->getHealthStatus();
-
-            return response()->json([
-                'success' => true,
-                'data' => $healthStatus
-            ]);
-
-        } catch (\Exception $e) {
-            $this->logger->error("Failed to get health status for preset", [
-                'preset_id' => $presetId,
-                'error' => $e->getMessage()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'An error occurred while checking system health',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Run health check for all plugins in specific preset
+     * schema doesn't depend on a preset — it's a description of
+     * the config fields the plugin declares in getConfigFields(). We read
+     * directly from the plugin via the registry instead of going through
+     * the deprecated PluginManager::getPluginConfigSchema().
      *
-     * @param int|null $presetId
-     * @return JsonResponse
-     */
-    public function healthCheck(?int $presetId = null): JsonResponse
-    {
-        try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
-
-            $results = $this->pluginManager->testAllPlugins();
-            $healthStatus = $this->pluginManager->getHealthStatus();
-
-            return response()->json([
-                'success' => true,
-                'message' => "Health check completed for preset '{$preset->getName()}'",
-                'data' => [
-                    'test_results' => $results,
-                    'health_status' => $healthStatus,
-                    'preset_id' => $preset->getId(),
-                    'preset_name' => $preset->getName(),
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            $this->logger->error("Failed to run health check for preset", [
-                'preset_id' => $presetId,
-                'error' => $e->getMessage()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'An error occurred during health check',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Get plugin configuration schema for specific preset
-     *
-     * @param string $pluginName
-     * @param int|null $presetId
-     * @return JsonResponse
+     * The $presetId parameter is kept for route compatibility but unused.
      */
     public function schema(string $pluginName, ?int $presetId = null): JsonResponse
     {
         try {
-            $preset = $this->setCurrentPresetFromRequest($presetId);
+            $plugin = $this->pluginRegistry->get($pluginName);
 
-            $schema = $this->pluginManager->getPluginConfigSchema($pluginName);
-
-            if (!$schema) {
+            if (!$plugin) {
                 return response()->json([
                     'success' => false,
                     'message' => "Plugin '{$pluginName}' not found"
                 ], 404);
             }
+
+            $schema = [
+                'name'          => $plugin->getName(),
+                'description'   => $plugin->getDescription(),
+                'fields'        => $plugin->getConfigFields(),
+                'default_config' => $plugin->getDefaultConfig(),
+            ];
 
             return response()->json([
                 'success' => true,
@@ -499,7 +333,7 @@ class PluginController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            $this->logger->error("Failed to get plugin schema for preset", [
+            $this->logger->error("Failed to get plugin schema", [
                 'plugin' => $pluginName,
                 'preset_id' => $presetId,
                 'error' => $e->getMessage()
@@ -514,15 +348,13 @@ class PluginController extends Controller
     }
 
     /**
-     * Copy plugin configurations between presets
-     *
-     * @param Request $request
-     * @return JsonResponse
+     * Copy plugin configurations between presets.
+     * Already preset-aware — takes two preset IDs explicitly.
      */
     public function copyConfigurations(CopyPluginConfigurationsRequest $request): JsonResponse
     {
         try {
-            $result = $this->pluginManager->copyPluginConfigsBetweenPresets(
+            $result = $this->manager()->copyPluginConfigsBetweenPresets(
                 $request->from_preset_id,
                 $request->to_preset_id
             );
@@ -561,9 +393,7 @@ class PluginController extends Controller
     }
 
     /**
-     * Get empty statistics for error states
-     *
-     * @return array
+     * Empty statistics placeholder for error states.
      */
     protected function getEmptyStatistics(): array
     {
@@ -571,15 +401,24 @@ class PluginController extends Controller
             'total_plugins' => 0,
             'enabled_plugins' => 0,
             'disabled_plugins' => 0,
-            'healthy_plugins' => 0,
-            'error_plugins' => 0,
         ];
     }
 
     /**
-     * Get error health status for error states
-     *
-     * @return array
+     * Neutral health-status stub used during the transition period.
+     * will remove the health UI entirely, at which point this
+     * method and its callers go away.
+     */
+    protected function getStubHealthStatus(): array
+    {
+        return [
+            'overall_status' => 'ok',
+            'plugins' => [],
+        ];
+    }
+
+    /**
+     * Error health-status shape for exception branches.
      */
     protected function getErrorHealthStatus(): array
     {

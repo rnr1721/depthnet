@@ -6,6 +6,7 @@ use App\Contracts\Agent\Memory\MemoryExporterInterface;
 use App\Contracts\Agent\Memory\MemoryImporterInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
+use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Memory\ImportMemoryRequest;
@@ -13,6 +14,7 @@ use App\Http\Requests\Admin\Memory\MemoryActionRequest;
 use App\Http\Requests\Admin\Memory\SearchMemoryRequest;
 use App\Http\Requests\Admin\Memory\StoreMemoryItemRequest;
 use App\Http\Requests\Admin\Memory\UpdateMemoryItemRequest;
+use App\Models\AiPreset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,23 +27,30 @@ use Inertia\Response;
  */
 class MemoryController extends Controller
 {
-    private array $config;
-
     public function __construct(
         protected MemoryServiceInterface $memoryService,
         protected PresetRegistryInterface $presetRegistry,
         protected PluginRegistryInterface $pluginRegistry,
+        protected PluginManagerFactoryInterface $pluginManagerFactory,
         protected MemoryImporterInterface $memoryImporter,
         protected MemoryExporterInterface $memoryExporter
     ) {
-        $this->config = $pluginRegistry->get('memory')->getConfig();
     }
 
     /**
      * Display memory management interface with pagination
      *
      * @param Request $request
-     * @return \Inertia\Response
+     * @return array
+     */
+    protected function getMemoryConfig(AiPreset $preset): array
+    {
+        $info = $this->pluginManagerFactory->get()->getPluginInfoForPreset('memory', $preset);
+        return $info['current_config'] ?? [];
+    }
+
+    /**
+     * Display memory management interface with pagination.
      */
     public function index(Request $request): Response
     {
@@ -49,7 +58,7 @@ class MemoryController extends Controller
             ->map(fn ($preset) => [
                 'id' => $preset->id,
                 'name' => $preset->name,
-                'is_default' => $preset->is_default
+                'is_default' => $preset->is_default,
             ])
             ->sortByDesc('is_default')
             ->values();
@@ -61,9 +70,12 @@ class MemoryController extends Controller
 
         $memoryItems = collect();
         $memoryStats = [];
+        $config = [];
+        $paginatedItems = null;
 
         if ($currentPreset) {
-            // If we have a search query, perform paginated search
+            $config = $this->getMemoryConfig($currentPreset);
+
             if (!empty($searchQuery)) {
                 $paginatedItems = $this->memoryService->searchMemoryPaginated($currentPreset, $searchQuery, $perPage);
             } else {
@@ -78,7 +90,7 @@ class MemoryController extends Controller
                 ];
             });
 
-            $memoryStats = $this->memoryService->getMemoryStats($currentPreset, $this->config);
+            $memoryStats = $this->memoryService->getMemoryStats($currentPreset, $config);
         }
 
         return Inertia::render('Admin/Memory/Index', [
@@ -86,12 +98,12 @@ class MemoryController extends Controller
             'currentPreset' => [
                 'id' => $currentPreset->id,
                 'name' => $currentPreset->name,
-                'is_default' => $currentPreset->is_default
+                'is_default' => $currentPreset->is_default,
             ],
             'memoryItems' => $memoryItems,
-            'pagination' => $currentPreset ? $paginatedItems->toArray() : null,
+            'pagination' => $paginatedItems?->toArray(),
             'memoryStats' => $memoryStats,
-            'config' => $this->config,
+            'config' => $config,
             'searchQuery' => $searchQuery,
             'perPage' => $perPage,
         ]);
@@ -109,14 +121,12 @@ class MemoryController extends Controller
         $result = $this->memoryService->addMemoryItem(
             $preset,
             $request->content,
-            $this->config
+            $this->getMemoryConfig($preset)
         );
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -136,7 +146,6 @@ class MemoryController extends Controller
             return back()->with('error', 'Memory item not found.');
         }
 
-        // Update the item directly
         $item->update(['content' => $request->content]);
 
         return back()->with('success', 'Memory item updated successfully.');
@@ -155,14 +164,12 @@ class MemoryController extends Controller
         $result = $this->memoryService->deleteMemoryItem(
             $preset,
             $itemNumber,
-            $this->config
+            $this->getMemoryConfig($preset)
         );
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -176,14 +183,12 @@ class MemoryController extends Controller
         $preset = $this->presetRegistry->getPreset($request->preset_id);
         $result = $this->memoryService->clearMemory(
             $preset,
-            $this->config
+            $this->getMemoryConfig($preset)
         );
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -194,7 +199,6 @@ class MemoryController extends Controller
      */
     public function search(SearchMemoryRequest $request): RedirectResponse
     {
-        // Redirect to index with search parameters in URL
         return redirect()->route('admin.memory.index', [
             'preset_id' => $request->preset_id,
             'search' => $request->search_term,
@@ -228,13 +232,11 @@ class MemoryController extends Controller
     public function import(ImportMemoryRequest $request)
     {
         $preset = $this->presetRegistry->getPreset($request->preset_id);
-        $result = $this->memoryImporter->import($preset, $request, $this->config);
+        $result = $this->memoryImporter->import($preset, $request, $this->getMemoryConfig($preset));
 
-        if ($result['success']) {
-            return back()->with('success', $result['message']);
-        }
-
-        return back()->with('error', $result['message']);
+        return $result['success']
+            ? back()->with('success', $result['message'])
+            : back()->with('error', $result['message']);
     }
 
     /**
@@ -246,8 +248,7 @@ class MemoryController extends Controller
     public function stats(MemoryActionRequest $request): JsonResponse
     {
         $preset = $this->presetRegistry->getPreset($request->preset_id);
-
-        $stats = $this->memoryService->getMemoryStats($preset, $this->config);
+        $stats = $this->memoryService->getMemoryStats($preset, $this->getMemoryConfig($preset));
 
         return response()->json($stats);
     }

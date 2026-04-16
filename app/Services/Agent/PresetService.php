@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\AiPreset;
 use App\Exceptions\PresetException;
@@ -28,7 +29,8 @@ class PresetService implements PresetServiceInterface
         protected ValidatorFactory $validator,
         protected AiPreset $aiPresetModel,
         protected LoggerInterface $logger,
-        protected CacheManager $cacheManager
+        protected CacheManager $cacheManager,
+        protected PluginManagerFactoryInterface $pluginManagerFactory
     ) {
     }
 
@@ -96,6 +98,8 @@ class PresetService implements PresetServiceInterface
 
             $this->presetRegistry->refresh();
 
+            $this->pluginManagerFactory->get()->initializeConfigsForPreset($preset);
+
             $this->logPresetCreated($preset);
 
             return $preset;
@@ -103,7 +107,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Create preset with enhanced validation and logging
+     * @inheritDoc
      */
     public function createPresetWithValidation(array $data): AiPreset
     {
@@ -189,7 +193,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Update preset with enhanced validation and logging
+     * @inheritDoc
      */
     public function updatePresetWithValidation(int $id, array $data): AiPreset
     {
@@ -225,7 +229,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Delete preset with enhanced validation and logging
+     * @inheritDoc
      */
     public function deletePresetWithValidation(int $id): void
     {
@@ -239,7 +243,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Find preset by ID
+     * @inheritDoc
      */
     public function findById(int $id): ?AiPreset
     {
@@ -247,7 +251,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Find preset by ID or fail
+     * @inheritDoc
      */
     public function findByIdOrFail(int $id): AiPreset
     {
@@ -255,7 +259,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Find preset by code (case-insensitive)
+     * @inheritDoc
      */
     public function findByCode(string $code): ?AiPreset
     {
@@ -265,7 +269,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Get the default preset
+     * @inheritDoc
      */
     public function getDefaultPreset(): ?AiPreset
     {
@@ -275,7 +279,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Get the default preset or first active preset
+     * @inheritDoc
      */
     public function getDefaultOrFirstActivePreset(): ?AiPreset
     {
@@ -292,7 +296,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Duplicate an existing preset
+     * @inheritDoc
      */
     public function duplicatePreset(int $id, ?string $newName = null): AiPreset
     {
@@ -319,13 +323,17 @@ class PresetService implements PresetServiceInterface
             'is_default' => false, // Duplicated presets are never default
         ]);
 
+        $this->presetRegistry->refresh();
+
+        $this->pluginManagerFactory->get()->initializeConfigsForPreset($newPreset);
+
         $this->logPresetDuplicated($id, $newPreset->id);
 
         return $newPreset;
     }
 
     /**
-     * Test preset configuration
+     * @inheritDoc
      */
     public function testPreset(int $id): array
     {
@@ -341,7 +349,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Test preset configuration (legacy method)
+     * @inheritDoc
      */
     public function testPresetConfiguration(int $id): array
     {
@@ -349,7 +357,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Test engine configuration
+     * @inheritDoc
      */
     public function testEngineConfiguration(string $engineName, array $config): array
     {
@@ -426,7 +434,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Import recommended preset
+     * @inheritDoc
      */
     public function importRecommendedPreset(string $engineName, int $presetIndex): AiPreset
     {

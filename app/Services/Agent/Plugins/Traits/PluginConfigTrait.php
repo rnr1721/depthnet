@@ -3,19 +3,30 @@
 namespace App\Services\Agent\Plugins\Traits;
 
 /**
- * Trait for plugin configuration functionality
- * Handles configuration from database, not from config files
+ * Trait for plugin configuration boilerplate.
+ *
+ * What the trait still provides:
+ *   - Default getConfigFields() with just the 'enabled' checkbox
+ *   - Default validateConfig() returning no errors
+ *
+ * Plugins typically override getConfigFields() and getDefaultConfig() with
+ * their own definitions, so the defaults here are mostly fallback safety.
  */
 trait PluginConfigTrait
 {
-    protected array $config = [];
-    protected bool $enabled = true;
+    /**
+     * Default tool schema — empty. Plugins override if they need
+     * a custom OpenAI-compatible function schema. An empty return
+     * signals "use the auto-generated schema from description and
+     * inferred methods".
+     */
+    public function getToolSchema(array $config = []): array
+    {
+        return [];
+    }
 
     /**
-     * Get configuration fields for the plugin
-     * Override in specific plugins to define their fields
-     *
-     * @return array
+     * Default config fields. Override in concrete plugins.
      */
     public function getConfigFields(): array
     {
@@ -24,17 +35,13 @@ trait PluginConfigTrait
                 'type' => 'checkbox',
                 'label' => 'Enable Plugin',
                 'description' => 'Enable or disable this plugin',
-                'required' => false
-            ]
+                'required' => false,
+            ],
         ];
     }
 
     /**
-     * Validate plugin configuration
-     * Override in specific plugins for custom validation
-     *
-     * @param array $config
-     * @return array
+     * Default validator: accepts any input. Override for real validation.
      */
     public function validateConfig(array $config): array
     {
@@ -42,88 +49,12 @@ trait PluginConfigTrait
     }
 
     /**
-     * Update plugin configuration
-     *
-     * @param array $newConfig
-     * @return void
-     */
-    public function updateConfig(array $newConfig): void
-    {
-        $this->config = array_merge($this->config, $newConfig);
-
-        // Update enabled status if provided
-        if (isset($newConfig['enabled'])) {
-            $this->enabled = (bool) $newConfig['enabled'];
-        }
-    }
-
-    /**
-     * Get current plugin configuration
-     *
-     * @return array
-     */
-    public function getConfig(): array
-    {
-        return array_merge($this->config, [
-            'enabled' => $this->enabled
-        ]);
-    }
-
-    /**
-     * Get default configuration for the plugin
-     * Override in specific plugins to define defaults
-     *
-     * @return array
+     * Default config values. Override in concrete plugins to set sensible defaults.
      */
     public function getDefaultConfig(): array
     {
         return [
-            'enabled' => true
+            'enabled' => true,
         ];
-    }
-
-    /**
-     * Test if plugin is properly configured and working
-     * Override in specific plugins for actual testing
-     *
-     * @return boolean
-     */
-    public function testConnection(): bool
-    {
-        return $this->enabled;
-    }
-
-    /**
-     * Check if plugin is enabled
-     *
-     * @return boolean
-     */
-    public function isEnabled(): bool
-    {
-        return $this->enabled;
-    }
-
-    /**
-     * Enable or disable plugin
-     *
-     * @param boolean $enabled
-     * @return void
-     */
-    public function setEnabled(bool $enabled): void
-    {
-        $this->enabled = $enabled;
-    }
-
-    /**
-     * Initialize configuration with defaults only
-     * Configuration from database will be applied by PluginManager
-     *
-     * @return void
-     */
-    protected function initializeConfig(): void
-    {
-        $defaultConfig = $this->getDefaultConfig();
-        $this->config = $defaultConfig;
-        $this->enabled = $defaultConfig['enabled'] ?? true;
     }
 }

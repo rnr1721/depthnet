@@ -122,20 +122,15 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 
 **Built-in Plugins:**
 - **Run Plugin**: Universal sandbox execution - replaces separate PHP/Python/Node/Shell plugins with unified `[run lang]code[/run]` or `[run shell]command[/run]` syntax. Executes code in isolated Docker containers with preset-assigned sandboxes. You can make sandbox in hypervisor, attach sandbox to preset and user it. Need Docker.
-- **PHP Plugin**: Execute arbitrary PHP code with safety controls in local instance
-- **Python Plugin**: Run Python scripts with virtual environment support in local instance
-- **Node.js Plugin**: Execute JavaScript with async/await and npm packages in local instance
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
 - **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
 - **Vector Memory Plugin**: Semantic memory with dual-engine search: TF-IDF keyword similarity (always available) and dense embedding vectors via configurable provider (Novita, OpenAI, etc.). Two retrieval modes: flat (direct top-K) and associative (graph-based chain traversal through semantically related memories). Both journal and vector memory share the same embedding space — the agent can find connections between insights and actions by meaning, not just keywords.
 - **Journal Plugin**: Episodic memory chronicle — records structured events (actions, decisions, errors, reflections) with timestamps and outcome tracking. Supports chronological browsing and TF-IDF semantic search with flexible date filtering (exact date, relative dates like "yesterday", date ranges). The agent's diary of what happened, not what it knows.
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions (use local instance)
-- **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
 - **Agent Plugin**: Agent loop mode can stopped or started by model
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
 - **Browser Plugin**: Persistent web browser powered by Playwright. Agents can open pages, click, type, search, and read structured page snapshots — all with session memory that survives across thinking cycles. Requires the browser-service Docker container (profile: browser). See [Browser Service](#browser-service) below.
-- **Crawler Plugin**: Lightweight stateless web page fetcher (formerly Browser Plugin). Fetches and returns page content without JavaScript support or session state. Useful for simple scraping tasks that don't require interaction.
 - **Telegram Plugin**: Full Telegram access via tgcli. Read dialogs, channels and 
   groups, send messages, search — using a real user account (MTProto), not Bot API. 
   Per-preset session isolation. Authorization UI built into preset settings.
@@ -192,11 +187,6 @@ The AI communicates through special command tags that trigger plugin execution. 
 [agent resume][/agent]  # Resume autonomous thinking
 [agent status][/agent]  # Check current agent status
 
-# Execute code in local instance without Docker
-[php]echo "Database rows: " . DB::table('users')->count();[/php]
-[python]import datetime; print(f"Server time: {datetime.datetime.now()}")[/python]
-[node]console.log(`Memory usage: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/node]
-
 # Persistent memory management
 [memory]This information will be appended to memory content[/memory]
 [memory delete]3[/memory] # this will delete item memory with 3 index
@@ -218,12 +208,6 @@ The AI communicates through special command tags that trigger plugin execution. 
 # System interaction and monitoring
 [shell]df -h && ps aux | grep php[/shell]
 [shell]curl -s https://api.github.com/repos/rnr1721/depthnet[/shell]
-
-# Code generation and file manipulation
-[codecraft]{"path":"User.php","name":"User","namespace":"App\\Models"}[/codecraft]
-[codecraft save]{"path":"/tmp/codecraft/utils.js","type":"function","name":"formatDate"}[/codecraft]
-[codecraft edit]{"path":"/tmp/file.php","modifications":[{"type":"add_method","method":{"name":"newMethod"}}]}[/codecraft]
-[codecraft analyze]/path/to/file.php[/codecraft]
 
 # MCP — external tool servers
 [mcp github]search_repositories: {"query": "depthnet"}[/mcp]

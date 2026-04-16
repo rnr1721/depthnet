@@ -4,7 +4,7 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -43,7 +43,6 @@ class JournalPlugin implements CommandPluginInterface
         protected JournalServiceInterface $journalService,
         protected LoggerInterface         $logger,
     ) {
-        $this->initializeConfig();
     }
 
     public function getName(): string
@@ -51,12 +50,12 @@ class JournalPlugin implements CommandPluginInterface
         return 'journal';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Episodic memory chronicle. Record structured events (actions, decisions, errors, reflections) with timestamps. Supports both chronological browsing and semantic search, optionally filtered by date.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Add entry:              [journal]action | Refactored memory plugin[/journal]',
@@ -83,7 +82,7 @@ class JournalPlugin implements CommandPluginInterface
      *
      * @return array OpenAI-compatible function descriptor (inner "function" object)
      */
-    public function getToolSchema(): array
+    public function getToolSchema(array $config = []): array
     {
         return [
             'name'        => 'journal',
@@ -171,11 +170,6 @@ class JournalPlugin implements CommandPluginInterface
         return null;
     }
 
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     // -------------------------------------------------------------------------
     // Commands
     // -------------------------------------------------------------------------
@@ -183,36 +177,36 @@ class JournalPlugin implements CommandPluginInterface
     /**
      * Default execute — add a journal entry.
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
-        $result = $this->journalService->addEntry($preset, $content);
+        $result = $this->journalService->addEntry($context->preset, $content);
         return $result['message'];
     }
 
     /**
      * [journal recent]N[/journal]
      */
-    public function recent(string $content, AiPreset $preset): string
+    public function recent(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
-        $limit  = !empty(trim($content)) ? (int) trim($content) : ($this->config['default_limit'] ?? 10);
-        $result = $this->journalService->recent($preset, $limit);
+        $limit = !empty(trim($content)) ? (int) trim($content) : ($context->get('default_limit', 10));
+        $result = $this->journalService->recent($context->preset, $limit);
         return $result['message'];
     }
 
     /**
      * [journal show]ID[/journal]
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
@@ -221,7 +215,7 @@ class JournalPlugin implements CommandPluginInterface
             return 'Error: Provide a valid entry ID.';
         }
 
-        $result = $this->journalService->show($preset, $id);
+        $result = $this->journalService->show($context->preset, $id);
         return $result['message'];
     }
 
@@ -231,9 +225,9 @@ class JournalPlugin implements CommandPluginInterface
      * [journal search]yesterday | query[/journal]
      * [journal search]today[/journal]
      */
-    public function search(string $content, AiPreset $preset): string
+    public function search(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
@@ -242,17 +236,17 @@ class JournalPlugin implements CommandPluginInterface
             return 'Error: Provide a search query.';
         }
 
-        $limit  = $this->config['default_limit'] ?? 10;
-        $result = $this->journalService->search($preset, $query, $limit);
+        $limit = $context->get('default_limit', 10);
+        $result = $this->journalService->search($context->preset, $query, $limit);
         return $result['message'];
     }
 
     /**
      * [journal delete]ID[/journal]
      */
-    public function delete(string $content, AiPreset $preset): string
+    public function delete(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
@@ -261,20 +255,20 @@ class JournalPlugin implements CommandPluginInterface
             return 'Error: Provide a valid entry ID. Use [journal delete]42[/journal]';
         }
 
-        $result = $this->journalService->delete($preset, $id);
+        $result = $this->journalService->delete($context->preset, $id);
         return $result['message'];
     }
 
     /**
      * [journal clear][/journal]
      */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
-        $result = $this->journalService->clear($preset);
+        $result = $this->journalService->clear($context->preset);
         return $result['message'];
     }
 
@@ -297,9 +291,8 @@ class JournalPlugin implements CommandPluginInterface
         return ['clear', 'recent'];
     }
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
         // Journal doesn't inject into context automatically —
-        // the agent decides when to read it via commands.
     }
 }

@@ -161,7 +161,7 @@ class ModelRequestDTO implements AiModelRequestInterface
     public function getCommandInstructions(): string
     {
         if ($this->cachedCommandInstructions === null) {
-            $this->cachedCommandInstructions = $this->commandInstructionBuilder->buildInstructions();
+            $this->cachedCommandInstructions = $this->commandInstructionBuilder->buildInstructions($this->preset);
         }
 
         return $this->cachedCommandInstructions;

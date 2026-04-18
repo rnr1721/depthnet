@@ -2,181 +2,183 @@
 
 namespace App\Contracts\Agent;
 
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 
+/**
+ * Plugin interface — stateless API.
+ *
+ * Mental model:
+ *   A plugin instance is a singleton stateless function bundle. Anything
+ *   that varies between presets comes through the context. The plugin
+ *   reads $context->config, $context->preset, $context->enabled — never
+ *   $this->config or $this->preset.
+ */
 interface CommandPluginInterface
 {
     /**
      * Get plugin name (used as command tag, e.g. "memory" → [memory]...[/memory])
      *
-     * @return string Command name
+     * @return string
      */
     public function getName(): string;
 
     /**
      * Get plugin description for instructions
      *
-     * @return string Command description
+     * @param array $config
+     * @return string
      */
-    public function getDescription(): string;
+    public function getDescription(array $config = []): string;
 
     /**
-     * Get usage instructions shown to the AI
+     * Get usage instructions shown to the AI.
      *
-     * @return array Instructions
+     * Note: this method does NOT receive a context. Instructions describe
+     * the plugin's general capabilities, not preset-specific behaviour.
+     * If you need to vary the instructions based on preset config, use
+     * getInstructionsForContext() (see optional methods below) — but most
+     * plugins don't need that.
+     *
+     * @param array $config
+     * @return array
      */
-    public function getInstructions(): array;
+    public function getInstructions(array $config = []): array;
 
     /**
-     * Execute default command.
-     * Preset is passed explicitly — plugin does not store it internally.
+     * Execute the default command for this plugin.
      *
-     * @param string $content Content to execute
-     * @return string Result of command execution
+     * Receives the resolved execution context. The plugin must read its
+     * config from $context->config and check $context->enabled rather than
+     * any internal state.
+     *
+     * @param string $content
+     * @param PluginExecutionContext $context
+     * @return string
      */
-    public function execute(string $content, AiPreset $preset): string;
+    public function execute(string $content, PluginExecutionContext $context): string;
 
     /**
-     * Called when a preset is applied to the registry.
-     * Use to register placeholders/shortcodes scoped to this preset.
-     * Preset is passed explicitly — no internal storage needed.
+     * Get config field definitions for the admin UI.
      *
-     * @return void
-     */
-    public function pluginReady(AiPreset $preset): void;
-
-    /**
-     * Get configuration fields for the plugin
-     * Returns array of field definitions for UI
-     *
-     * @return array Array of field definitions
+     * @return array
      */
     public function getConfigFields(): array;
 
     /**
-     * Validate plugin configuration
+     * Validate a config payload before persisting.
+     * Return array of field => error message; empty array means valid.
      *
-     * @param array $config Configuration to validate
-     * @return array Array of validation errors (empty if valid)
+     * @param array $config
+     * @return array
      */
     public function validateConfig(array $config): array;
 
     /**
-     * Get default config values for the plugin
+     * Get default config values for this plugin.
+     * Used as the seed for new PresetPluginConfig rows and as the fallback
+     * when a config key is missing.
      *
-     * @return array Default configuration values
+     * @return array
      */
     public function getDefaultConfig(): array;
 
     /**
-     * Update plugin config at runtime
+     * Whether the plugin defines a method by this name.
+     * The default implementation in PluginMethodTrait inspects the class
+     * methods and excludes interface boilerplate.
      *
-     * @param array $newConfig New configuration values
-     * @return void
-     */
-    public function updateConfig(array $config): void;
-
-    /**
-     * Test plugin connectivity / availability
-     *
-     * @return bool True if plugin is working
-     */
-    public function testConnection(): bool;
-
-    /**
-     * Check if plugin is enabled
-     *
-     * @return bool True if plugin is enabled
-     */
-    public function isEnabled(): bool;
-
-    /**
-     * Enable or disable plugin
-     *
-     * @param bool $enabled True to enable, false to disable
-     * @return void
-     */
-    public function setEnabled(bool $enabled): void;
-
-    /**
-     * Check if plugin has specific method
-     *
-     * @param string $method Method name
-     * @return boolean Method exists?
+     * @param string $method
+     * @return boolean
      */
     public function hasMethod(string $method): bool;
 
     /**
-     * Call specific method on plugin
+     * Invoke a named method on the plugin with the given content and context.
+     * Default implementation in PluginMethodTrait handles routing.
      *
-     * @param string $method Method name
-     * @param string $content Content to pass to the method
-     * @param AiPreset $preset
+     * @param string $method
+     * @param string $content
+     * @param PluginExecutionContext $context
      * @return string
      */
-    public function callMethod(string $method, string $content, AiPreset $preset): string;
+    public function callMethod(string $method, string $content, PluginExecutionContext $context): string;
 
     /**
-     * Get available method names for this plugin
+     * List of method names callable via [plugin method]content[/plugin].
+     * Used for tool schema generation and for the admin UI.
      *
-     * @return array List of available methods
+     * @return array
      */
     public function getAvailableMethods(): array;
 
     /**
-     * Get message for agent when command is executed successfully
-     * You can use {command} placeholder in the message
+     * Optional: success message to show after a successful command.
+     * Return null to use the default ("⚡ SUCCESS: ...").
+     * Supports {method} placeholder.
      *
-     * @return string Icon URL or path
+     * @return string|null
      */
     public function getCustomSuccessMessage(): ?string;
 
     /**
-     * Get message for agent when command execution fails
-     * You can use {command} placeholder in the message
+     * Optional: error message to show after a failed command.
+     * Return null to use the default ("⚠️ ERROR: ...").
+     * Supports {method} placeholder.
      *
-     * @return string Icon URL or path
+     * @return string|null
      */
     public function getCustomErrorMessage(): ?string;
 
     /**
-     * Check if this plugin command data can be merged with others
-     * Used in smart command parser to group similar commands
+     * Whether two consecutive commands of this plugin can be merged into one.
+     * Used by CommandParserSmart.
      *
-     * @return bool True if can be merged, false otherwise
+     * @return boolean
      */
     public function canBeMerged(): bool;
 
     /**
-     * Separator for merge similar commands
-     * Used in smart command parser
+     * Separator string used when merging consecutive commands.
+     * Null means use the default "\n".
      *
-     * @return string|null Null will be "\n"
+     * @return string|null
      */
     public function getMergeSeparator(): ?string;
 
     /**
-     * Get list of self-closing tags for this plugin
-     * These tags don't require content and will be auto-closed
-     * Example: ['pause', 'resume', 'status'] for agent plugin
+     * Method names that are self-closing — i.e. don't require closing tag content.
+     * Example: ['pause', 'resume', 'status'] for AgentPlugin so the agent can
+     * write [agent pause][/agent] without content and the preprocessor will
+     * auto-close it.
      *
-     * @return array List of method names that are self-closing
+     * @return array
      */
     public function getSelfClosingTags(): array;
 
     /**
-     * Here it is possible to return some data that may affect the agent's work.
-     * This is system things
+     * Side-channel data the plugin wants to bubble up after execution.
+     * Used for things like the speak/handoff signals from AgentPlugin.
+     * Returning the data also resets the internal buffer (one-shot).
      *
      * @return array
      */
     public function getPluginExecutionMeta(): array;
 
-    /**
-     * Get current plugin configuration
-     *
-     * @return array Current configuration
-     */
-    public function getConfig(): array;
-
+    // ── OPTIONAL METHODS (NOT in the interface) ──────────────────────────────
+    //
+    // These are recognised by the framework via method_exists() — implement
+    // them only if your plugin needs them. They're documented here so plugin
+    // authors know what hooks are available.
+    //
+    // public function registerShortcodes(PluginExecutionContext $context): void;
+    //   Called once when a preset is applied to the registry. Use to register
+    //   per-preset placeholders/shortcodes. Replaces the old pluginReady().
+    //   Most plugins don't need this. AgentPlugin, RhythmPlugin, MoodPlugin,
+    //   MemoryPlugin, WorkspacePlugin do.
+    //
+    // public function getToolSchema(): array;
+    //   Custom OpenAI function-calling schema for tool_calls mode. If absent,
+    //   ToolSchemaBuilder generates a generic two-arg schema (method+content).
+    //   Used by AgentPlugin and McpPlugin which have argument structures
+    //   richer than the generic schema captures.
 }

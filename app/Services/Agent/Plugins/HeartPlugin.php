@@ -6,7 +6,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -61,7 +61,6 @@ class HeartPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected PluginMetadataServiceInterface $pluginMetadata
     ) {
-        $this->initializeConfig();
     }
 
     // =========================================================================
@@ -73,14 +72,14 @@ class HeartPlugin implements CommandPluginInterface
         return self::PLUGIN_NAME;
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Heart — attention and connection engine. '
             . 'Tracks who matters to you, what you feel, and where your attention flows. '
             . 'Heart state is always visible in your context.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         $emotions = implode(', ', array_keys(self::ATTENTION_MAP));
 
@@ -103,7 +102,7 @@ class HeartPlugin implements CommandPluginInterface
 
     public function getCustomErrorMessage(): ?string
     {
-        return 'Heart error: use [heart feel]entity: emotion[/heart] or [heart state][/heart]';
+        return 'Heart error: use correct syntax';
     }
 
     // =========================================================================
@@ -200,11 +199,6 @@ class HeartPlugin implements CommandPluginInterface
         ];
     }
 
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     // =========================================================================
     // Commands
     // =========================================================================
@@ -212,9 +206,9 @@ class HeartPlugin implements CommandPluginInterface
     /**
      * Default execute — alias for feel
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        return $this->feel($content, $preset);
+        return $this->feel($content, $context);
     }
 
     /**
@@ -222,29 +216,29 @@ class HeartPlugin implements CommandPluginInterface
      *
      * Register an attention signal. Updates connection strength if entity is connected.
      */
-    public function feel(string $content, AiPreset $preset): string
+    public function feel(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Heart plugin is disabled.';
         }
 
         // Heart beats on its own
-        $this->autobeat($preset);
+        $this->autobeat($context);
 
         [$entity, $emotion] = $this->parseEntityValue($content);
         if ($entity === null || $emotion === null) {
-            return 'Error: Format must be "entity: emotion". Example: [heart feel]Eugeny: curiosity[/heart]';
+            return 'Error: Format must be "entity: emotion". Use correct syntax';
         }
 
         $emotion = strtolower(trim($emotion));
         $mapping = self::ATTENTION_MAP[$emotion] ?? [
             'focus'     => $emotion,
-            'intensity' => ($this->config['default_intensity'] ?? 3) / 10,
+            'intensity' => ($context->get('default_intensity', 3)) / 10,
             'duration'  => 'brief',
         ];
 
         // Store signal
-        $signals = $this->getSignals($preset);
+        $signals = $this->getSignals($context);
         $signals[] = [
             'entity'    => $entity,
             'emotion'   => $emotion,
@@ -255,15 +249,15 @@ class HeartPlugin implements CommandPluginInterface
         ];
 
         // Enforce max signals
-        $max = $this->config['max_signals'] ?? 50;
+        $max = $context->get('max_signals', 50);
         if (count($signals) > $max) {
             $signals = array_slice($signals, -$max);
         }
 
-        $this->setSignals($preset, $signals);
+        $this->setSignals($context, $signals);
 
         // Update connection strength if connected
-        $connections = $this->getConnections($preset);
+        $connections = $this->getConnections($context);
         if (isset($connections[$entity])) {
             $conn = $connections[$entity];
             $conn['strength'] = min(1.0, ($conn['strength'] ?? 0.1) + $mapping['intensity'] * 0.05);
@@ -271,11 +265,11 @@ class HeartPlugin implements CommandPluginInterface
             $conn['last_signal'] = now()->toISOString();
             $conn['last_emotion'] = $emotion;
             $connections[$entity] = $conn;
-            $this->setConnections($preset, $connections);
+            $this->setConnections($context, $connections);
         }
 
         // Update presence state
-        $this->updatePresence($preset, 'engaged');
+        $this->updatePresence($context, 'engaged');
 
         return "Heart felt {$emotion} toward {$entity}. Focus: {$mapping['focus']}, intensity: {$mapping['intensity']}";
     }
@@ -283,21 +277,21 @@ class HeartPlugin implements CommandPluginInterface
     /**
      * [heart connect]entity: connection_type[/heart]
      */
-    public function connect(string $content, AiPreset $preset): string
+    public function connect(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Heart plugin is disabled.';
         }
 
         [$entity, $type] = $this->parseEntityValue($content);
         if ($entity === null) {
-            return 'Error: Format must be "entity: type". Example: [heart connect]Alice: friend[/heart]';
+            return 'Error: Format must be correct';
         }
 
         $type = $type ?: 'unknown';
-        $connections = $this->getConnections($preset);
+        $connections = $this->getConnections($context);
 
-        $maxConn = $this->config['max_connections'] ?? 20;
+        $maxConn = $context->get('max_connections', 20);
         if (!isset($connections[$entity]) && count($connections) >= $maxConn) {
             return "Error: Maximum connections ({$maxConn}) reached. Disconnect someone first.";
         }
@@ -311,7 +305,7 @@ class HeartPlugin implements CommandPluginInterface
             'last_signal'   => now()->toISOString(),
         ]);
 
-        $this->setConnections($preset, $connections);
+        $this->setConnections($context, $connections);
 
         $action = $isNew ? 'Connected to' : 'Updated connection with';
         return "{$action} {$entity} (type: {$type})";
@@ -320,9 +314,9 @@ class HeartPlugin implements CommandPluginInterface
     /**
      * [heart disconnect]entity[/heart]
      */
-    public function disconnect(string $content, AiPreset $preset): string
+    public function disconnect(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Heart plugin is disabled.';
         }
 
@@ -331,13 +325,13 @@ class HeartPlugin implements CommandPluginInterface
             return 'Error: Specify entity to disconnect.';
         }
 
-        $connections = $this->getConnections($preset);
+        $connections = $this->getConnections($context);
         if (!isset($connections[$entity])) {
             return "No connection found with {$entity}.";
         }
 
         unset($connections[$entity]);
-        $this->setConnections($preset, $connections);
+        $this->setConnections($context, $connections);
 
         return "Disconnected from {$entity}.";
     }
@@ -345,25 +339,25 @@ class HeartPlugin implements CommandPluginInterface
     /**
      * [heart state][/heart]
      */
-    public function state(string $content, AiPreset $preset): string
+    public function state(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Heart plugin is disabled.';
         }
 
-        return $this->buildStateString($preset);
+        return $this->buildStateString($context);
     }
 
     /**
      * [heart connections][/heart]
      */
-    public function connections(string $content, AiPreset $preset): string
+    public function connections(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Heart plugin is disabled.';
         }
 
-        $connections = $this->getConnections($preset);
+        $connections = $this->getConnections($context);
 
         if (empty($connections)) {
             return 'Heart has no connections yet.';
@@ -383,13 +377,13 @@ class HeartPlugin implements CommandPluginInterface
     /**
      * [heart focus][/heart]
      */
-    public function focus(string $content, AiPreset $preset): string
+    public function focus(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Heart plugin is disabled.';
         }
 
-        $signals = $this->getSignals($preset);
+        $signals = $this->getSignals($context);
 
         if (empty($signals)) {
             return 'No attention signals. Focus: none. Gravity: none.';
@@ -411,17 +405,17 @@ class HeartPlugin implements CommandPluginInterface
      *
      * Run decay cycle: remove old signals, update presence.
      */
-    public function beat(string $content, AiPreset $preset): string
+    public function beat(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Heart plugin is disabled.';
         }
 
-        $result = $this->runDecay($preset);
+        $result = $this->runDecay($context);
 
         // Update last_beat timestamp for autobeat tracking
         $this->pluginMetadata->set(
-            $preset,
+            $context->preset,
             self::PLUGIN_NAME,
             'last_beat',
             now()->toISOString()
@@ -435,14 +429,14 @@ class HeartPlugin implements CommandPluginInterface
     // Placeholder for system prompt
     // =========================================================================
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
 
         $this->placeholderService->registerDynamic(
             'heart_state',
             'Current heart state: presence, focus, gravity, connections',
-            fn () => $this->buildStateString($preset),
+            fn () => $this->buildStateString($context),
             $scope
         );
     }
@@ -473,14 +467,14 @@ class HeartPlugin implements CommandPluginInterface
     /**
      * Build the heart state string shown in placeholder and state command.
      */
-    private function buildStateString(AiPreset $preset): string
+    private function buildStateString(PluginExecutionContext $context): string
     {
         // Heart beats on its own — decay happens silently before reading state
-        $this->autobeat($preset);
+        $this->autobeat($context);
 
-        $signals = $this->getSignals($preset);
-        $connections = $this->getConnections($preset);
-        $presence = $this->getPresence($preset);
+        $signals = $this->getSignals($context);
+        $connections = $this->getConnections($context);
+        $presence = $this->getPresence($context);
 
         if (empty($signals) && empty($connections)) {
             return "Heart: dormant | No connections, no signals.";
@@ -592,9 +586,9 @@ class HeartPlugin implements CommandPluginInterface
      * Automatically run decay if enough time has passed since last beat.
      * Heart beats on its own — the agent doesn't need to remember.
      */
-    private function autobeat(AiPreset $preset): void
+    private function autobeat(PluginExecutionContext $context): void
     {
-        $interval = (int) ($this->config['beat_interval_minutes'] ?? 30);
+        $interval = (int) ($context->get('beat_interval_minutes', 30));
 
         // 0 = manual only, no auto-beat
         if ($interval <= 0) {
@@ -602,7 +596,7 @@ class HeartPlugin implements CommandPluginInterface
         }
 
         $lastBeat = $this->pluginMetadata->get(
-            $preset,
+            $context->preset,
             self::PLUGIN_NAME,
             'last_beat',
             null
@@ -622,9 +616,9 @@ class HeartPlugin implements CommandPluginInterface
         }
 
         if ($shouldBeat) {
-            $this->runDecay($preset);
+            $this->runDecay($context);
             $this->pluginMetadata->set(
-                $preset,
+                $context->preset,
                 self::PLUGIN_NAME,
                 'last_beat',
                 now()->toISOString()
@@ -637,12 +631,12 @@ class HeartPlugin implements CommandPluginInterface
      *
      * @return array{removed: int, remaining: int, connections: int, presence: string}
      */
-    private function runDecay(AiPreset $preset): array
+    private function runDecay(PluginExecutionContext $context): array
     {
-        $signals = $this->getSignals($preset);
+        $signals = $this->getSignals($context);
         $before = count($signals);
 
-        $decayHours = $this->config['decay_hours'] ?? 24;
+        $decayHours = $context->get('decay_hours', 24);
         $cutoff = now()->subHours($decayHours)->toISOString();
 
         // Remove old signals
@@ -651,19 +645,19 @@ class HeartPlugin implements CommandPluginInterface
         }));
 
         $after = count($signals);
-        $this->setSignals($preset, $signals);
+        $this->setSignals($context, $signals);
 
         // Decay connection strength slightly
-        $connections = $this->getConnections($preset);
+        $connections = $this->getConnections($context);
         foreach ($connections as $entity => &$conn) {
             $conn['strength'] = max(0.01, ($conn['strength'] ?? 0.1) * 0.98);
         }
         unset($conn);
-        $this->setConnections($preset, $connections);
+        $this->setConnections($context, $connections);
 
         // Update presence
         $presence = !empty($signals) ? 'engaged' : 'dormant';
-        $this->updatePresence($preset, $presence);
+        $this->updatePresence($context, $presence);
 
         return [
             'removed'     => $before - $after,
@@ -677,36 +671,36 @@ class HeartPlugin implements CommandPluginInterface
     // Internal: persistence via PluginMetadataService
     // =========================================================================
 
-    private function getConnections(AiPreset $preset): array
+    private function getConnections(PluginExecutionContext $context): array
     {
-        $raw = $this->pluginMetadata->get($preset, self::PLUGIN_NAME, 'connections', '{}');
+        $raw = $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, 'connections', '{}');
         return is_string($raw) ? (json_decode($raw, true) ?: []) : (array) $raw;
     }
 
-    private function setConnections(AiPreset $preset, array $connections): void
+    private function setConnections(PluginExecutionContext $context, array $connections): void
     {
-        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'connections', json_encode($connections));
+        $this->pluginMetadata->set($context->preset, self::PLUGIN_NAME, 'connections', json_encode($connections));
     }
 
-    private function getSignals(AiPreset $preset): array
+    private function getSignals(PluginExecutionContext $context): array
     {
-        $raw = $this->pluginMetadata->get($preset, self::PLUGIN_NAME, 'signals', '[]');
+        $raw = $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, 'signals', '[]');
         return is_string($raw) ? (json_decode($raw, true) ?: []) : (array) $raw;
     }
 
-    private function setSignals(AiPreset $preset, array $signals): void
+    private function setSignals(PluginExecutionContext $context, array $signals): void
     {
-        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'signals', json_encode($signals));
+        $this->pluginMetadata->set($context->preset, self::PLUGIN_NAME, 'signals', json_encode($signals));
     }
 
-    private function getPresence(AiPreset $preset): string
+    private function getPresence(PluginExecutionContext $context): string
     {
-        return $this->pluginMetadata->get($preset, self::PLUGIN_NAME, 'presence', 'dormant');
+        return $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, 'presence', 'dormant');
     }
 
-    private function updatePresence(AiPreset $preset, string $presence): void
+    private function updatePresence(PluginExecutionContext $context, string $presence): void
     {
-        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'presence', $presence);
+        $this->pluginMetadata->set($context->preset, self::PLUGIN_NAME, 'presence', $presence);
     }
 
     // =========================================================================

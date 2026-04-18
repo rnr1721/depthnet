@@ -3,16 +3,32 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 
 /**
- * ShellPlugin class
+ * ShellPlugin — stateless.
  *
- * Provides a way to execute shell commands with safety checks and user switching.
- * Allows interaction with the Linux operating system through a command line interface.
+ * ⚠️  HOST EXECUTION PLUGIN ⚠️
+ *
+ * Unlike SandboxPlugin (which executes inside an isolated Docker container),
+ * this plugin runs commands DIRECTLY ON THE HOST as the PHP process user.
+ * That means an enabled ShellPlugin can read your .env, modify files, install
+ * packages, exfiltrate secrets — anything the PHP user can do.
+ *
+ * It is preserved primarily for operational/admin tasks (restart a service,
+ * check disk usage, look at logs) on installations that knowingly choose
+ * this trade-off. For agent-driven code execution, prefer SandboxPlugin.
+ *
+ * Per-preset state:
+ *   - current_directory is no longer stored in $this->config (the singleton
+ *     is shared across presets — that was a bug). It now lives in
+ *     PluginMetadataService keyed by preset, surviving cd commands within
+ *     a session and across requests.
  */
 class ShellPlugin implements CommandPluginInterface
 {
@@ -20,7 +36,10 @@ class ShellPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
+    public const PLUGIN_NAME = 'shell';
+
     protected bool $isTesting = false;
+
     protected array $defaultDangerous = [
         'rm -rf /', 'sudo', 'su ', 'passwd', 'chmod 777', 'chown',
         'shutdown', 'reboot', 'halt', 'init', 'killall', 'pkill',
@@ -29,31 +48,24 @@ class ShellPlugin implements CommandPluginInterface
         'curl', 'nc ', 'netcat'
     ];
 
-    public function __construct()
-    {
-        $this->initializeConfig();
+    public function __construct(
+        protected PluginMetadataServiceInterface $pluginMetadata
+    ) {
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getName(): string
     {
-        return 'shell';
+        return self::PLUGIN_NAME;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
-        return 'Execute shell commands and interact with the linux operating system. Provides safe access to common system operations and utilities.';
+        return '⚠️ HOST EXECUTION — runs commands DIRECTLY on the host as the PHP process user. '
+             . 'Not isolated. Can read/modify any file the web user can. '
+             . 'Use SandboxPlugin for code execution; reserve this for trusted operational tasks.';
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         return [
             'Execute any shell command: [shell]command here[/shell]',
@@ -64,73 +76,61 @@ class ShellPlugin implements CommandPluginInterface
             'Find processes: [shell]ps aux | grep nginx[/shell]',
             'Create folder: [shell]mkdir new_folder[/shell]',
             'Find files: [shell]find . -name "*.php"[/shell]',
-            'Test network: [shell]ping -c 3 google.com[/shell]'
+            'Test network: [shell]ping -c 3 google.com[/shell]',
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomSuccessMessage(): ?string
     {
         return "Shell command executed successfully.";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomErrorMessage(): ?string
     {
         return "Error executing shell command.";
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        $shellPrompt = $this->buildPrompt();
-        if (str_starts_with($content, $shellPrompt) && !empty($shellPrompt)) {
+        if (!$context->enabled) {
+            return "Error: Shell plugin is disabled.";
+        }
+
+        $shellPrompt = $this->buildPrompt($context);
+        if (!empty($shellPrompt) && str_starts_with($content, $shellPrompt)) {
             // Remove shell prompt if it exists
             $content = substr($content, strlen($shellPrompt));
         }
 
-        if (!$this->isEnabled()) {
-            return "Error: Shell plugin is disabled.";
-        }
-
         try {
-            // Security is our hell
+            // Security check — skipped only when running unit tests with $isTesting=true
             if (!$this->isTesting) {
-                if ($this->config['security_enabled'] ?? true && $this->isDangerousCommand($content)) {
+                if ($context->get('security_enabled', true) && $this->isDangerousCommand($context, $content)) {
                     return "Error: Dangerous command blocked for security reasons.";
                 }
             }
 
-            $command = $this->buildCommand($content);
+            $command = $this->buildCommand($context, $content);
 
-            // Run the command with timeout and capture output
             $output = [];
             $returnCode = 0;
             exec("$command 2>&1", $output, $returnCode);
 
             $result = implode("\n", $output);
 
-            // Extract current directory and save it
+            // Extract current directory and persist it via metadata
             if (preg_match('/<<<CURRENT_DIR>>>(.+?)$/m', $result, $matches)) {
-                $currentDir = trim($matches[1]);
-                $this->saveCurrentDirectory($currentDir);
+                $newDir = trim($matches[1]);
+                $this->saveCurrentDirectory($context->preset, $newDir);
                 $result = preg_replace('/<<<CURRENT_DIR>>>.+$/m', '', $result);
                 $result = rtrim($result);
-            } else {
-                $currentDir = $this->getCurrentWorkingDirectory();
             }
 
             if ($returnCode !== 0) {
                 return "Command failed with exit code {$returnCode}:\n{$result}";
             }
 
-            return $this->buildPrompt() . $content . "\n" . $result ?: 'Command executed successfully with no output.';
+            return $this->buildPrompt($context) . $content . "\n" . ($result ?: 'Command executed successfully with no output.');
 
         } catch (\Throwable $e) {
             return "Error while executing shell command: " . $e->getMessage();
@@ -138,64 +138,17 @@ class ShellPlugin implements CommandPluginInterface
     }
 
     /**
-     * Get current working directory for command execution
-     *
-     * @return string
+     * Reset current directory for a preset back to the configured default.
+     * Called from outside (e.g. cleanup commands), so it accepts AiPreset
+     * directly rather than a context.
      */
-    private function getCurrentWorkingDirectory(): string
+    public function resetCurrentDirectory(AiPreset $preset): void
     {
-        // If we have a saved current directory from previous commands, use it
-        if (!empty($this->config['current_directory'])) {
-            return $this->config['current_directory'];
-        }
-
-        // Otherwise use configured working directory or default
-        return $this->config['working_directory'] ?? getcwd();
+        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'current_directory', null);
     }
 
-    /**
-     * Save current directory state
-     *
-     * @param string $directory
-     */
-    private function saveCurrentDirectory(string $directory): void
-    {
-        $this->config['current_directory'] = $directory;
-    }
-
-    /**
-     * Reset current directory to working directory
-     */
-    public function resetCurrentDirectory(): void
-    {
-        $this->config['current_directory'] = null;
-    }
-
-    /**
-     * Build shell-like prompt
-     *
-     * @return string
-     */
-    private function buildPrompt(): string
-    {
-        if (!($this->config['show_shell_prompt'] ?? false)) {
-            return '';
-        }
-        $realcwd = $this->getCurrentWorkingDirectory();
-        $user = $this->config['user'] ?: trim(shell_exec('whoami'));
-        $host = trim(shell_exec('hostname'));
-
-        $symbol = ($user === 'root') ? '#' : '$';
-
-        return "{$user}@{$host}:{$realcwd} {$symbol} ";
-    }
-
-    /**
-     * @inheritDoc
-     */
     public function getConfigFields(): array
     {
-
         $dangerousCommands = '';
         foreach ($this->defaultDangerous as $dangerous) {
             $dangerousCommands .= $dangerous . "\n";
@@ -204,8 +157,8 @@ class ShellPlugin implements CommandPluginInterface
         return [
             'enabled' => [
                 'type' => 'checkbox',
-                'label' => 'Enable Shell Plugin',
-                'description' => 'Allow execution of shell commands',
+                'label' => '⚠️ Enable Shell Plugin (HOST EXECUTION)',
+                'description' => 'WARNING: This plugin executes commands directly on the host system. Only enable if you understand the security implications and trust the agent prompts. For code execution use SandboxPlugin instead.',
                 'required' => false
             ],
             'user' => [
@@ -240,7 +193,7 @@ class ShellPlugin implements CommandPluginInterface
             'security_enabled' => [
                 'type' => 'checkbox',
                 'label' => 'Enable Security Checks',
-                'description' => 'Block dangerous commands',
+                'description' => 'Block dangerous commands listed below',
                 'value' => true,
                 'required' => false
             ],
@@ -263,14 +216,10 @@ class ShellPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function validateConfig(array $config): array
     {
         $errors = [];
 
-        // Validate timeout
         if (isset($config['timeout'])) {
             $timeout = (int) $config['timeout'];
             if ($timeout < 1 || $timeout > 600) {
@@ -278,7 +227,6 @@ class ShellPlugin implements CommandPluginInterface
             }
         }
 
-        // Validate working directory exists
         if (!empty($config['working_directory'])) {
             $dir = $config['working_directory'];
             if (!is_dir($dir)) {
@@ -286,7 +234,6 @@ class ShellPlugin implements CommandPluginInterface
             }
         }
 
-        // Validate user exists if specified
         if (!empty($config['user'])) {
             $user = $config['user'];
             if (!$this->userExists($user)) {
@@ -298,16 +245,16 @@ class ShellPlugin implements CommandPluginInterface
     }
 
     /**
-     * @inheritDoc
+     * disabled by default. Admin must consciously enable host
+     * execution after reading the warning in the UI description.
      */
     public function getDefaultConfig(): array
     {
         return [
-            'enabled' => true,
+            'enabled' => false,
             'user' => config('ai.plugins.execution_user', ''),
             'show_shell_prompt' => true,
             'working_directory' => config('ai.plugins.shell.working_directory', '/shared/httpd'),
-            'current_directory' => null,
             'timeout' => 60,
             'security_enabled' => true,
             'allowed_directories' => [
@@ -319,32 +266,70 @@ class ShellPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function testConnection(): bool
+    public function getMergeSeparator(): ?string
     {
-        return $this->isEnabled();
+        return " && ";
     }
 
-    /**
-     * Build command with user and settings
-     *
-     * @param string $baseCommand
-     * @return string
-     */
-    private function buildCommand(string $baseCommand): string
+    public function canBeMerged(): bool
     {
-        $user = $this->config['user'] ?? '';
-        $currentDir = $this->getCurrentWorkingDirectory();
-        $timeout = $this->config['timeout'] ?? 60;
+        return true;
+    }
+
+    public function getSelfClosingTags(): array
+    {
+        return [];
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Get the current working directory for a preset.
+     * Reads from PluginMetadataService (preserves cd between commands)
+     * with fallback to the preset's configured working_directory.
+     */
+    private function getCurrentWorkingDirectory(PluginExecutionContext $context): string
+    {
+        $stored = $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, 'current_directory');
+
+        if (!empty($stored)) {
+            return $stored;
+        }
+
+        return $context->get('working_directory', getcwd());
+    }
+
+    private function saveCurrentDirectory(AiPreset $preset, string $directory): void
+    {
+        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'current_directory', $directory);
+    }
+
+    private function buildPrompt(PluginExecutionContext $context): string
+    {
+        if (!$context->get('show_shell_prompt', false)) {
+            return '';
+        }
+
+        $realcwd = $this->getCurrentWorkingDirectory($context);
+        $user = $context->get('user', '') ?: trim(shell_exec('whoami'));
+        $host = trim(shell_exec('hostname'));
+
+        $symbol = ($user === 'root') ? '#' : '$';
+
+        return "{$user}@{$host}:{$realcwd} {$symbol} ";
+    }
+
+    private function buildCommand(PluginExecutionContext $context, string $baseCommand): string
+    {
+        $user = $context->get('user', '');
+        $currentDir = $this->getCurrentWorkingDirectory($context);
+        $timeout = (int) $context->get('timeout', 60);
 
         // Build combined command with directory tracking inside the same shell session
         $combinedCommand = $baseCommand . '; echo "<<<CURRENT_DIR>>>$(pwd)"';
         $escapedCombinedCommand = escapeshellarg($combinedCommand);
         $escapedCurrentDir = escapeshellarg($currentDir);
 
-        // Build the command with proper escaping
         $command = "cd {$escapedCurrentDir} && timeout {$timeout} bash -c {$escapedCombinedCommand}";
 
         // If user is specified and it's not the current user
@@ -353,7 +338,6 @@ class ShellPlugin implements CommandPluginInterface
                 throw new \Exception("Cannot switch to user '$user': insufficient privileges");
             }
 
-            // Choose the best method to switch users
             if (!empty(shell_exec('command -v runuser 2>/dev/null'))) {
                 $command = "runuser -u " . escapeshellarg($user) . " -- bash -c " . escapeshellarg($command);
             } elseif (!empty(shell_exec('command -v su 2>/dev/null'))) {
@@ -367,15 +351,13 @@ class ShellPlugin implements CommandPluginInterface
     }
 
     /**
-     * Check if command is dangerous
-     *
-     * @param string $command
-     * @return boolean
+     * Check if a command matches the dangerous-commands blacklist.
+     * Reads custom blacklist from context (per-preset) and falls back
+     * to defaults if the admin didn't customise it.
      */
-    protected function isDangerousCommand(string $command): bool
+    protected function isDangerousCommand(PluginExecutionContext $context, string $command): bool
     {
-
-        $customDangerous = $this->config['dangerous_commands'] ?? [];
+        $customDangerous = $context->get('dangerous_commands', []);
         if (is_string($customDangerous)) {
             $customDangerous = array_filter(array_map('trim', explode("\n", $customDangerous)));
         }
@@ -392,82 +374,32 @@ class ShellPlugin implements CommandPluginInterface
         return false;
     }
 
-    /**
-     * Check if user exists
-     *
-     * @param string $user
-     * @return boolean
-     */
     private function userExists(string $user): bool
     {
         $result = shell_exec("id $user 2>/dev/null");
         return !empty($result);
     }
 
-    /**
-     * Check if we can switch users
-     *
-     * @return boolean
-     */
     private function canSwitchUser(): bool
     {
-
-        // TODO: If more plugins need user switching, extract to UserSwitchingTrait
-
         $whoami = trim(shell_exec('whoami'));
 
         if ($whoami === 'root') {
             return true;
         }
 
-        // Check for runuser, su, sudo, any of these means we can switch users
         $hasRunuser = !empty(shell_exec('command -v runuser 2>/dev/null'));
         $hasSu = !empty(shell_exec('command -v su 2>/dev/null'));
         $hasSudo = !empty(shell_exec('command -v sudo 2>/dev/null'));
 
-        // If we have runuser or su, we can switch users
         if ($hasRunuser || $hasSu) {
             return true;
         }
 
-        // If we have sudo, check if the user can use it without password
         if ($hasSudo) {
-            $canSudo = !empty(shell_exec('sudo -n true 2>/dev/null && echo "yes"'));
-            return $canSudo;
+            return !empty(shell_exec('sudo -n true 2>/dev/null && echo "yes"'));
         }
 
         return false;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function getMergeSeparator(): ?string
-    {
-        return " && ";
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function canBeMerged(): bool
-    {
-        return true;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function pluginReady(AiPreset $preset): void
-    {
-        // Nothing to do here
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function getSelfClosingTags(): array
-    {
-        return [];
     }
 }

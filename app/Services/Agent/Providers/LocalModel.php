@@ -290,7 +290,7 @@ class LocalModel implements AIModelEngineInterface
             'timeout' => (int) config('ai.engines.local.timeout', 60),
             'cleanup_enabled' => config('ai.engines.local.cleanup_enabled', true),
             'server_url' => config('ai.engines.local.server_url', 'http://localhost:11434'),
-            'agent_results_role' => config('ai.engines.local.agent_results_role', 'system'),
+            'agent_results_role' => config('ai.engines.local.agent_results_role', 'assistant'),
             'system_prompt' => config('ai.engines.local.system_prompt', 'You are a useful AI assistant.')
         ];
     }
@@ -424,33 +424,56 @@ class LocalModel implements AIModelEngineInterface
     }
 
     /**
-     * @inheritDoc
+     * Generate an AI response, optionally with tool_calls support.
+     *
+     * Tool_calls are only enabled when the preset config explicitly sets
+     * 'supports_tool_calls' => true AND the Agent attaches tool schemas
+     * via ModelRequestDTO::additionalParams['tools'].
+     *
+     * Two response paths when tool_calls are enabled:
+     * - finish_reason='tool_calls': model wants to invoke plugins.
+     *   tool_calls serialized as JSON for ToolCallParser.
+     * - finish_reason='stop': normal text response.
+     *
+     * @param  AiModelRequestInterface  $request
+     * @return AiModelResponseInterface
      */
-    public function generate(
-        AiModelRequestInterface $request
-    ): AiModelResponseInterface {
+    public function generate(AiModelRequestInterface $request): AiModelResponseInterface
+    {
         try {
             $messages = $this->buildMessages($request);
 
             $data = array_merge($this->config, [
                 'messages' => $messages,
-                'stream' => false
+                'stream'   => false,
             ]);
 
-            // Remove non-API parameters
-            $nonApiParams = ['model_family', 'server_type', 'cleanup_enabled', 'system_prompt', 'server_url', 'api_key'];
+            // Remove non-API parameters that should not be sent to the model
+            $nonApiParams = [
+                'model_family', 'server_type', 'cleanup_enabled',
+                'system_prompt', 'server_url', 'api_key', 'supports_tool_calls',
+            ];
             foreach ($nonApiParams as $param) {
                 unset($data[$param]);
             }
 
+            // Attach tool schemas only if the local server explicitly supports tool_calls.
+            // Not all local models/servers implement this — opt-in via preset config.
+            // tool_choice='auto' lets the model decide whether to call a tool.
+            $tools = $request->getAdditionalParam('tools', []);
+            if (!empty($tools) && ($this->config['supports_tool_calls'] ?? false)) {
+                $data['tools']       = $tools;
+                $data['tool_choice'] = 'auto';
+            }
+
             $endpoint = $this->getApiEndpoint();
-            $timeout = $this->config['timeout'] ?? config('ai.engines.local.timeout', 60);
+            $timeout  = $this->config['timeout'] ?? config('ai.engines.local.timeout', 60);
 
             $httpRequest = $this->http->timeout($timeout);
 
             if (!empty($this->config['api_key'])) {
                 $httpRequest = $httpRequest->withHeaders([
-                    'Authorization' => 'Bearer ' . $this->config['api_key']
+                    'Authorization' => 'Bearer ' . $this->config['api_key'],
                 ]);
             }
 
@@ -461,34 +484,53 @@ class LocalModel implements AIModelEngineInterface
                 throw new AiModelException("{$errorMessage}: {$response->status()} - {$response->body()}");
             }
 
-            $result = $response->json();
+            $result       = $response->json();
+            $choice       = $result['choices'][0] ?? null;
+            $finishReason = $choice['finish_reason'] ?? null;
+            $message      = $choice['message'] ?? null;
 
-            if (!isset($result['choices'][0]['message']['content'])) {
-                $this->logger->warning("Invalid local model response format", [
-                    'response' => $result,
+            // Tool-calls path: model chose to invoke one or more plugins.
+            // Only reached when supports_tool_calls=true and tools were attached.
+            if ($finishReason === 'tool_calls' && !empty($message['tool_calls'])) {
+                $this->logger->info('LocalModel tool_calls received', [
                     'model' => $this->config['model'] ?? 'unknown',
-                    'server_url' => $this->serverUrl
+                    'count' => count($message['tool_calls']),
                 ]);
 
-                $errorMessage = config('ai.global.error_messages.invalid_format', 'Invalid response format from local model');
-                throw new AiModelException($errorMessage);
+                return new ModelResponseDTO(
+                    json_encode(['tool_calls' => $message['tool_calls']])
+                );
             }
 
-            $content = $result['choices'][0]['message']['content'] ?? '';
+            // Normal text response path
+            $content = $message['content'] ?? null;
+
+            if ($content === null) {
+                $this->logger->warning('Invalid local model response format', [
+                    'response'   => $result,
+                    'model'      => $this->config['model'] ?? 'unknown',
+                    'server_url' => $this->serverUrl,
+                ]);
+
+                throw new AiModelException(
+                    config('ai.global.error_messages.invalid_format', 'Invalid response format from local model')
+                );
+            }
 
             return new ModelResponseDTO(
                 ($this->config['cleanup_enabled'] ?? true) ? $this->cleanOutput($content) : $content
             );
+
         } catch (\Exception $e) {
-            $this->logger->error("LocalModel error: " . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
+            $this->logger->error('LocalModel error: ' . $e->getMessage(), [
+                'trace'        => $e->getTraceAsString(),
                 'context_size' => count($request->getContext()),
-                'config' => $this->config,
-                'server_url' => $this->serverUrl
+                'config'       => $this->config,
+                'server_url'   => $this->serverUrl,
             ]);
 
             return new ModelResponseDTO(
-                "error\nError generating response: " . $e->getMessage(),
+                'error\nError generating response: ' . $e->getMessage(),
                 true
             );
         }
@@ -516,55 +558,107 @@ class LocalModel implements AIModelEngineInterface
     }
 
     /**
-     * Build messages array for Local AI API
+     * Build messages array for the local model API.
      *
-     * @param AiModelRequestInterface $request
-     * @return array
+     * Local models are OpenAI-compatible — system prompt goes as first message.
+     *
+     * Role mapping:
+     *   user    → role: user
+     *   command → role: assistant + tool_calls (if tool_calls_raw in metadata)
+     *             role: assistant (plain, for tag-mode command messages)
+     *   result  → role: tool + tool_call_id per entry (if tool_results in metadata)
+     *             role: agent_results_role             (plain, tag-mode fallback)
+     *   default → role: assistant
+     *
+     * Note: tool_calls history entries are only present when the preset has
+     * supports_tool_calls=true and previously produced tool_calls responses.
+     * All other presets go through the plain fallback paths unchanged.
+     *
+     * @param  AiModelRequestInterface $request
+     * @return array                   Messages array ready for the local model API
      */
     protected function buildMessages(AiModelRequestInterface $request): array
     {
+
         $systemMessage = $this->prepareMessage($request);
-        $messages = [];
+        $messages      = [];
 
-        // Local models use system role (OpenAI-compatible)
-        $messages[] = [
-            'role' => 'system',
-            'content' => $systemMessage
-        ];
+        if (!empty(trim($systemMessage))) {
+            $messages[] = [
+                'role'    => 'system',
+                'content' => $systemMessage,
+            ];
+        }
 
-        $context = $request->getContext();
-
-        foreach ($context as $entry) {
-            $role = $entry['role'] ?? 'assistant';
+        foreach ($request->getContext() as $entry) {
+            $role    = $entry['role']    ?? 'assistant';
             $content = $entry['content'] ?? '';
+            $metadata = $entry['metadata'] ?? [];
 
-            if (empty(trim($content))) {
+            $hasToolCalls   = $role === 'command' && !empty($metadata['tool_calls_raw']);
+            $hasToolResults = $role === 'result'  && !empty($metadata['tool_results']);
+
+            if (empty(trim((string)$content)) && !$hasToolCalls && !$hasToolResults) {
                 continue;
             }
 
-            // Map roles for Local AI models (OpenAI-compatible)
             switch ($role) {
                 case 'user':
-                    $messages[] = [
-                        'role' => 'user',
-                        'content' => $content
-                    ];
+                    $messages[] = ['role' => 'user', 'content' => $content];
+                    break;
+                case 'command':
+                    // tool_calls mode: restore structured assistant+tool_calls turn.
+                    // The engine stored the raw tool_calls JSON in metadata when it
+                    // detected finish_reason='tool_calls' from the API.
+                    $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    if ($toolCallsRaw) {
+                        $decoded    = json_decode($toolCallsRaw, true);
+                        $toolCalls  = $decoded['tool_calls'] ?? [];
+
+                        if (!empty($toolCalls)) {
+                            // Emit null content — OpenAI spec requires content=null
+                            // when tool_calls are present in the assistant turn
+                            $messages[] = [
+                                'role'       => 'assistant',
+                                'content'    => null,
+                                'tool_calls' => $toolCalls,
+                            ];
+                            break;
+                        }
+                    }
+
+                    // tag-mode fallback: plain assistant message
+                    $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
                 case 'result':
-                    $messages[] = [
-                        'role' => $this->config['agent_results_role'] ?? 'system',
-                        'content' => $content
-                    ];
+                    $toolResults = $metadata['tool_results'] ?? null;
+                    if ($toolResults && is_array($toolResults)) {
+                        foreach ($toolResults as $tr) {
+                            if (empty($tr['tool_call_id'])) {
+                                continue;
+                            }
+                            $messages[] = [
+                                'role'         => 'tool',
+                                'tool_call_id' => $tr['tool_call_id'],
+                                'content'      => $tr['content'] ?? '',
+                            ];
+                        }
+                    } else {
+                        $fallbackRole = $this->config['agent_results_role'] ?? 'assistant';
+                        if ($fallbackRole === 'tool') {
+                            $fallbackRole = 'assistant';
+                        }
+                        $messages[] = [
+                            'role'    => $fallbackRole,
+                            'content' => $content,
+                        ];
+                    }
                     break;
                 default:
-                    $messages[] = [
-                        'role' => 'assistant',
-                        'content' => $content
-                    ];
+                    $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
             }
         }
-
         return $messages;
     }
 

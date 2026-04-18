@@ -56,8 +56,9 @@
       <ChatMessages v-if="!isInitialLoading" ref="messagesComponent" :messages="localMessages" :pagination="pagination"
         :isDark="isDark" :appName="page.props.app_name" :showAgentResults="showAgentResults"
         :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing" :hasTTS="hasTTS"
-        :speakingMessageId="currentlySpeakingId" @deleteMessage="deleteMessage" @scrollUpdate="handleScrollUpdate"
-        @loadOlder="handleLoadOlder" @speakMessage="handleSpeakMessage" class="pb-40 lg:pb-0" />
+        :presetName="currentPreset?.name" :speakingMessageId="currentlySpeakingId" @deleteMessage="deleteMessage"
+        @scrollUpdate="handleScrollUpdate" @loadOlder="handleLoadOlder" @speakMessage="handleSpeakMessage"
+        class="pb-40 lg:pb-0" />
 
       <!-- Scroll to bottom button -->
       <ScrollToBottomButton v-if="hasUnreadMessages || !isUserAtBottom" :hasUnreadMessages="hasUnreadMessages"

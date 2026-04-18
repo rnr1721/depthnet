@@ -6,9 +6,10 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -35,6 +36,7 @@ class WorkspacePlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public const PLUGIN_NAME = 'workspace';
 
@@ -44,7 +46,6 @@ class WorkspacePlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
     // -------------------------------------------------------------------------
@@ -56,20 +57,72 @@ class WorkspacePlugin implements CommandPluginInterface
         return self::PLUGIN_NAME;
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Persistent cross-session key-value scratchpad. that survive across thinking cycles.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Set or overwrite a key:  [workspace set]key: your content here[/workspace]',
             'Append to a key:         [workspace append]key: additional content[/workspace]',
             'Read a single key:       [workspace get]key[/workspace]',
             'Delete a single key:     [workspace delete]key[/workspace]',
             'Wipe entire workspace:   [workspace clear][/workspace]',
             'List all keys:           [workspace list][/workspace]',
+        ];
+
+        $warning = $this->buildLanguageWarning($config, 'workspace_language', 'workspace entries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
+    }
+
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * Overrides the default ToolSchemaBuilder schema to provide precise
+     * parameter descriptions, especially the "key: value" content format
+     * required by set/append operations.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(array $config = []): array
+    {
+
+        $langInstruction = $this->buildLanguageInstruction($config, 'workspace_language');
+
+        return [
+            'name'        => self::PLUGIN_NAME,
+            'description' => 'Persistent cross-session key-value scratchpad. '
+                . 'Stores named, independently updatable keys that survive across thinking cycles. '
+                . $langInstruction
+                . 'Use for active task state, working variables, drafts, plans.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['set', 'append', 'get', 'delete', 'list', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument for the operation.',
+                            'set/append: "key: value" — exactly one key per call, colon-separated.',
+                            'get/delete: key name only.',
+                            'list/clear: leave empty.',
+                            'Example for set: "current_task: analyzing logs"',
+                            'Example for append: "notes: also check error rate"',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
         ];
     }
 
@@ -97,35 +150,44 @@ class WorkspacePlugin implements CommandPluginInterface
                 'description' => 'Allow persistent key-value scratchpad across sessions',
                 'required'    => false,
             ],
+            'workspace_language' => $this->getLanguageConfigField(
+                'Workspace Language',
+                'Force language for workspace entries. Model will be instructed accordingly.'
+            ),
         ];
     }
 
     public function validateConfig(array $config): array
     {
-        return [];
+        $errors = [];
+        if (isset($config['workspace_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['workspace_language'], $valid, true)) {
+                $errors['workspace_language'] = 'Invalid language selection.';
+            }
+        }
+        return $errors;
     }
 
     public function getDefaultConfig(): array
     {
-        return ['enabled' => true];
-    }
-
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
+        return array_merge(
+            ['enabled' => false],
+            $this->getDefaultLanguageConfig('workspace_language')
+        );
     }
 
     // -------------------------------------------------------------------------
     // Plugin lifecycle
     // -------------------------------------------------------------------------
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
         $this->placeholderService->registerDynamic(
             'workspace',
             'Current workspace — all persistent key-value entries for this preset',
-            fn () => $this->workspaceService->getFormatted($preset),
+            fn () => $this->workspaceService->getFormatted($context->preset),
             $scope
         );
     }
@@ -137,17 +199,17 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * Default execute — alias for set, so [workspace]key: value[/workspace] also works.
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        return $this->set($content, $preset);
+        return $this->set($content, $context);
     }
 
     /**
      * [workspace set]key: value[/workspace]
      */
-    public function set(string $content, AiPreset $preset): string
+    public function set(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Workspace plugin is disabled.';
         }
 
@@ -156,7 +218,7 @@ class WorkspacePlugin implements CommandPluginInterface
             return 'Error: Format must be "key: value".';
         }
 
-        $this->workspaceService->set($preset, $key, $value);
+        $this->workspaceService->set($context->preset, $key, $value);
 
         return "Workspace key [{$key}] set successfully.";
     }
@@ -164,9 +226,9 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace append]key: additional text[/workspace]
      */
-    public function append(string $content, AiPreset $preset): string
+    public function append(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Workspace plugin is disabled.';
         }
 
@@ -175,7 +237,7 @@ class WorkspacePlugin implements CommandPluginInterface
             return 'Error: Format must be "key: value".';
         }
 
-        $this->workspaceService->append($preset, $key, $value);
+        $this->workspaceService->append($context->preset, $key, $value);
 
         return "Workspace key [{$key}] updated (appended).";
     }
@@ -183,14 +245,14 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace get]key[/workspace]
      */
-    public function get(string $content, AiPreset $preset): string
+    public function get(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Workspace plugin is disabled.';
         }
 
         $key   = trim($content);
-        $value = $this->workspaceService->get($preset, $key);
+        $value = $this->workspaceService->get($context->preset, $key);
 
         if ($value === null) {
             return "Workspace key [{$key}] does not exist.";
@@ -202,14 +264,14 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace delete]key[/workspace]
      */
-    public function delete(string $content, AiPreset $preset): string
+    public function delete(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Workspace plugin is disabled.';
         }
 
         $key     = trim($content);
-        $deleted = $this->workspaceService->delete($preset, $key);
+        $deleted = $this->workspaceService->delete($context->preset, $key);
 
         return $deleted
             ? "Workspace key [{$key}] deleted."
@@ -219,13 +281,13 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace clear][/workspace]
      */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Workspace plugin is disabled.';
         }
 
-        $this->workspaceService->clear($preset);
+        $this->workspaceService->clear($context->preset);
 
         return 'Workspace cleared.';
     }
@@ -233,13 +295,13 @@ class WorkspacePlugin implements CommandPluginInterface
     /**
      * [workspace list][/workspace]
      */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Workspace plugin is disabled.';
         }
 
-        $entries = $this->workspaceService->all($preset);
+        $entries = $this->workspaceService->all($context->preset);
 
         if (empty($entries)) {
             return 'Workspace is empty.';
@@ -294,4 +356,5 @@ class WorkspacePlugin implements CommandPluginInterface
 
         return [$key, $value];
     }
+
 }

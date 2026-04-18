@@ -348,29 +348,54 @@ class ClaudeModel implements AIModelEngineInterface
     }
 
     /**
-     * @inheritDoc
+     * Generate an AI response, optionally with tool_use support.
+     *
+     * When the preset operates in command_mode='tool_calls', Agent attaches
+     * OpenAI-compatible tool schemas via ModelRequestDTO::additionalParams['tools'].
+     * This method converts them to Anthropic format and forwards them to the API.
+     *
+     * Two response paths:
+     *
+     * - tool_use blocks present in content[]: model chose to invoke plugins.
+     *   Blocks are serialized as a JSON array and returned as the response string.
+     *   ToolCallParser recognizes the Anthropic format (type=tool_use) and maps
+     *   them to ParsedCommand[] for CommandExecutor.
+     *
+     * - No tool_use blocks: normal text response, processed as before.
+     *
+     * @param  AiModelRequestInterface  $request
+     * @return AiModelResponseInterface
      */
-    public function generate(
-        AiModelRequestInterface $request
-    ): AiModelResponseInterface {
+    public function generate(AiModelRequestInterface $request): AiModelResponseInterface
+    {
         try {
-            $messages = $this->buildMessages($request);
+            $messages      = $this->buildMessages($request);
             $systemMessage = $this->prepareMessage($request);
 
             $data = [
-                'model' => $this->model,
-                'max_tokens' => $this->config['max_tokens'],
+                'model'       => $this->model,
+                'max_tokens'  => $this->config['max_tokens'],
                 'temperature' => $this->config['temperature'],
-                'top_p' => $this->config['top_p'],
-                'messages' => $messages
+                'top_p'       => $this->config['top_p'],
+                'messages'    => $messages,
             ];
 
             if (!empty(trim($systemMessage))) {
                 $data['system'] = $systemMessage;
             }
 
-            $headers = $this->getRequestHeaders();
-            $timeout = config('ai.engines.claude.timeout', 120);
+            // Attach tool schemas when preset is in tool_calls mode.
+            // OpenAI-format schemas from ToolSchemaBuilder are converted to
+            // Anthropic's native format here.
+            // tool_choice='auto' lets the model decide whether to use tools.
+            $tools = $request->getAdditionalParam('tools', []);
+            if (!empty($tools)) {
+                $data['tools']       = $this->convertToolsToAnthropicFormat($tools);
+                $data['tool_choice'] = ['type' => 'auto'];
+            }
+
+            $headers  = $this->getRequestHeaders();
+            $timeout  = config('ai.engines.claude.timeout', 120);
 
             $response = $this->http
                 ->withHeaders($headers)
@@ -378,27 +403,52 @@ class ClaudeModel implements AIModelEngineInterface
                 ->post($this->serverUrl, $data);
 
             if ($response->failed()) {
-                $errorBody = $response->json();
-                $errorMessage = $errorBody['error']['message'] ?? config('ai.global.error_messages.connection_failed', 'Unknown error');
+                $errorBody    = $response->json();
+                $errorMessage = $errorBody['error']['message']
+                    ?? config('ai.global.error_messages.connection_failed', 'Unknown error');
                 throw new AiModelException("Claude API Error ({$response->status()}): $errorMessage");
             }
 
             $result = $response->json();
 
+            // Tool-use path: find type=tool_use blocks in the content array.
+            // Serialize them as a JSON array — ToolCallParser::parse() recognizes
+            // the Anthropic format (blocks with type=tool_use).
+            $toolUseBlocks = array_values(array_filter(
+                $result['content'] ?? [],
+                fn ($block) => ($block['type'] ?? '') === 'tool_use'
+            ));
+
+            if (!empty($toolUseBlocks)) {
+                $this->logger->info('Claude tool_use blocks received', [
+                    'model' => $this->model,
+                    'count' => count($toolUseBlocks),
+                ]);
+
+                return new ModelResponseDTO(
+                    json_encode($toolUseBlocks)
+                );
+            }
+
+            // Normal text response path
             if (!isset($result['content'][0]['text'])) {
                 $this->logger->warning("Invalid Claude response format", ['response' => $result]);
-                $errorMessage = config('ai.global.error_messages.invalid_format', 'Invalid response format from Claude API');
+                $errorMessage = config(
+                    'ai.global.error_messages.invalid_format',
+                    'Invalid response format from Claude API'
+                );
                 throw new AiModelException($errorMessage);
             }
 
             return new ModelResponseDTO(
                 $this->cleanOutput($result['content'][0]['text'])
             );
+
         } catch (\Exception $e) {
             $this->logger->error("ClaudeModel error: " . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
+                'trace'        => $e->getTraceAsString(),
                 'context_size' => count($request->getContext()),
-                'model' => $this->model
+                'model'        => $this->model,
             ]);
 
             if (str_contains($e->getMessage(), 'API Error')) {
@@ -460,45 +510,130 @@ class ClaudeModel implements AIModelEngineInterface
     }
 
     /**
-     * Build messages array for Claude API
-     * Note: ContextBuilders already ensure conversation ends with user message
+     * Build messages array for the Anthropic Claude API.
      *
-     * @param AiModelRequestInterface $request
-     * @return array
+     * Note: Claude requires strictly alternating user/assistant turns.
+     * ContextBuilders already ensure the conversation ends with a user message.
+     *
+     * Role mapping:
+     *   user    → role: user (plain string content)
+     *   command → role: assistant, content: [{type:tool_use, ...}] (tool_calls mode)
+     *             role: assistant, content: string                  (tag-mode fallback)
+     *   result  → role: user, content: [{type:tool_result, ...}, {type:text, text:...}] (tool_calls mode)
+     *             role: agent_results_role, content: string         (tag-mode fallback)
+     *   default → role: assistant, content: string
+     *
+     * @param  AiModelRequestInterface $request
+     * @return array                   Messages array ready for the Anthropic API
      */
     protected function buildMessages(AiModelRequestInterface $request): array
     {
         $messages = [];
-
-        $context = $request->getContext();
+        $context  = $request->getContext();
 
         foreach ($context as $entry) {
-            $role = $entry['role'] ?? 'thinking';
-            $content = $entry['content'] ?? '';
+            $role     = $entry['role']     ?? 'thinking';
+            $content  = $entry['content']  ?? '';
+            $metadata = $entry['metadata'] ?? [];
 
-            if (empty(trim($content))) {
+            $hasToolCalls   = $role === 'command' && !empty($metadata['tool_calls_raw']);
+            $hasToolResults = $role === 'result'  && !empty($metadata['tool_results']);
+
+            if (empty(trim((string)$content)) && !$hasToolCalls && !$hasToolResults) {
                 continue;
             }
 
-            // Map internal agent roles to Claude API roles
             switch ($role) {
                 case 'user':
                     $messages[] = [
-                        'role' => 'user',
-                        'content' => $content
+                        'role'    => 'user',
+                        'content' => $content,
                     ];
                     break;
+
+                case 'command':
+                    $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    if ($toolCallsRaw) {
+                        $toolUseBlocks = json_decode($toolCallsRaw, true);
+
+                        // Validate: decoded data must be an array of tool_use blocks
+                        if (is_array($toolUseBlocks) && !empty($toolUseBlocks) && ($toolUseBlocks[0]['type'] ?? '') === 'tool_use') {
+                            $blocks = [];
+
+                            // Text block (model's reasoning) goes BEFORE tool_use per Anthropic spec
+                            if (!empty(trim((string)$content))) {
+                                $blocks[] = [
+                                    'type' => 'text',
+                                    'text' => $content,
+                                ];
+                            }
+
+                            // Then the tool_use blocks
+                            foreach ($toolUseBlocks as $block) {
+                                $blocks[] = $block;
+                            }
+
+                            $messages[] = [
+                                'role'    => 'assistant',
+                                'content' => $blocks,
+                            ];
+                            break;
+                        }
+                    }
+
+                    // tag-mode fallback: plain assistant message
+                    $messages[] = [
+                        'role'    => 'assistant',
+                        'content' => $content,
+                    ];
+                    break;
+
                 case 'result':
+                    $toolResults = $metadata['tool_results'] ?? null;
+                    if ($toolResults && is_array($toolResults)) {
+                        $blocks = [];
+                        foreach ($toolResults as $tr) {
+                            if (empty($tr['tool_call_id'])) {
+                                continue;
+                            }
+                            $blocks[] = [
+                                'type'        => 'tool_result',
+                                'tool_use_id' => $tr['tool_call_id'],
+                                'content'     => $tr['content'] ?? '',
+                            ];
+                        }
+
+                        if (!empty($blocks)) {
+                            // Append the human-readable formatted result as a text block
+                            // in the same user turn. Anthropic API requires strictly
+                            // alternating roles — we cannot add a separate message.
+                            // The text block lets Claude process the formatted output
+                            // (with success/error markers, timestamps etc.) alongside
+                            // the structured tool_result blocks.
+                            $blocks[] = [
+                                'type' => 'text',
+                                'text' => $content,
+                            ];
+
+                            $messages[] = [
+                                'role'    => 'user',
+                                'content' => $blocks,
+                            ];
+                            break;
+                        }
+                    }
+
+                    // tag-mode fallback or no tool_results
                     $messages[] = [
-                        'role' => $this->config['agent_results_role'] ?? 'assistant',
-                        'content' => $content
+                        'role'    => $this->config['agent_results_role'] ?? 'assistant',
+                        'content' => $content,
                     ];
                     break;
+
                 default:
-                    // Agent messages (thinking, commands, responses)
                     $messages[] = [
-                        'role' => 'assistant',
-                        'content' => $content
+                        'role'    => 'assistant',
+                        'content' => $content,
                     ];
                     break;
             }
@@ -746,6 +881,53 @@ class ClaudeModel implements AIModelEngineInterface
     protected function getFallbackModels(): array
     {
         return config('ai.engines.claude.models', []);
+    }
+
+    /**
+     * Convert an OpenAI-compatible tools array to the Anthropic tools format.
+     *
+     * ToolSchemaBuilder always produces OpenAI format because it is the common
+     * denominator across providers. Claude requires a different structure, so
+     * the conversion happens here, close to the API call.
+     *
+     * OpenAI format:
+     * <code>
+     * [{"type":"function","function":{"name":"..","description":"..","parameters":{..}}}]
+     * </code>
+     *
+     * Anthropic format:
+     * <code>
+     * [{"name":"..","description":"..","input_schema":{..}}]
+     * </code>
+     *
+     * The "parameters" object becomes "input_schema" — both follow JSON Schema,
+     * so no structural transformation of the schema itself is needed.
+     *
+     * @param  array $tools OpenAI-compatible tools array from ToolSchemaBuilder
+     * @return array        Anthropic-compatible tools array
+     */
+    protected function convertToolsToAnthropicFormat(array $tools): array
+    {
+        $converted = [];
+
+        foreach ($tools as $tool) {
+            $fn = $tool['function'] ?? null;
+
+            if (!$fn || empty($fn['name'])) {
+                continue;
+            }
+
+            $converted[] = [
+                'name'         => $fn['name'],
+                'description'  => $fn['description'] ?? '',
+                'input_schema' => $fn['parameters'] ?? [
+                    'type'       => 'object',
+                    'properties' => [],
+                ],
+            ];
+        }
+
+        return $converted;
     }
 
 }

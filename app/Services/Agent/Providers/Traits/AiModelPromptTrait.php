@@ -9,7 +9,9 @@ trait AiModelPromptTrait
     protected function prepareMessage(
         AiModelRequestInterface $request
     ): string {
-        $initialMessage = $request->getPreset()->getSystemPrompt();
+        $initialMessage = $request->getAdditionalParam('system_prompt_override')
+            ?? $request->getPreset()->getSystemPrompt();
+
         if (empty($initialMessage)) {
             $initialMessage = $this->config['system_prompt'] ?? '';
         }

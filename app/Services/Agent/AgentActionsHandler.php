@@ -25,8 +25,23 @@ use Illuminate\Contracts\Cache\Repository as Cache;
  * Responsibilities:
  * - Running parsed commands via AgentActions
  * - Persisting the agent's response and command results to message history
- * - Routing inter-agent messages (explicit handoff, auto reply-to, legacy enricher path)
+ * - Routing inter-agent messages (explicit handoff, auto reply-to)
  * - Clearing the input pool after each completed cycle
+ *
+ * Persistence modes (controlled by preset's agent_result_mode):
+ *   "internal"   — results pushed to CommandResultPool and injected via
+ *                  [[agent_command_results]] placeholder (default, recommended
+ *                  for autonomous agents)
+ *   "separate"   — response and command results stored as separate messages,
+ *                  results visible in chat
+ *   "tool_calls" — full tool_calls pipeline: ToolCallParser parses the response,
+ *                  tools array is sent to the provider API, history is stored in
+ *                  assistant/tool turn format required by provider APIs.
+ *                  This mode is enforced automatically — the protocol dictates
+ *                  the storage structure, it is not a free choice.
+ *
+ * Note: "inline" mode has been removed. It caused models to hallucinate
+ * command results as part of their own output in subsequent cycles.
  */
 class AgentActionsHandler implements AgentActionsHandlerInterface
 {
@@ -51,9 +66,9 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
      * intact — they represent the last known sensor state and persist until
      * overwritten by new data.
      *
-     * @param AiModelResponseInterface $response  Raw model response
-     * @param AiPreset                 $preset     Current preset that produced the response
-     * @param AiPreset|null            $mainPreset Caller preset (legacy path, used by enrichers)
+     * @param  AiModelResponseInterface $response
+     * @param  AiPreset                 $preset
+     * @param  AiPreset|null            $mainPreset
      * @return AiAgentResponseInterface
      */
     public function handleResponse(
@@ -77,38 +92,30 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         }
 
         $result = $this->processSuccessfulResponse($response, $preset, $mainPreset);
-
         $this->inputPoolService->clear($preset->getId());
 
-        return new AgentResponseDTO(
-            $result['message'],
-            $result['actionsResult'],
-            false
-        );
+        return new AgentResponseDTO($result['message'], $result['actionsResult'], false);
     }
 
     /**
      * Handle an exception thrown during the thinking cycle.
      *
-     * Logs the full exception context and creates a visible system message
-     * so the error is surfaced in the chat history.
-     *
-     * @param \Exception $e
-     * @param int        $presetId
+     * @param  \Exception $e
+     * @param  int        $presetId
      * @return AiAgentResponseInterface
      */
     public function handleError(\Exception $e, int $presetId): AiAgentResponseInterface
     {
-        $this->logger->error("Agent: Error in think method", [
+        $this->logger->error('Agent: Error in think method', [
             'error_message' => $e->getMessage(),
-            'exception' => get_class($e),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString()
+            'exception'     => get_class($e),
+            'file'          => $e->getFile(),
+            'line'          => $e->getLine(),
+            'trace'         => $e->getTraceAsString(),
         ]);
 
         $errorMessage = $this->createSystemMessage(
-            "Error in thinking process: " . $e->getMessage(),
+            'Error in thinking process: ' . $e->getMessage(),
             $presetId
         );
 
@@ -123,14 +130,9 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     /**
      * Orchestrate the processing of a successful AI response.
      *
-     * Three steps:
-     * 1. Parse & execute commands from the response
-     * 2. Persist the response and command results to message history
-     * 3. Deliver inter-agent messages if handoff or reply-to is present
-     *
-     * @param AiModelResponseInterface $response
-     * @param AiPreset                 $preset
-     * @param AiPreset|null            $mainPreset
+     * @param  AiModelResponseInterface $response
+     * @param  AiPreset                 $preset
+     * @param  AiPreset|null            $mainPreset
      * @return array{actionsResult: AiActionsResponseInterface, message: Message}
      */
     protected function processSuccessfulResponse(
@@ -138,10 +140,9 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         AiPreset $preset,
         ?AiPreset $mainPreset = null
     ): array {
-        $output = $response->getResponse();
+        $output        = $response->getResponse();
         $actionsResult = $this->agentActions->runActions($output, $preset, $mainPreset);
-
-        $message = $this->persistResponseMessages($response, $preset, $actionsResult);
+        $message       = $this->persistResponseMessages($response, $preset, $actionsResult);
 
         $this->deliverInterAgentMessages($response, $preset, $actionsResult);
 
@@ -156,38 +157,47 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     /**
      * Persist the agent's response and command results to the message history.
      *
-     * Behavior depends on the preset's agent_result_mode:
-     * - "separate": response and command results stored as separate messages
-     * - "internal": response stored as message, results pushed to CommandResultPool
-     *               and also saved as a system message for visibility
-     * - default (inline): response and results concatenated in a single message
+     * tool_calls is checked first — it is a mandatory protocol requirement
+     * and cannot be combined with other persistence modes.
      *
-     * @param AiModelResponseInterface   $response
-     * @param AiPreset                   $preset
-     * @param AiActionsResponseInterface $actionsResult
-     * @return Message The primary response message
+     * @param  AiModelResponseInterface   $response
+     * @param  AiPreset                   $preset
+     * @param  AiActionsResponseInterface $actionsResult
+     * @return Message
      */
     protected function persistResponseMessages(
         AiModelResponseInterface $response,
         AiPreset $preset,
-        $actionsResult
+        AiActionsResponseInterface $actionsResult
     ): Message {
-        $method = $preset->getAgentResultMode();
+        if ($preset->getAgentResultMode() === 'tool_calls') {
+            return $this->persistToolCalls($response, $preset, $actionsResult);
+        }
 
-        $messageContent = $method === 'separate' || $method === 'internal'
-            ? $response->getResponse()
-            : $response->getResponse() . "\n" . $actionsResult->getResult();
+        return match ($preset->getAgentResultMode()) {
+            'separate' => $this->persistSeparate($response, $preset, $actionsResult),
+            default    => $this->persistInternal($response, $preset, $actionsResult),
+        };
+    }
 
+    /**
+     * Separate mode: response and results stored as individual messages.
+     */
+    protected function persistSeparate(
+        AiModelResponseInterface $response,
+        AiPreset $preset,
+        AiActionsResponseInterface $actionsResult
+    ): Message {
         $message = $this->messageModel->create([
             'role'               => $actionsResult->getRole(),
-            'content'            => $messageContent,
+            'content'            => $response->getResponse(),
             'from_user_id'       => null,
             'preset_id'          => $preset->getId(),
             'is_visible_to_user' => $actionsResult->isVisibleForUser(),
-            'metadata'           => $response->getMetadata()
+            'metadata'           => $response->getMetadata(),
         ]);
 
-        if ($method === 'separate' && !empty(trim($actionsResult->getResult()))) {
+        if (!empty(trim($actionsResult->getResult()))) {
             $this->messageModel->create([
                 'role'               => 'result',
                 'content'            => $actionsResult->getResult(),
@@ -197,8 +207,34 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             ]);
         }
 
-        if ($method === 'internal' && !empty(trim($actionsResult->getResult()))) {
+        return $message;
+    }
+
+    /**
+     * Internal mode (default): results pushed to CommandResultPool.
+     *
+     * Results are also saved as a visible system message so they appear in the UI,
+     * but are injected into the next cycle's system prompt via [[agent_command_results]]
+     * rather than the conversation context — prevents models from confusing command
+     * output with their own previous responses.
+     */
+    protected function persistInternal(
+        AiModelResponseInterface $response,
+        AiPreset $preset,
+        AiActionsResponseInterface $actionsResult
+    ): Message {
+        $message = $this->messageModel->create([
+            'role'               => $actionsResult->getRole(),
+            'content'            => $response->getResponse(),
+            'from_user_id'       => null,
+            'preset_id'          => $preset->getId(),
+            'is_visible_to_user' => $actionsResult->isVisibleForUser(),
+            'metadata'           => $response->getMetadata(),
+        ]);
+
+        if (!empty(trim($actionsResult->getResult()))) {
             $this->commandResultPool->push($preset, $message, $actionsResult->getResult());
+
             $this->messageModel->create([
                 'role'               => 'system',
                 'content'            => $actionsResult->getResult(),
@@ -212,33 +248,123 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     }
 
     /**
+     * Tool-calls mode: persist the assistant/tool turn pair required by provider APIs.
+     *
+     * Provider APIs require a strict turn sequence when tool_calls are used:
+     *
+     *   assistant: {tool_calls: [{id: "call_1", name: "memory"}, {id: "call_2", name: "journal"}]}
+     *   tool:      {tool_call_id: "call_1", content: "memory result"}
+     *   tool:      {tool_call_id: "call_2", content: "journal result"}
+     *   assistant: "Final response based on results"
+     *
+     * Stores tool_calls_raw in metadata of the command message, and a tool_results
+     * array (one entry per tool with its id and output) in metadata of the result
+     * message. buildMessages() in engines reads these to reconstruct the correct
+     * assistant/tool turn sequence.
+     *
+     * tool_call_id flows exactly: provider response → ToolCallParser →
+     * ParsedCommand::toolCallId → CommandResult::toolCallId → here.
+     */
+    protected function persistToolCalls(
+        AiModelResponseInterface $response,
+        AiPreset $preset,
+        AiActionsResponseInterface $actionsResult
+    ): Message {
+        $rawResponse  = $this->sanitizeForJson($response->getResponse());
+        $baseMetadata = $response->getMetadata() ?? [];
+
+        // Primary message: assistant turn with tool_calls JSON in metadata.
+        // is_visible_to_user=false — raw tool_calls JSON is not meaningful in the UI.
+        $message = $this->messageModel->create([
+            'role'               => 'command',
+            'content'            => $rawResponse,
+            'from_user_id'       => null,
+            'preset_id'          => $preset->getId(),
+            'is_visible_to_user' => false,
+            'metadata'           => array_merge($baseMetadata, [
+                'tool_calls_raw' => $rawResponse,
+            ]),
+        ]);
+
+        $toolResults = $this->buildToolResults($actionsResult);
+
+        if (!empty($toolResults)) {
+            $this->messageModel->create([
+                'role'               => 'result',
+                'content'            => $this->sanitizeForJson($actionsResult->getResult()),
+                'from_user_id'       => null,
+                'preset_id'          => $preset->getId(),
+                'is_visible_to_user' => true,
+                'metadata'           => ['tool_results' => $toolResults],
+            ]);
+        }
+
+        return $message;
+    }
+
+    /**
+     * Build tool_results array from CommandResult objects.
+     *
+     * Each entry maps a provider tool_call_id to the plugin's output:
+     * [['tool_call_id' => 'call_abc', 'content' => 'result text'], ...]
+     *
+     * @param  AiActionsResponseInterface $actionsResult
+     * @return array
+     */
+    protected function buildToolResults(AiActionsResponseInterface $actionsResult): array
+    {
+        $toolResults = [];
+
+        foreach ($actionsResult->getCommandResults() as $commandResult) {
+            if ($commandResult->toolCallId === null) {
+                $this->logger->warning('AgentActionsHandler: CommandResult missing toolCallId in tool_calls mode', [
+                    'plugin' => $commandResult->command->plugin,
+                    'method' => $commandResult->command->method,
+                ]);
+                continue;
+            }
+
+            $toolResults[] = [
+                'tool_call_id' => $commandResult->toolCallId,
+                'content'      => $this->sanitizeForJson(
+                    $commandResult->success
+                        ? $commandResult->result
+                        : ('ERROR: ' . $commandResult->error)
+                ),
+            ];
+        }
+
+        return $toolResults;
+    }
+
+    /**
      * Route inter-agent messages after a response is processed.
      *
-     * Three paths, checked in priority order (first match wins):
+     * Two paths, checked in priority order:
      *
-     * 1. **Explicit handoff** — agent wrote [agent handoff]target:msg[/agent].
-     *    Delivered to the named target with setReplyTo=true (expects an answer).
-     *    Any pending reply-to on this preset is cleared.
+     * 1. Explicit handoff — agent wrote [agent handoff]target:msg[/agent] or
+     *    used AgentPlugin via tool_call. handoff_message is always set explicitly
+     *    by the plugin, so extractAgentVoice() is only a fallback for tag mode.
      *
-     * 2. **Auto reply-to** — this preset was called via AgentMessageService::deliver()
+     * 2. Auto reply-to — this preset was called via AgentMessageService::deliver()
      *    and has a pending reply-to address. Response is sent back to the original
-     *    sender with setReplyTo=false (fire-and-forget, prevents ping-pong).
+     *    sender (fire-and-forget, prevents ping-pong).
      *
-     * 3. **Legacy mainPreset** — fallback for enricher calls (e.g. ContextEnricher)
-     *    that pass mainPreset directly via handleResponse(). Delivered without
-     *    reply-to and without triggering a thinking cycle.
+     *    In tool_calls mode, $response->getResponse() is a JSON string with tool_calls —
+     *    not readable text. We use the formatted command results instead so the
+     *    receiving agent gets meaningful content rather than raw JSON.
+     *    If there are no results either, delivery is skipped entirely.
      *
-     * @param AiModelResponseInterface   $response
-     * @param AiPreset                   $preset     Current (sender) preset
-     * @param AiPreset|null              $mainPreset Caller preset (legacy, from enrichers)
-     * @param AiActionsResponseInterface $actionsResult
+     * @param  AiModelResponseInterface   $response
+     * @param  AiPreset                   $preset
+     * @param  AiActionsResponseInterface $actionsResult
      */
     protected function deliverInterAgentMessages(
         AiModelResponseInterface $response,
         AiPreset $preset,
-        $actionsResult
+        AiActionsResponseInterface $actionsResult
     ): void {
-        $handoff = $actionsResult->getHandoff();
+        $handoff         = $actionsResult->getHandoff();
         $replyToPresetId = $this->agentMessageService->getReplyTo($preset->getId());
 
         $this->logger->debug('deliverInterAgent DEBUG', [
@@ -248,16 +374,15 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             'reply_to'     => $replyToPresetId,
         ]);
 
-        // Path 1: Explicit handoff — agent wrote [agent handoff]target:msg[/agent]
+        // Path 1: Explicit handoff
         if ($handoff) {
             $targetPreset = $this->presetService->findByCode($handoff['target_preset']);
             if ($targetPreset) {
-                $message = $handoff['handoff_message']
+                // handoff_message is set by AgentPlugin — either from the tag content
+                // or from the tool_call input. extractAgentVoice() is only a fallback
+                // for tag mode when no explicit message was provided.
+                $message    = $handoff['handoff_message']
                     ?? $this->extractAgentVoice($response->getResponse());
-
-                // If we're already responding to someone's handoff,
-                // don't set reply-to — prevents ping-pong chains.
-                // Only the first handoff in a chain expects a reply.
                 $setReplyTo = !$replyToPresetId;
                 $this->agentMessageService->deliver($preset, $targetPreset, $message, true, $setReplyTo);
             } else {
@@ -270,54 +395,91 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             return;
         }
 
-        // Path 2: Auto reply — deliver but DON'T trigger thinking
+        // Path 2: Auto reply-to
         if ($replyToPresetId) {
             $replyToPreset = $this->presetService->findById($replyToPresetId);
             if ($replyToPreset) {
-                $messageText = $this->extractAgentVoice($response->getResponse());
-                $this->agentMessageService->deliver($preset, $replyToPreset, $messageText, false, false);
+                // In tool_calls mode the raw response is a JSON string with tool_calls —
+                // not readable text. Use formatted command results instead so the
+                // receiving agent gets meaningful content rather than raw JSON.
+                // If there's nothing meaningful to send, skip delivery entirely.
+                if ($preset->getAgentResultMode() === 'tool_calls') {
+                    $messageText = trim($actionsResult->getResult());
+                } else {
+                    $messageText = $this->extractAgentVoice($response->getResponse());
+                }
+
+                if (!empty($messageText)) {
+                    $this->agentMessageService->deliver($preset, $replyToPreset, $messageText, false, false);
+                } else {
+                    $this->logger->debug('AgentActionsHandler: skipping auto reply-to — no meaningful content', [
+                        'preset_id'     => $preset->getId(),
+                        'reply_to'      => $replyToPresetId,
+                        'result_mode'   => $preset->getAgentResultMode(),
+                    ]);
+                }
             }
             $this->agentMessageService->clearReplyTo($preset->getId());
         }
     }
 
     /**
-     * Create a system-role message visible in the chat history.
+     * Sanitize a string for safe JSON encoding.
      *
-     * @param string $content
-     * @param int    $presetId
-     * @param array  $metadata
+     * Strips or replaces invalid UTF-8 sequences that would cause
+     * JsonEncodingException when Eloquent tries to encode metadata.
+     * This can happen when sandbox command output contains binary data
+     * (e.g. reading a Telegram session file or any other binary file).
+     *
+     * @param  string $value
+     * @return string
+     */
+    protected function sanitizeForJson(string $value): string
+    {
+        // Replace invalid UTF-8 sequences with the Unicode replacement character
+        $clean = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+
+        // mb_convert_encoding may still leave some invalid sequences — strip them
+        if (!mb_check_encoding($clean, 'UTF-8')) {
+            $clean = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $clean) ?? $clean;
+        }
+
+        return $clean;
+    }
+
+    /**
+     * @param  string  $content
+     * @param  int     $presetId
+     * @param  array   $metadata
      * @return Message
      */
     protected function createSystemMessage(string $content, int $presetId, array $metadata = []): Message
     {
         return $this->messageModel->create([
-            'role' => 'system',
-            'content' => $content,
-            'from_user_id' => null,
-            'preset_id' => $presetId,
+            'role'               => 'system',
+            'content'            => $content,
+            'from_user_id'       => null,
+            'preset_id'          => $presetId,
             'is_visible_to_user' => true,
-            'metadata' => $metadata
+            'metadata'           => $metadata,
         ]);
     }
 
     /**
-     * Create a user-role message in the chat history.
-     *
-     * @param string $content
-     * @param int    $presetId
-     * @param array  $metadata
+     * @param  string  $content
+     * @param  int     $presetId
+     * @param  array   $metadata
      * @return Message
      */
     protected function createUserMessage(string $content, int $presetId, array $metadata = []): Message
     {
         return $this->messageModel->create([
-            'role' => 'user',
-            'content' => $content,
-            'from_user_id' => null,
-            'preset_id' => $presetId,
+            'role'               => 'user',
+            'content'            => $content,
+            'from_user_id'       => null,
+            'preset_id'          => $presetId,
             'is_visible_to_user' => true,
-            'metadata' => $metadata
+            'metadata'           => $metadata,
         ]);
     }
 }

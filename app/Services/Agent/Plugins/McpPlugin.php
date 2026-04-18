@@ -5,24 +5,16 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Mcp\McpClientInterface;
 use App\Contracts\Agent\Mcp\McpServerRepositoryInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
 /**
- * McpPlugin
+ * McpPlugin — stateless.
  *
  * Allows agents to call tools on connected MCP servers.
- *
- * Command syntax:
- *   [mcp server_key]tool_name: {"arg": "value"}[/mcp]
- *   [mcp server_key]tool_name[/mcp]           — no args
- *   [mcp connect]https://url.com[/mcp]         — connect new server (if allowed)
- *   [mcp disconnect]server_key[/mcp]           — disconnect (if allowed)
- *   [mcp list][/mcp]                           — list available servers + tools
- *   [mcp tools]server_key[/mcp]                — list tools for specific server
  */
 class McpPlugin implements CommandPluginInterface
 {
@@ -35,7 +27,6 @@ class McpPlugin implements CommandPluginInterface
         protected McpServerRepositoryInterface $serverRepository,
         protected LoggerInterface $logger
     ) {
-        $this->initializeConfig();
     }
 
     public function getName(): string
@@ -43,12 +34,12 @@ class McpPlugin implements CommandPluginInterface
         return 'mcp';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Call tools on connected MCP (Model Context Protocol) servers.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         $instructions = [
             'Call MCP tool without arguments: [mcp server_key]tool_name[/mcp]',
@@ -57,7 +48,7 @@ class McpPlugin implements CommandPluginInterface
             'List tools for specific server: [mcp tools]server_key[/mcp]',
         ];
 
-        if ($this->config['allow_agent_connect'] ?? false) {
+        if ($config['allow_agent_connect'] ?? false) {
             $instructions[] = 'Connect a new MCP server: [mcp connect]{"url":"https://...","name":"Label","server_key":"key"}[/mcp]';
             $instructions[] = 'Disconnect a server: [mcp disconnect]server_key[/mcp]';
         }
@@ -65,29 +56,22 @@ class McpPlugin implements CommandPluginInterface
         return $instructions;
     }
 
-    /**
-     * Default execute: [mcp server_key]tool_name: {args}[/mcp]
-     */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: MCP plugin is disabled.';
         }
 
-        return 'Error: Use [mcp server_key]tool_name[/mcp] or [mcp list][/mcp]. No server specified.';
+        return 'Error: Use correct syntax. No server specified.';
     }
 
-    /**
-     * List all connected servers and their tools
-     * [mcp list][/mcp]
-     */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: MCP plugin is disabled.';
         }
 
-        $servers = $this->serverRepository->allForPreset($preset);
+        $servers = $this->serverRepository->allForPreset($context->preset);
 
         if (empty($servers)) {
             return 'No MCP servers connected for this preset.';
@@ -99,36 +83,32 @@ class McpPlugin implements CommandPluginInterface
             $lines[] = "\n  [{$server->getKey()}] {$server->getName()} — {$server->getUrl()}";
             $lines[] = "  Status: {$server->getHealthStatus()}";
 
-            $tools = $this->getToolsForServer($server);
+            $tools = $this->getToolsForServer($context, $server);
             if (!empty($tools)) {
                 foreach ($tools as $tool) {
                     $desc = $tool['description'] ?? '';
                     $lines[] = "    • {$tool['name']}" . ($desc ? ": {$desc}" : '');
                 }
             } else {
-                $lines[] = '    (no tools cached — call [mcp tools]' . $server->getKey() . '[/mcp] to fetch)';
+                $lines[] = '    (no tools cached — call mcp tools' . $server->getKey() . '[/mcp] to fetch)';
             }
         }
 
         return implode("\n", $lines);
     }
 
-    /**
-     * Fetch and show tools for a specific server
-     * [mcp tools]server_key[/mcp]
-     */
-    public function tools(string $content, AiPreset $preset): string
+    public function tools(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: MCP plugin is disabled.';
         }
 
         $serverKey = trim($content);
         if (empty($serverKey)) {
-            return 'Error: Specify server key. Use [mcp tools]server_key[/mcp]';
+            return 'Error: Specify server key.';
         }
 
-        $server = $this->serverRepository->findByKey($preset, $serverKey);
+        $server = $this->serverRepository->findByKey($context->preset, $serverKey);
         if (!$server) {
             return "Error: MCP server '{$serverKey}' not found for this preset.";
         }
@@ -157,55 +137,52 @@ class McpPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Connect a new MCP server (agent-initiated, requires allow_agent_connect)
-     * [mcp connect]{"url":"...","name":"...","server_key":"..."}[/mcp]
-     */
-    public function connect(string $content, AiPreset $preset): string
+    public function connect(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: MCP plugin is disabled.';
         }
 
-        if (!($this->config['allow_agent_connect'] ?? false)) {
+        if (!$context->get('allow_agent_connect', false)) {
             return 'Error: Agent-initiated MCP connections are not allowed. Ask administrator to connect servers.';
         }
 
         $data = json_decode(trim($content), true);
         if (json_last_error() !== JSON_ERROR_NONE || empty($data['url'])) {
-            return 'Error: Invalid JSON. Use [mcp connect]{"url":"https://...","name":"Label","server_key":"key"}[/mcp]';
+            return 'Error: Invalid JSON. Use correct command and credentials syntax: {"url":"https://...","name":"Label","server_key":"key"}';
         }
 
         $serverKey = $data['server_key'] ?? $this->keyFromUrl($data['url']);
         $name      = $data['name'] ?? $serverKey;
 
-        // Check whitelist
-        $whitelist = $this->config['connect_whitelist'] ?? [];
+        $whitelist = $context->get('connect_whitelist', []);
+        // connect_whitelist may come in as a textarea (string with newlines) or as array
+        if (is_string($whitelist)) {
+            $whitelist = array_filter(array_map('trim', explode("\n", $whitelist)));
+        }
         if (!empty($whitelist) && !$this->isUrlAllowed($data['url'], $whitelist)) {
             return "Error: URL '{$data['url']}' is not in the allowed whitelist.";
         }
 
-        // Check if already connected
-        $existing = $this->serverRepository->findByKey($preset, $serverKey);
+        $existing = $this->serverRepository->findByKey($context->preset, $serverKey);
         if ($existing) {
             return "Server '{$serverKey}' is already connected.";
         }
 
         try {
-            $server = $this->serverRepository->create($preset, [
+            $server = $this->serverRepository->create($context->preset, [
                 'name'       => $name,
                 'server_key' => $serverKey,
                 'url'        => $data['url'],
                 'headers'    => $data['headers'] ?? [],
             ], addedByAgent: true);
 
-            // Immediately ping and fetch tools
             if ($this->mcpClient->ping($server)) {
                 $tools = $this->mcpClient->listTools($server);
                 $this->serverRepository->cacheTools($server, $tools);
                 $this->serverRepository->updateHealth($server, 'ok');
                 $toolCount = count($tools);
-                return "Connected to '{$name}' [{$serverKey}]. Found {$toolCount} tool(s). Use [mcp tools]{$serverKey}[/mcp] to see them.";
+                return "Connected to '{$name}' [{$serverKey}]. Found {$toolCount} tool(s). Use mcp tools with key {$serverKey} to see them.";
             }
 
             return "Connected to '{$name}' [{$serverKey}], but server did not respond to ping. Check the URL.";
@@ -216,22 +193,18 @@ class McpPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Disconnect a server (agent-initiated, requires allow_agent_connect)
-     * [mcp disconnect]server_key[/mcp]
-     */
-    public function disconnect(string $content, AiPreset $preset): string
+    public function disconnect(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: MCP plugin is disabled.';
         }
 
-        if (!($this->config['allow_agent_connect'] ?? false)) {
+        if (!$context->get('allow_agent_connect', false)) {
             return 'Error: Agent-initiated MCP disconnections are not allowed.';
         }
 
         $serverKey = trim($content);
-        $server = $this->serverRepository->findByKey($preset, $serverKey);
+        $server = $this->serverRepository->findByKey($context->preset, $serverKey);
 
         if (!$server) {
             return "Error: Server '{$serverKey}' not found.";
@@ -241,35 +214,25 @@ class McpPlugin implements CommandPluginInterface
         return "Disconnected from '{$serverKey}'.";
     }
 
-    /**
-     * PluginMethodTrait routes [mcp server_key]...[/mcp] here via callMethod().
-     *
-     * But server_key is the "method" in command syntax, so we need to intercept
-     * unknown methods and treat them as server calls.
-     */
     public function hasMethod(string $method): bool
     {
-        // Own named methods
-        if (in_array($method, ['list', 'tools', 'connect', 'disconnect'])) {
+        if (in_array($method, ['list', 'tools', 'connect', 'disconnect'], true)) {
             return true;
         }
 
-        // Everything else is treated as a server_key — handled at callMethod level
+        // Everything else is treated as a server_key
         return true;
     }
 
-    public function callMethod(string $method, string $content, AiPreset $preset): string
+    public function callMethod(string $method, string $content, PluginExecutionContext $context): string
     {
-        // Own named methods
-        if (method_exists($this, $method) && in_array($method, ['list', 'tools', 'connect', 'disconnect'])) {
-            return $this->{$method}($content, $preset);
+        if (method_exists($this, $method) && in_array($method, ['list', 'tools', 'connect', 'disconnect'], true)) {
+            return $this->{$method}($content, $context);
         }
 
         // Treat $method as server_key
-        return $this->callServerTool($method, $content, $preset);
+        return $this->callServerTool($method, $content, $context);
     }
-
-    // ── Config ────────────────────────────────────────────────────────────────
 
     public function getConfigFields(): array
     {
@@ -314,7 +277,7 @@ class McpPlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return [
-            'enabled'             => true,
+            'enabled'             => false,
             'allow_agent_connect' => false,
             'connect_whitelist'   => '',
             'tools_cache_ttl'     => 60,
@@ -325,24 +288,20 @@ class McpPlugin implements CommandPluginInterface
     {
         return null;
     }
+
     public function getCustomErrorMessage(): ?string
     {
         return null;
     }
+
     public function getMergeSeparator(): ?string
     {
         return null;
     }
+
     public function canBeMerged(): bool
     {
         return false;
-    }
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-    public function pluginReady(AiPreset $preset): void
-    {
     }
 
     public function getSelfClosingTags(): array
@@ -352,28 +311,23 @@ class McpPlugin implements CommandPluginInterface
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    /**
-     * Route [mcp server_key]tool_name: {args}[/mcp] to the actual MCP call
-     */
-    private function callServerTool(string $serverKey, string $content, AiPreset $preset): string
+    private function callServerTool(string $serverKey, string $content, PluginExecutionContext $context): string
     {
-        $server = $this->serverRepository->findByKey($preset, $serverKey);
+        $server = $this->serverRepository->findByKey($context->preset, $serverKey);
         if (!$server) {
-            return "Error: MCP server '{$serverKey}' not found. Use [mcp list][/mcp] to see connected servers.";
+            return "Error: MCP server '{$serverKey}' not found. Use mcp list command to see connected servers.";
         }
 
         if (!$server->isEnabled()) {
             return "Error: MCP server '{$serverKey}' is disabled.";
         }
 
-        // Parse "tool_name: {json}" or just "tool_name"
         [$toolName, $arguments] = $this->parseToolCall(trim($content));
 
         try {
             $result = $this->mcpClient->callTool($server, $toolName, $arguments);
             $this->serverRepository->updateHealth($server, 'ok');
             return $result;
-
         } catch (\Throwable $e) {
             $this->serverRepository->updateHealth($server, 'error', $e->getMessage());
             $this->logger->error("McpPlugin: tool call failed", [
@@ -385,9 +339,6 @@ class McpPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Parse "tool_name: {json}" into [toolName, arguments]
-     */
     private function parseToolCall(string $content): array
     {
         if (str_contains($content, ':')) {
@@ -403,9 +354,9 @@ class McpPlugin implements CommandPluginInterface
         return [trim($content), []];
     }
 
-    private function getToolsForServer(\App\Models\McpServer $server): array
+    private function getToolsForServer(PluginExecutionContext $context, \App\Models\McpServer $server): array
     {
-        $ttl = $this->config['tools_cache_ttl'] ?? 60;
+        $ttl = (int) $context->get('tools_cache_ttl', 60);
 
         if ($server->hasFreshToolsCache($ttl)) {
             return $server->getCachedTools();

@@ -12,7 +12,7 @@
         'opacity-0 group-hover:opacity-100 transition-opacity touch-visible'
       ]">
 
-        <!-- Кнопка озвучки (только для подходящих ролей и если TTS доступен) -->
+        <!-- Speak button (only for suitable roles and if TTS is available) -->
         <button v-if="hasTTS && isSpeakable" @click="$emit('speak', message)"
           :title="isCurrentlySpeaking ? t('chat_tts_stop') : t('chat_tts_speak')" :class="[
             'w-6 h-6 rounded-full flex items-center justify-center transition-all',
@@ -28,6 +28,23 @@
           <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0L8 14H5a1 1 0 01-1-1v-2a1 1 0 011-1h3l4-4z" />
+          </svg>
+        </button>
+
+        <!-- Copy source button (only for command role) -->
+        <button v-if="showCopySource" @click.stop="copyCommand(message.content, message.id)" :class="[
+          'w-6 h-6 rounded-full flex items-center justify-center transition-all',
+          isDark ? 'text-gray-400 hover:bg-green-600 hover:text-white' : 'text-gray-500 hover:bg-green-500 hover:text-white'
+        ]" :title="t('chat_copy_source') || 'Copy raw content'">
+          <!-- Check mark after copying -->
+          <svg v-if="copiedSourceId === message.id" class="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor"
+            viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+          <!-- Document icon (raw content) -->
+          <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         </button>
 
@@ -77,20 +94,20 @@
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
             :class="{ 'rotate-90': commandStates[command.id] }">▶</span>
-          <span class="mr-2">⚡</span>
+          <span class="mr-2">{{ command.icon }}</span>
           <span class="flex-1">{{ command.name }}</span>
 
-          <!-- Кнопка копирования -->
+          <!-- Copy button -->
           <button @click.stop="copyCommand(command.content)" :class="[
             'w-6 h-6 rounded flex items-center justify-center transition-all ml-2',
             isDark ? 'text-blue-400 hover:bg-blue-700 hover:text-white' : 'text-blue-500 hover:bg-blue-200 hover:text-blue-800'
           ]" title="Copy">
-            <!-- Галочка после копирования -->
+            <!-- Check mark after copying -->
             <svg v-if="copiedCommandId === command.content" class="w-3.5 h-3.5 text-green-400" fill="none"
               stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>
-            <!-- Иконка копирования -->
+            <!-- Copy icon -->
             <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -107,6 +124,49 @@
               'p-2 rounded text-sm overflow-x-auto cursor-text select-all',
               isDark ? 'bg-gray-800 text-gray-100' : 'bg-gray-100 text-gray-800'
             ]"><code>{{ command.content }}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tool Calls (new format) -->
+      <div v-for="toolCall in extractedToolCalls" :key="toolCall.id" :class="[
+        'border rounded-md mt-2 mb-2',
+        isDark ? 'bg-blue-900 border-blue-700' : 'bg-purple-50 border-purple-200'
+      ]">
+        <div @click="toggleCommand(toolCall.id)" :class="[
+          'font-semibold text-sm p-3 pb-2 flex items-center cursor-pointer transition-all duration-200 rounded-t-md',
+          isDark ? 'text-blue-300' : 'text-blue-700 hover:text-blue-800'
+        ]">
+          <span class="mr-2 transition-transform duration-300 ease-out"
+            :class="{ 'rotate-90': commandStates[toolCall.id] }">▶</span>
+          <span class="mr-2">{{ toolCall.icon }}</span>
+          <span class="flex-1">{{ toolCall.displayName }}</span>
+
+          <!-- Copy arguments button -->
+          <button @click.stop="copyCommand(JSON.stringify(toolCall.rawArguments, null, 2))" :class="[
+            'w-6 h-6 rounded flex items-center justify-center transition-all ml-2',
+            isDark ? 'text-blue-400 hover:bg-blue-700 hover:text-white' : 'text-blue-500 hover:bg-blue-200 hover:text-blue-800'
+          ]" title="Copy arguments">
+            <svg v-if="copiedCommandId === JSON.stringify(toolCall.rawArguments, null, 2)"
+              class="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+        </div>
+        <div :class="[
+          'overflow-hidden transition-all duration-500 ease-in-out',
+          commandStates[toolCall.id] ? 'opacity-100' : 'max-h-0 opacity-0'
+        ]">
+          <div class="px-3 pb-3 transform transition-transform duration-300"
+            :class="commandStates[toolCall.id] ? 'translate-y-0' : '-translate-y-2'">
+            <pre @click="selectAll" :class="[
+              'p-2 rounded text-sm overflow-x-auto cursor-text select-all',
+              isDark ? 'bg-gray-800 text-gray-100' : 'bg-gray-100 text-gray-800'
+            ]"><code>{{ toolCall.content }}</code></pre>
           </div>
         </div>
       </div>
@@ -158,19 +218,25 @@ const props = defineProps({
   // TTS
   hasTTS: { type: Boolean, default: false },
   speakingMessageId: { type: [Number, String, null], default: null },
+  presetName: { type: String, default: 'Agent' },
 });
 
 const isResultsExpanded = ref(props.showAgentResults);
 const commandStates = reactive({});
 
-// Копирование содержимого команды
-async function copyCommand(content) {
+const copiedSourceId = ref(null);
+
+// Copy command content to clipboard with fallback for older browsers
+async function copyCommand(content, sourceId = null) {
   try {
     await navigator.clipboard.writeText(content);
-    copiedCommandId.value = content; // временно показываем галочку
+    copiedCommandId.value = content;
+    if (sourceId) {
+      copiedSourceId.value = sourceId;
+      setTimeout(() => copiedSourceId.value = null, 1500);
+    }
     setTimeout(() => copiedCommandId.value = null, 1500);
   } catch {
-    // fallback для старых браузеров
     const el = document.createElement('textarea');
     el.value = content;
     document.body.appendChild(el);
@@ -184,9 +250,46 @@ const copiedCommandId = ref(null);
 
 defineEmits(['delete', 'speak']);
 
+const pluginIcons = {
+  // Memory & Knowledge
+  'vectormemory': '🧠',
+  'memory': '📝',
+  'journal': '📔',
+  'person': '👤',
+  'workspace': '📋',
+  'skill': '📚',
+
+  // Actions
+  'run': '▶️',
+  'shell': '💻',
+  'browser': '🌐',
+  'telegram': '📱',
+
+  // State & Control
+  'heart': '❤️',
+  'being': '✨',
+  'goal': '🎯',
+  'rhythm': '⏰',
+
+  // Communication
+  'agent': '🤖',
+
+  // Search & Retrieval
+  'rag': '🔍',
+
+  // Tasks
+  'task': '✅',
+
+  // Mood
+  'mood': '😊',
+
+  // MCP
+  'mcp': '🔌',
+};
+
 // ─── TTS helpers ─────────────────────────────────────────────────────────────
 
-/** Сообщение подходит для озвучки (роль + нет command results) */
+/** Message is suitable for speech synthesis (role + no command results) */
 const isSpeakable = computed(() => {
   const { role, content } = props.message;
   if (role === 'thinking') return true;
@@ -196,7 +299,7 @@ const isSpeakable = computed(() => {
   return false;
 });
 
-/** Сейчас озвучивается именно это сообщение */
+/** Now this message is being spoken */
 const isCurrentlySpeaking = computed(() =>
   props.speakingMessageId !== null &&
   props.speakingMessageId === props.message.id
@@ -283,14 +386,19 @@ const messageLabelColor = computed(() => {
 });
 
 const messageRoleLabel = computed(() => {
+  const name = props.presetName || props.appName || 'Agent';
   switch (props.message.role) {
-    case 'user': return t('chat_user');
-    case 'assistant': return props.appName;
-    case 'thinking': return t('chat_thinking');
-    case 'speaking': return t('chat_speaking');
-    case 'command': return t('chat_thinking');
-    default: return t('chat_system');
+    case 'user': return '💬 ' + t('chat_input');
+    case 'result': return '🇩 ' + props.appName;
+    case 'thinking': return '💭 ' + name + ' ' + t('chat_thinking');
+    case 'speaking': return '💬 ' + name + ' ' + t('chat_speaking');
+    case 'command': return '⚡ ' + name + ' ' + t('chat_act');
+    default: return '⚙️ ' + t('chat_system');
   }
+});
+
+const showCopySource = computed(() => {
+  return props.message.role === 'command' || props.message.role === 'result' || props.message.role === 'system';
 });
 
 const extractedCommands = computed(() => {
@@ -309,17 +417,113 @@ const extractedCommands = computed(() => {
   let match;
   while ((match = commandRegex.exec(userContent)) !== null) {
     const [, plugin, method, commandContent] = match;
+
+    if (plugin === 'agent' && method === 'speak') {
+      continue;
+    }
+
     const methodDisplay = method ? ` ${method}` : '';
     const pluginName = `${plugin}${methodDisplay}`;
     const commandId = `cmd_${props.message.id}_${commandCounter++}`;
     if (!(commandId in commandStates)) commandStates[commandId] = props.showCommandResults;
-    commands.push({ id: commandId, name: pluginName, content: commandContent.trim() });
+    commands.push({ id: commandId, name: pluginName, content: commandContent.trim(), icon: getPluginIcon(plugin, method) });
   }
   return commands;
 });
 
+const extractedToolCalls = computed(() => {
+  const content = props.message.content;
+  if (!content) return [];
+
+  // Find JSON containing "tool_calls" — either array or object with tool_calls key
+  let toolCallsData = null;
+
+  // Try to find {...} or [...] containing "tool_calls"
+  const jsonMatches = content.match(/(\{[^{}]*"tool_calls"\s*:\s*\[[^\]]*\][^{}]*\}|\[[^\]]*"type"\s*:\s*"function"[^\]]*\])/g);
+  if (!jsonMatches) return [];
+
+  for (const candidate of jsonMatches) {
+    try {
+      const parsed = JSON.parse(candidate);
+      // Normalize to array of calls
+      if (Array.isArray(parsed)) {
+        // Anthropic-like format: array of objects with name, input fields
+        if (parsed[0]?.type === 'tool_use') {
+          toolCallsData = parsed.map(tc => ({
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.input
+          }));
+        }
+        // OpenAI bare array
+        else if (parsed[0]?.type === 'function') {
+          toolCallsData = parsed.map(tc => ({
+            id: tc.id,
+            name: tc.function.name,
+            arguments: JSON.parse(tc.function.arguments || '{}')
+          }));
+        }
+      } else if (parsed.tool_calls) {
+        // OpenAI wrapped: {tool_calls: [...]}
+        toolCallsData = parsed.tool_calls.map(tc => ({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: JSON.parse(tc.function.arguments || '{}')
+        }));
+      }
+      if (toolCallsData) break;
+    } catch (e) {
+      // invalid JSON, skip
+    }
+  }
+
+  if (!toolCallsData) return [];
+
+  // Фильтруем: убираем agent speak
+  const filteredCalls = toolCallsData.filter(tc => {
+    const name = tc.name?.toLowerCase();
+    const method = tc.arguments?.method?.toLowerCase();
+    // Скрываем agent speak, но оставляем agent handoff, pause, resume и т.д.
+    return !(name === 'agent' && method === 'speak');
+  });
+
+  if (filteredCalls.length === 0) return [];
+
+  // Convert to a format suitable for display
+  return filteredCalls.map((tc, idx) => {
+    const method = tc.arguments?.method || '';
+    const argsContent = (() => {
+      const { method, ...rest } = tc.arguments || {};
+      if (Object.keys(rest).length === 1 && rest.content) {
+        return rest.content;
+      }
+      return JSON.stringify(rest, null, 2);
+    })();
+
+    const toolCallId = `tc_${props.message.id}_${idx}`;
+
+    if (!(toolCallId in commandStates)) {
+      commandStates[toolCallId] = props.showCommandResults;
+    }
+
+    return {
+      id: toolCallId,
+      plugin: tc.name,
+      method: method,
+      displayName: method ? `${tc.name} ${method}` : tc.name,
+      content: argsContent,
+      rawArguments: tc.arguments,
+      icon: getPluginIcon(tc.name, method)
+    };
+  });
+});
+
 const formattedContent = computed(() => {
   let content = props.message.content;
+
+  content = content.replace(/\{(?:[^{}]*"tool_calls"\s*:\s*\[[^\]]*\][^{}]*)\}/g, '');
+  content = content.replace(/\[\s*\{[^]]*"type"\s*:\s*"function"[^]]*\}\s*\]/g, '');
+
   const commandResultsMarker = '<system_output_results>';
   let userContent = content;
 
@@ -386,6 +590,24 @@ function selectAll(event) {
   const sel = window.getSelection();
   sel.removeAllRanges();
   sel.addRange(range);
+}
+
+function getPluginIcon(pluginName, method = null) {
+  // Extract the base plugin name (without method)
+  const baseName = pluginName.toLowerCase().split(' ')[0];
+
+  // Special handling for agent methods
+  if (baseName === 'agent') {
+    const methodLower = method?.toLowerCase();
+    if (methodLower === 'speak') return '💬';
+    if (methodLower === 'handoff') return '🔄';
+    if (methodLower === 'pause') return '⏸️';
+    if (methodLower === 'resume') return '▶️';
+    return '🤖';
+  }
+
+  // Return the icon from the mapping or a default one
+  return pluginIcons[baseName] || '🛠️';
 }
 </script>
 

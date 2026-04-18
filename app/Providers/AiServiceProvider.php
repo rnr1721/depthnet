@@ -39,6 +39,8 @@ use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\Orchestrator\OrchestratorFactoryInterface;
 use App\Contracts\Agent\Orchestrator\OrchestratorInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\PluginExecutionContextBuilderInterface;
+use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
@@ -49,10 +51,14 @@ use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
+use App\Contracts\Agent\ToolCallParserInterface;
+use App\Contracts\Agent\ToolSchemaBuilderInterface;
+use App\Contracts\Agent\VectorMemory\DefragServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
+use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
@@ -92,13 +98,14 @@ use App\Services\Agent\Orchestrator\AgentTaskService;
 use App\Services\Agent\Orchestrator\OrchestratorFactory;
 use App\Services\Agent\Orchestrator\OrchestratorService;
 use App\Services\Agent\PlaceholderService;
+use App\Services\Agent\PluginExecutionContextBuilder;
 use App\Services\Agent\PluginManager;
+use App\Services\Agent\PluginManagerFactory;
 use App\Services\Agent\PluginMetadataService;
 use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
-use App\Services\Agent\Plugins\CodeCraftPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\HeartPlugin;
@@ -106,19 +113,16 @@ use App\Services\Agent\Plugins\JournalPlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
-use App\Services\Agent\Plugins\NodePlugin;
 use App\Services\Agent\Plugins\PersonPlugin;
-use App\Services\Agent\Plugins\PHPPlugin;
 use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
-use App\Services\Agent\Plugins\PuppeteerBrowserPlugin;
-use App\Services\Agent\Plugins\PythonPlugin;
 use App\Services\Agent\Plugins\RagQueryPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
+use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
@@ -133,6 +137,9 @@ use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\ToolCallParser;
+use App\Services\Agent\ToolSchemaBuilder;
+use App\Services\Agent\VectorMemory\DefragService;
 use App\Services\Agent\VectorMemory\EmbeddingAssociativeVectorMemoryService;
 use App\Services\Agent\VectorMemory\EmbeddingVectorMemoryService;
 use App\Services\Agent\VectorMemory\VectorMemoryAssociativeService;
@@ -141,6 +148,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
 use App\Services\Agent\Workspace\WorkspaceService;
+use App\Services\Integrations\Telegram\TelegramService;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -206,6 +214,8 @@ class AiServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->bind(DefragServiceInterface::class, DefragService::class);
+
         $this->app->bind(WorkspaceServiceInterface::class, WorkspaceService::class);
 
         $this->app->singleton(AgentServiceInterface::class, AgentService::class);
@@ -236,6 +246,10 @@ class AiServiceProvider extends ServiceProvider
             }
             return $app->make(CommandParser::class);
         });
+
+        $this->app->bind(ToolCallParserInterface::class, ToolCallParser::class);
+        $this->app->bind(ToolSchemaBuilderInterface::class, ToolSchemaBuilder::class);
+
         $this->app->bind(CommandExecutorInterface::class, CommandExecutor::class);
         $this->app->bind(CommandLinterInterface::class, CommandLinter::class);
 
@@ -252,7 +266,9 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(PresetMetadataServiceInterface::class, PresetMetadataService::class);
         $this->app->bind(PluginMetadataServiceInterface::class, PluginMetadataService::class);
 
+        $this->app->singleton(PluginExecutionContextBuilderInterface::class, PluginExecutionContextBuilder::class);
         $this->app->singleton(PluginManagerInterface::class, PluginManager::class);
+        $this->app->singleton(PluginManagerFactoryInterface::class, PluginManagerFactory::class);
 
         $this->app->singleton(EngineRegistryInterface::class, function ($app) {
             $httpFactory = $app->make(HttpFactory::class);
@@ -277,6 +293,14 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(PresetCleanupServiceInterface::class, PresetCleanupService::class);
 
+        $this->app->singleton(TelegramServiceInterface::class, function () {
+            return new TelegramService(
+                binary:      env('TELEGRAM_BINARY', 'telegram'),
+                baseDataDir: env('TELEGRAM_DATA_DIR', '/shared/telegram'),
+                timeout:     (int) env('TELEGRAM_TIMEOUT', 30),
+            );
+        });
+
     }
 
     /**
@@ -284,7 +308,6 @@ class AiServiceProvider extends ServiceProvider
      */
     public function boot(LoggerInterface $log, ConnectionInterface $db): void
     {
-        $this->initializePluginConfigurations();
     }
 
     /**
@@ -342,22 +365,18 @@ class AiServiceProvider extends ServiceProvider
             SandboxPlugin::class,
             PromptPlugin::class,
             ShellPlugin::class,
-            PHPPlugin::class,
-            NodePlugin::class,
-            PythonPlugin::class,
             DopaminePlugin::class,
             MoodPlugin::class,
-            PuppeteerBrowserPlugin::class,
             PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,
             AgentTaskPlugin::class,
             SkillPlugin::class,
             McpPlugin::class,
-            CodeCraftPlugin::class,
             HeartPlugin::class,
             BeingPlugin::class,
-            RhythmPlugin::class
+            RhythmPlugin::class,
+            TelegramPlugin::class,
         ];
     }
 
@@ -502,47 +521,6 @@ class AiServiceProvider extends ServiceProvider
             default:
                 $logger->warning("Unknown AI engine: {$engineName}");
                 return null;
-        }
-    }
-
-    /**
-     * Initialize plugin configurations
-     *
-     * @return void
-     */
-    protected function initializePluginConfigurations(): void
-    {
-        if (!$this->app->bound(PluginManager::class)) {
-            return;
-        }
-
-        try {
-            $pluginManager = $this->app->make(PluginManager::class);
-
-            // Test all plugins on boot if in debug mode
-            if (config('ai.debug.enabled', false)) {
-                $testResults = $pluginManager->testAllPlugins();
-
-                if ($this->app->bound(LoggerInterface::class)) {
-                    $logger = $this->app->make(LoggerInterface::class);
-                    $logger->debug('Plugin test results on boot', $testResults);
-                }
-            }
-
-            if (config('ai.logging.enabled', true)) {
-                $stats = $pluginManager->getPluginStatistics();
-
-                if ($this->app->bound(LoggerInterface::class)) {
-                    $logger = $this->app->make(LoggerInterface::class);
-                    $logger->info('Plugin system initialized', $stats);
-                }
-            }
-
-        } catch (\Throwable $e) {
-            if ($this->app->bound(LoggerInterface::class)) {
-                $logger = $this->app->make(LoggerInterface::class);
-                $logger->error('Failed to initialize plugin configurations: ' . $e->getMessage());
-            }
         }
     }
 

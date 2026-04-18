@@ -6,10 +6,11 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -35,6 +36,7 @@ class RagQueryPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public const PLUGIN_NAME = 'rag';
     public const META_KEY    = 'pending_queries';
@@ -51,7 +53,6 @@ class RagQueryPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface            $placeholderService,
         protected PluginMetadataServiceInterface         $pluginMetadata,
     ) {
-        $this->initializeConfig();
     }
 
     /** @inheritDoc */
@@ -61,35 +62,73 @@ class RagQueryPlugin implements CommandPluginInterface
     }
 
     /** @inheritDoc */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Queue one or more explicit RAG search queries for the next cycle. '
             . 'Multiple calls accumulate — each adds a new query angle instead of overwriting.';
     }
 
     /** @inheritDoc */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
-        return [
-            'Add a RAG query for next cycle (call multiple times for different aspects): [rag query]your search query here[/rag]',
+        $instructions = [
+            'Add a RAG query for next cycle: [rag query]your search query here[/rag]',
             'Show current pending RAG queries: [rag show][/rag]',
             'Clear all pending RAG queries: [rag clear][/rag]',
+        ];
+
+        $warning = $this->buildLanguageWarning($config, 'rag_language', 'RAG queries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
+    }
+
+    public function getToolSchema(array $config = []): array
+    {
+        $langInstruction = $this->buildLanguageInstruction($config, 'rag_language');
+
+        return [
+            'name'        => 'rag',
+            'description' => 'Queue one or more explicit RAG search queries for the next cycle. '
+                . 'Multiple calls accumulate — each adds a new query angle instead of overwriting. '
+                . $langInstruction,
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['query', 'show', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'query: the search query text.',
+                            $langInstruction ? 'Must be written in the configured language.' : '',
+                            'show/clear: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
         ];
     }
 
     /** @inheritDoc */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        return "Invalid format. Use '[rag query]your query[/rag]', '[rag show][/rag]', or '[rag clear][/rag]'";
+        return "Invalid format. Use correct syntax";
     }
 
     /**
      * Append a pending RAG query for the next cycle.
      * Each call adds to the list — does NOT overwrite previous queries.
      */
-    public function query(string $content, AiPreset $preset): string
+    public function query(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: RAG query plugin is disabled.';
         }
 
@@ -103,7 +142,7 @@ class RagQueryPlugin implements CommandPluginInterface
             return sprintf('Error: RAG query is too long (max %d characters).', self::MAX_QUERY_LENGTH);
         }
 
-        $queries = $this->loadQueries($preset);
+        $queries = $this->loadQueries($context);
 
         if (count($queries) >= self::MAX_QUERIES) {
             return sprintf(
@@ -113,10 +152,10 @@ class RagQueryPlugin implements CommandPluginInterface
         }
 
         $queries[] = $query;
-        $this->saveQueries($preset, $queries);
+        $this->saveQueries($context, $queries);
 
         $this->logger->info('RagQueryPlugin: query appended', [
-            'preset_id'   => $preset->getId(),
+            'preset_id'   => $context->preset->getId(),
             'query'       => $query,
             'total_count' => count($queries),
         ]);
@@ -130,13 +169,13 @@ class RagQueryPlugin implements CommandPluginInterface
     /**
      * Show current pending RAG queries (if any).
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: RAG query plugin is disabled.';
         }
 
-        $queries = $this->loadQueries($preset);
+        $queries = $this->loadQueries($context);
 
         if (empty($queries)) {
             return 'No pending RAG queries. Automatic query formulation will be used on next cycle.';
@@ -153,19 +192,19 @@ class RagQueryPlugin implements CommandPluginInterface
     /**
      * Clear all pending RAG queries.
      */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: RAG query plugin is disabled.';
         }
 
-        $this->pluginMetadata->remove($preset, self::PLUGIN_NAME, self::META_KEY);
+        $this->pluginMetadata->remove($context->preset, self::PLUGIN_NAME, self::META_KEY);
 
         return 'All pending RAG queries cleared. Automatic query formulation will be used on next cycle.';
     }
 
     /** @inheritDoc */
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
         // No placeholders needed for this plugin
     }
@@ -192,27 +231,35 @@ class RagQueryPlugin implements CommandPluginInterface
                 'description' => 'Allow agent to queue explicit RAG queries for next cycle',
                 'required'    => false,
             ],
+            'rag_language' => $this->getLanguageConfigField(
+                'RAG Query Language',
+                'Force language for RAG queries. Model will be instructed accordingly. Should match the language of your memory data.'
+            ),
         ];
     }
 
     /** @inheritDoc */
     public function validateConfig(array $config): array
     {
-        return [];
+        $errors = [];
+
+        if (isset($config['rag_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['rag_language'], $valid, true)) {
+                $errors['rag_language'] = 'Invalid language selection.';
+            }
+        }
+
+        return $errors;
     }
 
     /** @inheritDoc */
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled' => false,
-        ];
-    }
-
-    /** @inheritDoc */
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
+        return array_merge(
+            ['enabled' => false],
+            $this->getDefaultLanguageConfig('rag_language')
+        );
     }
 
     /** @inheritDoc */
@@ -240,9 +287,9 @@ class RagQueryPlugin implements CommandPluginInterface
      *
      * @return string[]
      */
-    private function loadQueries(AiPreset $preset): array
+    private function loadQueries(PluginExecutionContext $context): array
     {
-        $raw = $this->pluginMetadata->get($preset, self::PLUGIN_NAME, self::META_KEY);
+        $raw = $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, self::META_KEY);
 
         if (empty($raw)) {
             return [];
@@ -258,10 +305,10 @@ class RagQueryPlugin implements CommandPluginInterface
      *
      * @param string[] $queries
      */
-    private function saveQueries(AiPreset $preset, array $queries): void
+    private function saveQueries(PluginExecutionContext $context, array $queries): void
     {
         $this->pluginMetadata->set(
-            $preset,
+            $context->preset,
             self::PLUGIN_NAME,
             self::META_KEY,
             json_encode(array_values($queries), JSON_UNESCAPED_UNICODE)

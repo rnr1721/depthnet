@@ -4,9 +4,10 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -33,12 +34,12 @@ class PersonPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public function __construct(
         protected PersonMemoryServiceInterface $personMemoryService,
         protected LoggerInterface              $logger,
     ) {
-        $this->initializeConfig();
     }
 
     public function getName(): string
@@ -46,14 +47,14 @@ class PersonPlugin implements CommandPluginInterface
         return 'person';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Structured memory for people. Store facts, manage aliases, search semantically. person_name stores all aliases as "Primary / Alias1 / Alias2".';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Add fact:              [person]Женя | loves punk aesthetic and travel[/person]',
             'Recall by name/id:     [person recall]Женя[/person]  or  [person recall]1[/person]',
             'Find by any alias:     [person find]James Kvakiani[/person]',
@@ -63,6 +64,50 @@ class PersonPlugin implements CommandPluginInterface
             'Delete fact:           [person delete]42[/person]',
             'Forget person:         [person forget]Женя[/person]',
             'List all people:       [person list][/person]',
+        ];
+
+        $warning = $this->buildLanguageWarning($config, 'person_language', 'person facts');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
+    }
+
+    public function getToolSchema(array $config = []): array
+    {
+        $langInstruction = $this->buildLanguageInstruction($config, 'person_language');
+
+        return [
+            'name'        => 'person',
+            'description' => 'Structured memory for people. Store facts, manage aliases, search semantically. '
+                . $langInstruction
+                . 'person_name stores all aliases as "Primary / Alias1 / Alias2".',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'recall', 'find', 'search', 'alias', 'delete', 'forget', 'list'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute: "Name | fact content"',
+                            'recall: name or fact ID',
+                            'find: search term across aliases',
+                            'search: semantic query',
+                            'alias: "add|factId|alias" or "remove|factId|alias"',
+                            'delete: fact ID',
+                            'forget: person name',
+                            'list: leave empty',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
         ];
     }
 
@@ -75,6 +120,10 @@ class PersonPlugin implements CommandPluginInterface
                 'description' => 'Allow storing structured facts about people',
                 'required'    => false,
             ],
+            'person_language' => $this->getLanguageConfigField(
+                'Person Language',
+                'Force language for person facts. Model will be instructed accordingly.'
+            ),
             'search_limit' => [
                 'type'        => 'number',
                 'label'       => 'Search results limit',
@@ -90,6 +139,12 @@ class PersonPlugin implements CommandPluginInterface
     public function validateConfig(array $config): array
     {
         $errors = [];
+        if (isset($config['person_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['person_language'], $valid, true)) {
+                $errors['person_language'] = 'Invalid language selection.';
+            }
+        }
         if (isset($config['search_limit'])) {
             $l = (int) $config['search_limit'];
             if ($l < 1 || $l > 20) {
@@ -101,15 +156,13 @@ class PersonPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'      => true,
-            'search_limit' => 5,
-        ];
-    }
-
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
+        return array_merge(
+            [
+                'enabled'      => false,
+                'search_limit' => 5,
+            ],
+            $this->getDefaultLanguageConfig('person_language')
+        );
     }
 
     public function getCustomSuccessMessage(): ?string
@@ -130,15 +183,15 @@ class PersonPlugin implements CommandPluginInterface
      * Default execute — add a fact.
      * [person]Женя | loves punk aesthetic[/person]
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
         $parts = explode('|', $content, 2);
         if (count($parts) !== 2) {
-            return 'Error: Invalid format. Use [person]Name | fact about them[/person]';
+            return 'Error: Invalid format. Use correct syntax';
         }
 
         $personName = trim($parts[0]);
@@ -148,62 +201,62 @@ class PersonPlugin implements CommandPluginInterface
             return 'Error: Person name cannot be empty.';
         }
 
-        $result = $this->personMemoryService->addFact($preset, $personName, $fact);
+        $result = $this->personMemoryService->addFact($context->preset, $personName, $fact);
         return $result['message'];
     }
 
     /**
      * [person recall]Женя[/person]  or  [person recall]1[/person]
      */
-    public function recall(string $content, AiPreset $preset): string
+    public function recall(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
         $nameOrId = trim($content);
         if (empty($nameOrId)) {
-            return 'Error: Provide a name or fact ID. Use [person recall]Женя[/person]';
+            return 'Error: Provide a name or fact ID. Use person recall.';
         }
 
-        $result = $this->personMemoryService->recallPerson($preset, $nameOrId);
+        $result = $this->personMemoryService->recallPerson($context->preset, $nameOrId);
         return $result['message'];
     }
 
     /**
      * [person find]James Kvakiani[/person]
      */
-    public function find(string $content, AiPreset $preset): string
+    public function find(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
         $term = trim($content);
         if (empty($term)) {
-            return 'Error: Provide a search term. Use [person find]Name[/person]';
+            return 'Error: Provide a search term. Use person find';
         }
 
-        $result = $this->personMemoryService->findByMention($preset, $term);
+        $result = $this->personMemoryService->findByMention($context->preset, $term);
         return $result['message'];
     }
 
     /**
      * [person search]punk aesthetic[/person]
      */
-    public function search(string $content, AiPreset $preset): string
+    public function search(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
         $query = trim($content);
         if (empty($query)) {
-            return 'Error: Provide a search query. Use [person search]punk aesthetic[/person]';
+            return 'Error: Provide a search query. Use person search';
         }
 
-        $limit  = (int) ($this->config['search_limit'] ?? 5);
-        $result = $this->personMemoryService->searchFacts($preset, $query, $limit);
+        $limit = $context->get('search_limit', 5);
+        $result = $this->personMemoryService->searchFacts($context->preset, $query, $limit);
         return $result['message'];
     }
 
@@ -215,9 +268,9 @@ class PersonPlugin implements CommandPluginInterface
      * The PluginMethodTrait routes [person alias] as method "alias".
      * We split the subcommand from content manually.
      */
-    public function alias(string $content, AiPreset $preset): string
+    public function alias(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
@@ -225,7 +278,7 @@ class PersonPlugin implements CommandPluginInterface
         $parts = array_map('trim', explode('|', $content, 3));
 
         if (count($parts) < 3) {
-            return 'Error: Invalid format. Use [person alias add]1 | Alias[/person] or [person alias remove]1 | Alias[/person]';
+            return 'Error: Invalid format. Use correct syntax to work with aliases';
         }
 
         [$subcommand, $idStr, $alias] = $parts;
@@ -236,8 +289,8 @@ class PersonPlugin implements CommandPluginInterface
         }
 
         return match (strtolower($subcommand)) {
-            'add'    => $this->personMemoryService->addAlias($preset, $factId, $alias)['message'],
-            'remove' => $this->personMemoryService->removeAlias($preset, $factId, $alias)['message'],
+            'add'    => $this->personMemoryService->addAlias($context->preset, $factId, $alias)['message'],
+            'remove' => $this->personMemoryService->removeAlias($context->preset, $factId, $alias)['message'],
             default  => 'Error: Unknown alias subcommand. Use "add" or "remove".',
         };
     }
@@ -245,49 +298,49 @@ class PersonPlugin implements CommandPluginInterface
     /**
      * [person delete]42[/person]
      */
-    public function delete(string $content, AiPreset $preset): string
+    public function delete(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
         $factId = (int) trim($content);
         if ($factId <= 0) {
-            return 'Error: Provide a valid fact ID. Use [person delete]42[/person]';
+            return 'Error: Provide a valid fact ID. Use person delete using ID';
         }
 
-        $result = $this->personMemoryService->deleteFact($preset, $factId);
+        $result = $this->personMemoryService->deleteFact($context->preset, $factId);
         return $result['message'];
     }
 
     /**
      * [person forget]Женя[/person]
      */
-    public function forget(string $content, AiPreset $preset): string
+    public function forget(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
         $nameOrId = trim($content);
         if (empty($nameOrId)) {
-            return 'Error: Provide a name or fact ID. Use [person forget]Женя[/person]';
+            return 'Error: Provide a name or fact ID. Use person forget with name';
         }
 
-        $result = $this->personMemoryService->forgetPerson($preset, $nameOrId);
+        $result = $this->personMemoryService->forgetPerson($context->preset, $nameOrId);
         return $result['message'];
     }
 
     /**
      * [person list][/person]
      */
-    public function list(string $content, AiPreset $preset): string
+    public function list(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Person memory plugin is disabled.';
         }
 
-        $result = $this->personMemoryService->listPeople($preset);
+        $result = $this->personMemoryService->listPeople($context->preset);
         return $result['message'];
     }
 
@@ -305,7 +358,7 @@ class PersonPlugin implements CommandPluginInterface
         return false;
     }
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
         // No placeholders — PersonContextEnricher handles [[persons_context]]
     }

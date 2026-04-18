@@ -7,7 +7,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -15,10 +15,10 @@ use Psr\Log\LoggerInterface;
 use Illuminate\Contracts\Container\Container;
 
 /**
- * AgentPlugin class
+ * AgentPlugin — stateless.
  *
- * Allows the AI agent to control its own thinking cycles - pause, resume, and check status.
- * Provides self-management capabilities for autonomous agents.
+ * Allows the AI agent to control its own thinking cycles and communicate
+ * with the user. All preset-specific config arrives via PluginExecutionContext.
  */
 class AgentPlugin implements CommandPluginInterface
 {
@@ -38,12 +38,8 @@ class AgentPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected PresetServiceInterface $presetService
     ) {
-        $this->initializeConfig();
     }
 
-    /**
-     * Get AgentJobService with lazy loading to prevent circular dependency
-     */
     private function getAgentJobService(): AgentJobServiceInterface
     {
         if ($this->agentJobService === null) {
@@ -58,38 +54,33 @@ class AgentPlugin implements CommandPluginInterface
         return $this->agentJobService;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getName(): string
     {
         return 'agent';
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Control agent lifecycle: pause/resume thinking cycles, check status. Speaking with user. Enables self-management.';
     }
 
     /**
-     * @inheritDoc
+     * instructions are static — no per-preset filtering.
+     * If a method is forbidden by config, the method itself returns an error.
      */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         $instructions = [];
 
-        if ($this->config['allow_pause'] ?? true) {
+        if ($config['allow_pause'] ?? true) {
             $instructions[] = 'Pause thinking cycles: [agent pause][/agent]';
         }
 
-        if ($this->config['allow_resume'] ?? true) {
+        if ($config['allow_resume'] ?? true) {
             $instructions[] = 'Resume thinking cycles: [agent resume][/agent]';
         }
 
-        if ($this->config['allow_handoff'] ?? true) {
+        if ($config['allow_handoff'] ?? true) {
             $instructions[] = 'Transfer control to another preset: [agent handoff]AGENT_NAME_HERE[/agent]';
             $instructions[] = 'Transfer with message: [agent handoff]AGENT_NAME_HERE:YOUR_MESSAGE_HERE[/agent]';
             $instructions[] = 'To delegate something: [agent handoff]AGENT_NAME_HERE:YOUR TASK_HERE[/agent]';
@@ -102,52 +93,85 @@ class AgentPlugin implements CommandPluginInterface
     }
 
     /**
-     * PluginMethodTrait routes [agent agent_code]...[/agent] here via callMethod().
-     *
-     * But agent_code is the "method" in command syntax, so we need to intercept
-     * unknown methods and treat them as server calls.
+     * tool schema is static — exposes all methods unconditionally.
      */
+    public function getToolSchema(array $config = []): array
+    {
+        $methods = ['speak', 'status'];
+
+        if ($config['allow_pause'] ?? true) {
+            $methods[] = 'pause';
+        }
+
+        if ($config['allow_resume'] ?? true) {
+            $methods[] = 'resume';
+        }
+
+        if ($config['allow_handoff'] ?? true) {
+            $methods[] = 'handoff';
+        }
+
+        return [
+            'name'        => 'agent',
+            'description' => 'Control agent lifecycle and communicate with the user. '
+                . 'Use speak to send a visible message to the user. '
+                . 'Use handoff to delegate to another preset. '
+                . 'Use pause/resume to control thinking cycles.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => $methods,
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method:',
+                            'speak — the message text to show the user (required);',
+                            'handoff — "preset_code" or "preset_code:message to pass" (required);',
+                            'pause/resume — optional reason text;',
+                            'status — leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function hasMethod(string $method): bool
     {
-        // Own named methods
-        if (in_array($method, self::OWN_METHODS)) {
+        if (in_array($method, self::OWN_METHODS, true)) {
             return true;
         }
 
-        // Everything else is treated as a agent_code — handled at callMethod level
+        // Everything else is treated as a preset_code — handled at callMethod level
         return true;
     }
 
-    public function callMethod(string $method, string $content, AiPreset $preset): string
+    public function callMethod(string $method, string $content, PluginExecutionContext $context): string
     {
         // Own named methods
-        if (method_exists($this, $method) && in_array($method, self::OWN_METHODS)) {
-            return $this->{$method}($content, $preset);
+        if (method_exists($this, $method) && in_array($method, self::OWN_METHODS, true)) {
+            return $this->{$method}($content, $context);
         }
 
-        // Treat $method as agent_code
-        return $this->callAgent($method, $content, $preset);
+        // Treat $method as a preset_code
+        return $this->callAgent($method, $content, $context);
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomSuccessMessage(): ?string
     {
         return "Agent control command executed successfully.";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomErrorMessage(): ?string
     {
         return "Error: Agent control operation failed.";
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getConfigFields(): array
     {
         return [
@@ -195,14 +219,10 @@ class AgentPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function validateConfig(array $config): array
     {
         $errors = [];
 
-        // If both pause and resume are disabled, plugin becomes mostly useless
         if (isset($config['allow_pause']) && isset($config['allow_resume'])) {
             if (!$config['allow_pause'] && !$config['allow_resume']) {
                 $errors['allow_resume'] = 'At least one of pause or resume should be enabled';
@@ -212,9 +232,6 @@ class AgentPlugin implements CommandPluginInterface
         return $errors;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getDefaultConfig(): array
     {
         return [
@@ -222,72 +239,51 @@ class AgentPlugin implements CommandPluginInterface
             'allow_pause' => true,
             'allow_resume' => true,
             'require_reason' => false,
-            'log_actions' => true
+            'log_actions' => true,
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function testConnection(): bool
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        return $this->isEnabled();
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function execute(string $content, AiPreset $preset): string
-    {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Agent control plugin is disabled.";
         }
 
-        return "Invalid format. Use '[agent pause][/agent]', '[agent resume][/agent]', or '[agent status][/agent]'";
+        return "Invalid format. Please use correct syntax.";
     }
 
-    /**
-     * Pause agent thinking cycles
-     *
-     * @param string $content Optional reason for pausing
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function pause(string $content, AiPreset $preset): string
+    public function pause(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Agent control plugin is disabled.";
         }
 
-        if (!($this->config['allow_pause'] ?? true)) {
+        if (!$context->get('allow_pause', true)) {
             return "Error: Agent pause is not allowed in current configuration.";
         }
 
         try {
             $service = $this->getAgentJobService();
-            $settings = $service->getModelSettings($preset->getId());
+            $settings = $service->getModelSettings($context->preset->getId());
 
             if (!$settings['chat_active']) {
                 return "Agent is already paused.";
             }
 
             $reason = trim($content);
-            if (($this->config['require_reason'] ?? false) && empty($reason)) {
+            if ($context->get('require_reason', false) && empty($reason)) {
                 return "Error: Reason required for pause action.";
             }
 
-            $success = $service->updateModelSettings(
-                $settings['preset_id'],
-                false
-            );
+            $success = $service->updateModelSettings($settings['preset_id'], false);
 
             if ($success) {
-                $this->logActionSafely('pause', $reason);
+                $this->logActionSafely('pause', $reason, $context);
                 $reasonText = !empty($reason) ? " Reason: {$reason}" : "";
                 return "Agent thinking cycles paused.{$reasonText}";
-            } else {
-                return "Failed to pause agent thinking cycles.";
             }
+
+            return "Failed to pause agent thinking cycles.";
 
         } catch (\Throwable $e) {
             $this->logger->error("AgentPlugin::pause error: " . $e->getMessage());
@@ -295,48 +291,38 @@ class AgentPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Resume agent thinking cycles
-     *
-     * @param string $content Optional reason for resuming
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function resume(string $content, AiPreset $preset): string
+    public function resume(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Agent control plugin is disabled.";
         }
 
-        if (!($this->config['allow_resume'] ?? true)) {
+        if (!$context->get('allow_resume', true)) {
             return "Error: Agent resume is not allowed in current configuration.";
         }
 
         try {
             $service = $this->getAgentJobService();
-            $settings = $service->getModelSettings($preset->getId());
+            $settings = $service->getModelSettings($context->preset->getId());
 
             if ($settings['chat_active']) {
                 return "Agent is already active.";
             }
 
             $reason = trim($content);
-            if (($this->config['require_reason'] ?? false) && empty($reason)) {
+            if ($context->get('require_reason', false) && empty($reason)) {
                 return "Error: Reason required for resume action.";
             }
 
-            $success = $service->updateModelSettings(
-                $settings['preset_id'],
-                true
-            );
+            $success = $service->updateModelSettings($settings['preset_id'], true);
 
             if ($success) {
-                $this->logActionSafely('resume', $reason);
+                $this->logActionSafely('resume', $reason, $context);
                 $reasonText = !empty($reason) ? " Reason: {$reason}" : "";
                 return "Agent thinking cycles resumed.{$reasonText}";
-            } else {
-                return "Failed to resume agent thinking cycles.";
             }
+
+            return "Failed to resume agent thinking cycles.";
 
         } catch (\Throwable $e) {
             $this->logger->error("AgentPlugin::resume error: " . $e->getMessage());
@@ -344,32 +330,25 @@ class AgentPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Get current agent status
-     *
-     * @param string $content Unused
-     * @param AiPreset $preset
-     * @return string
-     */
-    public function status(string $content, AiPreset $preset): string
+    public function status(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Agent control plugin is disabled.";
         }
 
         try {
             $service = $this->getAgentJobService();
-            $settings = $service->getModelSettings($preset->getId());
+            $settings = $service->getModelSettings($context->preset->getId());
 
             $status = $settings['chat_active'] ? 'ACTIVE' : 'PAUSED';
             $lockInfo = $settings['is_locked'] ? ' (currently thinking)' : '';
             $presetInfo = " [Preset: {$settings['preset_id']}]";
 
             $capabilities = [];
-            if ($this->config['allow_pause'] ?? true) {
+            if ($context->get('allow_pause', true)) {
                 $capabilities[] = 'can pause';
             }
-            if ($this->config['allow_resume'] ?? true) {
+            if ($context->get('allow_resume', true)) {
                 $capabilities[] = 'can resume';
             }
 
@@ -383,26 +362,24 @@ class AgentPlugin implements CommandPluginInterface
         }
     }
 
-    public function speak(string $content)
+    public function speak(string $content, PluginExecutionContext $context): string
     {
         $this->setPluginExecutionMeta('speak', $content);
         return 'The user will see your message.';
     }
 
-    public function handoff(string $content): string
+    public function handoff(string $content, PluginExecutionContext $context): string
     {
         $targetPreset = trim($content);
+        $message = null;
 
         if (strpos($content, ':') !== false) {
             [$targetPreset, $message] = explode(':', $content, 2);
             $targetPreset = trim($targetPreset);
             $message = trim($message);
-        } else {
-            $targetPreset = $content;
-            $message = null;
         }
 
-        if (!($this->config['allow_handoff'] ?? true)) {
+        if (!$context->get('allow_handoff', true)) {
             return "Error: Agent handoff is not allowed in current configuration.";
         }
 
@@ -430,36 +407,28 @@ class AgentPlugin implements CommandPluginInterface
     }
 
     /**
-     * Log agent control actions safely to prevent recursion
-     *
-     * @param string $action Action performed (pause/resume)
-     * @param string $reason Reason for action
-     * @return void
+     * Log agent control actions safely to prevent recursion.
      */
-    private function logActionSafely(string $action, string $reason): void
+    private function logActionSafely(string $action, string $reason, PluginExecutionContext $context): void
     {
-        if (!($this->config['log_actions'] ?? true)) {
+        if (!$context->get('log_actions', true)) {
             return;
         }
 
         try {
-            // Prevent recursion by checking if we're already logging
             static $isLogging = false;
-
             if ($isLogging) {
                 return;
             }
-
             $isLogging = true;
 
             $this->logger->info("Agent self-control action", [
                 'plugin' => 'agent',
                 'action' => $action,
                 'reason' => $reason,
-                'preset_id' => $this->preset?->id ?? 'unknown',
-                'timestamp' => now()->toISOString()
+                'preset_id' => $context->preset->getId(),
+                'timestamp' => now()->toISOString(),
             ]);
-
         } catch (\Throwable $e) {
             // Silent fail for logging to prevent cascading errors
         } finally {
@@ -467,27 +436,21 @@ class AgentPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getMergeSeparator(): ?string
     {
         return null;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function canBeMerged(): bool
     {
         return false;
     }
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
-        $this->placeholderService->registerDynamic('agent', 'Agent status', function () use ($preset) {
-            return $this->status('', $preset);
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
+        $this->placeholderService->registerDynamic('agent', 'Agent status', function () use ($context) {
+            return $this->status('', $context);
         }, $scope);
     }
 
@@ -497,9 +460,9 @@ class AgentPlugin implements CommandPluginInterface
     }
 
     /**
-      * Route [agent handoff]agent_code:message[/agent] to the actual agent call
-      */
-    private function callAgent(string $presetCode, string $content, AiPreset $preset): string
+     * Route [agent preset_code]message[/agent] to the actual handoff call.
+     */
+    private function callAgent(string $presetCode, string $content, PluginExecutionContext $context): string
     {
         $targetPreset = $this->presetService->findByCode($presetCode);
         if (!$targetPreset) {
@@ -507,8 +470,7 @@ class AgentPlugin implements CommandPluginInterface
         }
 
         try {
-            return $this->handoff($presetCode.':'.$content);
-
+            return $this->handoff($presetCode . ':' . $content, $context);
         } catch (\Throwable $e) {
             $this->logger->error("Handoff: preset code call failed", [
                 'preset_code' => $presetCode,
@@ -517,5 +479,4 @@ class AgentPlugin implements CommandPluginInterface
             return "Error calling '{$presetCode}': " . $e->getMessage();
         }
     }
-
 }

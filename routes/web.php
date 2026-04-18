@@ -17,6 +17,7 @@ use App\Http\Controllers\Admin\PresetSandboxController;
 use App\Http\Controllers\Admin\SandboxController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SkillController;
+use App\Http\Controllers\Admin\TelegramController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
 use App\Http\Controllers\Admin\WorkspaceController;
@@ -113,12 +114,23 @@ Route::middleware('auth')->group(function () {
                 });
             }
 
+            // MCP management routes
             Route::prefix('/{presetId}/mcp')->name('mcp.')->group(function () {
                 Route::get('/', [PresetMcpController::class, 'index'])->name('index');
                 Route::post('/', [PresetMcpController::class, 'store'])->name('store');
                 Route::delete('/{serverId}', [PresetMcpController::class, 'destroy'])->name('destroy');
                 Route::patch('/{serverId}/toggle', [PresetMcpController::class, 'toggle'])->name('toggle');
                 Route::post('/{serverId}/ping', [PresetMcpController::class, 'ping'])->name('ping');
+            });
+
+            // Telegram integration routes
+            Route::prefix('/{presetId}/telegram')->name('telegram.')->group(function () {
+                Route::get('/status', [TelegramController::class, 'status'])->name('status');
+                Route::post('/auth/init', [TelegramController::class, 'authInit'])->name('auth.init');
+                Route::post('/auth/phone', [TelegramController::class, 'authPhone'])->name('auth.phone');
+                Route::post('/auth/code', [TelegramController::class, 'authCode'])->name('auth.code');
+                Route::post('/auth/password', [TelegramController::class, 'authPassword'])->name('auth.password');
+                Route::delete('/session', [TelegramController::class, 'destroySession'])->name('session.destroy');
             });
 
             // Preset Prompts
@@ -148,14 +160,11 @@ Route::middleware('auth')->group(function () {
         // Command Plugin management routes
         Route::prefix('plugins')->name('plugins.')->group(function () {
             Route::get('/{presetId?}', [PluginController::class, 'index'])->name('index')->where('presetId', '[0-9]+');
-            Route::get('/health/{presetId?}', [PluginController::class, 'health'])->name('health')->where('presetId', '[0-9]+');
-            Route::post('/health-check/{presetId?}', [PluginController::class, 'healthCheck'])->name('health-check')->where('presetId', '[0-9]+');
             Route::post('/copy-configurations', [PluginController::class, 'copyConfigurations'])->name('copy-configurations');
 
             Route::prefix('{pluginName}')->group(function () {
                 Route::get('/{presetId?}', [PluginController::class, 'show'])->name('show')->where('presetId', '[0-9]+');
                 Route::post('/toggle/{presetId?}', [PluginController::class, 'toggle'])->name('toggle')->where('presetId', '[0-9]+');
-                Route::post('/test/{presetId?}', [PluginController::class, 'test'])->name('test')->where('presetId', '[0-9]+');
                 Route::post('/update/{presetId?}', [PluginController::class, 'update'])->name('update')->where('presetId', '[0-9]+');
                 Route::post('/reset/{presetId?}', [PluginController::class, 'reset'])->name('reset')->where('presetId', '[0-9]+');
             });

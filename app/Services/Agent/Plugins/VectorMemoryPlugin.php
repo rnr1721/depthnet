@@ -7,7 +7,7 @@ use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use Psr\Log\LoggerInterface;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
@@ -29,12 +29,21 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
     protected VectorMemoryServiceInterface $vectorMemoryService;
 
+    protected array $languages = [
+        'auto' => 'Auto-detect language',
+        'en' => 'English',
+        'ru' => 'Russian',
+        'de' => 'German',
+        'fr' => 'French',
+        'es' => 'Spanish',
+        'multilingual' => 'Mixed languages'
+    ];
+
     public function __construct(
         protected LoggerInterface $logger,
         protected VectorMemoryFactoryInterface $vectorMemoryFactory,
         protected MemoryServiceInterface $memoryService
     ) {
-        $this->initializeConfig();
         $this->vectorMemoryService = $this->vectorMemoryFactory->make();
     }
 
@@ -49,11 +58,11 @@ class VectorMemoryPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
-        $maxEntries = $this->config['max_entries'] ?? 1000;
-        $engine     = $this->config['memory_engine'] ?? 'tfidf';
-        $mode       = $this->config['memory_mode']   ?? 'flat';
+        $maxEntries = $config['max_entries'] ?? 1000;
+        $engine     = $config['memory_engine'] ?? 'tfidf';
+        $mode       = $config['memory_mode']   ?? 'flat';
         $engineLabel = $engine === 'embedding' ? 'semantic embedding' : 'TF-IDF keyword';
         $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat';
 
@@ -63,9 +72,14 @@ class VectorMemoryPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
-        return [
+
+        $lang = $config['language_mode'] ?? 'auto';
+
+        $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
+        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $instructions = [
             'Store important information: [vectormemory]Successfully optimized database queries using indexes[/vectormemory]',
             'Search by meaning: [vectormemory search]how to speed up code[/vectormemory]',
             'Show recent memories: [vectormemory recent]5[/vectormemory]',
@@ -73,6 +87,69 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'Clear all memories: [vectormemory clear][/vectormemory]',
             'Delete by ID: [vectormemory delete]42[/vectormemory]',
             'Delete by content: [vectormemory delete]optimization query[/vectormemory]',
+        ];
+
+        if ($forceLanguage) {
+            array_unshift($instructions, "⚠️ All vectormemory entries MUST be stored in {$langName}.");
+        }
+
+        return $instructions;
+    }
+
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * Explicitly separates the store (execute) and search operations
+     * since both take a string argument but serve opposite purposes.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(array $config = []): array
+    {
+        $engine = $config['memory_engine'] ?? 'tfidf';
+        $mode   = $config['memory_mode']   ?? 'flat';
+        $lang   = $config['language_mode'] ?? 'auto';
+
+        $engineLabel = $engine === 'embedding' ? 'semantic embedding' : 'TF-IDF keyword';
+        $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat top-K';
+
+        $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
+        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $langInstruction = $forceLanguage ? " ALL memories MUST be stored in {$langName}. " : '';
+
+        return [
+            'name'        => 'vectormemory',
+            'description' => 'Semantic memory: store crystallized knowledge and retrieve it by meaning. '
+                . "Uses {$engineLabel} similarity with {$modeLabel} retrieval. "
+                . 'Store insights, confirmed facts, patterns, events. '
+                . $langInstruction
+                . 'Different from journal (which records what happened) — '
+                . 'vectormemory stores what you know.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'search', 'recent', 'show', 'delete', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (STORE): the text to remember — an insight, fact, pattern, or event.',
+                            $forceLanguage ? "MUST be in {$langName}." : null,
+                            'Example: "Eugeny prefers concise responses and dislikes excessive formality".',
+                            'search: a natural language query to find semantically similar memories.',
+                            'Example: "what do I know about Eugeny preferences".',
+                            'recent: number of entries to return, e.g. "5" (default 5).',
+                            'show/delete: numeric memory ID.',
+                            'clear: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
         ];
     }
 
@@ -104,6 +181,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'description' => 'Allow semantic memory storage and search',
                 'required' => false
             ],
+
             'memory_mode' => [
                 'type'        => 'select',
                 'label'       => 'Search mode',
@@ -200,12 +278,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'type' => 'select',
                 'label' => 'Language Processing',
                 'description' => 'How to handle different languages',
-                'options' => [
-                    'auto' => 'Auto-detect language',
-                    'ru' => 'Force Russian',
-                    'en' => 'Force English',
-                    'multilingual' => 'Mixed languages'
-                ],
+                'options' => $this->languages,
                 'value' => 'auto',
                 'required' => false
             ],
@@ -295,7 +368,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         return [
             'enabled' => true,
-            'memory_mode'           => VectorMemoryFactoryInterface::MODE_FLAT,      // ← добавить
+            'memory_mode'           => VectorMemoryFactoryInterface::MODE_FLAT,
             'memory_engine'         => VectorMemoryFactoryInterface::ENGINE_TFIDF,
             'max_entries' => 1000,
             'similarity_threshold' => 0.1,
@@ -315,38 +388,30 @@ class VectorMemoryPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function testConnection(): bool
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        return $this->isEnabled();
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function execute(string $content, AiPreset $preset): string
-    {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
-        return $this->store($content, $preset);
+        return $this->store($content, $context);
     }
 
     /**
      * Store content in vector memory
      *
      * @param string $content
-     * @param AiPreset $preset
+     * @param PluginExecutionContext $context
      * @return string
      */
-    public function store(string $content, AiPreset $preset): string
+    public function store(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
-            $result = $this->vectorMemoryService->storeVectorMemory($preset, $content, $this->config);
+            $result = $this->vectorMemoryService->storeVectorMemory($context->preset, $content, $context->config);
 
             if (!$result['success']) {
                 return $result['message'];
@@ -355,8 +420,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $message = $result['message'];
 
             // Add to regular memory if integration is enabled
-            if ($this->config['integrate_with_memory'] ?? false) {
-                $memoryLinkResult = $this->addToRegularMemory($result['memory'], $preset);
+            if ($context->config['integrate_with_memory'] ?? false) {
+                $memoryLinkResult = $this->addToRegularMemory($result['memory'], $context);
                 if ($memoryLinkResult) {
                     $message .= " " . $memoryLinkResult;
                 }
@@ -374,17 +439,17 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Search memories by semantic similarity
      *
      * @param string $query
-     * @param AiPreset $preset
+     * @param PluginExecutionContext $context
      * @return string
      */
-    public function search(string $query, AiPreset $preset): string
+    public function search(string $query, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
-            $result = $this->vectorMemoryService->searchVectorMemories($preset, $query, $this->config);
+            $result = $this->vectorMemoryService->searchVectorMemories($context->preset, $query, $context->config);
 
             if (!$result['success']) {
                 return $result['message'];
@@ -400,7 +465,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 $memory = $searchResult['document'] ?? $searchResult['memory'];
                 $similarity = round($searchResult['similarity'] * 100, 1);
                 $date = $memory->getCreatedAt()->format('M j, H:i');
-                $truncateLength = $this->config['display_content_length'] ?? 500;
+                $truncateLength = $context->config['display_content_length'] ?? 500;
                 $content = $this->truncateContent($memory->getTextContent(), $truncateLength);
                 $id = $memory->id;
                 $output .= "• [ID:{$id}, {$similarity}% match, {$date}] {$content}\n";
@@ -418,17 +483,18 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Show recent memories
      *
      * @param string $limitStr
+     * @param PluginExecutionContext $context
      * @return string
      */
-    public function recent(string $limitStr, AiPreset $preset): string
+    public function recent(string $limitStr, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
             $limit = $limitStr !== '' ? max(1, min((int) $limitStr, 20)) : 5;
-            $result = $this->vectorMemoryService->getRecentVectorMemories($preset, $limit);
+            $result = $this->vectorMemoryService->getRecentVectorMemories($context->preset, $limit);
 
             if (!$result['success']) {
                 return $result['message'];
@@ -444,7 +510,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
             foreach ($memories as $memory) {
                 $date = $memory->created_at->format('M j, H:i');
-                $truncateLength = $this->config['display_content_length'] ?? 500;
+                $truncateLength = $context->config['display_content_length'] ?? 500;
                 $content = $this->truncateContent($memory->content, $truncateLength);
                 $features = count($memory->tfidf_vector);
 
@@ -463,18 +529,18 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Show vector memory content for preset
      *
      * @param string $memoryId
-     * @param AiPreset $preset
+     * @param PluginExecutionContext $context
      * @return string
      */
-    public function show(string $memoryId, AiPreset $preset): string
+    public function show(string $memoryId, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
             $id = (int) $memoryId;
-            $memory = $this->vectorMemoryService->getVectorMemoryById($preset, $id);
+            $memory = $this->vectorMemoryService->getVectorMemoryById($context->preset, $id);
 
             if (!$memory) {
                 return "Memory with ID {$id} not found.";
@@ -498,17 +564,17 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Clear all vector memories
      *
      * @param string $content
-     * @param AiPreset $preset
+     * @param PluginExecutionContext $context
      * @return string
      */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
-            $result = $this->vectorMemoryService->clearVectorMemories($preset);
+            $result = $this->vectorMemoryService->clearVectorMemories($context->preset);
             return $result['message'];
 
         } catch (\Throwable $e) {
@@ -521,12 +587,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Delete specific vector memory by ID or content search
      *
      * @param string $identifier Memory ID or content fragment to search for
-     * @param AiPreset $preset
+     * @param PluginExecutionContext $context
      * @return string
      */
-    public function delete(string $identifier, AiPreset $preset): string
+    public function delete(string $identifier, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
@@ -541,13 +607,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
             if (is_numeric($identifier)) {
                 $id = (int) $identifier;
                 if ($id > 0) {
-                    $result = $this->vectorMemoryService->deleteVectorMemory($preset, $id);
+                    $result = $this->vectorMemoryService->deleteVectorMemory($context->preset, $id);
                     return $result['message'];
                 }
             }
 
             // If not a valid ID, search by content
-            $searchResult = $this->vectorMemoryService->searchVectorMemories($preset, $identifier, [
+            $searchResult = $this->vectorMemoryService->searchVectorMemories($context->preset, $identifier, [
                 'search_limit' => 1,
                 'similarity_threshold' => 0.3
             ]);
@@ -559,7 +625,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $memory = $searchResult['results'][0]['memory'];
             $similarity = round($searchResult['results'][0]['similarity'] * 100, 1);
 
-            $deleteResult = $this->vectorMemoryService->deleteVectorMemory($preset, $memory->id);
+            $deleteResult = $this->vectorMemoryService->deleteVectorMemory($context->preset, $memory->id);
 
             if ($deleteResult['success']) {
                 $preview = $this->truncateContent($memory->content, 60);
@@ -588,10 +654,10 @@ class VectorMemoryPlugin implements CommandPluginInterface
      * Add reference to regular memory plugin
      *
      * @param \App\Models\VectorMemory $vectorMemory
-     * @param AiPreset $preset
+     * @param PluginExecutionContext $context
      * @return string|null
      */
-    private function addToRegularMemory($vectorMemory, AiPreset $preset): ?string
+    private function addToRegularMemory($vectorMemory, PluginExecutionContext $context): ?string
     {
         try {
             // Get memory plugin instance
@@ -602,8 +668,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 return null;
             }
 
-            $format = $this->config['memory_link_format'] ?? 'descriptive';
-            $maxKeywords = $this->config['max_link_keywords'] ?? 4;
+            $format = $context->get('memory_link_format', 'descriptive');
+            $maxKeywords = $context->get('max_link_keywords', 4);
 
             // Limit keywords
             $limitedKeywords = array_slice($vectorMemory->keywords ?? [], 0, $maxKeywords);
@@ -611,7 +677,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $link = $this->formatMemoryLink($vectorMemory, $limitedKeywords, $format);
 
             // Add to memory using the memory service
-            $result = $this->memoryService->addMemoryItem($preset, $link);
+            $result = $this->memoryService->addMemoryItem($context->preset, $link);
 
             return "Added reference to regular memory.";
 
@@ -703,10 +769,10 @@ class VectorMemoryPlugin implements CommandPluginInterface
     /**
      * @inheritDoc
      */
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $mode   = $this->config['memory_mode']   ?? VectorMemoryFactoryInterface::MODE_FLAT;
-        $engine = $this->config['memory_engine'] ?? VectorMemoryFactoryInterface::ENGINE_TFIDF;
+        $mode   = $context->get('memory_mode', VectorMemoryFactoryInterface::MODE_FLAT);
+        $engine = $context->get('memory_engine', VectorMemoryFactoryInterface::ENGINE_TFIDF);
 
         $this->vectorMemoryService = $this->vectorMemoryFactory->make($mode, $engine);
     }

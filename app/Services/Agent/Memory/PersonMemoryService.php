@@ -232,7 +232,7 @@ class PersonMemoryService implements PersonMemoryServiceInterface
             $canonical = $this->resolveByNameOrId($preset, $nameOrId);
 
             if ($canonical === null) {
-                return ['success' => false, 'message' => "Person \"{$nameOrId}\" not found. Use [person list][/person] to see all people."];
+                return ['success' => false, 'message' => "Person \"{$nameOrId}\" not found. Use person list to see all people."];
             }
 
             $facts = $this->personModel
@@ -357,7 +357,7 @@ class PersonMemoryService implements PersonMemoryServiceInterface
             }
 
             $lines[] = '';
-            $lines[] = 'Use [person recall]Name or ID[/person] to see facts.';
+            $lines[] = 'Use person recall to see facts.';
 
             return ['success' => true, 'message' => implode("\n", $lines)];
 

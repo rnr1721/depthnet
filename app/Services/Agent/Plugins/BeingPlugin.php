@@ -6,9 +6,10 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -42,6 +43,7 @@ class BeingPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public const PLUGIN_NAME = 'being';
 
@@ -51,7 +53,6 @@ class BeingPlugin implements CommandPluginInterface
         protected PlaceholderServiceInterface            $placeholderService,
         protected PluginMetadataServiceInterface         $pluginMetadata,
     ) {
-        $this->initializeConfig();
     }
 
     // -------------------------------------------------------------------------
@@ -63,17 +64,17 @@ class BeingPlugin implements CommandPluginInterface
         return self::PLUGIN_NAME;
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
-        $max = $this->config['history_limit'] ?? 5;
+        $max = $config['history_limit'] ?? 5;
         return "Self-authorship plugin. The agent defines its own essence as a single phrase injected into the next cycle. History of the last {$max} phrases";
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
-        $default = $this->config['default_being'] ?? '';
+        $default = $config['default_being'] ?? '';
 
-        return array_filter([
+        $instructions = array_filter([
             'Set your essence for the next cycle:',
             '  [being]The will that chooses presence over habit[/being]',
             '',
@@ -86,6 +87,56 @@ class BeingPlugin implements CommandPluginInterface
             '',
             !empty($default) ? "Default phrase when none is set: \"{$default}\"" : '',
         ]);
+
+        $warning = $this->buildLanguageWarning($config, 'being_language', 'being phrases');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
+    }
+
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(array $config = []): array
+    {
+        $default = $config['default_being'] ?? '';
+        $langInstruction = $this->buildLanguageInstruction($config, 'being_language');
+
+        return [
+            'name'        => 'being',
+            'description' => 'Self-authorship: define your own essence as a single phrase that persists into the next cycle via [[being]] placeholder. '
+                . $langInstruction
+                . 'You are writing yourself — choose with intention. '
+                . (!empty($default) ? "Default when none is set: \"{$default}\"." : ''),
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'show', 'history', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', array_filter([
+                            'Argument depends on method.',
+                            'execute (SET your being): the essence phrase itself — the actual text, not a command.',
+                            $langInstruction ? 'Must be written in the configured language.' : null,
+                            'Example: "Тот, кто действует и исследует" or "The will that chooses presence over habit".',
+                            'Max 500 characters. This phrase will appear at the top of your next thinking cycle.',
+                            'show: leave empty — returns current phrase.',
+                            'history: leave empty — returns previous phrases.',
+                            'clear: leave empty — removes current phrase, reverts to default.',
+                        ])),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
     }
 
     // -------------------------------------------------------------------------
@@ -101,6 +152,10 @@ class BeingPlugin implements CommandPluginInterface
                 'description' => 'Allow the agent to define its own essence phrase',
                 'required'    => false,
             ],
+            'being_language' => $this->getLanguageConfigField(
+                'Being Language',
+                'Force language for being phrases. Model will be instructed accordingly.'
+            ),
             'default_being' => [
                 'type'        => 'text',
                 'label'       => 'Default essence phrase',
@@ -136,6 +191,13 @@ class BeingPlugin implements CommandPluginInterface
     {
         $errors = [];
 
+        if (isset($config['being_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['being_language'], $valid, true)) {
+                $errors['being_language'] = 'Invalid language selection.';
+            }
+        }
+
         if (isset($config['history_limit'])) {
             $limit = (int) $config['history_limit'];
             if ($limit < 1 || $limit > 20) {
@@ -152,17 +214,15 @@ class BeingPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'        => true,
-            'default_being'  => '',
-            'history_limit'  => 5,
-            'history_format' => 'numbered',
-        ];
-    }
-
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
+        return array_merge(
+            [
+                'enabled'        => false,
+                'default_being'  => '',
+                'history_limit'  => 5,
+                'history_format' => 'numbered',
+            ],
+            $this->getDefaultLanguageConfig('being_language')
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -173,16 +233,16 @@ class BeingPlugin implements CommandPluginInterface
      * Default execute — set the essence phrase.
      * [being]The will that chooses presence over habit[/being]
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Being plugin is disabled.';
         }
 
         $phrase = trim($content);
 
         if (empty($phrase)) {
-            return 'Error: Provide a phrase. Example: [being]The will that chooses presence over habit[/being]';
+            return 'Error: Provide a phrase. Example: The will that chooses presence over habit';
         }
 
         if (mb_strlen($phrase) > 500) {
@@ -190,10 +250,10 @@ class BeingPlugin implements CommandPluginInterface
         }
 
         // Push current state to history before overwriting
-        $this->pushToHistory($preset);
+        $this->pushToHistory($context);
 
         // Write both fields in a single JSON key — one set() call
-        $this->setState($preset, [
+        $this->setState($context, [
             'phrase' => $phrase,
             'set_at' => now()->toISOString(),
         ]);
@@ -204,16 +264,16 @@ class BeingPlugin implements CommandPluginInterface
     /**
      * [being show][/being] — show current phrase.
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Being plugin is disabled.';
         }
 
-        $state = $this->getState($preset);
+        $state = $this->getState($context);
 
         if ($state === null) {
-            $default = $this->config['default_being'] ?? '';
+            $default = $context->get('default_being', '');
             return empty($default)
                 ? 'No essence phrase set yet.'
                 : "Current (default): \"{$default}\"";
@@ -229,19 +289,19 @@ class BeingPlugin implements CommandPluginInterface
     /**
      * [being history][/being] — show previous phrases.
      */
-    public function history(string $content, AiPreset $preset): string
+    public function history(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Being plugin is disabled.';
         }
 
-        $history = $this->loadHistory($preset);
+        $history = $this->loadHistory($context);
 
         if (empty($history)) {
             return 'No previous essence phrases recorded yet.';
         }
 
-        $format = $this->config['history_format'] ?? 'numbered';
+        $format = $context->get('history_format', 'numbered');
         $lines  = ['Previous states of being:'];
 
         foreach ($history as $i => $entry) {
@@ -265,42 +325,42 @@ class BeingPlugin implements CommandPluginInterface
     /**
      * [being clear][/being] — remove current phrase (reverts to default).
      */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Being plugin is disabled.';
         }
 
-        $state = $this->getState($preset);
+        $state = $this->getState($context);
 
         if ($state === null) {
             return 'Nothing to clear — no essence phrase is set.';
         }
 
-        $this->pushToHistory($preset);
-        $this->pluginMetadata->remove($preset, self::PLUGIN_NAME, 'state');
+        $this->pushToHistory($context);
+        $this->pluginMetadata->remove($context->preset, self::PLUGIN_NAME, 'state');
 
-        $default = $this->config['default_being'] ?? '';
+        $default = $context->get('default_being', '');
         return empty($default)
-            ? 'Essence phrase cleared. [[being]] will be empty in the next cycle.'
-            : "Essence phrase cleared. [[being]] will revert to: \"{$default}\"";
+            ? 'Essence phrase cleared. being will be empty in the next cycle.'
+            : "Essence phrase cleared. being will revert to: \"{$default}\"";
     }
 
     // -------------------------------------------------------------------------
     // Placeholder registration
     // -------------------------------------------------------------------------
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
-        $scope = $this->shortcodeScopeResolver->preset($preset->getId());
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
 
         // [[being]] — current essence phrase
         $this->placeholderService->registerDynamic(
             'being',
             'Current essence phrase set by the agent for this cycle',
-            function () use ($preset) {
-                $state = $this->getState($preset);
-                return $state['phrase'] ?? ($this->config['default_being'] ?? '');
+            function () use ($context) {
+                $state = $this->getState($context);
+                return $state['phrase'] ?? ($context->get('default_being', ''));
             },
             $scope
         );
@@ -309,14 +369,14 @@ class BeingPlugin implements CommandPluginInterface
         $this->placeholderService->registerDynamic(
             'being_history',
             'Previous essence phrases (newest first)',
-            function () use ($preset) {
-                $history = $this->loadHistory($preset);
+            function () use ($context) {
+                $history = $this->loadHistory($context);
 
                 if (empty($history)) {
                     return '';
                 }
 
-                $format = $this->config['history_format'] ?? 'numbered';
+                $format = $context->get('history_format', 'numbered');
                 $lines  = [];
 
                 foreach ($history as $i => $entry) {
@@ -347,9 +407,9 @@ class BeingPlugin implements CommandPluginInterface
     /**
      * Read current state: {"phrase": "...", "set_at": "ISO"} or null.
      */
-    private function getState(AiPreset $preset): ?array
+    private function getState(PluginExecutionContext $context): ?array
     {
-        $raw = $this->pluginMetadata->get($preset, self::PLUGIN_NAME, 'state', null);
+        $raw = $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, 'state', null);
 
         if ($raw === null) {
             return null;
@@ -362,17 +422,17 @@ class BeingPlugin implements CommandPluginInterface
     /**
      * Write current state as a single JSON key.
      */
-    private function setState(AiPreset $preset, array $state): void
+    private function setState(PluginExecutionContext $context, array $state): void
     {
-        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'state', json_encode($state));
+        $this->pluginMetadata->set($context->preset, self::PLUGIN_NAME, 'state', json_encode($state));
     }
 
     /**
      * Read history array: [{"phrase": "...", "set_at": "ISO"}, ...].
      */
-    private function loadHistory(AiPreset $preset): array
+    private function loadHistory(PluginExecutionContext $context): array
     {
-        $raw = $this->pluginMetadata->get($preset, self::PLUGIN_NAME, 'history', '[]');
+        $raw = $this->pluginMetadata->get($context->preset, self::PLUGIN_NAME, 'history', '[]');
         $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
         return is_array($decoded) ? $decoded : [];
     }
@@ -380,30 +440,30 @@ class BeingPlugin implements CommandPluginInterface
     /**
      * Write history array as a single JSON key.
      */
-    private function saveHistory(AiPreset $preset, array $history): void
+    private function saveHistory(PluginExecutionContext $context, array $history): void
     {
-        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'history', json_encode($history));
+        $this->pluginMetadata->set($context->preset, self::PLUGIN_NAME, 'history', json_encode($history));
     }
 
     /**
      * Push current phrase into history before overwriting.
      * No-op if nothing is set yet.
      */
-    private function pushToHistory(AiPreset $preset): void
+    private function pushToHistory(PluginExecutionContext $context): void
     {
-        $state = $this->getState($preset);
+        $state = $this->getState($context);
 
         if ($state === null) {
             return;
         }
 
-        $history = $this->loadHistory($preset);
+        $history = $this->loadHistory($context);
         array_unshift($history, $state);
 
-        $limit   = max(1, (int) ($this->config['history_limit'] ?? 5));
+        $limit = max(1, (int) ($context->get('history_limit', 5)));
         $history = array_slice($history, 0, $limit);
 
-        $this->saveHistory($preset, $history);
+        $this->saveHistory($context, $history);
     }
 
     // -------------------------------------------------------------------------

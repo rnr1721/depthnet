@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\AiPreset;
 use App\Exceptions\PresetException;
@@ -28,7 +29,8 @@ class PresetService implements PresetServiceInterface
         protected ValidatorFactory $validator,
         protected AiPreset $aiPresetModel,
         protected LoggerInterface $logger,
-        protected CacheManager $cacheManager
+        protected CacheManager $cacheManager,
+        protected PluginManagerFactoryInterface $pluginManagerFactory
     ) {
     }
 
@@ -63,6 +65,9 @@ class PresetService implements PresetServiceInterface
                 'rag_skills_limit'           => $data['rag_skills_limit'] ?? 3,
                 'rag_content_limit'          => $data['rag_content_limit'] ?? 400,
                 'rag_journal_context_window' => $data['rag_journal_context_window'] ?? 0,
+                'defrag_enabled'      => $data['defrag_enabled'] ?? false,
+                'defrag_prompt'       => $data['defrag_prompt'] ?? null,
+                'defrag_keep_per_day' => $data['defrag_keep_per_day'] ?? 3,
                 'voice_preset_id' => $data['voice_preset_id'] ?? null,
                 'voice_context_limit' => $data['voice_context_limit'] ?? null,
                 'cycle_prompt_preset_id' => $data['cycle_prompt_preset_id'] ?? null,
@@ -93,6 +98,8 @@ class PresetService implements PresetServiceInterface
 
             $this->presetRegistry->refresh();
 
+            $this->pluginManagerFactory->get()->initializeConfigsForPreset($preset);
+
             $this->logPresetCreated($preset);
 
             return $preset;
@@ -100,7 +107,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Create preset with enhanced validation and logging
+     * @inheritDoc
      */
     public function createPresetWithValidation(array $data): AiPreset
     {
@@ -147,6 +154,9 @@ class PresetService implements PresetServiceInterface
                 'rag_skills_limit'           => array_key_exists('rag_skills_limit', $data) ? $data['rag_skills_limit'] : $preset->rag_skills_limit,
                 'rag_content_limit'          => array_key_exists('rag_content_limit', $data) ? $data['rag_content_limit'] : $preset->rag_content_limit,
                 'rag_journal_context_window' => array_key_exists('rag_journal_context_window', $data) ? $data['rag_journal_context_window'] : $preset->rag_journal_context_window,
+                'defrag_enabled'      => array_key_exists('defrag_enabled', $data) ? $data['defrag_enabled'] : $preset->defrag_enabled,
+                'defrag_prompt'       => array_key_exists('defrag_prompt', $data) ? $data['defrag_prompt'] : $preset->defrag_prompt,
+                'defrag_keep_per_day' => array_key_exists('defrag_keep_per_day', $data) ? $data['defrag_keep_per_day'] : $preset->defrag_keep_per_day,
                 'voice_preset_id' => array_key_exists('voice_preset_id', $data) ? $data['voice_preset_id'] : $preset->voice_preset_id,
                 'voice_context_limit' => array_key_exists('voice_context_limit', $data) ? $data['voice_context_limit'] : $preset->voice_context_limit,
                 'cycle_prompt_preset_id' => array_key_exists('cycle_prompt_preset_id', $data) ? $data['cycle_prompt_preset_id'] : $preset->cycle_prompt_preset_id,
@@ -183,7 +193,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Update preset with enhanced validation and logging
+     * @inheritDoc
      */
     public function updatePresetWithValidation(int $id, array $data): AiPreset
     {
@@ -219,7 +229,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Delete preset with enhanced validation and logging
+     * @inheritDoc
      */
     public function deletePresetWithValidation(int $id): void
     {
@@ -233,7 +243,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Find preset by ID
+     * @inheritDoc
      */
     public function findById(int $id): ?AiPreset
     {
@@ -241,7 +251,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Find preset by ID or fail
+     * @inheritDoc
      */
     public function findByIdOrFail(int $id): AiPreset
     {
@@ -249,7 +259,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Find preset by code (case-insensitive)
+     * @inheritDoc
      */
     public function findByCode(string $code): ?AiPreset
     {
@@ -259,7 +269,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Get the default preset
+     * @inheritDoc
      */
     public function getDefaultPreset(): ?AiPreset
     {
@@ -269,7 +279,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Get the default preset or first active preset
+     * @inheritDoc
      */
     public function getDefaultOrFirstActivePreset(): ?AiPreset
     {
@@ -286,7 +296,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Duplicate an existing preset
+     * @inheritDoc
      */
     public function duplicatePreset(int $id, ?string $newName = null): AiPreset
     {
@@ -313,13 +323,17 @@ class PresetService implements PresetServiceInterface
             'is_default' => false, // Duplicated presets are never default
         ]);
 
+        $this->presetRegistry->refresh();
+
+        $this->pluginManagerFactory->get()->initializeConfigsForPreset($newPreset);
+
         $this->logPresetDuplicated($id, $newPreset->id);
 
         return $newPreset;
     }
 
     /**
-     * Test preset configuration
+     * @inheritDoc
      */
     public function testPreset(int $id): array
     {
@@ -335,7 +349,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Test preset configuration (legacy method)
+     * @inheritDoc
      */
     public function testPresetConfiguration(int $id): array
     {
@@ -343,7 +357,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Test engine configuration
+     * @inheritDoc
      */
     public function testEngineConfiguration(string $engineName, array $config): array
     {
@@ -420,7 +434,7 @@ class PresetService implements PresetServiceInterface
     }
 
     /**
-     * Import recommended preset
+     * @inheritDoc
      */
     public function importRecommendedPreset(string $engineName, int $presetIndex): AiPreset
     {
@@ -738,6 +752,9 @@ class PresetService implements PresetServiceInterface
             'rag_skills_limit'           => 'nullable|integer|min:1|max:20',
             'rag_content_limit'          => 'nullable|integer|min:100|max:2000',
             'rag_journal_context_window' => 'nullable|integer|min:0|max:5',
+            'defrag_enabled'      => 'boolean',
+            'defrag_prompt'       => 'nullable|string',
+            'defrag_keep_per_day' => 'nullable|integer|min:1|max:20',
             'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'voice_context_limit' => 'required|integer|min:0|max:20',
             'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',

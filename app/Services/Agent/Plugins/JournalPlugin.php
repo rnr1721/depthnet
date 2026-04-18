@@ -4,9 +4,10 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -38,12 +39,12 @@ class JournalPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public function __construct(
         protected JournalServiceInterface $journalService,
         protected LoggerInterface         $logger,
     ) {
-        $this->initializeConfig();
     }
 
     public function getName(): string
@@ -51,14 +52,14 @@ class JournalPlugin implements CommandPluginInterface
         return 'journal';
     }
 
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
         return 'Episodic memory chronicle. Record structured events (actions, decisions, errors, reflections) with timestamps. Supports both chronological browsing and semantic search, optionally filtered by date.';
     }
 
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Add entry:              [journal]action | Refactored memory plugin[/journal]',
             'Add with details:       [journal]error | DB failed | Timeout after 30s | outcome:failure[/journal]',
             'Add decision:           [journal]decision | Chose approach A over B | Simpler implementation[/journal]',
@@ -72,6 +73,63 @@ class JournalPlugin implements CommandPluginInterface
             'Delete entry:           [journal delete]42[/journal]',
             'Clear all:              [journal clear][/journal]',
         ];
+
+        $warning = $this->buildLanguageWarning($config, 'journal_language', 'journal entries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
+    }
+
+    /**
+     * Tool schema for tool_calls mode.
+     *
+     * Provides precise description of the pipe-separated entry format
+     * and available entry types, so the model doesn't have to guess
+     * the structure from implicit context.
+     *
+     * @return array OpenAI-compatible function descriptor (inner "function" object)
+     */
+    public function getToolSchema(array $config = []): array
+    {
+
+        $langInstruction = $this->buildLanguageInstruction($config, 'journal_language');
+
+        return [
+            'name'        => 'journal',
+            'description' => 'Episodic memory chronicle. '
+                . 'Records what happened — actions, decisions, errors, interactions — with timestamps. '
+                . $langInstruction
+                . 'Use for logging events, not for storing knowledge (use vectormemory for that).',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'recent', 'search', 'show', 'delete', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute (add entry): pipe-separated format:',
+                            '"type | summary" or',
+                            '"type | summary | details" or',
+                            '"type | summary | details | outcome:success".',
+                            'Types: action, decision, interaction, error, observation, event.',
+                            'Example: "interaction | Eugeny introduced himself as viking | told me his name | outcome:success".',
+                            'recent: number of entries to return (default 10).',
+                            'search: query string, optionally prefixed with date: "yesterday | errors" or "2024-03-15 | memory".',
+                            'show/delete: numeric entry ID.',
+                            'clear: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
     }
 
     public function getConfigFields(): array
@@ -83,6 +141,10 @@ class JournalPlugin implements CommandPluginInterface
                 'description' => 'Episodic memory chronicle with semantic search',
                 'required'    => false,
             ],
+            'journal_language' => $this->getLanguageConfigField(
+                'Journal Language',
+                'Force language for journal entries.'
+            ),
             'default_limit' => [
                 'type'        => 'number',
                 'label'       => 'Default entries limit',
@@ -98,6 +160,14 @@ class JournalPlugin implements CommandPluginInterface
     public function validateConfig(array $config): array
     {
         $errors = [];
+
+        if (isset($config['journal_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['journal_language'], $valid, true)) {
+                $errors['journal_language'] = 'Invalid language selection.';
+            }
+        }
+
         if (isset($config['default_limit'])) {
             $l = (int) $config['default_limit'];
             if ($l < 1 || $l > 50) {
@@ -109,10 +179,13 @@ class JournalPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'       => true,
-            'default_limit' => 10,
-        ];
+        return array_merge(
+            [
+                'enabled'       => false,
+                'default_limit' => 10,
+            ],
+            $this->getDefaultLanguageConfig('journal_language')
+        );
     }
 
     public function getCustomSuccessMessage(): ?string
@@ -125,11 +198,6 @@ class JournalPlugin implements CommandPluginInterface
         return null;
     }
 
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
     // -------------------------------------------------------------------------
     // Commands
     // -------------------------------------------------------------------------
@@ -137,45 +205,45 @@ class JournalPlugin implements CommandPluginInterface
     /**
      * Default execute — add a journal entry.
      */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
-        $result = $this->journalService->addEntry($preset, $content);
+        $result = $this->journalService->addEntry($context->preset, $content);
         return $result['message'];
     }
 
     /**
      * [journal recent]N[/journal]
      */
-    public function recent(string $content, AiPreset $preset): string
+    public function recent(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
-        $limit  = !empty(trim($content)) ? (int) trim($content) : ($this->config['default_limit'] ?? 10);
-        $result = $this->journalService->recent($preset, $limit);
+        $limit = !empty(trim($content)) ? (int) trim($content) : ($context->get('default_limit', 10));
+        $result = $this->journalService->recent($context->preset, $limit);
         return $result['message'];
     }
 
     /**
      * [journal show]ID[/journal]
      */
-    public function show(string $content, AiPreset $preset): string
+    public function show(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
         $id = (int) trim($content);
         if ($id <= 0) {
-            return 'Error: Provide a valid entry ID. Use [journal show]42[/journal]';
+            return 'Error: Provide a valid entry ID.';
         }
 
-        $result = $this->journalService->show($preset, $id);
+        $result = $this->journalService->show($context->preset, $id);
         return $result['message'];
     }
 
@@ -185,28 +253,28 @@ class JournalPlugin implements CommandPluginInterface
      * [journal search]yesterday | query[/journal]
      * [journal search]today[/journal]
      */
-    public function search(string $content, AiPreset $preset): string
+    public function search(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
         $query = trim($content);
         if (empty($query)) {
-            return 'Error: Provide a search query. Use [journal search]memory optimization[/journal]';
+            return 'Error: Provide a search query.';
         }
 
-        $limit  = $this->config['default_limit'] ?? 10;
-        $result = $this->journalService->search($preset, $query, $limit);
+        $limit = $context->get('default_limit', 10);
+        $result = $this->journalService->search($context->preset, $query, $limit);
         return $result['message'];
     }
 
     /**
      * [journal delete]ID[/journal]
      */
-    public function delete(string $content, AiPreset $preset): string
+    public function delete(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
@@ -215,20 +283,20 @@ class JournalPlugin implements CommandPluginInterface
             return 'Error: Provide a valid entry ID. Use [journal delete]42[/journal]';
         }
 
-        $result = $this->journalService->delete($preset, $id);
+        $result = $this->journalService->delete($context->preset, $id);
         return $result['message'];
     }
 
     /**
      * [journal clear][/journal]
      */
-    public function clear(string $content, AiPreset $preset): string
+    public function clear(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return 'Error: Journal plugin is disabled.';
         }
 
-        $result = $this->journalService->clear($preset);
+        $result = $this->journalService->clear($context->preset);
         return $result['message'];
     }
 
@@ -251,9 +319,8 @@ class JournalPlugin implements CommandPluginInterface
         return ['clear', 'recent'];
     }
 
-    public function pluginReady(AiPreset $preset): void
+    public function registerShortcodes(PluginExecutionContext $context): void
     {
         // Journal doesn't inject into context automatically —
-        // the agent decides when to read it via commands.
     }
 }

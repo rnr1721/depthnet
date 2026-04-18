@@ -10,6 +10,7 @@
         <div class="space-y-6">
 
             <!-- Agent Result Mode -->
+            <!-- Agent Result Mode -->
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_agent_result_mode') }}
@@ -18,10 +19,10 @@
                     @input="updateField('agent_result_mode', $event.target.value)" :class="inputClass">
                     <option value="internal">{{ t('p_modal_agent_result_internal') }}</option>
                     <option value="separate">{{ t('p_modal_agent_result_separate') }}</option>
-                    <option value="attached">{{ t('p_modal_agent_result_attached') }}</option>
+                    <option value="tool_calls">{{ t('p_modal_agent_result_tool_calls') }}</option>
                 </select>
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_agent_result_mode_desc') }}
+                    {{ t('p_modal_agent_result_mode_desc_' + modelValue.agent_result_mode) }}
                 </p>
                 <div v-if="errors.agent_result_mode" class="text-red-500 text-xs mt-1">
                     {{ errors.agent_result_mode }}

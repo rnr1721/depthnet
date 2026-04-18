@@ -6,17 +6,17 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Contracts\Sandbox\SandboxServiceInterface;
-use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 
 /**
- * SandboxPlugin class
+ * SandboxPlugin — stateless.
  *
  * Universal plugin for executing code and commands in Docker sandboxes.
  * Supports multiple languages: shell, php, python, node.
- * Uses preset-assigned sandbox or creates temporary ones.
+ * Uses preset-assigned sandbox.
  */
 class SandboxPlugin implements CommandPluginInterface
 {
@@ -24,43 +24,46 @@ class SandboxPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
-    protected array $languages = ['shell','php','python','node'];
+    protected array $languages = [
+      'shell'  => 'shell commands (bash)',
+      'php'    => 'PHP code',
+      'python' => 'Python code',
+      'node'   => 'Node.js / JavaScript code',
+    ];
 
     public function __construct(
         protected SandboxServiceInterface $sandboxService,
         protected PresetSandboxServiceInterface $presetSandboxService,
         protected SandboxManagerInterface $sandboxManager
     ) {
-        $this->sandboxService = $sandboxService;
-        $this->presetSandboxService = $presetSandboxService;
-        $this->initializeConfig();
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getName(): string
     {
         return 'run';
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function getDescription(): string
+    public function getDescription(array $config = []): string
     {
-        return 'Execute code and commands in assigned Docker sandbox. Requires sandbox to be assigned to preset. Supports shell, PHP, Python, and Node.js.';
+        $currentLanguages = [];
+        foreach ($this->languages as $language => $description) {
+            if ($this->isLanguageEnabled($config, $language)) {
+                $currentLanguages[] = $description;
+            }
+        }
+        return 'Execute code and commands in assigned Docker sandbox. Requires sandbox to be assigned to preset. Supports ' . implode(', ', $currentLanguages) . '.';
     }
 
     /**
-     * @inheritDoc
+     * instructions are static — they list all four runtimes.
+     * Disabled languages will fail with a clear error at execute() time.
      */
-    public function getInstructions(): array
+    public function getInstructions(array $config = []): array
     {
         $instructions = [];
 
         // Shell commands
-        if ($this->isLanguageEnabled('shell')) {
+        if ($this->isLanguageEnabled($config, 'shell')) {
             $instructions = array_merge($instructions, [
                 'Execute shell commands: [run shell]ls -la[/run]',
                 'System operations: [run shell]ps aux | grep nginx[/run]',
@@ -70,7 +73,7 @@ class SandboxPlugin implements CommandPluginInterface
         }
 
         // PHP code
-        if ($this->isLanguageEnabled('php')) {
+        if ($this->isLanguageEnabled($config, 'php')) {
             $instructions = array_merge($instructions, [
                 'Execute PHP code: [run php]echo "Hello World!";[/run]',
                 'PHP calculations: [run php]$result = 15 * 8 + 45; echo "Result: $result";[/run]',
@@ -80,7 +83,7 @@ class SandboxPlugin implements CommandPluginInterface
         }
 
         // Python code
-        if ($this->isLanguageEnabled('python')) {
+        if ($this->isLanguageEnabled($config, 'python')) {
             $instructions = array_merge($instructions, [
                 'Execute Python code: [run python]print("Hello World!")[/run]',
                 'Python calculations: [run python]result = 15 * 8 + 45; print(f"Result: {result}")[/run]',
@@ -90,7 +93,7 @@ class SandboxPlugin implements CommandPluginInterface
         }
 
         // Node.js code
-        if ($this->isLanguageEnabled('node')) {
+        if ($this->isLanguageEnabled($config, 'node')) {
             $instructions = array_merge($instructions, [
                 'Execute Node.js code: [run node]console.log("Hello World!");[/run]',
                 'Node.js calculations: [run node]const result = 15 * 8 + 45; console.log(`Result: ${result}`);[/run]',
@@ -110,51 +113,87 @@ class SandboxPlugin implements CommandPluginInterface
     }
 
     /**
-     * @inheritDoc
+     * tool schema is static — exposes all four languages.
+     * Per-preset enable_* flags are enforced at execution time.
      */
+    public function getToolSchema(array $config = []): array
+    {
+        // Build enum from languages enabled in the current preset config
+        $enabledLanguages = array_values(array_filter(
+            $this->languages,
+            fn ($lang) => $this->isLanguageEnabled($config, $lang)
+        ));
+
+        $langList = implode(', ', array_map(
+            fn ($lang) => $lang . ' (' . ($this->languages[$lang] ?? $lang) . ')',
+            $enabledLanguages
+        ));
+
+        return [
+            'name'        => 'run',
+            'description' => 'Execute code or shell commands in an isolated Docker sandbox. '
+                . 'Requires a sandbox to be assigned to this preset. '
+                . "Available languages: {$langList}.",
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Execution language / runtime',
+                        'enum'        => array_values($enabledLanguages),
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'The code or command to execute.',
+                            'shell: a shell command or script, e.g. "ls -la /tmp".',
+                            'php: PHP code without opening tags, e.g. "echo date(\'Y-m-d\');".',
+                            'python: Python code, e.g. "import os; print(os.getcwd())".',
+                            'node: Node.js code, e.g. "console.log(process.version)".',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method', 'content'],
+            ],
+        ];
+    }
+
     public function getCustomSuccessMessage(): ?string
     {
         return null;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getCustomErrorMessage(): ?string
     {
         return "Error executing code in sandbox.";
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function execute(string $content, AiPreset $preset): string
+    public function execute(string $content, PluginExecutionContext $context): string
     {
-        if (!$this->isEnabled()) {
+        if (!$context->enabled) {
             return "Error: Sandbox plugin is disabled.";
         }
 
         if (empty($content)) {
-            $hint = "Command for execution shell commands and code";
+            $hint = "Command for execution shell commands and code\n";
             return $hint . implode("\n", $this->getInstructions());
         }
 
         try {
-            // Parse command format: [run language]code[/run]
-            $parsedCommand = $this->parseCommand($content);
-            $language = $parsedCommand['language'];
-            $code = $parsedCommand['code'];
+            $parsed = $this->parseCommand($content);
+            $language = $parsed['language'];
+            $code = $parsed['code'];
 
-            if (!$this->isLanguageEnabled($language)) {
+            if (!$this->isLanguageEnabled($context->config, $language)) {
                 return "Error: {$language} execution is disabled in plugin configuration.";
             }
 
-            $sandboxId = $this->getAssignedSandbox($preset);
+            $sandboxId = $this->getAssignedSandbox($context);
             if (!$sandboxId) {
                 return "Error: No sandbox assigned to current preset or sandbox is stopped. Please assign a sandbox before code execution.";
             }
 
-            $result = $this->executeInSandbox($sandboxId, $language, $code);
+            $result = $this->executeInSandbox($context, $sandboxId, $language, $code);
 
             return $this->formatOutput($language, $code, $result);
 
@@ -163,239 +202,6 @@ class SandboxPlugin implements CommandPluginInterface
         }
     }
 
-    /**
-     * Parse command to extract language and code
-     *
-     * @param string $content
-     * @return array
-     */
-    private function parseCommand(string $content): array
-    {
-        // Extract language from content if it's already parsed externally
-        // Expected format: "language_name\ncode_content"
-        $lines = explode("\n", trim($content), 2);
-
-        if (count($lines) >= 2) {
-            $language = trim($lines[0]);
-            $code = trim($lines[1]);
-        } else {
-            // Fallback - assume it's shell if no language specified
-            $language = 'shell';
-            $code = trim($content);
-        }
-
-        // Validate language
-        if (!in_array($language, $this->languages)) {
-            throw new \InvalidArgumentException("Unsupported language: {$language}");
-        }
-
-        return [
-            'language' => $language,
-            'code' => $code
-        ];
-    }
-
-    /**
-     * Get assigned sandbox ID for current preset
-     *
-     * @return string|null
-     */
-    private function getAssignedSandbox(AiPreset $preset): ?string
-    {
-        if (!isset($preset)) {
-            return null;
-        }
-
-        $assignedSandbox = $this->presetSandboxService->getAssignedSandbox($preset->getId());
-
-        if (!$assignedSandbox || $assignedSandbox['sandbox']->status !== 'running') {
-            return null;
-        }
-
-        return $assignedSandbox['sandbox_id'];
-    }
-
-    /**
-     * Execute code in sandbox based on language
-     *
-     * @param string $sandboxId
-     * @param string $language
-     * @param string $code
-     * @return mixed
-     */
-    private function executeInSandbox(string $sandboxId, string $language, string $code)
-    {
-        $timeout = $this->config['execution_timeout'] ?? 30;
-
-        return match ($language) {
-            'shell' => $this->executeShellCommand($sandboxId, $code, $timeout),
-            'php' => $this->executePhpCode($sandboxId, $code, $timeout),
-            'python' => $this->executePythonCode($sandboxId, $code, $timeout),
-            'node' => $this->executeNodeCode($sandboxId, $code, $timeout),
-            default => throw new \InvalidArgumentException("Unsupported language: {$language}")
-        };
-    }
-
-    /**
-     * Execute shell command in sandbox
-     *
-     * @param string $sandboxId
-     * @param string $command
-     * @param int $timeout
-     * @return mixed
-     */
-    private function executeShellCommand(string $sandboxId, string $command, int $timeout)
-    {
-        $executionResult = $this->sandboxManager->executeCommand(
-            $sandboxId,
-            $command,
-            $this->config['user'],
-            $timeout
-        );
-
-        return [
-            'output' => $executionResult->output,
-            'error' => $executionResult->error,
-            'exit_code' => $executionResult->exitCode,
-            'execution_time' => $executionResult->executionTime,
-            'timed_out' => $executionResult->timedOut
-        ];
-    }
-
-    /**
-     * Execute PHP code in sandbox
-     *
-     * @param string $sandboxId
-     * @param string $code
-     * @param int $timeout
-     * @return mixed
-     */
-    private function executePhpCode(string $sandboxId, string $code, int $timeout)
-    {
-        // Ensure PHP code has proper opening tags
-        //if (!str_starts_with(trim($code), '<?php') && !str_starts_with(trim($code), '<?')) {
-        //$code = "<?php\n" . $code;
-        //}
-
-        $this->sandboxService->setUser($this->config['user']);
-        return $this->sandboxService->executeCodeInSandbox(
-            $sandboxId,
-            $code,
-            'php',
-            [
-                'timeout' => $timeout,
-                'work_dir' => $this->config['temp_dir']
-            ]
-        );
-    }
-
-    /**
-     * Execute Python code in sandbox
-     *
-     * @param string $sandboxId
-     * @param string $code
-     * @param int $timeout
-     * @return mixed
-     */
-    private function executePythonCode(string $sandboxId, string $code, int $timeout)
-    {
-        $this->sandboxService->setUser($this->config['user']);
-        return $this->sandboxService->executeCodeInSandbox(
-            $sandboxId,
-            $code,
-            'python',
-            [
-                'timeout' => $timeout,
-                'work_dir' => $this->config['temp_dir']
-            ]
-        );
-    }
-
-    /**
-     * Execute Node.js code in sandbox
-     *
-     * @param string $sandboxId
-     * @param string $code
-     * @param int $timeout
-     * @return mixed
-     */
-    private function executeNodeCode(string $sandboxId, string $code, int $timeout)
-    {
-        $this->sandboxService->setUser($this->config['user']);
-        return $this->sandboxService->executeCodeInSandbox(
-            $sandboxId,
-            $code,
-            'javascript',
-            [
-                'timeout' => $timeout,
-                'work_dir' => $this->config['temp_dir']
-            ]
-        );
-    }
-
-    /**
-     * Format execution output
-     *
-     * @param string $language
-     * @param string $code
-     * @param mixed $result
-     * @return string
-     */
-    private function formatOutput(string $language, string $code, $result): string
-    {
-        $output = [];
-
-        // Add execution info
-        if ($language === 'shell') {
-            $output[] = "Command executed in sandbox:";
-            $output[] = "> {$code}";
-            $output[] = "";
-
-            if (!empty($result['output'])) {
-                $output[] = $result['output'];
-            }
-
-            if (!empty($result['error'])) {
-                $output[] = "Error: " . $result['error'];
-            }
-
-            if ($result['exit_code'] !== 0) {
-                $output[] = "Exit code: " . $result['exit_code'];
-            }
-        } else {
-            $output[] = ucfirst($language) . " code executed in sandbox:";
-            $output[] = "";
-
-            if (!empty($result->output)) {
-                $output[] = $result->output;
-            }
-
-            if (!empty($result->error)) {
-                $output[] = "Error: " . $result->error;
-            }
-
-            if ($result->exitCode !== 0) {
-                $output[] = "Exit code: " . $result->exitCode;
-            }
-        }
-
-        return implode("\n", $output) ?: 'Code executed successfully with no output.';
-    }
-
-    /**
-     * Check if language is enabled
-     *
-     * @param string $language
-     * @return bool
-     */
-    private function isLanguageEnabled(string $language): bool
-    {
-        return $this->config["enable_{$language}"] ?? true;
-    }
-
-    /**
-     * @inheritDoc
-     */
     public function getConfigFields(): array
     {
         return [
@@ -459,14 +265,10 @@ class SandboxPlugin implements CommandPluginInterface
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
     public function validateConfig(array $config): array
     {
         $errors = [];
 
-        // Validate timeout
         if (isset($config['execution_timeout'])) {
             $timeout = (int) $config['execution_timeout'];
             if ($timeout < 5 || $timeout > 300) {
@@ -474,10 +276,9 @@ class SandboxPlugin implements CommandPluginInterface
             }
         }
 
-        // Check that at least one language is enabled
         $anyEnabled = false;
-
-        foreach ($this->languages as $language) {
+        $languages = array_keys($this->languages);
+        foreach ($languages as $language) {
             if ($config["enable_{$language}"] ?? true) {
                 $anyEnabled = true;
                 break;
@@ -491,105 +292,204 @@ class SandboxPlugin implements CommandPluginInterface
         return $errors;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function getDefaultConfig(): array
     {
         return [
-            'enabled' => true,
+            'enabled' => false,
             'enable_shell' => true,
             'enable_php' => true,
             'enable_python' => true,
             'enable_node' => true,
             'execution_timeout' => 30,
             'user' => 'sandbox-user',
-            'temp_dir' => '/tmp'
+            'temp_dir' => '/tmp',
         ];
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function testConnection(): bool
-    {
-        return $this->isEnabled();
-    }
-
-    /**
-     * @inheritDoc
-     */
     public function getMergeSeparator(): ?string
     {
         return null;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function canBeMerged(): bool
     {
-        return false; // Each sandbox execution should be separate for clarity
+        return false;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function pluginReady(AiPreset $preset): void
+    // Method-call entry points: [run shell]…[/run] etc.
+
+    public function shell(string $content, PluginExecutionContext $context): string
     {
-        // Nothing to do here since we don't create temporary sandboxes
+        return $this->execute("shell\n" . $content, $context);
     }
 
-    /**
-     * Execute shell command method (for method calling)
-     *
-     * @param string $content
-     * @return string
-     */
-    public function shell(string $content, AiPreset $preset): string
+    public function php(string $content, PluginExecutionContext $context): string
     {
-        return $this->execute("shell\n" . $content, $preset);
+        return $this->execute("php\n" . $content, $context);
     }
 
-    /**
-     * Execute PHP code method (for method calling)
-     *
-     * @param string $content
-     * @return string
-     */
-    public function php(string $content, AiPreset $preset): string
+    public function python(string $content, PluginExecutionContext $context): string
     {
-        return $this->execute("php\n" . $content, $preset);
+        return $this->execute("python\n" . $content, $context);
     }
 
-    /**
-     * Execute Python code method (for method calling)
-     *
-     * @param string $content
-     * @return string
-     */
-    public function python(string $content, AiPreset $preset): string
+    public function node(string $content, PluginExecutionContext $context): string
     {
-        return $this->execute("python\n" . $content, $preset);
+        return $this->execute("node\n" . $content, $context);
     }
 
-    /**
-     * Execute Node.js code method (for method calling)
-     *
-     * @param string $content
-     * @return string
-     */
-    public function node(string $content, AiPreset $preset): string
-    {
-        return $this->execute("node\n" . $content, $preset);
-    }
-
-    /**
-     * @inheritDoc
-     */
     public function getSelfClosingTags(): array
     {
         return [];
     }
 
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private function parseCommand(string $content): array
+    {
+        $lines = explode("\n", trim($content), 2);
+
+        if (count($lines) >= 2) {
+            $language = trim($lines[0]);
+            $code = trim($lines[1]);
+        } else {
+            $language = 'shell';
+            $code = trim($content);
+        }
+
+        if (!array_key_exists($language, $this->languages)) {
+            throw new \InvalidArgumentException("Unsupported language: {$language}");
+        }
+
+        return ['language' => $language, 'code' => $code];
+    }
+
+    private function getAssignedSandbox(PluginExecutionContext $context): ?string
+    {
+        $assignedSandbox = $this->presetSandboxService->getAssignedSandbox($context->preset->getId());
+
+        if (!$assignedSandbox || $assignedSandbox['sandbox']->status !== 'running') {
+            return null;
+        }
+
+        return $assignedSandbox['sandbox_id'];
+    }
+
+    private function executeInSandbox(PluginExecutionContext $context, string $sandboxId, string $language, string $code)
+    {
+        $timeout = (int) $context->get('execution_timeout', 30);
+
+        return match ($language) {
+            'shell'  => $this->executeShellCommand($context, $sandboxId, $code, $timeout),
+            'php'    => $this->executePhpCode($context, $sandboxId, $code, $timeout),
+            'python' => $this->executePythonCode($context, $sandboxId, $code, $timeout),
+            'node'   => $this->executeNodeCode($context, $sandboxId, $code, $timeout),
+            default  => throw new \InvalidArgumentException("Unsupported language: {$language}")
+        };
+    }
+
+    private function executeShellCommand(PluginExecutionContext $context, string $sandboxId, string $command, int $timeout)
+    {
+        $executionResult = $this->sandboxManager->executeCommand(
+            $sandboxId,
+            $command,
+            $context->get('user'),
+            $timeout
+        );
+
+        return [
+            'output' => $executionResult->output,
+            'error' => $executionResult->error,
+            'exit_code' => $executionResult->exitCode,
+            'execution_time' => $executionResult->executionTime,
+            'timed_out' => $executionResult->timedOut,
+        ];
+    }
+
+    private function executePhpCode(PluginExecutionContext $context, string $sandboxId, string $code, int $timeout)
+    {
+        $this->sandboxService->setUser($context->get('user'));
+        return $this->sandboxService->executeCodeInSandbox(
+            $sandboxId,
+            $code,
+            'php',
+            [
+                'timeout'  => $timeout,
+                'work_dir' => $context->get('temp_dir'),
+            ]
+        );
+    }
+
+    private function executePythonCode(PluginExecutionContext $context, string $sandboxId, string $code, int $timeout)
+    {
+        $this->sandboxService->setUser($context->get('user'));
+        return $this->sandboxService->executeCodeInSandbox(
+            $sandboxId,
+            $code,
+            'python',
+            [
+                'timeout'  => $timeout,
+                'work_dir' => $context->get('temp_dir'),
+            ]
+        );
+    }
+
+    private function executeNodeCode(PluginExecutionContext $context, string $sandboxId, string $code, int $timeout)
+    {
+        $this->sandboxService->setUser($context->get('user'));
+        return $this->sandboxService->executeCodeInSandbox(
+            $sandboxId,
+            $code,
+            'javascript',
+            [
+                'timeout'  => $timeout,
+                'work_dir' => $context->get('temp_dir'),
+            ]
+        );
+    }
+
+    private function formatOutput(string $language, string $code, $result): string
+    {
+        $output = [];
+
+        if ($language === 'shell') {
+            $output[] = "Command executed in sandbox:";
+            $output[] = "> {$code}";
+            $output[] = "";
+
+            if (!empty($result['output'])) {
+                $output[] = $result['output'];
+            }
+
+            if (!empty($result['error'])) {
+                $output[] = "Error: " . $result['error'];
+            }
+
+            if ($result['exit_code'] !== 0) {
+                $output[] = "Exit code: " . $result['exit_code'];
+            }
+        } else {
+            $output[] = ucfirst($language) . " code executed in sandbox:";
+            $output[] = "";
+
+            if (!empty($result->output)) {
+                $output[] = $result->output;
+            }
+
+            if (!empty($result->error)) {
+                $output[] = "Error: " . $result->error;
+            }
+
+            if ($result->exitCode !== 0) {
+                $output[] = "Exit code: " . $result->exitCode;
+            }
+        }
+
+        return implode("\n", $output) ?: 'Code executed successfully with no output.';
+    }
+
+    private function isLanguageEnabled(array $config, string $language): bool
+    {
+        return (bool) ($config["enable_{$language}"] ?? true);
+    }
 }

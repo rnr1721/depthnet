@@ -7,7 +7,7 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
-**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.0
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.5
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 
@@ -61,7 +61,7 @@ Choose your preferred installation method:
 Built-in support for multiple AI engines with easy preset management:
 
 - **Claude** (3.5 Sonnet, Opus, Haiku)
-- **DeepSeek** (v3.X, 4x as soon)
+- **DeepSeek** (v3.2+, v4 coming soon)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
 - **Novita Ai** (Cheap fast models)
 - **Fireworks** (Fast inference provider)
@@ -92,6 +92,7 @@ DepthNet enables autonomous AI agents through:
 - **Auto-Handoff Chains**: Presets can be configured with `preset_code_next` to automatically hand off to the next preset after every response, enabling pipeline workflows without prompt engineering
 - **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
 - **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
+- **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
@@ -105,24 +106,34 @@ The platform provides an extensible command system where agents use special tags
 
 The agent can work both in a cycle and in the usual "question-answer" mode. Naturally, it is better to adjust the system prompt for each use case. You can create presets for different modes.
 
+## Command Execution Modes
+
+Each preset has an `agent_result_mode` setting that controls both how commands are executed and how results are stored:
+
+- **`internal`** (default) — Results are pushed to CommandResultPool and injected into the next cycle's system prompt via `[[agent_command_results]]`. Recommended for autonomous agents — keeps results out of the conversation context where models can confuse them with their own previous output.
+
+- **`separate`** — Response and command results are stored as separate messages. Results are visible in chat. Useful when you want the conversation history to clearly show what was executed.
+
+- **`tool_calls`** — Native provider tool-calling. Plugin schemas are sent to the provider API as a `tools` array; the model invokes plugins through the provider's structured mechanism instead of writing tag syntax. History is stored in the correct `assistant/tool` turn format required by provider APIs. Suitable for tool-oriented agents and production workflows. **Not recommended for subjective agents** (like Adalia) — tag mode preserves the natural flow of thought within the model's output.
+
+  Supported providers for `tool_calls` mode: DeepSeek (V3.2+), Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint). For LocalModel — opt-in via `supports_tool_calls: true` in preset config, depends on the specific model and server.
+
 ## Advanced Plugin System
 
 **Built-in Plugins:**
 - **Run Plugin**: Universal sandbox execution - replaces separate PHP/Python/Node/Shell plugins with unified `[run lang]code[/run]` or `[run shell]command[/run]` syntax. Executes code in isolated Docker containers with preset-assigned sandboxes. You can make sandbox in hypervisor, attach sandbox to preset and user it. Need Docker.
-- **PHP Plugin**: Execute arbitrary PHP code with safety controls in local instance
-- **Python Plugin**: Run Python scripts with virtual environment support in local instance
-- **Node.js Plugin**: Execute JavaScript with async/await and npm packages in local instance
 - **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
 - **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
 - **Vector Memory Plugin**: Semantic memory with dual-engine search: TF-IDF keyword similarity (always available) and dense embedding vectors via configurable provider (Novita, OpenAI, etc.). Two retrieval modes: flat (direct top-K) and associative (graph-based chain traversal through semantically related memories). Both journal and vector memory share the same embedding space — the agent can find connections between insights and actions by meaning, not just keywords.
 - **Journal Plugin**: Episodic memory chronicle — records structured events (actions, decisions, errors, reflections) with timestamps and outcome tracking. Supports chronological browsing and TF-IDF semantic search with flexible date filtering (exact date, relative dates like "yesterday", date ranges). The agent's diary of what happened, not what it knows.
 - **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
 - **Shell Plugin**: System command execution with security restrictions (use local instance)
-- **CodeCraft Plugin**: [Very Experimental] Generate and manipulate code files with intelligent type detection (PHP, JS, TS, JSON, CSS, Python)
 - **Agent Plugin**: Agent loop mode can stopped or started by model
 - **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
 - **Browser Plugin**: Persistent web browser powered by Playwright. Agents can open pages, click, type, search, and read structured page snapshots — all with session memory that survives across thinking cycles. Requires the browser-service Docker container (profile: browser). See [Browser Service](#browser-service) below.
-- **Crawler Plugin**: Lightweight stateless web page fetcher (formerly Browser Plugin). Fetches and returns page content without JavaScript support or session state. Useful for simple scraping tasks that don't require interaction.
+- **Telegram Plugin**: Full Telegram access via tgcli. Read dialogs, channels and 
+  groups, send messages, search — using a real user account (MTProto), not Bot API. 
+  Per-preset session isolation. Authorization UI built into preset settings.
 - **Skills Plugin**: Manager of knowledge and reused skills. Vector tf-idf search in skills
 - **Goal Plugin**: Management of goals and objectives, with statuses.
 - **Person Plugin**: Storing information about individuals with semantic search. 
@@ -148,6 +159,7 @@ Visual memory management is available using MemoryManager and VectorMemoryManage
 - Health monitoring and testing
 - Cross-plugin integration capabilities (vector <-> regular memory)
 - **Easy extensibility for custom plugins**
+- Each plugin implements `getToolSchema()` for precise tool description in `tool_calls` mode — or falls back to a default schema built from `getInstructions()` automatically
 
 All command plugins implements CommandPluginInterface. Orchestrator is PluginRegistryInterface
 
@@ -157,7 +169,7 @@ All command plugins implements CommandPluginInterface. Orchestrator is PluginReg
 
 ### Command Syntax Examples
 
-The AI communicates through special command tags that trigger plugin execution:
+The AI communicates through special command tags that trigger plugin execution. This is the default tag-based syntax used in `internal` and `separate` result modes. In `tool_calls` mode, the model invokes the same plugins natively through the provider API — no tag syntax needed.
 
 ```
 # Code execution
@@ -174,11 +186,6 @@ The AI communicates through special command tags that trigger plugin execution:
 [agent pause][/agent]   # Pause autonomous thinking
 [agent resume][/agent]  # Resume autonomous thinking
 [agent status][/agent]  # Check current agent status
-
-# Execute code in local instance without Docker
-[php]echo "Database rows: " . DB::table('users')->count();[/php]
-[python]import datetime; print(f"Server time: {datetime.datetime.now()}")[/python]
-[node]console.log(`Memory usage: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/node]
 
 # Persistent memory management
 [memory]This information will be appended to memory content[/memory]
@@ -201,12 +208,6 @@ The AI communicates through special command tags that trigger plugin execution:
 # System interaction and monitoring
 [shell]df -h && ps aux | grep php[/shell]
 [shell]curl -s https://api.github.com/repos/rnr1721/depthnet[/shell]
-
-# Code generation and file manipulation
-[codecraft]{"path":"User.php","name":"User","namespace":"App\\Models"}[/codecraft]
-[codecraft save]{"path":"/tmp/codecraft/utils.js","type":"function","name":"formatDate"}[/codecraft]
-[codecraft edit]{"path":"/tmp/file.php","modifications":[{"type":"add_method","method":{"name":"newMethod"}}]}[/codecraft]
-[codecraft analyze]/path/to/file.php[/codecraft]
 
 # MCP — external tool servers
 [mcp github]search_repositories: {"query": "depthnet"}[/mcp]
@@ -291,20 +292,45 @@ The AI communicates through special command tags that trigger plugin execution:
 [task approve]42 | Looks good, meets requirements[/task]
 [task reject]42 | Missing Q1 breakdown, please revise[/task]
 
+# Telegram — full MTProto access via user account
+[telegram dialogs][/telegram]
+[telegram dialogs]50 channels[/telegram]
+[telegram read]@username 20[/telegram]
+[telegram send]@username Hello![/telegram]
+[telegram unread][/telegram]
+[telegram search]@groupname keyword[/telegram]
+[telegram info]@username[/telegram]
+[telegram mark_read]@username[/telegram]
+[telegram me][/telegram]
+
 ```
 
 <a href="docs/screenshots/chat.png">
   <img src="docs/screenshots/chat.png" alt="Main Interface" height="300">
 </a>
 
-**How Command Processing (Command Actions) Works:**
+**How Command Processing Works:**
+
+Two pipelines depending on the preset's `agent_result_mode`:
+
+**Tag pipeline** (`internal` / `separate`):
 1. **CommandValidator** scans AI response for unclosed tags and syntax errors
 2. **CommandParser** extracts valid commands and prepares execution data
-3. **CommandExecutor** routes commands to appropriate plugins 
+3. **CommandExecutor** routes commands to appropriate plugins
 4. **Plugin execution** runs the actual code/action with security controls
 5. **Results integration** automatically appends outputs to AI message for next cycle
 
-This creates a continuous feedback loop where the AI can see the results of its actions and adapt accordingly. A user with the Admin role can also execute commands just like a model.
+**Tool calls pipeline** (`tool_calls`):
+1. **ToolSchemaBuilder** assembles OpenAI-compatible tool schemas from enabled plugins
+2. Schemas are sent to the provider API with each request
+3. Model responds with structured `tool_calls` instead of tag syntax
+4. **ToolCallParser** maps provider tool_calls to the same internal ParsedCommand format
+5. **CommandExecutor** executes them identically — no changes at this layer
+6. Results stored in `assistant/tool` turn format required by provider APIs
+
+Both pipelines share the same CommandExecutor, plugin system, and inter-agent routing — only the parsing front-end differs.
+
+A user with the Admin role can also execute commands just like a model.
 
 ## Browser Service
 
@@ -364,7 +390,7 @@ This gives the model enough to reason, navigate, and interact — without drowni
 Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
-- **PluginRegistryInterface**: Extensible command system with 6+ built-in plugins
+- **PluginRegistryInterface**: Extensible command system with 20+ built-in plugins
 - **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
@@ -374,6 +400,7 @@ Built on modern Laravel principles with dependency injection:
 - **OrchestratorInterface**: Deterministic task dispatcher for orchestrated agent workflows
 - **AgentTaskServiceInterface**: Task lifecycle management — create, complete, fail, validate, escalate
 - **AgentServiceInterface**: Agent and role CRUD with structured data formatting for UI
+- **ToolSchemaBuilderInterface**: Builds OpenAI-compatible tool schemas from registered plugins for `tool_calls` mode
 
 **Core Interfaces:**
 - **AiAgentResponseInterface**: Unified agent response handling with handoff support
@@ -384,6 +411,8 @@ Built on modern Laravel principles with dependency injection:
 - `AiServiceProvider` - Registers agents, engines, plugins, presets
 - `ChatServiceProvider` - Conversation handling and export functionality
 - `AppServiceProvider` - Authentication, settings, user management
+
+Integrations (Telegram, Rhasspy) are configured per-preset — each agent can use its own account and credentials, stored in isolated directories under /shared/.
 
 <a href="docs/screenshots/presets.png">
   <img src="docs/screenshots/presets.png" alt="Main Interface" height="300">
@@ -627,14 +656,13 @@ The core innovation is the continuous thinking loop powered by Laravel's queue s
 
 1. **Queue Job Initiation**: `ProcessAgentThinking` job starts thinking cycle
 2. **Context Assembly**: Agent retrieves recent conversation history, system prompt, persistent memory content, dopamine level, current date and time etc
-3. **AI Model Processing**: Sends context to current active AI preset with some engine and wait for response (OpenAI/Claude/Novita/Fireworks/Local/Mock)
-4. **Response Analysis**: `CommandValidator` scans for syntax errors and malformed tags
-5. **Command Parsing**: `CommandParser` extracts valid commands and prepares execution
-6. **Plugin Execution**: `CommandExecutor` routes commands to appropriate plugins with security controls
-7. **Result Integration**: Command outputs automatically appended to AI message for context continuity
+3. **AI Model Processing**: Sends context to current active AI preset with some engine and waits for response (OpenAI/Claude/Novita/Fireworks/Local/Mock). In `tool_calls` mode, plugin schemas are also attached to the request.
+4. **Response Analysis**: In tag mode — `CommandValidator` scans for syntax errors. In `tool_calls` mode — `ToolCallParser` maps provider tool_calls to internal commands.
+5. **Command Parsing**: `CommandParser` (tag mode) or `ToolCallParser` (tool_calls mode) extracts commands
+6. **Plugin Execution**: `CommandExecutor` routes commands to appropriate plugins with security controls — identical for both modes
+7. **Result Integration**: Command outputs stored and integrated into context for next cycle
 8. **Database Storage**: Complete message with results saved for future reference
-9. **Inter-Agent Messaging**: If handoff command detected, message delivered to target preset 
-   via AgentMessageService; target processes it in a separate queue job
+9. **Inter-Agent Messaging**: If handoff command detected, message delivered to target preset via AgentMessageService; target processes it in a separate queue job
 10. **Loop Continuation**: Next thinking cycle scheduled with configurable delay
 
 **Key Technical Components:**
@@ -663,16 +691,23 @@ php artisan vectormemory:embed --preset=1 --persons --dry-run
 
 **Model Performance Insights:**
 - Small models (Phi-4, Llama 8B) struggle with complex system prompts and command syntax consistency
-- Larger models like DeepSeek 3+, GPT4+ Claude 3.5+ provide significantly better instruction following
+- Larger models like DeepSeek 3.2+, GPT-4+, Claude 3.5+ provide significantly better instruction following
+- In `tool_calls` mode, models that are well-trained on function calling (DeepSeek V3.2+, GPT-4o, Claude) perform more reliably than in tag mode — the native mechanism reduces syntax errors entirely
 - Models trained specifically for cyclic reasoning (vs. assistant training) would be ideal
+
+**Tool Calls Mode Notes:**
+- Requires provider support: DeepSeek V3.2+, Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint)
+- For LocalModel: opt-in via `supports_tool_calls: true` in preset config — depends on specific model and server (Ollama supports it from llama3.1+, mistral-nemo, qwen2.5+)
+- Not recommended for subjective/identity agents — tag mode preserves the natural flow of thought within model output; tool_calls creates a more mechanical separation between reasoning and action
 
 **System Prompt Critical Factors:**
 - Agent behavior heavily dependent on system prompt quality and precision
+- In `tool_calls` mode, `[[command_instructions]]` is automatically suppressed — the model learns about available tools through the API's `tools` array instead
 - Dynamic placeholders automatically inject real-time data:
   - `[[dopamine_level]]` - Current motivation level (0-10 scale)
   - `[[notepad_content]]` - Persistent memory content (2000 char limit)
   - `[[current_datetime]]` - Real-time timestamp
-  - `[[command_instructions]]` - Auto-generated plugin documentation
+  - `[[command_instructions]]` - Auto-generated plugin documentation (tag mode only; empty in tool_calls mode)
   - `[[rag_context]]` - RAG retrieval results injected into the prompt
   - `[[inner_voice]]` - Output from the inner voice preset (request-response mode)
   - `[[being]]` - Agent's self-defined essence phrase
@@ -682,11 +717,10 @@ php artisan vectormemory:embed --preset=1 --persons --dry-run
   - `[[pre_command_results]]` - Results of pre-cycle automatic commands
   - `[[agent_command_results]]` - Command results in internal mode
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
-  - `[[persons_context]]` - Relevant person facts, Heart-aware (focuses on 
-    people currently in attention)
-  - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year 
-    progress, agent age, pause since last cycle, cycle count, weather, sunset
+  - `[[persons_context]]` - Relevant person facts, Heart-aware (focuses on people currently in attention)
+  - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
+  - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -725,7 +759,7 @@ The goal isn't to compete with specialized AI research frameworks or AutoGPT-sty
 
 If it helps advance understanding of autonomous AI systems — great. If it makes multi-agent workflows more reliable and transparent for real projects — also great. Both are valid reasons to use it.
 
-What started as a personal experiment has grown into a full-featured platform with RAG, orchestrated multi-agent workflows, associative vector memory, and a research layer for digital subjectness.
+What started as a personal experiment has grown into a full-featured platform with RAG, orchestrated multi-agent workflows, associative vector memory, native tool calls support, and a research layer for digital subjectness.
 
 ### Research: Digital Subjectness
 

@@ -3,7 +3,7 @@
 namespace App\Services\Agent;
 
 use App\Contracts\Agent\CommandExecutorInterface;
-use App\Contracts\Agent\PluginManagerInterface;
+use App\Contracts\Agent\PluginExecutionContextBuilderInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
@@ -15,7 +15,7 @@ class CommandExecutor implements CommandExecutorInterface
 {
     public function __construct(
         protected PluginRegistryInterface $pluginRegistry,
-        protected PluginManagerInterface $pluginManager,
+        protected PluginExecutionContextBuilderInterface $contextBuilder,
         protected LoggerInterface $logger
     ) {
     }
@@ -72,7 +72,7 @@ class CommandExecutor implements CommandExecutorInterface
             }
 
             // Get plugin with ensured configuration from PluginManager
-            $plugin = $this->pluginManager->getConfiguredPlugin($command->plugin);
+            $plugin = $this->pluginRegistry->get($command->plugin);
 
             if (!$plugin) {
                 return new CommandResult(
@@ -83,8 +83,10 @@ class CommandExecutor implements CommandExecutorInterface
                 );
             }
 
+            $context = $this->contextBuilder->build($plugin, $preset);
+
             // Check if plugin is enabled
-            if (!$plugin->isEnabled()) {
+            if (!$context->enabled) {
                 return new CommandResult(
                     $command,
                     '',
@@ -96,10 +98,10 @@ class CommandExecutor implements CommandExecutorInterface
             $pluginExecutionMeta = [];
             // Execute command method
             if ($command->method === 'execute') {
-                $result = $plugin->execute($command->content, $preset);
+                $result = $plugin->execute($command->content, $context);
                 $pluginExecutionMeta = $plugin->getPluginExecutionMeta();
             } elseif ($plugin->hasMethod($command->method)) {
-                $result = $plugin->callMethod($command->method, $command->content, $preset);
+                $result = $plugin->callMethod($command->method, $command->content, $context);
                 $pluginExecutionMeta = $plugin->getPluginExecutionMeta();
             } else {
                 return new CommandResult(
@@ -166,10 +168,12 @@ class CommandExecutor implements CommandExecutorInterface
 
             if ($customSuccessMessage) {
                 $customSuccessMessage = str_replace($search, $replace, $customSuccessMessage);
+                $successMessage = $customSuccessMessage;
             }
 
             if ($customErrorMessage) {
                 $customErrorMessage = str_replace($search, $replace, $customErrorMessage);
+                $errorMessage = $customErrorMessage;
             }
 
             if ($result->success) {

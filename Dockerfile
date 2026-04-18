@@ -31,20 +31,6 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     gnupg \
     lsb-release \
-    libnss3 \
-    libnspr4 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libxss1 \
-    libasound2 \
-    libatspi2.0-0 \
-    libgtk-3-0 \
-    libgdk-pixbuf-xlib-2.0-0 \
-    libxshmfence1 \
     && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (LTS version)
@@ -61,9 +47,18 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /
     && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Puppeteer and Chrome globally
-RUN npm install -g puppeteer \
- && npx puppeteer browsers install chrome
+# Install Python3 and Telethon
+RUN apt-get update && apt-get install -y python3 python3-pip python3-setuptools \
+    && pip3 install telethon --break-system-packages \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install tgcli
+RUN git clone --branch 1.0.0 https://github.com/rnr1721/tgcli.git /usr/local/lib/tgcli \
+    && printf '#!/bin/bash\nexec python3 /usr/local/lib/tgcli/telegram_tool.py "$@"\n' > /usr/local/bin/telegram \
+    && chmod +x /usr/local/bin/telegram
+
+# tgcli data dir (session survives rebuilds via /shared volume)
+ENV TELEGRAM_DATA_DIR=/shared/telegram
 
 # Latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer

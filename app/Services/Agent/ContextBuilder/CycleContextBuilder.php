@@ -50,7 +50,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         $messages = $this->messageModel
             ->forPreset($preset->getId())
             ->where('role', '!=', 'system')
-            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
             ->limit($maxContextLimit)
             ->get()
             ->reverse();

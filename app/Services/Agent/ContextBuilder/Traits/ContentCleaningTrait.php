@@ -39,8 +39,12 @@ trait ContentCleaningTrait
     {
         $cleanContent = $this->cleanMessageContent($message->content);
 
-        // Skip empty messages after cleaning
-        if (empty($cleanContent)) {
+        // Skip empty messages after cleaning — BUT don't touch tool-turns,
+        // whose content may be empty, and the entire payload is in the metadata
+        $metadata = $message->metadata ?? [];
+        $hasToolPayload = !empty($metadata['tool_calls_raw']) || !empty($metadata['tool_results']);
+
+        if (empty($cleanContent) && !$hasToolPayload) {
             return null;
         }
 
@@ -48,6 +52,7 @@ trait ContentCleaningTrait
             'role' => $message->role,
             'content' => $cleanContent,
             'from_user_id' => $message->from_user_id,
+            'metadata' => $metadata,
         ];
     }
 

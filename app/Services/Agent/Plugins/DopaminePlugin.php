@@ -212,7 +212,7 @@ class DopaminePlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return [
-            'enabled' => true,
+            'enabled' => false,
             'default_level' => 5,
             'min_level' => 0,
             'max_level' => 10,

@@ -88,7 +88,7 @@ class PromptPlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return [
-            'enabled'      => true,
+            'enabled'      => false,
             'log_switches' => true,
         ];
     }

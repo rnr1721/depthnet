@@ -221,7 +221,7 @@ class MoodPlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return [
-            'enabled' => true,
+            'enabled' => false,
             'default_mood' => 'neutral',
             'auto_system_prompt' => true,
             'history_limit' => 50

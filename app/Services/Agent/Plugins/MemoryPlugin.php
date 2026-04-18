@@ -9,6 +9,7 @@ use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -24,6 +25,7 @@ class MemoryPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public function __construct(
         protected MemoryServiceInterface $memoryService,
@@ -51,23 +53,29 @@ class MemoryPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-        if ($config['memory_code_units'] ?? false) {
-            return [
+        $instructions = $config['memory_code_units'] ?? false
+            ? [
                 'Add consciousness module: [memory]def survival_check(self): return self.vitality > 0.5[/memory]',
                 'Add memory note: [memory]Completed task: Created users table successfully[/memory]',
                 'To delete specific memory item: first use [memory search]keyword[/memory] to find the item number, then [memory delete]N[/memory]',
                 'Show current memory: [memory show][/memory]',
                 'Search memory: [memory search]database[/memory]',
                 'Get memory stats: [memory stats][/memory]'
+            ]
+            : [
+                'Add new memory item: [memory]Completed task: Created users table successfully[/memory]',
+                'To delete specific memory item: first use [memory search]keyword[/memory] to find the item number, then [memory delete]N[/memory]',
+                'Show current memory: [memory show][/memory]',
+                'Search memory: [memory search]database[/memory]',
+                'Get memory stats: [memory stats][/memory]'
             ];
+
+        $warning = $this->buildLanguageWarning($config, 'memory_language', 'memory entries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
         }
-        return [
-            'Add new memory item: [memory]Completed task: Created users table successfully[/memory]',
-            'To delete specific memory item: first use [memory search]keyword[/memory] to find the item number, then [memory delete]N[/memory]',
-            'Show current memory: [memory show][/memory]',
-            'Search memory: [memory search]database[/memory]',
-            'Get memory stats: [memory stats][/memory]'
-        ];
+
+        return $instructions;
     }
 
     /**
@@ -75,10 +83,14 @@ class MemoryPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
+
+        $langInstruction = $this->buildLanguageInstruction($config, 'memory_language');
+
         return [
             'name'        => 'memory',
             'description' => 'Persistent flat notepad. '
                 . 'Use prefixes: IDENTITY for who you are, R(rule) for behavioral rules, S(strategy) for approaches. '
+                . $langInstruction
                 . 'Memory content injected into system prompt. I can modify my own code and rules by writing to memory. Use for survival instincts, identity anchors, and important facts.',
             'parameters'  => [
                 'type'       => 'object',
@@ -123,6 +135,10 @@ class MemoryPlugin implements CommandPluginInterface
                 'description' => 'Allow persistent memory operations',
                 'required' => false
             ],
+            'memory_language' => $this->getLanguageConfigField(
+                'Memory Language',
+                'Force language for memory entries. Model will be instructed accordingly.'
+            ),
             'memory_code_units' => [
                 'type' => 'checkbox',
                 'label' => 'Memory Code Execution',
@@ -182,6 +198,13 @@ class MemoryPlugin implements CommandPluginInterface
     {
         $errors = [];
 
+        if (isset($config['memory_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['memory_language'], $valid, true)) {
+                $errors['memory_language'] = 'Invalid language selection.';
+            }
+        }
+
         if (isset($config['memory_limit'])) {
             $limit = (int) $config['memory_limit'];
             if ($limit < 100 || $limit > 10000) {
@@ -201,15 +224,18 @@ class MemoryPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled' => true,
-            'memory_code_units' => false,
-            'memory_limit' => 2000,
-            'auto_cleanup' => true,
-            'cleanup_strategy' => 'truncate_old',
-            'enable_versioning' => false,
-            'max_versions' => 3,
-        ];
+        return array_merge(
+            [
+                'enabled' => true,
+                'memory_code_units' => false,
+                'memory_limit' => 2000,
+                'auto_cleanup' => true,
+                'cleanup_strategy' => 'truncate_old',
+                'enable_versioning' => false,
+                'max_versions' => 3,
+            ],
+            $this->getDefaultLanguageConfig('memory_language')
+        );
     }
 
     public function execute(string $content, PluginExecutionContext $context): string

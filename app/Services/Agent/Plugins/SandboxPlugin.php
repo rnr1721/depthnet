@@ -295,7 +295,7 @@ class SandboxPlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return [
-            'enabled' => true,
+            'enabled' => false,
             'enable_shell' => true,
             'enable_php' => true,
             'enable_python' => true,

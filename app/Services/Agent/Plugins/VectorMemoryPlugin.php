@@ -29,6 +29,16 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
     protected VectorMemoryServiceInterface $vectorMemoryService;
 
+    protected array $languages = [
+        'auto' => 'Auto-detect language',
+        'en' => 'English',
+        'ru' => 'Russian',
+        'de' => 'German',
+        'fr' => 'French',
+        'es' => 'Spanish',
+        'multilingual' => 'Mixed languages'
+    ];
+
     public function __construct(
         protected LoggerInterface $logger,
         protected VectorMemoryFactoryInterface $vectorMemoryFactory,
@@ -64,7 +74,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     public function getInstructions(array $config = []): array
     {
-        return [
+
+        $lang = $config['language_mode'] ?? 'auto';
+
+        $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
+        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $instructions = [
             'Store important information: [vectormemory]Successfully optimized database queries using indexes[/vectormemory]',
             'Search by meaning: [vectormemory search]how to speed up code[/vectormemory]',
             'Show recent memories: [vectormemory recent]5[/vectormemory]',
@@ -73,6 +88,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'Delete by ID: [vectormemory delete]42[/vectormemory]',
             'Delete by content: [vectormemory delete]optimization query[/vectormemory]',
         ];
+
+        if ($forceLanguage) {
+            array_unshift($instructions, "⚠️ All vectormemory entries MUST be stored in {$langName}.");
+        }
+
+        return $instructions;
     }
 
     /**
@@ -87,15 +108,21 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         $engine = $config['memory_engine'] ?? 'tfidf';
         $mode   = $config['memory_mode']   ?? 'flat';
+        $lang   = $config['language_mode'] ?? 'auto';
 
         $engineLabel = $engine === 'embedding' ? 'semantic embedding' : 'TF-IDF keyword';
         $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat top-K';
+
+        $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
+        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $langInstruction = $forceLanguage ? " ALL memories MUST be stored in {$langName}. " : '';
 
         return [
             'name'        => 'vectormemory',
             'description' => 'Semantic memory: store crystallized knowledge and retrieve it by meaning. '
                 . "Uses {$engineLabel} similarity with {$modeLabel} retrieval. "
                 . 'Store insights, confirmed facts, patterns, events. '
+                . $langInstruction
                 . 'Different from journal (which records what happened) — '
                 . 'vectormemory stores what you know.',
             'parameters'  => [
@@ -111,6 +138,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                         'description' => implode(' ', [
                             'Argument depends on method.',
                             'execute (STORE): the text to remember — an insight, fact, pattern, or event.',
+                            $forceLanguage ? "MUST be in {$langName}." : null,
                             'Example: "Eugeny prefers concise responses and dislikes excessive formality".',
                             'search: a natural language query to find semantically similar memories.',
                             'Example: "what do I know about Eugeny preferences".',
@@ -153,6 +181,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'description' => 'Allow semantic memory storage and search',
                 'required' => false
             ],
+
             'memory_mode' => [
                 'type'        => 'select',
                 'label'       => 'Search mode',
@@ -249,12 +278,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'type' => 'select',
                 'label' => 'Language Processing',
                 'description' => 'How to handle different languages',
-                'options' => [
-                    'auto' => 'Auto-detect language',
-                    'ru' => 'Force Russian',
-                    'en' => 'Force English',
-                    'multilingual' => 'Mixed languages'
-                ],
+                'options' => $this->languages,
                 'value' => 'auto',
                 'required' => false
             ],
@@ -344,7 +368,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         return [
             'enabled' => true,
-            'memory_mode'           => VectorMemoryFactoryInterface::MODE_FLAT,      // ← добавить
+            'memory_mode'           => VectorMemoryFactoryInterface::MODE_FLAT,
             'memory_engine'         => VectorMemoryFactoryInterface::ENGINE_TFIDF,
             'max_entries' => 1000,
             'similarity_threshold' => 0.1,

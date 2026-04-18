@@ -8,6 +8,7 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use Psr\Log\LoggerInterface;
@@ -35,6 +36,7 @@ class RagQueryPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public const PLUGIN_NAME = 'rag';
     public const META_KEY    = 'pending_queries';
@@ -69,10 +71,48 @@ class RagQueryPlugin implements CommandPluginInterface
     /** @inheritDoc */
     public function getInstructions(array $config = []): array
     {
-        return [
-            'Add a RAG query for next cycle (call multiple times for different aspects): [rag query]your search query here[/rag]',
+        $instructions = [
+            'Add a RAG query for next cycle: [rag query]your search query here[/rag]',
             'Show current pending RAG queries: [rag show][/rag]',
             'Clear all pending RAG queries: [rag clear][/rag]',
+        ];
+
+        $warning = $this->buildLanguageWarning($config, 'rag_language', 'RAG queries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
+    }
+
+    public function getToolSchema(array $config = []): array
+    {
+        $langInstruction = $this->buildLanguageInstruction($config, 'rag_language');
+
+        return [
+            'name'        => 'rag',
+            'description' => 'Queue one or more explicit RAG search queries for the next cycle. '
+                . 'Multiple calls accumulate — each adds a new query angle instead of overwriting. '
+                . $langInstruction,
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['query', 'show', 'clear'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'query: the search query text.',
+                            $langInstruction ? 'Must be written in the configured language.' : '',
+                            'show/clear: leave empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
         ];
     }
 
@@ -191,21 +231,35 @@ class RagQueryPlugin implements CommandPluginInterface
                 'description' => 'Allow agent to queue explicit RAG queries for next cycle',
                 'required'    => false,
             ],
+            'rag_language' => $this->getLanguageConfigField(
+                'RAG Query Language',
+                'Force language for RAG queries. Model will be instructed accordingly. Should match the language of your memory data.'
+            ),
         ];
     }
 
     /** @inheritDoc */
     public function validateConfig(array $config): array
     {
-        return [];
+        $errors = [];
+
+        if (isset($config['rag_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['rag_language'], $valid, true)) {
+                $errors['rag_language'] = 'Invalid language selection.';
+            }
+        }
+
+        return $errors;
     }
 
     /** @inheritDoc */
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled' => false,
-        ];
+        return array_merge(
+            ['enabled' => false],
+            $this->getDefaultLanguageConfig('rag_language')
+        );
     }
 
     /** @inheritDoc */

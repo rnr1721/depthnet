@@ -9,6 +9,7 @@ use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -33,6 +34,7 @@ class GoalPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public function __construct(
         protected GoalServiceInterface $goalService,
@@ -54,7 +56,7 @@ class GoalPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Create goal: [goal]Explore memory architecture | motivation: curiosity about persistence[/goal]',
             'Add progress note: [goal progress]1 | Found saturation penalty approach[/goal]',
             'Mark done: [goal done]1[/goal]',
@@ -64,6 +66,13 @@ class GoalPlugin implements CommandPluginInterface
             'List active goals: [goal list][/goal]',
             'List all goals: [goal list]all[/goal]',
         ];
+
+        $warning = $this->buildLanguageWarning($config, 'goal_language', 'goals and progress notes');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
     }
 
     /**
@@ -79,10 +88,14 @@ class GoalPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
+
+        $langInstruction = $this->buildLanguageInstruction($config, 'goal_language');
+
         return [
             'name'        => 'goal',
             'description' => 'Persistent goal tracking with progress history. '
                 . 'Active goals are always visible in context — you never lose track of what you are doing and why. '
+                . $langInstruction . ' '
                 . 'Use for intentions, explorations, and ongoing tasks.',
             'parameters'  => [
                 'type'       => 'object',
@@ -118,18 +131,34 @@ class GoalPlugin implements CommandPluginInterface
                 'label'       => 'Enable Goal Tracker Plugin',
                 'description' => 'Allow persistent goal tracking',
                 'required'    => false
-            ]
+            ],
+            'goal_language' => $this->getLanguageConfigField(
+                'Goal Language',
+                'Force language for goals and progress notes. Model will be instructed accordingly.'
+            ),
         ];
     }
 
     public function validateConfig(array $config): array
     {
-        return [];
+        $errors = [];
+
+        if (isset($config['goal_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['goal_language'], $valid, true)) {
+                $errors['goal_language'] = 'Invalid language selection.';
+            }
+        }
+
+        return $errors;
     }
 
     public function getDefaultConfig(): array
     {
-        return ['enabled' => true];
+        return array_merge(
+            ['enabled' => false],
+            $this->getDefaultLanguageConfig('goal_language')
+        );
     }
 
     public function getCustomSuccessMessage(): ?string

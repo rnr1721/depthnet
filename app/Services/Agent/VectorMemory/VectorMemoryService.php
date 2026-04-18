@@ -577,6 +577,9 @@ class VectorMemoryService implements VectorMemoryServiceInterface
         return match ($mode) {
             'ru'            => 'ru',
             'en'            => 'en',
+            'de'            => 'de',
+            'fr'            => 'fr',
+            'es'            => 'es',
             'auto'          => $this->tfIdfService->detectLanguage($content),
             'multilingual'  => 'auto',
             default         => 'auto'

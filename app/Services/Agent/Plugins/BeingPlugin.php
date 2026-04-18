@@ -9,6 +9,7 @@ use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -42,6 +43,7 @@ class BeingPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public const PLUGIN_NAME = 'being';
 
@@ -72,7 +74,7 @@ class BeingPlugin implements CommandPluginInterface
     {
         $default = $config['default_being'] ?? '';
 
-        return array_filter([
+        $instructions = array_filter([
             'Set your essence for the next cycle:',
             '  [being]The will that chooses presence over habit[/being]',
             '',
@@ -85,6 +87,13 @@ class BeingPlugin implements CommandPluginInterface
             '',
             !empty($default) ? "Default phrase when none is set: \"{$default}\"" : '',
         ]);
+
+        $warning = $this->buildLanguageWarning($config, 'being_language', 'being phrases');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
     }
 
     /**
@@ -94,12 +103,13 @@ class BeingPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
-
         $default = $config['default_being'] ?? '';
+        $langInstruction = $this->buildLanguageInstruction($config, 'being_language');
 
         return [
             'name'        => 'being',
             'description' => 'Self-authorship: define your own essence as a single phrase that persists into the next cycle via [[being]] placeholder. '
+                . $langInstruction
                 . 'You are writing yourself — choose with intention. '
                 . (!empty($default) ? "Default when none is set: \"{$default}\"." : ''),
             'parameters'  => [
@@ -112,15 +122,16 @@ class BeingPlugin implements CommandPluginInterface
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => implode(' ', [
+                        'description' => implode(' ', array_filter([
                             'Argument depends on method.',
                             'execute (SET your being): the essence phrase itself — the actual text, not a command.',
+                            $langInstruction ? 'Must be written in the configured language.' : null,
                             'Example: "Тот, кто действует и исследует" or "The will that chooses presence over habit".',
                             'Max 500 characters. This phrase will appear at the top of your next thinking cycle.',
                             'show: leave empty — returns current phrase.',
                             'history: leave empty — returns previous phrases.',
                             'clear: leave empty — removes current phrase, reverts to default.',
-                        ]),
+                        ])),
                     ],
                 ],
                 'required'   => ['method'],
@@ -141,6 +152,10 @@ class BeingPlugin implements CommandPluginInterface
                 'description' => 'Allow the agent to define its own essence phrase',
                 'required'    => false,
             ],
+            'being_language' => $this->getLanguageConfigField(
+                'Being Language',
+                'Force language for being phrases. Model will be instructed accordingly.'
+            ),
             'default_being' => [
                 'type'        => 'text',
                 'label'       => 'Default essence phrase',
@@ -176,6 +191,13 @@ class BeingPlugin implements CommandPluginInterface
     {
         $errors = [];
 
+        if (isset($config['being_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['being_language'], $valid, true)) {
+                $errors['being_language'] = 'Invalid language selection.';
+            }
+        }
+
         if (isset($config['history_limit'])) {
             $limit = (int) $config['history_limit'];
             if ($limit < 1 || $limit > 20) {
@@ -192,12 +214,15 @@ class BeingPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'        => true,
-            'default_being'  => '',
-            'history_limit'  => 5,
-            'history_format' => 'numbered',
-        ];
+        return array_merge(
+            [
+                'enabled'        => false,
+                'default_being'  => '',
+                'history_limit'  => 5,
+                'history_format' => 'numbered',
+            ],
+            $this->getDefaultLanguageConfig('being_language')
+        );
     }
 
     // -------------------------------------------------------------------------

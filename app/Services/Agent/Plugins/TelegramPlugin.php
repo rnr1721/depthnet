@@ -285,7 +285,7 @@ class TelegramPlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return [
-            'enabled'               => true,
+            'enabled'               => false,
             'default_read_limit'    => 15,
             'account_cache_minutes' => 60,
         ];

@@ -9,6 +9,7 @@ use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -35,6 +36,7 @@ class WorkspacePlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public const PLUGIN_NAME = 'workspace';
 
@@ -62,7 +64,7 @@ class WorkspacePlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Set or overwrite a key:  [workspace set]key: your content here[/workspace]',
             'Append to a key:         [workspace append]key: additional content[/workspace]',
             'Read a single key:       [workspace get]key[/workspace]',
@@ -70,6 +72,13 @@ class WorkspacePlugin implements CommandPluginInterface
             'Wipe entire workspace:   [workspace clear][/workspace]',
             'List all keys:           [workspace list][/workspace]',
         ];
+
+        $warning = $this->buildLanguageWarning($config, 'workspace_language', 'workspace entries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
     }
 
     /**
@@ -83,10 +92,14 @@ class WorkspacePlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
+
+        $langInstruction = $this->buildLanguageInstruction($config, 'workspace_language');
+
         return [
             'name'        => self::PLUGIN_NAME,
             'description' => 'Persistent cross-session key-value scratchpad. '
                 . 'Stores named, independently updatable keys that survive across thinking cycles. '
+                . $langInstruction
                 . 'Use for active task state, working variables, drafts, plans.',
             'parameters'  => [
                 'type'       => 'object',
@@ -137,17 +150,31 @@ class WorkspacePlugin implements CommandPluginInterface
                 'description' => 'Allow persistent key-value scratchpad across sessions',
                 'required'    => false,
             ],
+            'workspace_language' => $this->getLanguageConfigField(
+                'Workspace Language',
+                'Force language for workspace entries. Model will be instructed accordingly.'
+            ),
         ];
     }
 
     public function validateConfig(array $config): array
     {
-        return [];
+        $errors = [];
+        if (isset($config['workspace_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['workspace_language'], $valid, true)) {
+                $errors['workspace_language'] = 'Invalid language selection.';
+            }
+        }
+        return $errors;
     }
 
     public function getDefaultConfig(): array
     {
-        return ['enabled' => true];
+        return array_merge(
+            ['enabled' => false],
+            $this->getDefaultLanguageConfig('workspace_language')
+        );
     }
 
     // -------------------------------------------------------------------------

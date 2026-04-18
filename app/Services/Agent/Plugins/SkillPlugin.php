@@ -9,6 +9,7 @@ use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -39,6 +40,7 @@ class SkillPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public function __construct(
         protected SkillServiceInterface $skillService,
@@ -60,7 +62,7 @@ class SkillPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Create skill with first item: [skill]PostgreSQL | Use EXPLAIN ANALYZE to inspect query plans[/skill]',
             'Create empty skill: [skill]Code style[/skill]',
             'Add item to skill: [skill add]1 | Partial indexes speed up filtered queries significantly[/skill]',
@@ -71,6 +73,13 @@ class SkillPlugin implements CommandPluginInterface
             'List all skills: [skill list][/skill]',
             'Search items by meaning: [skill search]how to speed up slow queries[/skill]',
         ];
+
+        $warning = $this->buildLanguageWarning($config, 'skill_language', 'skill entries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
     }
 
     /**
@@ -80,11 +89,15 @@ class SkillPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
+
+        $langInstruction = $this->buildLanguageInstruction($config, 'skill_language');
+
         return [
             'name'        => 'skill',
             'description' => 'Persistent knowledge base. '
                 . 'Store reusable knowledge as named skills with items. '
                 . 'Items are semantically searchable. '
+                . $langInstruction . ' '
                 . 'Use for stable, reusable knowledge you want to recall later — '
                 . 'not for episodic events (use journal) or session state (use workspace).',
             'parameters'  => [
@@ -126,6 +139,10 @@ class SkillPlugin implements CommandPluginInterface
                 'description' => 'Allow persistent skill knowledge base',
                 'required'    => false,
             ],
+            'skill_language' => $this->getLanguageConfigField(
+                'Skill Language',
+                'Force language for skill entries. Model will be instructed accordingly.'
+            ),
             'search_limit' => [
                 'type'        => 'number',
                 'label'       => 'Search Results Limit',
@@ -142,6 +159,13 @@ class SkillPlugin implements CommandPluginInterface
     {
         $errors = [];
 
+        if (isset($config['skill_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['skill_language'], $valid, true)) {
+                $errors['skill_language'] = 'Invalid language selection.';
+            }
+        }
+
         if (isset($config['search_limit'])) {
             $limit = (int) $config['search_limit'];
             if ($limit < 1 || $limit > 20) {
@@ -154,10 +178,13 @@ class SkillPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'      => true,
-            'search_limit' => 5,
-        ];
+        return array_merge(
+            [
+                'enabled'      => false,
+                'search_limit' => 5,
+            ],
+            $this->getDefaultLanguageConfig('skill_language')
+        );
     }
 
     public function getCustomSuccessMessage(): ?string

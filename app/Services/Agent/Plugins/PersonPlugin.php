@@ -7,6 +7,7 @@ use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -33,6 +34,7 @@ class PersonPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public function __construct(
         protected PersonMemoryServiceInterface $personMemoryService,
@@ -52,7 +54,7 @@ class PersonPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Add fact:              [person]Женя | loves punk aesthetic and travel[/person]',
             'Recall by name/id:     [person recall]Женя[/person]  or  [person recall]1[/person]',
             'Find by any alias:     [person find]James Kvakiani[/person]',
@@ -62,6 +64,50 @@ class PersonPlugin implements CommandPluginInterface
             'Delete fact:           [person delete]42[/person]',
             'Forget person:         [person forget]Женя[/person]',
             'List all people:       [person list][/person]',
+        ];
+
+        $warning = $this->buildLanguageWarning($config, 'person_language', 'person facts');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
+    }
+
+    public function getToolSchema(array $config = []): array
+    {
+        $langInstruction = $this->buildLanguageInstruction($config, 'person_language');
+
+        return [
+            'name'        => 'person',
+            'description' => 'Structured memory for people. Store facts, manage aliases, search semantically. '
+                . $langInstruction
+                . 'person_name stores all aliases as "Primary / Alias1 / Alias2".',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'recall', 'find', 'search', 'alias', 'delete', 'forget', 'list'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'execute: "Name | fact content"',
+                            'recall: name or fact ID',
+                            'find: search term across aliases',
+                            'search: semantic query',
+                            'alias: "add|factId|alias" or "remove|factId|alias"',
+                            'delete: fact ID',
+                            'forget: person name',
+                            'list: leave empty',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
         ];
     }
 
@@ -74,6 +120,10 @@ class PersonPlugin implements CommandPluginInterface
                 'description' => 'Allow storing structured facts about people',
                 'required'    => false,
             ],
+            'person_language' => $this->getLanguageConfigField(
+                'Person Language',
+                'Force language for person facts. Model will be instructed accordingly.'
+            ),
             'search_limit' => [
                 'type'        => 'number',
                 'label'       => 'Search results limit',
@@ -89,6 +139,12 @@ class PersonPlugin implements CommandPluginInterface
     public function validateConfig(array $config): array
     {
         $errors = [];
+        if (isset($config['person_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['person_language'], $valid, true)) {
+                $errors['person_language'] = 'Invalid language selection.';
+            }
+        }
         if (isset($config['search_limit'])) {
             $l = (int) $config['search_limit'];
             if ($l < 1 || $l > 20) {
@@ -100,10 +156,13 @@ class PersonPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'      => true,
-            'search_limit' => 5,
-        ];
+        return array_merge(
+            [
+                'enabled'      => false,
+                'search_limit' => 5,
+            ],
+            $this->getDefaultLanguageConfig('person_language')
+        );
     }
 
     public function getCustomSuccessMessage(): ?string

@@ -277,7 +277,7 @@ class McpPlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return [
-            'enabled'             => true,
+            'enabled'             => false,
             'allow_agent_connect' => false,
             'connect_whitelist'   => '',
             'tools_cache_ttl'     => 60,

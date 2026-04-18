@@ -7,6 +7,7 @@ use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -38,6 +39,7 @@ class JournalPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
 
     public function __construct(
         protected JournalServiceInterface $journalService,
@@ -57,7 +59,7 @@ class JournalPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Add entry:              [journal]action | Refactored memory plugin[/journal]',
             'Add with details:       [journal]error | DB failed | Timeout after 30s | outcome:failure[/journal]',
             'Add decision:           [journal]decision | Chose approach A over B | Simpler implementation[/journal]',
@@ -71,6 +73,13 @@ class JournalPlugin implements CommandPluginInterface
             'Delete entry:           [journal delete]42[/journal]',
             'Clear all:              [journal clear][/journal]',
         ];
+
+        $warning = $this->buildLanguageWarning($config, 'journal_language', 'journal entries');
+        if ($warning) {
+            array_unshift($instructions, $warning);
+        }
+
+        return $instructions;
     }
 
     /**
@@ -84,10 +93,14 @@ class JournalPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
+
+        $langInstruction = $this->buildLanguageInstruction($config, 'journal_language');
+
         return [
             'name'        => 'journal',
             'description' => 'Episodic memory chronicle. '
                 . 'Records what happened — actions, decisions, errors, interactions — with timestamps. '
+                . $langInstruction
                 . 'Use for logging events, not for storing knowledge (use vectormemory for that).',
             'parameters'  => [
                 'type'       => 'object',
@@ -128,6 +141,10 @@ class JournalPlugin implements CommandPluginInterface
                 'description' => 'Episodic memory chronicle with semantic search',
                 'required'    => false,
             ],
+            'journal_language' => $this->getLanguageConfigField(
+                'Journal Language',
+                'Force language for journal entries.'
+            ),
             'default_limit' => [
                 'type'        => 'number',
                 'label'       => 'Default entries limit',
@@ -143,6 +160,14 @@ class JournalPlugin implements CommandPluginInterface
     public function validateConfig(array $config): array
     {
         $errors = [];
+
+        if (isset($config['journal_language'])) {
+            $valid = array_keys($this->supportedLanguages);
+            if (!in_array($config['journal_language'], $valid, true)) {
+                $errors['journal_language'] = 'Invalid language selection.';
+            }
+        }
+
         if (isset($config['default_limit'])) {
             $l = (int) $config['default_limit'];
             if ($l < 1 || $l > 50) {
@@ -154,10 +179,13 @@ class JournalPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'       => true,
-            'default_limit' => 10,
-        ];
+        return array_merge(
+            [
+                'enabled'       => false,
+                'default_limit' => 10,
+            ],
+            $this->getDefaultLanguageConfig('journal_language')
+        );
     }
 
     public function getCustomSuccessMessage(): ?string

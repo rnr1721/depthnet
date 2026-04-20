@@ -412,6 +412,30 @@ make reset        # Complete reset including volumes (WARNING: deletes all data)
 make fix-permissions    # Fix file permissions after sudo usage
 ```
 
+---
+
+## Database Backup & Restore
+
+```bash
+# Create backup (saved to backups/ directory)
+make backup
+# or:
+./docker/manager.sh backup
+```
+
+```bash
+# Restore from backup
+make restore file=backups/filename.sql
+# or:
+./docker/manager.sh restore backups/filename.sql
+```
+
+> ⚠️ **Note:** When using `make restore`, use the `file=` variable syntax, not a positional argument. `make restore backups/filename.sql` will **not** work.
+
+Backups are stored in the `backups/` directory inside the project folder. It's recommended to copy them to an external location for safekeeping.
+
+---
+
 ## Architecture
 
 The Docker setup uses a **bash manager script** (`docker/manager.sh`) that handles all Docker operations with proper error handling, colored output, and automatic port resolution. The system supports **optional sandbox containers** using Docker Compose profiles.

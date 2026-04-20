@@ -56,6 +56,10 @@ Choose your preferred installation method:
 - **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - Browser setup for voice input and text-to-speech
 - **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration
 
+- **[Reverse proxy](docs/installation/reverse-proxy.md)** - instruction for production environments
+
+- **[How agents work](docs/agent-concepts.md)** - Core concepts: presets, thinking cycles, placeholders, plugins, memory, RAG, inner voice, multi-agent workflows
+
 ## AI Provider Support
 
 Built-in support for multiple AI engines with easy preset management:
@@ -121,34 +125,30 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 ## Advanced Plugin System
 
 **Built-in Plugins:**
-- **Run Plugin**: Universal sandbox execution - replaces separate PHP/Python/Node/Shell plugins with unified `[run lang]code[/run]` or `[run shell]command[/run]` syntax. Executes code in isolated Docker containers with preset-assigned sandboxes. You can make sandbox in hypervisor, attach sandbox to preset and user it. Need Docker.
-- **Memory Plugin**: Persistent notepad with append/replace/clear operations. Can be exported or imported
-- **MCP Plugin**: Connect any Model Context Protocol server to give agents access to external tools. Per-preset server management with admin UI. Supports Streamable HTTP transport (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously (configurable).
-- **Vector Memory Plugin**: Semantic memory with dual-engine search: TF-IDF keyword similarity (always available) and dense embedding vectors via configurable provider (Novita, OpenAI, etc.). Two retrieval modes: flat (direct top-K) and associative (graph-based chain traversal through semantically related memories). Both journal and vector memory share the same embedding space — the agent can find connections between insights and actions by meaning, not just keywords.
-- **Journal Plugin**: Episodic memory chronicle — records structured events (actions, decisions, errors, reflections) with timestamps and outcome tracking. Supports chronological browsing and TF-IDF semantic search with flexible date filtering (exact date, relative dates like "yesterday", date ranges). The agent's diary of what happened, not what it knows.
-- **Dopamine Plugin**: Self-motivation system with reward/penalty mechanics
-- **Shell Plugin**: System command execution with security restrictions (use local instance)
-- **Agent Plugin**: Agent loop mode can stopped or started by model
-- **Mood Plugin**: joke plugin for mood control (model can set mood and know it in context)
-- **Browser Plugin**: Persistent web browser powered by Playwright. Agents can open pages, click, type, search, and read structured page snapshots — all with session memory that survives across thinking cycles. Requires the browser-service Docker container (profile: browser). See [Browser Service](#browser-service) below.
-- **Telegram Plugin**: Full Telegram access via tgcli. Read dialogs, channels and 
-  groups, send messages, search — using a real user account (MTProto), not Bot API. 
-  Per-preset session isolation. Authorization UI built into preset settings.
-- **Skills Plugin**: Manager of knowledge and reused skills. Vector tf-idf search in skills
-- **Goal Plugin**: Management of goals and objectives, with statuses.
-- **Person Plugin**: Storing information about individuals with semantic search. 
-  Facts identified by system ID, aliases stored as "Primary / Alias1 / Alias2" 
-  string. Embedding + TF-IDF fallback search over fact content. 
-  Heart-aware context enrichment via [[persons_context]].
-- **Workspace Plugin**: Persistent cross-session key-value scratchpad. Unlike flat memory, stores named, independently updatable keys — drafts, plans, intermediate conclusions — that survive across thinking cycles. The full workspace is always visible in the system prompt via `[[workspace]]` placeholder. Supports set, append, get, delete, list, and clear operations.
-- **Heart Plugin**: Attention and connection engine for autonomous agents. Tracks connections with entities (people, concepts, projects), attention signals with emotional resonance, and dominant focus. Features automatic signal decay over time (configurable heartbeat), connection strength tracking, and gravity calculation (which entity pulls attention most). Heart state is always visible via `[[heart_state]]` placeholder. Not an emotion simulator — a measurable attention system the agent uses to understand what matters to it right now.
-- **Being Plugin**: Self-authorship for autonomous agents. The agent defines its own essence as a single phrase that persists into the next cycle via `[[being]]` placeholder. Includes history tracking of previous self-definitions via `[[being_history]]`. The agent rewrites itself — not the developer.
-- **Rhythm Plugin**: Temporal context awareness for autonomous agents. Injects a compact single-line snapshot into the system prompt via `[[rhythm]]` placeholder: current date/time, day/week/year progress percentages, agent age (from configurable birth date), pause since last thinking cycle, today's cycle count, current weather and time until sunset/sunrise (Open-Meteo API, no key required, cached). Gives the agent a continuous sense of being situated in time and place.
-- **RAG Query Plugin**: Explicit RAG search control — agent sets its own search query 
-  for the next cycle instead of relying on automatic query formulation. Use 
-  `[rag query]what to find[/rag]` when you know exactly what memory to retrieve. 
-  Falls back to automatic formulation if no query is set.
-- **AgentTask Plugin**: Task management for orchestrated agent workflows. Planner presets create and assign tasks to roles; role presets mark them done or failed; validator presets approve or reject results. The orchestrator handles all routing automatically — the model just uses simple commands. Active tasks are always visible via `[[agent_tasks]]` placeholder.
+
+| Plugin | Description | Docs |
+|---|---|---|
+| **Sandbox** (`run`) | Execute PHP, Python, Node.js, and shell commands in isolated Docker containers. Requires a sandbox assigned to the preset. | [→](docs/plugins/sandbox.md) |
+| **Shell** | Run shell commands directly on the host as the PHP process user. Use only for trusted operational tasks — prefer Sandbox for code execution. | [→](docs/plugins/shell.md) |
+| **Memory** | Persistent flat notepad injected into every cycle via `[[notepad_content]]`. Best for identity anchors, rules, and always-visible facts. Supports export/import. | [→](docs/plugins/memory.md) |
+| **Workspace** | Persistent key-value scratchpad for structured working state — plans, drafts, intermediate results. Accessible via `[[workspace]]`. | [→](docs/plugins/workspace.md) |
+| **Vector Memory** | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Supports defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
+| **Journal** | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and date-filtered search. | [→](docs/plugins/journal.md) |
+| **Skill** | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
+| **Person** | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
+| **Goal** | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
+| **MCP** | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
+| **Telegram** | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
+| **Browser** | Persistent Playwright browser with session memory surviving across thinking cycles. Open pages, click, type, read structured snapshots. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |
+| **Dopamine** | Self-motivation system. Agent rewards/penalises itself; level visible via `[[dopamine_level]]`. Optional auto-decay. | [→](docs/plugins/dopamine.md) |
+| **Heart** | Attention and connection engine. Tracks named connections, emotional signals, dominant focus, and gravity. State visible via `[[heart_state]]`. Not an emotion simulator — a measurable attention system. | [→](docs/plugins/heart.md) |
+| **Being** | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
+| **Rhythm** | Temporal context snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset/sunrise. Injected via `[[rhythm]]`. Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
+| **RAG Query** | Explicit RAG search control — agent queues specific queries for the next cycle instead of relying on automatic formulation. | [→](docs/plugins/rag.md) |
+| **Agent** | Lifecycle control — pause/resume thinking cycles, check status, send visible messages to user (`speak`), hand off to another preset. | [→](docs/plugins/agent.md) |
+| **Mode** | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
+| **Mood** | Lightweight tone control — agent sets a named mood (`friendly`, `analytical`, `focused`, etc.) visible via `[[mood]]`. | [→](docs/plugins/mood.md) |
+| **Agent Task** | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
 
 Visual memory management is available using MemoryManager and VectorMemoryManager (Vector and normal memory is individual for each preset).
 
@@ -273,9 +273,6 @@ The AI communicates through special command tags that trigger plugin execution. 
 [browser back][/browser]
 [browser close][/browser]
 
-# Crawler — lightweight stateless page fetcher (no JS, no session)
-[crawler]https://example.com[/crawler]
-
 # Orchestrated task management (AgentTask Plugin)
 # --- Planner preset ---
 [task]Write a market summary | role: writer | Focus on Q1 2025 data[/task]
@@ -374,23 +371,12 @@ Main page text, cleaned of nav/footer/scripts...
 
 This gives the model enough to reason, navigate, and interact — without drowning in HTML noise.
 
-**Browser vs Crawler:**
-
-| | Browser Plugin | Crawler Plugin |
-|---|---|---|
-| Engine | Playwright (Chromium) | HTTP fetch |
-| JavaScript | ✅ Full support | ❌ No |
-| Session/cookies | ✅ Persistent per preset | ❌ Stateless |
-| Click / type / scroll | ✅ | ❌ |
-| Docker required | ✅ (profile: browser) | ❌ |
-| Best for | Interactive sites, SPAs | Simple scraping |
-
 ## Architecture Overview
 
 Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
-- **PluginRegistryInterface**: Extensible command system with 20+ built-in plugins
+- **PluginRegistryInterface**: Extensible command system with 22 built-in plugins
 - **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
@@ -685,6 +671,9 @@ php artisan vectormemory:embed --preset=1 --journal # Also backfill journal entr
 php artisan vectormemory:embed --all --journal --persons
 php artisan vectormemory:embed --all               # All presets with embedding configured
 php artisan vectormemory:embed --preset=1 --persons --dry-run
+
+php artisan agent:defrag                           # Defrag vector memory for all eligible presets
+php artisan agent:defrag --preset=3                # Defrag specific preset
 ```
 
 ## Known Challenges & Observations

@@ -233,7 +233,7 @@ class DefragService implements DefragServiceInterface
 
     /**
      * Resolve effective prompt: custom from preset or default from file.
-     * Replaces {keep} placeholder with actual value.
+     * Replaces [[keep]] placeholder with actual value.
      */
     private function resolvePrompt(AiPreset $preset, int $keepPerDay): string
     {
@@ -243,7 +243,7 @@ class DefragService implements DefragServiceInterface
             ? $custom
             : $this->loadDefaultPrompt();
 
-        return str_replace('{keep}', (string) $keepPerDay, $prompt);
+        return str_replace('[[keep]]', (string) $keepPerDay, $prompt);
     }
 
     /**

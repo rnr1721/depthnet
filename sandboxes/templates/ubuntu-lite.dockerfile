@@ -1,4 +1,4 @@
-# TEMPLATE DESCRIPTION: Ubuntu Light (Base tools, no programming languages)
+# TEMPLATE DESCRIPTION: Ubuntu Light (Base tools, tmux)
 FROM ubuntu:22.04
 
 ARG HOST_UID=1000
@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     git \
     vim \
     nano \
+    tmux \
     htop \
     tree \
     sshpass \
@@ -38,7 +39,7 @@ RUN apt-get update && apt-get install -y \
 # Create a group and user (rights will be overridden via --user)
 RUN groupadd -g ${HOST_GID} sandbox-group 2>/dev/null || true
 RUN useradd -u ${HOST_UID} -g ${HOST_GID} -m -s /bin/bash sandbox-user \
- && echo "sandbox-user:sandbox123" | chpasswd
+    && echo "sandbox-user:sandbox123" | chpasswd
 
 # User workspace
 USER sandbox-user
@@ -53,17 +54,26 @@ RUN echo 'export PATH="$PATH"' >> ~/.bashrc \
     && echo 'alias ...="cd ../.."' >> ~/.bashrc \
     && echo 'alias tree="tree -C"' >> ~/.bashrc
 
+# PS1 prompt: user@host:path time $/# (no colors — readable by AI)
+RUN echo 'export PS1=\"\u@\h:\w \t \$ \"' >> ~/.bashrc
+
 # Welcome message
 RUN echo 'echo "Welcome to AI Sandbox!"' >> ~/.bashrc \
- && echo 'echo "Current user: $(whoami) (UID: $(id -u), GID: $(id -g))"' >> ~/.bashrc \
- && echo 'echo "Home permissions: $(ls -ld ~ | cut -d\" \" -f1,3,4)"' >> ~/.bashrc \
- && echo 'echo "Try: git --version, curl --version, sqlite3 --version"' >> ~/.bashrc \
- && echo 'cd /home/sandbox-user 2>/dev/null || true' >> ~/.bashrc
+    && echo 'echo "Current user: $(whoami) (UID: $(id -u), GID: $(id -g))"' >> ~/.bashrc \
+    && echo 'echo "Home permissions: $(ls -ld ~ | cut -d\" \" -f1,3,4)"' >> ~/.bashrc \
+    && echo 'echo "Try: git --version, curl --version, sqlite3 --version"' >> ~/.bashrc \
+    && echo 'cd /home/sandbox-user 2>/dev/null || true' >> ~/.bashrc
 
 USER sandbox-user
 
 # Force home directory
 ENV HOME=/home/sandbox-user
 WORKDIR /home/sandbox-user
+
+
+# tmux config: large scrollback buffer, no status bar noise
+RUN echo 'set -g history-limit 10000' >> ~/.tmux.conf \
+    && echo 'set -g status off' >> ~/.tmux.conf \
+    && echo 'set -g default-terminal "screen-256color"' >> ~/.tmux.conf
 
 CMD ["bash"]

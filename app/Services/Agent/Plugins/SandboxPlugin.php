@@ -296,7 +296,7 @@ class SandboxPlugin implements CommandPluginInterface
     {
         return [
             'enabled' => false,
-            'enable_shell' => true,
+            'enable_shell' => false,
             'enable_php' => true,
             'enable_python' => true,
             'enable_node' => true,

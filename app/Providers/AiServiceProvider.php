@@ -51,6 +51,7 @@ use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
+use App\Contracts\Agent\Terminal\TerminalServiceInterface;
 use App\Contracts\Agent\ToolCallParserInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Agent\VectorMemory\DefragServiceInterface;
@@ -123,6 +124,7 @@ use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
+use App\Services\Agent\Plugins\TerminalPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
@@ -137,6 +139,7 @@ use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\Terminal\TerminalService;
 use App\Services\Agent\ToolCallParser;
 use App\Services\Agent\ToolSchemaBuilder;
 use App\Services\Agent\VectorMemory\DefragService;
@@ -301,6 +304,8 @@ class AiServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(TerminalServiceInterface::class, TerminalService::class);
+
     }
 
     /**
@@ -363,6 +368,7 @@ class AiServiceProvider extends ServiceProvider
             JournalPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
+            TerminalPlugin::class,
             PromptPlugin::class,
             ShellPlugin::class,
             DopaminePlugin::class,

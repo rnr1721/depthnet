@@ -319,7 +319,7 @@ class MockModel implements AIModelEngineInterface
         $content = $lastMessage['content'] ?? '';
         $role = $lastMessage['role'] ?? '';
 
-        \Log::info('output prompt', [$this->prepareMessage($request)]);
+        $this->prepareMessage($request);
 
         // Test various scenarios
 

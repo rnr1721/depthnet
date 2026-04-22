@@ -25,6 +25,13 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
 
+    private const SEARCH_ENGINES = [
+        'google'     => ['label' => 'Google',     'url' => 'https://www.google.com/search?q='],
+        'bing'       => ['label' => 'Bing',       'url' => 'https://www.bing.com/search?q='],
+        'duckduckgo' => ['label' => 'DuckDuckGo', 'url' => 'https://duckduckgo.com/?q='],
+        'brave'      => ['label' => 'Brave',      'url' => 'https://search.brave.com/search?q='],
+    ];
+
     public function __construct(
         protected LoggerInterface $logger
     ) {
@@ -44,9 +51,12 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
+
+        $engine = self::SEARCH_ENGINES[$config['search_engine'] ?? 'google']['label'] ?? 'Google';
+
         return [
             'Open page:          [browser open]https://example.com[/browser]',
-            'Search on Google:   [browser search]best php frameworks 2026[/browser]',
+            'Search ' . $engine . ':   [browser search]best php frameworks 2026[/browser]',
             'Page snapshot:      [browser snapshot][/browser]',
             'Click element:      [browser click]text=Submit[/browser]',
             'Type in field:      [browser type]{"selector":"input[name=q]","text":"hello"}[/browser]',
@@ -67,6 +77,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
+        $engine = self::SEARCH_ENGINES[$config['search_engine'] ?? 'google']['label'] ?? 'Google';
         return [
             'name'        => 'browser',
             'description' => 'Persistent Playwright browser with session memory. '
@@ -96,7 +107,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
                         'description' => implode(' ', [
                             'Argument depends on method.',
                             'open: full URL, e.g. "https://example.com".',
-                            'search: search query string, e.g. "best PHP frameworks 2026".',
+                            'search: search query string via ' . $engine . ', e.g. "best PHP frameworks 2026".',
                             'snapshot: leave empty — returns structured page with links, inputs, buttons.',
                             'click: element selector or text, e.g. "text=Submit" or "#login-btn".',
                             'type: JSON {"selector":"input[name=q]","text":"hello"} .',
@@ -177,6 +188,13 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
                 'placeholder' => 'malicious-site.com',
                 'required'    => false,
             ],
+            'search_engine' => [
+                'type'    => 'select',
+                'label'   => 'Search Engine',
+                'options' => array_map(fn ($e) => $e['label'], self::SEARCH_ENGINES),
+                'value'   => 'google',
+                'required' => false,
+            ],
         ];
     }
 
@@ -188,6 +206,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             'request_timeout' => 60,
             'allowed_domains' => '',
             'blocked_domains' => '',
+            'search_engine'   => 'google',
         ];
     }
 
@@ -267,7 +286,9 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return 'Error: search query cannot be empty.';
         }
 
-        $url = 'https://www.google.com/search?q=' . urlencode($query);
+        $base = self::SEARCH_ENGINES[$context->get('search_engine', 'google')]['url']
+            ?? self::SEARCH_ENGINES['google']['url'];
+        $url = $base . urlencode($query);
 
         return $this->dispatchAction($context, 'open', ['url' => $url]);
     }

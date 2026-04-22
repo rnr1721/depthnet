@@ -202,7 +202,7 @@ export default {
   modals_user_name: "Имя",
   modals_user_name_ph: "Пожалуйста, введите имя",
   modals_user_email: "Email",
-  modals_user_email_ph: "example@domain.com",
+  modals_user_email_ph: "Введите email адрес",
   modals_new_password: "Новый пароль",
   modal_new_password_ph: "Новый пароль (минимум 8 символов)",
   modals_new_password_confirm: "Подтвердите новый пароль",

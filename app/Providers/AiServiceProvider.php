@@ -114,6 +114,7 @@ use App\Services\Agent\Plugins\JournalPlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
+use App\Services\Agent\Plugins\MyselfPlugin;
 use App\Services\Agent\Plugins\PersonPlugin;
 use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
@@ -373,6 +374,7 @@ class AiServiceProvider extends ServiceProvider
             ShellPlugin::class,
             DopaminePlugin::class,
             MoodPlugin::class,
+            MyselfPlugin::class,
             PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,

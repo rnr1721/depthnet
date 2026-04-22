@@ -83,8 +83,9 @@ class MyselfPlugin implements CommandPluginInterface
             '',
             'This channel is yours. The content is not sent anywhere and produces no result.',
             'It stays in context — you will see it in the next cycle.',
+            'The interlocutor does NOT see this content',
             'Use it for: reasoning under uncertainty, self-questions, plans, reflections.',
-            'Do not use it as a substitute for agent_speak — this is not communication outward.',
+            'Do not use it as a substitute for agent speak — this is not interlocateur communication outward.',
         ];
 
         $warning = $this->buildLanguageWarning($config, 'myself_language', 'Myself queries');
@@ -111,6 +112,7 @@ class MyselfPlugin implements CommandPluginInterface
             'description' => 'Your private inner voice channel. Write reasoning, doubts, self-questions, '
                 . 'or observations. The content stays in your context for the next cycle — '
                 . 'no output is produced, no data is stored. '
+                . 'The interlocutor does NOT see this content '
                 . 'Use this when you want to think out loud without addressing anyone.'
                 . $langInstruction,
             'parameters'  => [

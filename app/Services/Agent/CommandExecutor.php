@@ -112,7 +112,14 @@ class CommandExecutor implements CommandExecutorInterface
                 );
             }
 
-            return new CommandResult($command, $result, true, null, $pluginExecutionMeta);
+            return new CommandResult(
+                $command,
+                $result,
+                true,
+                null,
+                $pluginExecutionMeta,
+                $plugin->collapseOutput()
+            );
 
         } catch (\Exception $e) {
             $this->logger->error("Command execution error", [
@@ -145,6 +152,14 @@ class CommandExecutor implements CommandExecutorInterface
 
         $formatted .= "for date " . date('d.m.Y H:i') . "\n\n";
 
+        // Collect last index for collapsible plugins
+        $lastIndexMap = [];
+        foreach ($results as $i => $result) {
+            if ($result->collapseOutput) {
+                $lastIndexMap[$result->command->plugin] = $i;
+            }
+        }
+
         foreach ($results as $i => $result) {
             $command = $result->command;
 
@@ -176,9 +191,13 @@ class CommandExecutor implements CommandExecutorInterface
                 $errorMessage = $customErrorMessage;
             }
 
+            $isCollapsed = $result->collapseOutput
+                && isset($lastIndexMap[$result->command->plugin])
+                && $i !== $lastIndexMap[$result->command->plugin];
+
             if ($result->success) {
                 $formatted .= $successMessage . "\n";
-                if (!empty($result->result)) {
+                if (!empty($result->result) && !$isCollapsed) {
                     $formatted .= $result->result . "\n\n";
                 }
             } else {

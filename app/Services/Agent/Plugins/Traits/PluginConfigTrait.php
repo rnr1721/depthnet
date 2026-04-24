@@ -57,4 +57,14 @@ trait PluginConfigTrait
             'enabled' => true,
         ];
     }
+
+    /**
+     * Default: do not collapse. Override in plugins where successive
+     * outputs are cumulative and showing only the last is sufficient.
+     */
+    public function collapseOutput(): bool
+    {
+        return false;
+    }
+
 }

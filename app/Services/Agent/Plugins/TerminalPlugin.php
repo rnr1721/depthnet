@@ -580,4 +580,10 @@ class TerminalPlugin implements CommandPluginInterface
             false
         );
     }
+
+    public function collapseOutput(): bool
+    {
+        return true;
+    }
+
 }

@@ -57,6 +57,30 @@ class RhythmPlugin implements CommandPluginInterface
         ];
     }
 
+    public function getToolSchema(array $config = []): array
+    {
+        return [
+            'name'        => 'rhythm',
+            'description' => 'Read-only temporal context. Shows current date/time, day/week/year progress, agent age, pause since last message, cycles today, weather and sunset. '
+                . 'This data is always available via rhythm placeholder — use show command only when you need a fresh snapshot.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Only one operation available.',
+                        'enum'        => ['show'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => 'Leave empty.',
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getConfigFields(): array
     {
         return [

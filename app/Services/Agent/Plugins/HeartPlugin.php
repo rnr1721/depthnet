@@ -95,6 +95,40 @@ class HeartPlugin implements CommandPluginInterface
         ];
     }
 
+    public function getToolSchema(array $config = []): array
+    {
+        $emotions = implode(', ', array_keys(self::ATTENTION_MAP));
+
+        return [
+            'name'        => 'heart',
+            'description' => 'Attention and connection engine. Tracks who matters, what you feel, and where your attention flows. Heart state is always visible via heart_state placeholder.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['feel', 'connect', 'disconnect', 'state', 'connections', 'focus', 'beat'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Argument depends on method.',
+                            'feel: "entity: emotion" — entity name, colon, emotion word.',
+                            "Known emotions: {$emotions} (or any custom word).",
+                            'Example: "Eugeny: curiosity".',
+                            'connect: "entity: connection_type".',
+                            'Example: "Eugeny: developer".',
+                            'disconnect: "entity" only.',
+                            'state, connections, focus, beat: leave content empty.',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getCustomSuccessMessage(): ?string
     {
         return null;

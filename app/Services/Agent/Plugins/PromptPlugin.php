@@ -59,6 +59,31 @@ class PromptPlugin implements CommandPluginInterface
         ];
     }
 
+    public function getToolSchema(array $config = []): array
+    {
+        return [
+            'name'        => 'mode',
+            'description' => 'Switch thinking mode. Use to change personality, focus, or reasoning style mid-session. '
+                . 'Current mode is visible via current_mode placeholder. '
+                . 'Switch takes effect from the next cycle.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['execute', 'list', 'current'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => 'For execute: mode code to switch to. For list and current: leave empty.',
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     // ── Config ────────────────────────────────────────────────────────────────
 
     public function getConfigFields(): array

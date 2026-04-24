@@ -151,6 +151,36 @@ class MoodPlugin implements CommandPluginInterface
         ];
     }
 
+    public function getToolSchema(array $config = []): array
+    {
+        $moodKeys = array_keys(self::MOODS);
+        $moodList = implode(', ', $moodKeys);
+        $defaultMood = $config['default_mood'] ?? 'neutral';
+
+        return [
+            'name'        => 'mood',
+            'description' => 'Manage conversation mood and tone. '
+                . "Available moods: {$moodList}. "
+                . 'Current mood is visible via mood placeholder. '
+                . "Default: {$defaultMood}.",
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['set', 'get', 'list', 'reset', 'history', 'stats'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => "For set: mood name ({$moodList}). For get, list, reset, history, stats: leave empty.",
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function getMergeSeparator(): ?string
     {
         return "\n---\n";

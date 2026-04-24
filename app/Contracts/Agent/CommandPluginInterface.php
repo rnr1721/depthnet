@@ -164,6 +164,19 @@ interface CommandPluginInterface
      */
     public function getPluginExecutionMeta(): array;
 
+    /**
+     * Whether multiple results from this plugin in a single cycle
+     * should be collapsed into the last one.
+     *
+     * When true, CommandExecutor will suppress the output body of all
+     * but the last result — the header (SUCCESS/ERROR) is still shown,
+     * so the model knows the commands ran.
+     *
+     * Use this for stateful plugins where each subsequent output already
+     * includes all previous state (e.g. a terminal screen capture).
+     */
+    public function collapseOutput(): bool;
+
     // ── OPTIONAL METHODS (NOT in the interface) ──────────────────────────────
     //
     // These are recognised by the framework via method_exists() — implement

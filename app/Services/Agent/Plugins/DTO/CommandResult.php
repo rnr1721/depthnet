@@ -29,6 +29,7 @@ class CommandResult
         public readonly bool $success,
         public readonly ?string $error = null,
         public readonly array $executionMeta = [],
+        public readonly bool $collapseOutput = false
     ) {
         // Propagate tool_call id from the originating command so callers
         // don't need to reach into $command themselves

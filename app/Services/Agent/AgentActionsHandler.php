@@ -314,8 +314,15 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     protected function buildToolResults(AiActionsResponseInterface $actionsResult): array
     {
         $toolResults = [];
+        $lastIndexMap = [];
 
-        foreach ($actionsResult->getCommandResults() as $commandResult) {
+        foreach ($actionsResult->getCommandResults() as $i => $commandResult) {
+            if ($commandResult->collapseOutput) {
+                $lastIndexMap[$commandResult->command->plugin] = $i;
+            }
+        }
+
+        foreach ($actionsResult->getCommandResults() as $i => $commandResult) {
             if ($commandResult->toolCallId === null) {
                 $this->logger->warning('AgentActionsHandler: CommandResult missing toolCallId in tool_calls mode', [
                     'plugin' => $commandResult->command->plugin,
@@ -324,13 +331,19 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                 continue;
             }
 
+            $isCollapsed = $commandResult->collapseOutput
+                && isset($lastIndexMap[$commandResult->command->plugin])
+                && $i !== $lastIndexMap[$commandResult->command->plugin];
+
             $toolResults[] = [
                 'tool_call_id' => $commandResult->toolCallId,
-                'content'      => $this->sanitizeForJson(
-                    $commandResult->success
-                        ? $commandResult->result
-                        : ('ERROR: ' . $commandResult->error)
-                ),
+                'content'      => $isCollapsed
+                    ? '(output collapsed — see last result)'
+                    : $this->sanitizeForJson(
+                        $commandResult->success
+                            ? $commandResult->result
+                            : ('ERROR: ' . $commandResult->error)
+                    ),
             ];
         }
 

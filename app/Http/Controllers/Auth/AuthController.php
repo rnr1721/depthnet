@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Contracts\Auth\AuthServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\LoginRequest;
@@ -18,7 +19,8 @@ class AuthController extends Controller
 {
     public function __construct(
         protected AuthServiceInterface $authService,
-        protected PasswordBrokerContract $passwordBroker
+        protected PasswordBrokerContract $passwordBroker,
+        protected OptionsServiceInterface $optionsService
     ) {
     }
 
@@ -29,7 +31,10 @@ class AuthController extends Controller
      */
     public function showLoginForm(): Response
     {
-        return Inertia::render('Auth/Login');
+        $registrationEnabled = (bool) $this->optionsService->get('site_enable_registration', true);
+        return Inertia::render('Auth/Login', [
+            'registrationEnabled' => $registrationEnabled
+        ]);
     }
 
     /**
@@ -54,6 +59,7 @@ class AuthController extends Controller
      */
     public function showRegistrationForm(): Response
     {
+        $this->ensureRegistrationEnabled();
         return Inertia::render('Auth/Register');
     }
 
@@ -65,6 +71,9 @@ class AuthController extends Controller
      */
     public function register(RegisterRequest $request): RedirectResponse
     {
+
+        $this->ensureRegistrationEnabled();
+
         $this->authService->register($request->validated());
 
         return redirect('/chat');
@@ -153,4 +162,16 @@ class AuthController extends Controller
     {
         return $status === $this->passwordBroker::PASSWORD_RESET;
     }
+
+    /**
+     * Abort if registration is disabled in global settings
+     */
+    private function ensureRegistrationEnabled(): void
+    {
+        if (!$this->optionsService->get('site_enable_registration', true)) {
+            abort(403, 'Registration is disabled.');
+        }
+    }
+
+
 }

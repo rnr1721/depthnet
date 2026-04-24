@@ -46,10 +46,10 @@
                 'mb-4 flex items-center text-sm font-medium transition-colors duration-200 hover:underline',
                 isDark ? 'text-gray-400 hover:text-gray-300' : 'text-gray-600 hover:text-gray-500'
             ]">
-            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-            </svg>
-            {{ t('to_mainpage') }}
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                {{ t('to_mainpage') }}
             </Link>
 
             <!-- Login Form Card -->
@@ -94,7 +94,7 @@
                     </p>
 
                     <!-- Register Link -->
-                    <p :class="[
+                    <p v-if="$page.props.registrationEnabled" :class="[
                         'mt-4 text-sm',
                         isDark ? 'text-gray-400' : 'text-gray-600'
                     ]">
@@ -103,7 +103,7 @@
                             'font-semibold transition-colors duration-200 hover:underline ml-1',
                             isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-500'
                         ]">
-                        {{ t('register_if_you_dont_have_account') }}
+                            {{ t('register_if_you_dont_have_account') }}
                         </Link>
                     </p>
                 </div>
@@ -237,7 +237,7 @@
                                 'text-sm font-medium transition-colors duration-200 hover:underline',
                                 isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-500'
                             ]">
-                            {{ t('login_forgot_password') }}
+                                {{ t('login_forgot_password') }}
                             </Link>
                         </div>
 

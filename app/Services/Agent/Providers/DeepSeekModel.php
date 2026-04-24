@@ -384,8 +384,12 @@ class DeepSeekModel implements AIModelEngineInterface
                     'count' => count($message['tool_calls']),
                 ]);
 
+                $reasoningContent = $message['reasoning_content'] ?? null;
+
                 return new ModelResponseDTO(
-                    json_encode(['tool_calls' => $message['tool_calls']])
+                    json_encode(['tool_calls' => $message['tool_calls']]),
+                    false,
+                    $reasoningContent ? ['reasoning_content' => $reasoningContent] : []
                 );
             }
 
@@ -410,7 +414,9 @@ class DeepSeekModel implements AIModelEngineInterface
             }
 
             return new ModelResponseDTO(
-                $this->cleanOutput($message['content'])
+                $this->cleanOutput($message['content']),
+                false,
+                $reasoningContent ? ['reasoning_content' => $reasoningContent] : []
             );
 
         } catch (\Exception $e) {
@@ -628,6 +634,7 @@ class DeepSeekModel implements AIModelEngineInterface
                     // The engine stored the raw tool_calls JSON in metadata when it
                     // detected finish_reason='tool_calls' from the API.
                     $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    $reasoningContent = $metadata['reasoning_content'] ?? null;
                     if ($toolCallsRaw) {
                         $decoded    = json_decode($toolCallsRaw, true);
                         $toolCalls  = $decoded['tool_calls'] ?? [];
@@ -635,17 +642,26 @@ class DeepSeekModel implements AIModelEngineInterface
                         if (!empty($toolCalls)) {
                             // Emit null content — OpenAI spec requires content=null
                             // when tool_calls are present in the assistant turn
-                            $messages[] = [
+                            $assistantMsg = [
                                 'role'       => 'assistant',
                                 'content'    => null,
                                 'tool_calls' => $toolCalls,
                             ];
+
+                            if ($reasoningContent) {
+                                $assistantMsg['reasoning_content'] = $reasoningContent;
+                            }
+
+                            $messages[] = $assistantMsg;
                             break;
                         }
                     }
 
-                    // tag-mode fallback: plain assistant message
-                    $messages[] = ['role' => 'assistant', 'content' => $content];
+                    $msg = ['role' => 'assistant', 'content' => $content];
+                    if ($reasoningContent) {
+                        $msg['reasoning_content'] = $reasoningContent;
+                    }
+                    $messages[] = $msg;
                     break;
                 case 'result':
                     $toolResults = $metadata['tool_results'] ?? null;

@@ -425,9 +425,11 @@ class MoodPlugin implements CommandPluginInterface
      * Took $context as input — could have stayed AiPreset + extra arg, but
      * passing $context is cleaner.
      */
-    protected function addToHistory(PluginExecutionContext $context, string $toMood, string $fromMood, Carbon $timestamp): void
+    protected function addToHistory(PluginExecutionContext $context, string $toMood, ?string $fromMood, Carbon $timestamp): void
     {
         $history = $this->getMeta($context, 'history', []);
+
+        $fromMood = $fromMood ?? 'neutral';
 
         $history[] = [
             'from' => $fromMood,

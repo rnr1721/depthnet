@@ -161,18 +161,18 @@
               'shadow-lg hover:shadow-xl',
               isDark ? 'focus:ring-blue-500 focus:ring-offset-gray-900' : 'focus:ring-blue-500'
             ]">
-            <!-- Button glow effect -->
-            <div
-              class="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 opacity-0 group-hover:opacity-50 blur transition-opacity duration-300">
-            </div>
-            <span class="relative flex items-center">
-              {{ t('chat') }}
-              <svg class="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform duration-200" fill="none"
-                stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6">
-                </path>
-              </svg>
-            </span>
+              <!-- Button glow effect -->
+              <div
+                class="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 opacity-0 group-hover:opacity-50 blur transition-opacity duration-300">
+              </div>
+              <span class="relative flex items-center">
+                {{ t('chat') }}
+                <svg class="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform duration-200" fill="none"
+                  stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6">
+                  </path>
+                </svg>
+              </span>
             </Link>
 
             <!-- Logout Button -->
@@ -184,9 +184,9 @@
                 ? 'border-gray-600 text-gray-300 hover:bg-gray-800 hover:border-gray-500 focus:ring-gray-500 focus:ring-offset-gray-900'
                 : 'border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:ring-gray-500 bg-white'
             ]">
-            <span class="flex items-center">
-              {{ t('logout') }}
-            </span>
+              <span class="flex items-center">
+                {{ t('logout') }}
+              </span>
             </Link>
           </div>
 
@@ -200,15 +200,15 @@
               'shadow-lg hover:shadow-xl',
               isDark ? 'focus:ring-blue-500 focus:ring-offset-gray-900' : 'focus:ring-blue-500'
             ]">
-            <!-- Button glow effect -->
-            <div
-              class="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 opacity-0 group-hover:opacity-50 blur transition-opacity duration-300">
-            </div>
-            <span class="flex items-center">{{ t('login') }}</span>
+              <!-- Button glow effect -->
+              <div
+                class="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 opacity-0 group-hover:opacity-50 blur transition-opacity duration-300">
+              </div>
+              <span class="flex items-center">{{ t('login') }}</span>
             </Link>
 
             <!-- Register Button -->
-            <Link :href="route('register')" :class="[
+            <Link v-if="$page.props.registrationEnabled" :href="route('register')" :class="[
               'group px-8 py-4 rounded-2xl font-bold text-lg transition-all duration-300',
               'transform hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-offset-2',
               'border-2',
@@ -216,7 +216,7 @@
                 ? 'border-gray-600 text-gray-300 hover:bg-gray-800 hover:border-gray-500 focus:ring-gray-500 focus:ring-offset-gray-900'
                 : 'border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:ring-gray-500 bg-white'
             ]">
-            <span class="flex items-center">{{ t('register') }}</span>
+              <span class="flex items-center">{{ t('register') }}</span>
             </Link>
           </div>
         </div>

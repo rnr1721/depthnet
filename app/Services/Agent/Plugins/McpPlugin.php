@@ -56,6 +56,57 @@ class McpPlugin implements CommandPluginInterface
         return $instructions;
     }
 
+    public function getToolSchema(array $config = []): array
+    {
+        $allowConnect = $config['allow_agent_connect'] ?? false;
+
+        $methods = ['list', 'tools'];
+        if ($allowConnect) {
+            $methods[] = 'connect';
+            $methods[] = 'disconnect';
+        }
+
+        $description = 'Call tools on connected MCP (Model Context Protocol) servers. '
+            . 'Use list to see all servers and their tools. '
+            . 'Use tools to refresh tool list for a specific server. '
+            . 'To call a server tool, use the server_key as method.';
+
+        if ($allowConnect) {
+            $description .= ' You can connect and disconnect servers if needed.';
+        }
+
+        return [
+            'name'        => 'mcp',
+            'description' => $description,
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation: list (all servers), tools (refresh server tools), '
+                            . ($allowConnect ? 'connect, disconnect, ' : '')
+                            . 'or a server_key to call a tool on that server.',
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => implode(' ', [
+                            'Depends on method.',
+                            'list: leave empty.',
+                            'tools: server_key.',
+                            $allowConnect ? 'connect: JSON with url, name (optional), server_key (optional).' : '',
+                            $allowConnect ? 'Example connect: {"url":"https://...","name":"Label","server_key":"key"}.' : '',
+                            $allowConnect ? 'disconnect: server_key.' : '',
+                            'For server tool call (method=server_key):',
+                            '"tool_name" or "tool_name: {\"key\": \"value\"}".',
+                            'Example: "search_repositories: {\"query\": \"depthnet\"}".',
+                        ]),
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     public function execute(string $content, PluginExecutionContext $context): string
     {
         if (!$context->enabled) {

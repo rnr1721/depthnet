@@ -80,6 +80,40 @@ class ShellPlugin implements CommandPluginInterface
         ];
     }
 
+    public function getToolSchema(array $config = []): array
+    {
+        $workingDir = $config['working_directory'] ?? '/shared/httpd';
+
+        return [
+            'name'        => 'shell',
+            'description' => '⚠️ HOST EXECUTION — runs shell commands DIRECTLY on the host as the PHP process user. '
+                . 'Not isolated. Can read/modify files. '
+                . "Default working directory: {$workingDir}. "
+                . 'Prefer sandbox/run for code execution; use shell only for trusted operational tasks '
+                . '(disk usage, logs, service checks). '
+                . 'Supports cd within session.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Only one operation: execute a shell command on the host.',
+                        'enum'        => ['execute'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => 'The shell command to execute. Examples: '
+                            . '"df -h", "ls -la", "ps aux | grep nginx", '
+                            . '"cat /var/log/nginx/error.log | tail -20", '
+                            . '"cd /shared/httpd && ls". '
+                            . 'Commands are executed with timeout. Dangerous commands (rm -rf /, sudo, etc.) are blocked when security is enabled.',
+                    ],
+                ],
+                'required'   => ['method', 'content'],
+            ],
+        ];
+    }
+
     public function getCustomSuccessMessage(): ?string
     {
         return "Shell command executed successfully.";

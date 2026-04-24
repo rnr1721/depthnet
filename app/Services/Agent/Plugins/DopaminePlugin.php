@@ -66,6 +66,34 @@ class DopaminePlugin implements CommandPluginInterface
         ];
     }
 
+    public function getToolSchema(array $config = []): array
+    {
+        $min = $config['min_level'] ?? 0;
+        $max = $config['max_level'] ?? 10;
+
+        return [
+            'name'        => 'dopamine',
+            'description' => "Self-motivation system. Reward yourself for successes, penalize for failures. "
+                . "Level is always visible via dopamine_level placeholder. "
+                . "Range: {$min}-{$max}.",
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'method' => [
+                        'type'        => 'string',
+                        'description' => 'Operation to perform',
+                        'enum'        => ['reward', 'penalty', 'set', 'show'],
+                    ],
+                    'content' => [
+                        'type'        => 'string',
+                        'description' => 'For set: target level number. For reward, penalty, show: leave empty.',
+                    ],
+                ],
+                'required'   => ['method'],
+            ],
+        ];
+    }
+
     /**
      * @inheritDoc
      */

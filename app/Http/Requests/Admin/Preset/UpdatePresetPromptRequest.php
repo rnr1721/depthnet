@@ -24,7 +24,7 @@ class UpdatePresetPromptRequest extends FormRequest
                 'regex:/^[a-zA-Z0-9_\-]+$/',
                 "unique:preset_prompts,code,{$promptId},id,preset_id,{$presetId}",
             ],
-            'content'     => ['sometimes', 'string', 'max:12000'],
+            'content'     => ['sometimes', 'string', 'max:20000'],
             'description' => ['nullable', 'string', 'max:500'],
         ];
     }

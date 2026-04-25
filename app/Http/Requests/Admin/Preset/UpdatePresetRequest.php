@@ -61,7 +61,7 @@ class UpdatePresetRequest extends FormRequest
             'prompts' => ['nullable', 'array'],
             'prompts.*.id' => ['nullable', 'integer', 'exists:preset_prompts,id'],
             'prompts.*.code' => ['required_with:prompts', 'string', 'max:50', 'regex:/^[a-zA-Z0-9_\-]+$/'],
-            'prompts.*.content' => ['nullable', 'string', 'max:12000'],
+            'prompts.*.content' => ['nullable', 'string', 'max:20000'],
             'prompts.*.description' => ['nullable', 'string', 'max:500'],
             'prompts.*.is_active' => ['nullable', 'boolean'],
             'deleted_prompt_ids' => ['nullable', 'array'],

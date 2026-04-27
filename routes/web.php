@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\PresetCapabilityController;
 use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\PresetMcpController;
 use App\Http\Controllers\Admin\PresetPromptController;
+use App\Http\Controllers\Admin\PresetRagConfigController;
 use App\Http\Controllers\Admin\PresetSandboxController;
 use App\Http\Controllers\Admin\SandboxController;
 use App\Http\Controllers\Admin\SettingsController;
@@ -113,6 +114,14 @@ Route::middleware('auth')->group(function () {
                     Route::get('/check', [PresetSandboxController::class, 'hasAssignedSandbox'])->name('check');
                 });
             }
+
+            Route::prefix('/{presetId}/rag-configs')->name('rag-configs.')->group(function () {
+                Route::get('/', [PresetRagConfigController::class, 'index'])->name('index');
+                Route::post('/', [PresetRagConfigController::class, 'store'])->name('store');
+                Route::put('/{configId}', [PresetRagConfigController::class, 'update'])->name('update');
+                Route::delete('/{configId}', [PresetRagConfigController::class, 'destroy'])->name('destroy');
+                Route::post('/reorder', [PresetRagConfigController::class, 'reorder'])->name('reorder');
+            });
 
             // MCP management routes
             Route::prefix('/{presetId}/mcp')->name('mcp.')->group(function () {

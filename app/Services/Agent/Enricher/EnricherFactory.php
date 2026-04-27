@@ -6,7 +6,9 @@ use App\Contracts\Agent\Enricher\ContextEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
+use App\Models\AiPreset;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Collection;
 
 class EnricherFactory implements EnricherFactoryInterface
 {
@@ -37,5 +39,13 @@ class EnricherFactory implements EnricherFactoryInterface
     public function makePersonEnricher(): PersonContextEnricherInterface
     {
         return $this->container->make(PersonContextEnricher::class);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getOrderedRagConfigs(AiPreset $preset): Collection
+    {
+        return $preset->ragConfigs()->get();
     }
 }

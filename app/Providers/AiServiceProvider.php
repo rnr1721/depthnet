@@ -22,6 +22,7 @@ use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
+use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
@@ -47,6 +48,7 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\PresetPromptServiceInterface;
+use App\Contracts\Agent\PresetRagConfigServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
@@ -81,6 +83,8 @@ use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\Enricher\EnricherFactory;
+use App\Services\Agent\Enricher\PersonContextEnricher;
+use App\Services\Agent\Enricher\Services\PresetRagConfigService;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
 use App\Services\Agent\Journal\JournalService;
@@ -179,6 +183,8 @@ class AiServiceProvider extends ServiceProvider
 
         //$this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
 
+        $this->app->bind(PresetRagConfigServiceInterface::class,PresetRagConfigService::class);
+        $this->app->bind(PersonContextEnricherInterface::class, PersonContextEnricher::class);
         $this->app->singleton(EnricherFactoryInterface::class, EnricherFactory::class);
 
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);

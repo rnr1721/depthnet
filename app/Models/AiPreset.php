@@ -19,19 +19,10 @@ class AiPreset extends Model
         'engine_name',
         'active_prompt_id',
         'input_mode',
+        'pool_relative_dates',
         'preset_code',
         'preset_code_next',
         'pre_run_commands',
-        'rag_preset_id',
-        'rag_context_limit',
-        'rag_results',
-        'rag_mode',
-        'rag_engine',
-        'rag_relative_dates',
-        'rag_journal_limit',
-        'rag_skills_limit',
-        'rag_content_limit',
-        'rag_journal_context_window',
         'defrag_enabled',
         'defrag_prompt',
         'defrag_keep_per_day',
@@ -61,65 +52,53 @@ class AiPreset extends Model
         'created_by',
     ];
 
+
     protected $casts = [
-        'engine_config' => 'array',
-        'metadata' => 'array',
-        'loop_interval' => 'integer',
-        'active_prompt_id' => 'integer',
-        'rag_preset_id' => 'integer',
-        'rag_context_limit' => 'integer',
-        'rag_results' => 'integer',
-        'rag_relative_dates'          => 'boolean',
-        'rag_journal_limit'           => 'integer',
-        'rag_skills_limit'            => 'integer',
-        'rag_content_limit'           => 'integer',
-        'rag_journal_context_window'  => 'integer',
-        'defrag_enabled'      => 'boolean',
-        'defrag_keep_per_day' => 'integer',
-        'voice_preset_id' => 'integer',
-        'voice_context_limit' => 'integer',
+        'pool_relative_dates' => 'boolean',
+        'engine_config'          => 'array',
+        'metadata'               => 'array',
+        'loop_interval'          => 'integer',
+        'active_prompt_id'       => 'integer',
+        'defrag_enabled'         => 'boolean',
+        'defrag_keep_per_day'    => 'integer',
+        'voice_preset_id'        => 'integer',
+        'voice_context_limit'    => 'integer',
         'cycle_prompt_preset_id' => 'integer',
-        'cp_context_limit' => 'integer',
-        'max_context_limit' => 'integer',
-        'before_execution_wait' => 'integer',
-        'allow_handoff_to' => 'boolean',
-        'allow_handoff_from' => 'boolean',
-        'rhasspy_enabled'          => 'boolean',
+        'cp_context_limit'       => 'integer',
+        'max_context_limit'      => 'integer',
+        'before_execution_wait'  => 'integer',
+        'allow_handoff_to'       => 'boolean',
+        'allow_handoff_from'     => 'boolean',
+        'rhasspy_enabled'        => 'boolean',
         'rhasspy_incoming_enabled' => 'boolean',
-        'is_active' => 'boolean',
-        'is_default' => 'boolean',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+        'is_active'              => 'boolean',
+        'is_default'             => 'boolean',
+        'created_at'             => 'datetime',
+        'updated_at'             => 'datetime',
     ];
 
+
     protected $attributes = [
-        'input_mode' => 'single',
-        'is_active' => true,
-        'is_default' => false,
-        'agent_result_mode' => 'internal',
-        'allow_handoff_to' => true,
-        'allow_handoff_from' => true,
-        'error_behavior' => 'stop',
-        'before_execution_wait' => 5,
-        'engine_config' => '{}',
-        'metadata' => '{}',
-        'plugins_disabled' => '',
-        'rag_context_limit' => 5,
-        'rag_results' => 5,
-        'rag_mode' => 'flat',
-        'rag_engine' => 'tfidf',
-        'rag_relative_dates'          => false,
-        'rag_journal_limit'           => 3,
-        'rag_skills_limit'            => 3,
-        'rag_content_limit'           => 400,
-        'rag_journal_context_window'  => 0,
-        'voice_context_limit' => 4,
-        'cp_context_limit' => 5,
-        'voice_mp_commands' => '',
-        'pre_run_commands' => '',
-        'rhasspy_enabled'          => false,
+        'input_mode'             => 'single',
+        'pool_relative_dates' => false,
+        'is_active'              => true,
+        'is_default'             => false,
+        'agent_result_mode'      => 'internal',
+        'allow_handoff_to'       => true,
+        'allow_handoff_from'     => true,
+        'error_behavior'         => 'stop',
+        'before_execution_wait'  => 5,
+        'engine_config'          => '{}',
+        'metadata'               => '{}',
+        'plugins_disabled'       => '',
+        'voice_context_limit'    => 4,
+        'cp_context_limit'       => 5,
+        'voice_mp_commands'      => '',
+        'pre_run_commands'       => '',
+        'rhasspy_enabled'        => false,
         'rhasspy_incoming_enabled' => false,
     ];
+
 
     /**
      * Known sources for pool input mode.
@@ -188,13 +167,22 @@ class AiPreset extends Model
     }
 
     /**
-     * RAG preset: if set, this preset will receive associative memory
-     * context from the RAG preset's vector memory before each thinking cycle.
+     * RAG pipeline configs for this preset, ordered for execution.
+     * Each config points to a RAG preset and carries its own search settings.
      */
-    public function ragPreset(): BelongsTo
+    public function ragConfigs(): HasMany
     {
-        return $this->belongsTo(AiPreset::class, 'rag_preset_id');
+        return $this->hasMany(PresetRagConfig::class, 'preset_id')->ordered();
     }
+
+    /**
+     * Whether this preset has at least one RAG config.
+     */
+    public function hasRag(): bool
+    {
+        return $this->ragConfigs()->exists();
+    }
+
 
     /**
      * Whether a dynamic cycle prompt is enabled for this preset.
@@ -228,15 +216,6 @@ class AiPreset extends Model
                     ->update(['is_default' => false]);
             }
         });
-    }
-
-    /**
-     * Whether RAG enrichment is enabled for this preset.
-     * True when rag_preset_id is set and points to an existing preset.
-     */
-    public function hasRag(): bool
-    {
-        return !is_null($this->rag_preset_id);
     }
 
     /**
@@ -348,6 +327,11 @@ class AiPreset extends Model
         return $this->input_mode;
     }
 
+    public function getPoolRelativeDates(): bool
+    {
+        return $this->pool_relative_dates;
+    }
+
     public function getPluginsDisabled(): string
     {
         return $this->plugins_disabled ?? '';
@@ -391,96 +375,6 @@ class AiPreset extends Model
     public function getMaxContextLimit(): int
     {
         return $this->max_context_limit;
-    }
-
-    /**
-     * Context limit for RAG
-     *
-     * @return integer
-     */
-    public function getRagContextLimit(): int
-    {
-        return $this->rag_context_limit;
-    }
-
-    /**
-     * Get number of RAG results to give LLM
-     *
-     * @return integer
-     */
-    public function getRagResults(): int
-    {
-        return $this->rag_results;
-    }
-
-    /**
-     * Rag mode - flat or associative
-     *
-     * @return string
-     */
-    public function getRagMode(): string
-    {
-        return $this->rag_mode;
-    }
-
-    /**
-     * Rag engine - tfidf or embedding (need provider)
-     *
-     * @return string
-     */
-    public function getRagEngine(): string
-    {
-        return $this->rag_engine;
-    }
-
-    /**
-     * Add relative dates to RAG context in results
-     *
-     * @return boolean
-     */
-    public function getRagRelativeDates(): bool
-    {
-        return $this->rag_relative_dates;
-    }
-
-    /**
-     * Journal max entries in RAG
-     *
-     * @return integer
-     */
-    public function getRagJournalLimit(): int
-    {
-        return $this->rag_journal_limit;
-    }
-
-    /**
-     * Skills max entries in RAG
-     *
-     * @return integer
-     */
-    public function getRagSkillsLimit(): int
-    {
-        return $this->rag_skills_limit;
-    }
-
-    /**
-     * Content (entry) max symbols in RAG
-     *
-     * @return integer
-     */
-    public function getRagContentLimit(): int
-    {
-        return $this->rag_content_limit;
-    }
-
-    /**
-     * RAG Journal content window (journal neighborhood records)
-     *
-     * @return integer
-     */
-    public function getRagJournalContextWindow(): int
-    {
-        return $this->rag_journal_context_window;
     }
 
     /**

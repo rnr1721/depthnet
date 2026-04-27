@@ -127,6 +127,14 @@
                 </div>
             </div>
 
+            <!-- Enable toggle -->
+            <label :class="['flex items-center space-x-3 cursor-pointer', isDark ? 'text-white' : 'text-gray-900']">
+                <input :checked="modelValue.pool_relative_dates"
+                    @change="updateField('pool_relative_dates', $event.target.checked)" type="checkbox"
+                    class="w-4 h-4 rounded text-indigo-600" />
+                <span class="text-sm font-medium">Relative dates in pool known sources</span>
+            </label>
+
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_pre_run_commands') }}

@@ -81,6 +81,10 @@
                 <PresetLogicInfo v-model="form" :is-dark="isDark" :errors="errors" :available-presets="availablePresets"
                     @success="showNotification" @error="showError" />
 
+                <!-- RAG configs -->
+                <PresetRagConfigs :preset="preset" :is-dark="isDark" :available-presets="availablePresets"
+                    @success="showNotification" @error="showError" />
+
                 <!-- Integrations Component -->
                 <PresetIntegrations v-model="form" :is-dark="isDark" :errors="errors" :preset-id="preset?.id ?? null" />
 
@@ -121,6 +125,7 @@ import PresetPrompts from './PresetPrompts.vue';
 import PresetSandboxManager from './PresetSandboxManager.vue';
 import PresetMcpManager from './PresetMcpManager.vue';
 import PresetLogicInfo from './PresetLogicInfo.vue';
+import PresetRagConfigs from './PresetRagConfigs.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
 import PresetIntegrations from './PresetIntegrations.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';
@@ -159,6 +164,7 @@ const form = ref({
     engine_name: props.preset?.engine_name || '',
     prompts: props.preset?.prompts ?? [],
     input_mode: props.preset?.input_mode || 'single',
+    pool_relative_dates: props.preset?.pool_relative_dates ?? false,
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
     pre_run_commands: props.preset?.pre_run_commands || '',
@@ -174,18 +180,8 @@ const form = ref({
     allow_handoff_from: props.preset?.allow_handoff_from ?? true,
     is_active: props.preset?.is_active ?? true,
     is_default: props.preset?.is_default || false,
-    rag_preset_id: props.preset?.rag_preset_id || null,
     voice_preset_id: props.preset?.voice_preset_id || null,
     cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
-    rag_context_limit: props.preset?.rag_context_limit || 5,
-    rag_results: props.preset?.rag_results || 5,
-    rag_mode: props.preset?.rag_mode || 'flat',
-    rag_engine: props.preset?.rag_engine || 'tfidf',
-    rag_relative_dates: props.preset?.rag_relative_dates ?? false,
-    rag_journal_limit: props.preset?.rag_journal_limit ?? 3,
-    rag_skills_limit: props.preset?.rag_skills_limit ?? 3,
-    rag_content_limit: props.preset?.rag_content_limit ?? 400,
-    rag_journal_context_window: props.preset?.rag_journal_context_window ?? 0,
     defrag_enabled: props.preset?.defrag_enabled ?? false,
     defrag_prompt: props.preset?.defrag_prompt ?? null,
     defrag_keep_per_day: props.preset?.defrag_keep_per_day ?? 3,

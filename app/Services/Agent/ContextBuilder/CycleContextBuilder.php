@@ -14,39 +14,46 @@ use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 
 /**
- * Cycle context builder - adds cycle instructions for continuous thinking
+ * Cycle context builder - adds cycle instructions for continuous thinking.
  *
- * If the preset has rag_preset_id set, retrieved memory fragments are
- * prepended as a shortcode so the main model sees them as background
- * knowledge before it starts its thinking cycle.
+ * RAG pipeline:
+ *   Iterates over all PresetRagConfigs ordered by sort_order.
+ *   Each config runs enrichWithConfig() on the shared RagContextEnricher,
+ *   passing $seenIds by reference so results are deduplicated across configs.
+ *   All responses are concatenated and registered as [[rag_context]].
+ *
+ *   Persons enrichment is now a source option inside each RAG config
+ *   ('persons' in sources[]) rather than a separate step.
  */
 class CycleContextBuilder implements ContextBuilderInterface
 {
     use ContentCleaningTrait;
 
     public function __construct(
-        protected Message $messageModel,
-        protected OptionsServiceInterface $optionsService,
-        protected EnricherFactoryInterface $enricherFactory,
-        protected InputPoolServiceInterface $inputPoolService,
+        protected Message                          $messageModel,
+        protected OptionsServiceInterface          $optionsService,
+        protected EnricherFactoryInterface         $enricherFactory,
+        protected InputPoolServiceInterface        $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
-        protected AuthServiceInterface $authService,
+        protected AuthServiceInterface             $authService,
     ) {
     }
 
     /**
-     * Build context with cycle management
+     * Build context with cycle management.
      *
-     * @param AiPreset $preset Preset for context
-     * @param AiPreset $sourcePreset Preset for RAG, Inner voice etc
-     * @return array
+     * @param AiPreset      $preset       Preset for context
+     * @param AiPreset|null $sourcePreset Preset for RAG, Inner voice etc.
+     * @param int|null      $maxContextLimit
      */
     public function build(AiPreset $preset, ?AiPreset $sourcePreset = null, ?int $maxContextLimit = null): array
     {
         if (!$maxContextLimit) {
             $maxContextLimit = $preset->getMaxContextLimit();
         }
+
         $sourcePreset = $sourcePreset ?? $preset;
+
         $messages = $this->messageModel
             ->forPreset($preset->getId())
             ->where('role', '!=', 'system')
@@ -59,31 +66,29 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         $this->stripLeadingCommandMessages($context);
 
-        // RAG enrichment — register as [[rag_context]] placeholder so the
-        // preset's system_prompt can place it wherever makes sense.
-        // If the preset doesn't use [[rag_context]], nothing happens.
+        // ── Multi-RAG pipeline ────────────────────────────────────────────────
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
-        $ragBlock = $ragEnricher->enrich($sourcePreset, $context);
+        $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
+
+        $seenIds  = [];
+        $ragParts = [];
+
+        foreach ($ragConfigs as $config) {
+            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds);
+
+            if ($ragBlock->getResponse() !== null) {
+                $ragParts[] = $ragBlock->getResponse();
+            }
+        }
 
         $this->shortcodeManager->registerShortcodeForPreset(
             $sourcePreset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this thinking cycle',
-            fn () => $ragBlock->getResponse() ?? ''
+            fn () => implode("\n\n", $ragParts)
         );
 
-        // Person enrichment
-        $personEnricher = $this->enricherFactory->makePersonEnricher();
-        $personsBlock   = $personEnricher->enrich($sourcePreset, $context);
-
-        $this->shortcodeManager->registerShortcodeForPreset(
-            $sourcePreset->getId(),
-            'persons_context',
-            'Relevant person facts from memory, Heart-aware',
-            fn () => $personsBlock->getResponse() ?? ''
-        );
-
-        // Known sources — [[known_sources]]
+        // ── Known sources — [[known_sources]] ─────────────────────────────────
         if ($this->inputPoolService->isEnabled($sourcePreset)) {
             $knownBlock = $this->inputPoolService->getKnownSourcesBlock($preset->getId());
             $this->shortcodeManager->registerShortcodeForPreset(
@@ -100,29 +105,27 @@ class CycleContextBuilder implements ContextBuilderInterface
         if (empty($context)) {
             return [
                 [
-                    'role' => 'user',
-                    'content' => $this->resolveStartInstruction($contextEnricher, $preset),
-                    'from_user_id' => null
+                    'role'         => 'user',
+                    'content'      => $this->resolveStartInstruction($contextEnricher, $preset),
+                    'from_user_id' => null,
                 ]
             ];
         }
 
         // Check if last message is from user — no continuation needed
-        $lastMessage = $context[array_key_last($context)];
-        $lastRole = $lastMessage['role'] ?? null;
+        $lastRole = ($context[array_key_last($context)]['role'] ?? null);
 
-        // Only add continuation if last message is NOT from user
         if ($lastRole !== 'user') {
             $messageText = $this->resolveContinueInstruction($contextEnricher, $preset, $context);
-            if ($preset->input_mode === 'pool') {
-                $content = $this->inputPoolService->getAllAsJSON($preset);
-            } else {
-                $content = $messageText;
-            }
+
+            $content = $preset->input_mode === 'pool'
+                ? $this->inputPoolService->getAllAsJSON($preset)
+                : $messageText;
+
             $context[] = [
-                'role' => 'user',
-                'content' => $content,
-                'from_user_id' => null
+                'role'         => 'user',
+                'content'      => $content,
+                'from_user_id' => null,
             ];
 
             $this->messageModel->create([
@@ -132,23 +135,18 @@ class CycleContextBuilder implements ContextBuilderInterface
                 'preset_id'          => $preset->getId(),
                 'is_visible_to_user' => true,
             ]);
-
         }
 
         return $context;
     }
 
     /**
-     * Resolve start instruction
-     *
-     * @param ContextEnricherInterface $contextEnricher
-     * @param AiPreset $preset
-     * @return string
+     * Resolve start instruction.
      */
     protected function resolveStartInstruction(ContextEnricherInterface $contextEnricher, AiPreset $preset): string
     {
         $source = $this->getCycleStartInstruction();
-        // If pool mode, flush everything that has accumulated (both self_signal and from the user)
+
         if ($preset->input_mode === 'pool') {
             $voicePreset = $contextEnricher->getVoicePreset($preset, 'cycle');
 
@@ -157,61 +155,43 @@ class CycleContextBuilder implements ContextBuilderInterface
             } else {
                 $this->inputPoolService->add($preset->getId(), $preset->getName(), $source);
             }
+
             $result = $this->inputPoolService->getAllAsJSON($preset);
             if ($result !== null) {
                 return $result;
             }
         }
+
         return $source;
     }
 
     /**
      * Resolve the cycle continuation instruction.
-     * Uses the cycle prompt preset if configured, falls back to static text.
-     *
-     * @param ContextEnricherInterface $contextEnricher
-     * @param AiPreset $preset
-     * @param array    $context
-     * @return string
      */
-    protected function resolveContinueInstruction(ContextEnricherInterface $contextEnricher, AiPreset $preset, array $context): string
-    {
-        // First, put self_signal into the pool if there is a cycle prompt
-        $dynamic = $contextEnricher->enrich($preset, $context, 'cycle');
+    protected function resolveContinueInstruction(
+        ContextEnricherInterface $contextEnricher,
+        AiPreset $preset,
+        array $context,
+    ): string {
+        $dynamic     = $contextEnricher->enrich($preset, $context, 'cycle');
         $voicePreset = $dynamic->getPreset();
+
         if ($dynamic->getResponse() !== null && $preset->input_mode === 'pool' && $voicePreset) {
-            $this->inputPoolService->add($preset->getId(), $dynamic->getPreset()->getName(), $dynamic->getResponse());
+            $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $dynamic->getResponse());
         } else {
             $this->inputPoolService->add($preset->getId(), $preset->getName(), $this->getCycleContinueInstruction());
         }
 
-        // Fallback — dynamic or static
         return $dynamic->getResponse() ?? $this->getCycleContinueInstruction();
     }
 
-    /**
-     * Get cycle start instruction
-     *
-     * @return string
-     */
     protected function getCycleStartInstruction(): string
     {
-        return $this->optionsService->get(
-            'agent_cycle_start_instruction',
-            '[Start your first thinking cycle]'
-        );
+        return $this->optionsService->get('agent_cycle_start_instruction', '[Start your first thinking cycle]');
     }
 
-    /**
-     * Get cycle continue instruction
-     *
-     * @return string
-     */
     protected function getCycleContinueInstruction(): string
     {
-        return $this->optionsService->get(
-            'agent_cycle_continue_instruction',
-            '[Continue your thinking cycle]'
-        );
+        return $this->optionsService->get('agent_cycle_continue_instruction', '[Continue your thinking cycle]');
     }
 }

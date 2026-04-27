@@ -1,7 +1,7 @@
 <template>
   <div class="flex">
     <div :class="[
-      'max-w-xs sm:max-w-md lg:max-w-2xl xl:max-w-3xl rounded-2xl px-4 py-3 shadow-sm transition-all hover:shadow-md relative group',
+      'min-w-[300px] max-w-xs sm:max-w-md lg:max-w-2xl xl:max-w-3xl rounded-2xl px-4 py-3 shadow-sm transition-all hover:shadow-md relative group',
       messageClass,
       message.role === 'user' ? 'ml-auto' : 'mr-auto'
     ]">
@@ -48,6 +48,17 @@
           </svg>
         </button>
 
+        <!-- System prompt button (admin only) -->
+        <button v-if="isAdmin && hasSystemPrompt" @click="openSystemPrompt" :class="[
+          'w-6 h-6 rounded-full flex items-center justify-center transition-all',
+          isDark ? 'text-gray-400 hover:bg-violet-700 hover:text-white' : 'text-gray-500 hover:bg-violet-500 hover:text-white'
+        ]" :title="t('chat_system_prompt')">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+        </button>
+
         <!-- Delete button -->
         <button @click="$emit('delete')" :class="[
           'w-6 h-6 rounded-full flex items-center justify-center',
@@ -59,6 +70,80 @@
           </svg>
         </button>
       </div>
+
+      <!-- System prompt modal -->
+      <Teleport to="body">
+        <Transition enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+          enter-to-class="opacity-100" leave-active-class="transition-opacity duration-150"
+          leave-from-class="opacity-100" leave-to-class="opacity-0">
+          <div v-if="showSystemPromptModal"
+            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-60"
+            @click.self="showSystemPromptModal = false">
+            <div :class="[
+              'w-full max-w-3xl max-h-[80vh] rounded-2xl shadow-2xl flex flex-col',
+              isDark ? 'bg-gray-900 border border-gray-700' : 'bg-white border border-gray-200'
+            ]">
+              <div :class="[
+                'flex items-center justify-between px-5 py-4 border-b flex-shrink-0',
+                isDark ? 'border-gray-700' : 'border-gray-200'
+              ]">
+                <div class="flex items-center gap-2">
+                  <span class="text-violet-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </span>
+                  <span :class="['font-semibold text-sm', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('chat_system_prompt') }}
+                    <span :class="['ml-2 text-xs font-normal', isDark ? 'text-gray-400' : 'text-gray-500']">
+                      #{{ message.id }}
+                      <span v-if="systemPromptSize" class="ml-1 text-violet-400">{{ systemPromptSize }}</span>
+                    </span>
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button @click="copySystemPrompt" :class="[
+                    'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all',
+                    isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                  ]">
+                    <svg v-if="copiedSystemPrompt" class="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor"
+                      viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    {{ copiedSystemPrompt ? t('chat_copied') : t('chat_copy') }}
+                  </button>
+                  <button @click="showSystemPromptModal = false" :class="[
+                    'w-7 h-7 rounded-lg flex items-center justify-center transition-all',
+                    isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'
+                  ]">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="flex-1 overflow-y-auto p-5">
+                <div v-if="systemPromptLoading" class="flex items-center justify-center py-12">
+                  <div class="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+                <div v-else-if="systemPromptError" :class="[
+                  'text-sm rounded-xl p-4',
+                  isDark ? 'bg-red-900 text-red-300' : 'bg-red-50 text-red-600'
+                ]">{{ systemPromptError }}</div>
+                <pre v-else :class="[
+                  'text-xs leading-relaxed whitespace-pre-wrap font-mono rounded-xl p-4',
+                  isDark ? 'bg-gray-800 text-gray-200' : 'bg-gray-50 text-gray-800'
+                ]">{{ systemPromptContent }}</pre>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
 
       <!-- Message role label -->
       <div :class="['text-xs mb-2 font-medium', messageLabelColor]">
@@ -219,7 +304,43 @@ const props = defineProps({
   hasTTS: { type: Boolean, default: false },
   speakingMessageId: { type: [Number, String, null], default: null },
   presetName: { type: String, default: 'Agent' },
+  isAdmin: { type: Boolean, default: false },
 });
+
+// ─── System prompt modal ──────────────────────────────────────────────────────
+const showSystemPromptModal = ref(false);
+const systemPromptLoading = ref(false);
+const systemPromptContent = ref('');
+const systemPromptError = ref('');
+const copiedSystemPrompt = ref(false);
+
+const hasSystemPrompt = computed(() =>
+  ['assistant', 'thinking', 'command'].includes(props.message.role)
+);
+
+async function openSystemPrompt() {
+  showSystemPromptModal.value = true;
+  systemPromptLoading.value = true;
+  systemPromptError.value = '';
+  systemPromptContent.value = '';
+  try {
+    const res = await axios.get(`/chat/message/${props.message.id}/system-prompt`);
+    systemPromptContent.value = res.data.system_prompt;
+  } catch (e) {
+    systemPromptError.value = e.response?.data?.error ?? 'Failed to load system prompt';
+  } finally {
+    systemPromptLoading.value = false;
+  }
+}
+
+async function copySystemPrompt() {
+  if (!systemPromptContent.value) return;
+  try {
+    await navigator.clipboard.writeText(systemPromptContent.value);
+    copiedSystemPrompt.value = true;
+    setTimeout(() => copiedSystemPrompt.value = false, 1500);
+  } catch { }
+}
 
 const isResultsExpanded = ref(props.showAgentResults);
 const commandStates = reactive({});
@@ -318,6 +439,12 @@ const commandResults = computed(() => {
   return lastIndex !== -1
     ? props.message.content.substring(lastIndex + marker.length).trim()
     : '';
+});
+
+const systemPromptSize = computed(() => {
+  if (!systemPromptContent.value) return '';
+  const kb = (new Blob([systemPromptContent.value]).size / 1024).toFixed(1);
+  return `~${kb} KB`;
 });
 
 /**

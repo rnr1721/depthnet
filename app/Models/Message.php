@@ -21,6 +21,7 @@ class Message extends Model
         'preset_id',
         'is_visible_to_user',
         'metadata',
+        'system_prompt'
     ];
 
     /**

@@ -441,7 +441,9 @@ class ClaudeModel implements AIModelEngineInterface
             }
 
             return new ModelResponseDTO(
-                $this->cleanOutput($result['content'][0]['text'])
+                $this->cleanOutput($result['content'][0]['text']),
+                false,
+                ['system_prompt' => $request->getResolvedSystemPrompt()]
             );
 
         } catch (\Exception $e) {

@@ -22,6 +22,12 @@ class ModelRequestDTO implements AiModelRequestInterface
     private ?string $cachedCommandInstructions = null;
 
     /**
+     * Resolved system prompt — set by AiModelPromptTrait::prepareMessage()
+     * after all shortcodes have been expanded. Null until prepareMessage() runs.
+     */
+    private ?string $resolvedSystemPrompt = null;
+
+    /**
      * Create a new model request DTO
      *
      * @param AiPreset $preset AI preset with configuration
@@ -42,6 +48,26 @@ class ModelRequestDTO implements AiModelRequestInterface
         public readonly array $additionalParams = []
     ) {
     }
+
+    // ── Resolved system prompt ────────────────────────────────────────────────
+
+    /**
+     * @inheritDoc
+     */
+    public function setResolvedSystemPrompt(string $prompt): void
+    {
+        $this->resolvedSystemPrompt = $prompt;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getResolvedSystemPrompt(): ?string
+    {
+        return $this->resolvedSystemPrompt;
+    }
+
+    // ── Standard accessors ────────────────────────────────────────────────────
 
     /**
      * Get AI preset

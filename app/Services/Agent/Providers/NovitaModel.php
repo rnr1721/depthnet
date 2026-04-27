@@ -623,7 +623,9 @@ class NovitaModel implements AIModelEngineInterface
                 ]);
 
                 return new ModelResponseDTO(
-                    json_encode(['tool_calls' => $message['tool_calls']])
+                    json_encode(['tool_calls' => $message['tool_calls']]),
+                    false,
+                    ['system_prompt' => $request->getResolvedSystemPrompt()]
                 );
             }
 
@@ -639,7 +641,9 @@ class NovitaModel implements AIModelEngineInterface
             }
 
             return new ModelResponseDTO(
-                $this->cleanOutput($message['content'])
+                $this->cleanOutput($message['content']),
+                false,
+                ['system_prompt' => $request->getResolvedSystemPrompt()]
             );
 
         } catch (\Exception $e) {

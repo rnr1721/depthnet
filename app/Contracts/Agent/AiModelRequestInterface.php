@@ -148,4 +148,20 @@ interface AiModelRequestInterface
      * @return array
      */
     public function toArray(): array;
+
+    /**
+     * Store the resolved (shortcodes-expanded) system prompt.
+     * Called by AiModelPromptTrait::prepareMessage() after shortcode resolution.
+     * The value is then passed to ModelResponseDTO metadata so AgentActionsHandler
+     * can persist it alongside the assistant message.
+     */
+    public function setResolvedSystemPrompt(string $prompt): void;
+
+    /**
+     * Get the resolved system prompt set during this request.
+     *
+     * @return string|null  null if prepareMessage() has not been called yet
+     */
+    public function getResolvedSystemPrompt(): ?string;
+
 }

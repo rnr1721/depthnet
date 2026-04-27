@@ -194,7 +194,8 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             'from_user_id'       => null,
             'preset_id'          => $preset->getId(),
             'is_visible_to_user' => $actionsResult->isVisibleForUser(),
-            'metadata'           => $response->getMetadata(),
+            'metadata'      => array_diff_key($response->getMetadata() ?? [], ['system_prompt' => '']),
+            'system_prompt' => $response->getMetadata()['system_prompt'] ?? null,
         ]);
 
         if (!empty(trim($actionsResult->getResult()))) {
@@ -229,7 +230,8 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             'from_user_id'       => null,
             'preset_id'          => $preset->getId(),
             'is_visible_to_user' => $actionsResult->isVisibleForUser(),
-            'metadata'           => $response->getMetadata(),
+            'metadata'      => array_diff_key($response->getMetadata() ?? [], ['system_prompt' => '']),
+            'system_prompt' => $response->getMetadata()['system_prompt'] ?? null,
         ]);
 
         if (!empty(trim($actionsResult->getResult()))) {
@@ -281,9 +283,11 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             'from_user_id'       => null,
             'preset_id'          => $preset->getId(),
             'is_visible_to_user' => false,
-            'metadata'           => array_merge($baseMetadata, [
-                'tool_calls_raw' => $rawResponse,
-            ]),
+            'system_prompt'      => $baseMetadata['system_prompt'] ?? null,
+            'metadata'           => array_merge(
+                array_diff_key($baseMetadata, ['system_prompt' => '']),
+                ['tool_calls_raw' => $rawResponse]
+            ),
         ]);
 
         $toolResults = $this->buildToolResults($actionsResult);

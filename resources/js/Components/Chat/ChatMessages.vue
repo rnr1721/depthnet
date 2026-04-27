@@ -31,10 +31,10 @@
     </div>
 
     <!-- Messages -->
-    <ChatMessage v-for="message in filteredMessages" :key="message.id" :message="message" :isDark="isDark"
-      :appName="appName" @delete="$emit('deleteMessage', message.id)" :showAgentResults="showAgentResults"
-      :showCommandResults="showCommandResults" :hasTTS="hasTTS" :speakingMessageId="speakingMessageId"
-      :presetName="presetName" @speak="$emit('speakMessage', $event)" />
+    <ChatMessage v-for="message in filteredMessages" :key="message.id" :message="message" :is-admin="isAdmin"
+      :isDark="isDark" :appName="appName" @delete="$emit('deleteMessage', message.id)"
+      :showAgentResults="showAgentResults" :showCommandResults="showCommandResults" :hasTTS="hasTTS"
+      :speakingMessageId="speakingMessageId" :presetName="presetName" @speak="$emit('speakMessage', $event)" />
 
     <!-- Background refresh indicator for non-empty state -->
     <div v-if="isBackgroundRefreshing && filteredMessages.length > 0" :class="[
@@ -59,6 +59,7 @@ const { t } = useI18n();
 
 const props = defineProps({
   messages: Array,
+  isAdmin: { type: Boolean, default: false },
   isDark: Boolean,
   appName: String,
   showAgentResults: Boolean,

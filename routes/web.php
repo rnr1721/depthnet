@@ -62,6 +62,7 @@ Route::middleware('auth')->group(function () {
         Route::post('export', [ChatController::class, 'exportChat'])->middleware(AdminMiddleware::class)->name('export');
         Route::put('preset/{id}', [ChatController::class, 'updatePreset'])->middleware(AdminMiddleware::class)->name('preset.update');
         Route::get('users', [ChatController::class, 'getUsers'])->name('users');
+        Route::get('message/{messageId}/system-prompt', [ChatController::class, 'getSystemPrompt'])->middleware(AdminMiddleware::class)->name('message.system-prompt');
     });
 
     // Profile routes

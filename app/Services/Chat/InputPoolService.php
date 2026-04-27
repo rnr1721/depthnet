@@ -227,7 +227,7 @@ class InputPoolService implements InputPoolServiceInterface
     {
         $reference = null;
 
-        if ($preset->getRagRelativeDates()) {
+        if ($preset->getPoolRelativeDates()) {
             $lastMessage = $this->messageModel->forPreset($preset->getId())
                 ->whereIn('role', ['thinking', 'command'])
                 ->latest()

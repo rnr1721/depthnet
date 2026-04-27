@@ -455,4 +455,31 @@ class ChatController extends Controller
             return response()->json(['error' => 'Failed to fetch users'], 500);
         }
     }
+
+    /**
+     * Return the resolved system prompt for a specific message.
+     * Admin only — system prompts contain internal agent configuration.
+     *
+     * Returns 404 when the message has no stored system prompt
+     * (user/system/result messages, or messages created before this feature).
+     */
+    public function getSystemPrompt(int $messageId): JsonResponse
+    {
+
+        $message = $this->chatService->find($messageId);
+
+        if (!$message) {
+            return response()->json(['error' => 'Message not found'], 404);
+        }
+
+        if (empty($message->system_prompt)) {
+            return response()->json(['error' => 'No system prompt stored for this message'], 404);
+        }
+
+        return response()->json([
+            'message_id'    => $messageId,
+            'system_prompt' => $message->system_prompt,
+        ]);
+    }
+
 }

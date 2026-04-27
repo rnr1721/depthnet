@@ -396,4 +396,12 @@ class ChatService implements ChatServiceInterface
     {
         $this->messageModel->truncate();
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function find(int $messageId): ?Message
+    {
+        return $this->messageModel->find($messageId);
+    }
 }

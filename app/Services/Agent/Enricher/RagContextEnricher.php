@@ -4,6 +4,7 @@ namespace App\Services\Agent\Enricher;
 
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\Enricher\EnricherResponseInterface;
+use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -15,8 +16,8 @@ use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
+use App\Models\PresetRagConfig;
 use App\Services\Agent\DTO\ModelRequestDTO;
-use App\Services\Agent\Enricher\EnricherResponse;
 use App\Services\Agent\Plugins\RagQueryPlugin;
 use Carbon\Carbon;
 use Psr\Log\LoggerInterface;
@@ -28,14 +29,6 @@ class RagContextEnricher implements RagContextEnricherInterface
      * Set to true temporarily when diagnosing issues.
      */
     private bool $debug = false;
-
-    /**
-     * Append relative age (e.g. "3 days ago", "just now") next to absolute dates.
-     * Toggle via preset setting — injected before formatResults() is called.
-     */
-    private bool $showRelativeDate = true;
-
-    private int $journalContextWindow = 3; // 0 = off, 1+ = neighbours each side
 
     /**
      * Separators tried in order when splitting a multi-query response from the
@@ -53,104 +46,161 @@ class RagContextEnricher implements RagContextEnricherInterface
         protected PluginMetadataServiceInterface     $pluginMetadataService,
         protected SkillServiceInterface              $skillService,
         protected JournalServiceInterface            $journalService,
+        protected PersonContextEnricherInterface     $personEnricher,
         protected Message                            $messageModel,
         protected LoggerInterface                    $logger,
     ) {
     }
 
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /**
+     * Legacy single-pass entry point.
+     *
+     * Loads the first ragConfig from the preset and delegates to enrichWithConfig().
+     * All existing callers continue to work without changes.
+     */
     public function enrich(AiPreset $preset, array $context, ?string $target = null): EnricherResponseInterface
     {
-        try {
-            if (!$preset->hasRag()) {
-                $this->debugLog('skipped — rag_preset_id not set', ['preset_id' => $preset->getId()]);
-                return $this->generateEmptyResponse($preset);
-            }
+        $config = $preset->ragConfigs()->primary()->first()
+            ?? $preset->ragConfigs()->ordered()->first();
 
-            $ragPreset = $this->presetService->findById($preset->rag_preset_id);
+        if (!$config) {
+            $this->debugLog('skipped — no rag configs', ['preset_id' => $preset->getId()]);
+            return $this->emptyResponse($preset);
+        }
+
+        $seenIds = [];
+        return $this->enrichWithConfig($preset, $context, $config, $seenIds);
+    }
+
+    /**
+     * Multi-RAG pipeline entry point.
+     *
+     * Called by context builders for each PresetRagConfig in order.
+     * $seenIds is passed by reference so the caller accumulates dedup state
+     * across the whole pipeline without extra bookkeeping.
+     */
+    public function enrichWithConfig(
+        AiPreset $preset,
+        array $context,
+        PresetRagConfig $config,
+        array &$seenIds = []
+    ): EnricherResponseInterface {
+        $ragPreset = null;
+
+        try {
+            $ragPreset = $this->presetService->findById($config->rag_preset_id);
 
             if (!$ragPreset) {
-                $this->logger->warning('RAG: preset not found', ['rag_preset_id' => $preset->rag_preset_id]);
-                return $this->generateEmptyResponse($preset);
+                $this->logger->warning('RAG: preset not found', ['rag_preset_id' => $config->rag_preset_id]);
+                return $this->emptyResponse($preset);
             }
 
             if (!$ragPreset->isActive()) {
-                $this->logger->warning('RAG: preset inactive', ['rag_preset_id' => $preset->rag_preset_id]);
-                return $this->generateEmptyResponse($preset, $ragPreset);
+                $this->logger->warning('RAG: preset inactive', ['rag_preset_id' => $config->rag_preset_id]);
+                return $this->emptyResponse($preset, $ragPreset);
             }
 
-            // Returns a non-empty array of query strings, or null if nothing to search.
-            $queries = $this->formulateQueries($ragPreset, $preset, $context);
+            // Agent-provided queries only apply to the primary config
+            $queries = $this->formulateQueries($ragPreset, $preset, $context, $config->is_primary);
 
             if (empty($queries)) {
                 $this->debugLog('empty queries, skipping search');
-                return $this->generateEmptyResponse($preset, $ragPreset);
+                return $this->emptyResponse($preset, $ragPreset);
             }
 
-            $this->showRelativeDate     = $preset->getRagRelativeDates();
-            $this->journalContextWindow = $preset->getRagJournalContextWindow();
+            $ragMode      = $config->getRagMode();
+            $ragEngine    = $config->getRagEngine();
+            $searchLimit  = $config->getRagResults();
+            $showRelative = $config->getRagRelativeDates();
+            $journalWindow = $config->getRagJournalContextWindow();
 
-            $ragMode   = $preset->getRagMode();
-            $ragEngine = $preset->getRagEngine();
-            $searchLimit = $preset->getRagResults() ?? 5;
+            // ── Vector memory ─────────────────────────────────────────────────
+            $primaryResults       = [];
+            $supplementResultsOnce = [];
+            $allFlatResults       = [];
 
-            // ── Sources that run ONCE regardless of query count ───────────────
-            // Associative traversal is expensive (graph construction over all vectors),
-            // so we run it only for the first / primary query.
-            // Skills and persons are context-level, not query-level.
-            [$primaryResults, $supplementResultsOnce] = $this->runVectorSearch(
-                $preset,
-                $queries[0],
-                $ragMode,
-                $ragEngine,
-                $searchLimit
-            );
+            if ($config->hasVectorMemory()) {
+                [$primaryResults, $supplementResultsOnce] = $this->runVectorSearch(
+                    $preset,
+                    $queries[0],
+                    $ragMode,
+                    $ragEngine,
+                    $searchLimit,
+                    $seenIds
+                );
 
-            $skillResults = $this->skillService->searchItemsData($preset, $queries[0], $preset->getRagSkillsLimit());
+                // Seed seenIds from primary results
+                foreach ($primaryResults as $r) {
+                    $seenIds['vm:' . ($r['document'] ?? $r['memory'])->id] = true;
+                }
+                foreach ($supplementResultsOnce as $r) {
+                    $seenIds['vm:' . ($r['document'] ?? $r['memory'])->id] = true;
+                }
 
-            // ── Sources that run PER QUERY (flat memory + journal) ────────────
-            // seenIds is shared across all iterations for deduplication.
-            $seenIds         = [];
-            $allFlatResults  = [];
-            $allJournalResults = [];
+                // Flat search per query (skip first — already done in runVectorSearch)
+                foreach ($queries as $i => $query) {
+                    $flatService = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::MODE_FLAT, $ragEngine);
+                    $flatSearch  = $flatService->searchVectorMemories($preset, $query, [
+                        'search_limit' => $searchLimit,
+                        'boost_recent' => true,
+                    ]);
 
-            // Seed seenIds from the already-retrieved primary results so we
-            // don't surface the same records in flat search.
-            foreach ($primaryResults as $r) {
-                $seenIds[($r['document'] ?? $r['memory'])->id] = true;
-            }
-            foreach ($supplementResultsOnce as $r) {
-                $seenIds[($r['document'] ?? $r['memory'])->id] = true;
-            }
-
-            foreach ($queries as $query) {
-                // Flat memory search
-                $flatService = $this->vectorMemoryFactory->make(VectorMemoryFactoryInterface::MODE_FLAT, $ragEngine);
-                $flatSearch  = $flatService->searchVectorMemories($preset, $query, [
-                    'search_limit' => $searchLimit,
-                    'boost_recent' => true,
-                ]);
-
-                if ($flatSearch['success'] ?? false) {
-                    foreach ($flatSearch['results'] ?? [] as $r) {
-                        $id = ($r['document'] ?? $r['memory'])->id;
-                        if (!isset($seenIds[$id])) {
-                            $allFlatResults[] = $r;
-                            $seenIds[$id]     = true;
+                    if ($flatSearch['success'] ?? false) {
+                        foreach ($flatSearch['results'] ?? [] as $r) {
+                            $key = 'vm:' . ($r['document'] ?? $r['memory'])->id;
+                            if (!isset($seenIds[$key])) {
+                                $allFlatResults[] = $r;
+                                $seenIds[$key]    = true;
+                            }
                         }
                     }
                 }
+            }
 
-                // Journal search
-                $journalHits = $this->journalService->searchEntries($preset, $query, $preset->getRagJournalLimit());
-                foreach ($journalHits as $entry) {
-                    if (!isset($seenIds['journal_' . $entry->id])) {
-                        $allJournalResults[]               = $entry;
-                        $seenIds['journal_' . $entry->id] = true;
+            // ── Journal ───────────────────────────────────────────────────────
+            $allJournalResults = [];
+
+            if ($config->hasJournal()) {
+                foreach ($queries as $query) {
+                    $hits = $this->journalService->searchEntries($preset, $query, $config->getRagJournalLimit());
+                    foreach ($hits as $entry) {
+                        $key = 'journal:' . $entry->id;
+                        if (!isset($seenIds[$key])) {
+                            $allJournalResults[] = $entry;
+                            $seenIds[$key]       = true;
+                        }
                     }
                 }
             }
 
+            // ── Skills ────────────────────────────────────────────────────────
+            $skillResults = [];
+
+            if ($config->hasSkills()) {
+                $skillResults = $this->skillService->searchItemsData(
+                    $preset,
+                    $queries[0],
+                    $config->getRagSkillsLimit()
+                );
+
+                foreach ($skillResults as $item) {
+                    $seenIds['skill:' . $item['item_id']] = true;
+                }
+            }
+
+            // ── Persons ───────────────────────────────────────────────────────
+            $personsBlock = null;
+
+            if ($config->hasPersons()) {
+                $personsResponse = $this->personEnricher->enrich($preset, $context);
+                $personsBlock    = $personsResponse->getResponse();
+            }
+
             $this->logger->debug('RAG enrichment', [
+                'config_id'        => $config->id,
+                'is_primary'       => $config->is_primary,
                 'queries'          => $queries,
                 'mode'             => $ragMode,
                 'engine'           => $ragEngine,
@@ -159,6 +209,7 @@ class RagContextEnricher implements RagContextEnricherInterface
                 'flat_count'       => count($allFlatResults),
                 'journal_count'    => count($allJournalResults),
                 'skill_count'      => count($skillResults),
+                'has_persons'      => $personsBlock !== null,
             ]);
 
             if (
@@ -166,38 +217,42 @@ class RagContextEnricher implements RagContextEnricherInterface
                 empty($supplementResultsOnce) &&
                 empty($allFlatResults) &&
                 empty($skillResults) &&
-                empty($allJournalResults)
+                empty($allJournalResults) &&
+                $personsBlock === null
             ) {
-                return $this->generateEmptyResponse($preset, $ragPreset);
+                return $this->emptyResponse($preset, $ragPreset);
             }
 
-            $maxContentLimit = $preset->getRagContentLimit() ?? 400;
-
             $result = $this->formatResults(
-                $preset,
-                $queries,
-                $ragMode,
-                $ragEngine,
-                $primaryResults,
-                $supplementResultsOnce,
-                $allFlatResults,
-                $skillResults,
-                $allJournalResults,
-                $maxContentLimit
+                preset:                 $preset,
+                queries:                $queries,
+                mode:                   $ragMode,
+                engine:                 $ragEngine,
+                primaryResults:         $primaryResults,
+                supplementResultsOnce:  $supplementResultsOnce,
+                flatResults:            $allFlatResults,
+                skillResults:           $skillResults,
+                journalResults:         $allJournalResults,
+                personsBlock:           $personsBlock,
+                maxContentLimit:        $config->getRagContentLimit(),
+                showRelativeDate:       $showRelative,
+                journalContextWindow:   $journalWindow,
             );
 
-            // Create message in RAG preset for transparency with results
             $this->createMessage($result, $ragPreset->getId(), 'system');
 
-            return new EnricherResponse($preset, $ragPreset, $result);
+            return new EnricherResponse($preset, $ragPreset, $result, $seenIds);
 
         } catch (\Throwable $e) {
-            $this->createMessage($e->getMessage(), $ragPreset->getId(), 'system');
-            $this->logger->error('RagContextEnricher::enrich error: ' . $e->getMessage(), [
+            if ($ragPreset) {
+                $this->createMessage($e->getMessage(), $ragPreset->getId(), 'system');
+            }
+            $this->logger->error('RagContextEnricher::enrichWithConfig error: ' . $e->getMessage(), [
                 'main_preset_id' => $preset->getId(),
+                'config_id'      => $config->id ?? null,
                 'trace'          => $e->getTraceAsString(),
             ]);
-            return $this->generateEmptyResponse($preset);
+            return $this->emptyResponse($preset);
         }
     }
 
@@ -205,13 +260,12 @@ class RagContextEnricher implements RagContextEnricherInterface
 
     /**
      * Run associative (or flat) vector memory search for a single query.
+     * Filters out records already present in $seenIds.
      *
-     * Returns [$primaryResults, $supplementResults]:
-     * - primary  = associative chain (or flat when mode=flat)
-     * - supplement = flat dedup complement + tfidf_fallback records
+     * Returns [$primaryResults, $supplementResults].
      *
-     * Used once per enrichment cycle (for the primary query only).
-     *
+     * @param  array<string,true> $seenIds  Already-retrieved keys (read-only here;
+     *                                      caller updates seenIds after this call)
      * @return array{array, array}
      */
     private function runVectorSearch(
@@ -220,8 +274,8 @@ class RagContextEnricher implements RagContextEnricherInterface
         string   $mode,
         string   $engine,
         int      $searchLimit,
+        array    $seenIds,
     ): array {
-        // ── Primary search (associative or flat) ──────────────────────────────
         $primaryService = $this->vectorMemoryFactory->make($mode, $engine);
         $primarySearch  = $primaryService->searchVectorMemories($preset, $query, [
             'search_limit' => $searchLimit,
@@ -229,20 +283,18 @@ class RagContextEnricher implements RagContextEnricherInterface
         ]);
 
         $primaryResults = [];
-        $seenIds        = [];
+        $localSeen      = [];
 
         if ($primarySearch['success'] ?? false) {
             foreach ($primarySearch['results'] ?? [] as $r) {
-                $id = ($r['document'] ?? $r['memory'])->id;
-                $primaryResults[] = $r;
-                $seenIds[$id]     = true;
+                $key = 'vm:' . ($r['document'] ?? $r['memory'])->id;
+                if (!isset($seenIds[$key])) {
+                    $primaryResults[] = $r;
+                    $localSeen[$key]  = true;
+                }
             }
         }
 
-        // ── Supplement: flat search always runs when mode is associative ──────
-        // Adds results the associative traversal may have missed.
-        // When mode is already flat, skip to avoid redundant search
-        // (flat results are collected per-query in the main loop instead).
         $supplementResults = [];
 
         if ($mode === VectorMemoryFactoryInterface::MODE_ASSOCIATIVE) {
@@ -254,16 +306,16 @@ class RagContextEnricher implements RagContextEnricherInterface
 
             if ($flatSearch['success'] ?? false) {
                 foreach ($flatSearch['results'] ?? [] as $r) {
-                    $id = ($r['document'] ?? $r['memory'])->id;
-                    if (!isset($seenIds[$id])) {
+                    $key = 'vm:' . ($r['document'] ?? $r['memory'])->id;
+                    if (!isset($seenIds[$key]) && !isset($localSeen[$key])) {
                         $supplementResults[] = $r;
-                        $seenIds[$id]        = true;
+                        $localSeen[$key]     = true;
                     }
                 }
             }
         }
 
-        // ── Separate embedding supplement (TF-IDF fallback inside embedding service) ─
+        // Separate tfidf_fallback records from primary into supplement
         $embeddingFallback = [];
         $cleanPrimary      = [];
 
@@ -275,61 +327,60 @@ class RagContextEnricher implements RagContextEnricherInterface
             }
         }
 
-        $allSupplement = array_merge($supplementResults, $embeddingFallback);
-
-        return [$cleanPrimary, $allSupplement];
+        return [$cleanPrimary, array_merge($supplementResults, $embeddingFallback)];
     }
 
     // ── Query formulation ─────────────────────────────────────────────────────
 
     /**
-     * Resolve the list of search queries for this enrichment cycle.
+     * Resolve the list of search queries for this enrichment pass.
      *
      * Priority:
-     *   1. Agent-provided queries via RagQueryPlugin (collected from metadata, then cleared).
-     *   2. RAG preset model response, split on common separators into multiple queries.
-     *
-     * Always returns a flat array of non-empty strings, or null when nothing
-     * could be formulated.
+     *   1. Agent-provided queries via RagQueryPlugin — only for primary config.
+     *   2. RAG preset model response, split on common separators.
      *
      * @return string[]|null
      */
-    protected function formulateQueries(AiPreset $ragPreset, AiPreset $mainPreset, array $context): ?array
-    {
-        // ── 1. Agent-provided queries ─────────────────────────────────────────
-        $pendingRaw = $this->pluginMetadataService->get(
-            $mainPreset,
-            RagQueryPlugin::PLUGIN_NAME,
-            RagQueryPlugin::META_KEY,
-        );
-
-        if (!empty($pendingRaw)) {
-            $this->pluginMetadataService->remove(
+    protected function formulateQueries(
+        AiPreset $ragPreset,
+        AiPreset $mainPreset,
+        array    $context,
+        bool     $isPrimary,
+    ): ?array {
+        // Agent-provided queries only apply to the primary config
+        if ($isPrimary) {
+            $pendingRaw = $this->pluginMetadataService->get(
                 $mainPreset,
                 RagQueryPlugin::PLUGIN_NAME,
                 RagQueryPlugin::META_KEY,
             );
 
-            $decoded = json_decode($pendingRaw, true);
-            $queries = is_array($decoded) ? $decoded : [$pendingRaw];
-            $queries = $this->sanitizeQueries($queries);
+            if (!empty($pendingRaw)) {
+                $this->pluginMetadataService->remove(
+                    $mainPreset,
+                    RagQueryPlugin::PLUGIN_NAME,
+                    RagQueryPlugin::META_KEY,
+                );
 
-            if (!empty($queries)) {
-                $this->debugLog('using agent-provided RAG queries', ['queries' => $queries]);
-                return $queries;
+                $decoded = json_decode($pendingRaw, true);
+                $queries = is_array($decoded) ? $decoded : [$pendingRaw];
+                $queries = $this->sanitizeQueries($queries);
+
+                if (!empty($queries)) {
+                    $this->debugLog('using agent-provided RAG queries', ['queries' => $queries]);
+                    return $queries;
+                }
             }
         }
 
-        // ── 2. RAG preset model formulation ───────────────────────────────────
+        // Model-formulated queries
         try {
-            $contextLimit   = max(1, (int) $mainPreset->getRagContextLimit());
+            $contextLimit   = max(1, (int) $ragPreset->getMaxContextLimit());
             $recentMessages = collect($context)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command']))
                 ->values()
                 ->slice(-$contextLimit)
                 ->values();
-
-            $this->debugLog('recent messages for query', ['count' => $recentMessages->count()]);
 
             if ($recentMessages->isEmpty()) {
                 return null;
@@ -354,11 +405,6 @@ class RagContextEnricher implements RagContextEnricherInterface
 
             $response = $engine->generate($dto);
 
-            $this->debugLog('engine response', [
-                'is_error' => $response->isError(),
-                'response' => mb_substr($response->getResponse(), 0, 200),
-            ]);
-
             if ($response->isError()) {
                 $this->logger->warning('RAG: query formulation failed', [
                     'rag_preset' => $ragPreset->getName(),
@@ -368,8 +414,7 @@ class RagContextEnricher implements RagContextEnricherInterface
             }
 
             $raw     = trim(strip_tags($response->getResponse()));
-            $queries = $this->splitQueryResponse($raw);
-            $queries = $this->sanitizeQueries($queries);
+            $queries = $this->sanitizeQueries($this->splitQueryResponse($raw));
 
             return !empty($queries) ? $queries : null;
 
@@ -383,7 +428,6 @@ class RagContextEnricher implements RagContextEnricherInterface
 
     /**
      * Split a raw model response into individual query strings.
-     * Tries known separators in priority order; falls back to a single-item array.
      *
      * @return string[]
      */
@@ -402,11 +446,7 @@ class RagContextEnricher implements RagContextEnricherInterface
     }
 
     /**
-     * Sanitize an array of raw query strings:
-     * - Strips surrounding quote characters (straight, typographic)
-     * - Normalises internal whitespace
-     * - Truncates to 200 characters
-     * - Removes empty entries
+     * Sanitize raw query strings.
      *
      * @param  string[] $queries
      * @return string[]
@@ -417,7 +457,6 @@ class RagContextEnricher implements RagContextEnricherInterface
 
         foreach ($queries as $q) {
             $q = trim($q);
-            // Strip surrounding quote characters (straight, typographic, guillemets)
             $q = trim($q, "\"'«»\u{201C}\u{201D}\u{2018}\u{2019}");
             $q = preg_replace('/\s+/', ' ', $q);
             $q = mb_substr($q, 0, 200);
@@ -433,71 +472,53 @@ class RagContextEnricher implements RagContextEnricherInterface
     // ── Result formatting ─────────────────────────────────────────────────────
 
     /**
-     * Format all sources into a single RAG context block for the system prompt.
-     *
-     * @param string[]  $queries        All queries used this cycle (for the header).
-     * @param array     $primaryResults Associative / main vector results.
-     * @param array     $supplementResultsOnce Flat dedup complement from primary query.
-     * @param array     $flatResults    Flat results collected across all queries.
-     * @param array     $skillResults   Skill search results.
-     * @param array     $journalResults Journal entries collected across all queries.
+     * Format all sources into a single RAG context block.
      */
     protected function formatResults(
         AiPreset $preset,
-        array  $queries,
-        string $mode,
-        string $engine,
-        array  $primaryResults,
-        array  $supplementResultsOnce,
-        array  $flatResults,
-        array  $skillResults,
-        array  $journalResults = [],
-        int    $maxContentLimit = 400,
+        array    $queries,
+        string   $mode,
+        string   $engine,
+        array    $primaryResults,
+        array    $supplementResultsOnce,
+        array    $flatResults,
+        array    $skillResults,
+        array    $journalResults,
+        ?string  $personsBlock,
+        int      $maxContentLimit,
+        bool     $showRelativeDate,
+        int      $journalContextWindow,
     ): string {
-        // Header — show all queries when there are several
         $queryHeader = count($queries) === 1
             ? "query: \"{$queries[0]}\""
             : 'queries: ' . implode(' | ', array_map(fn ($q) => "\"{$q}\"", $queries));
 
         $lines = ["[RAG CONTEXT — {$queryHeader}]", ''];
 
-        // Primary memory results — label depends on active mode
         if (!empty($primaryResults)) {
-            $label   = $this->primarySectionLabel($mode, $engine);
-            $lines[] = $label;
-
+            $lines[] = $this->primarySectionLabel($mode, $engine);
             foreach ($primaryResults as $i => $result) {
-                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, composite: true);
+                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, $showRelativeDate, composite: true);
             }
-
             $lines[] = '';
         }
 
-        // Supplement from primary query (associative complement / tfidf fallback)
         if (!empty($supplementResultsOnce)) {
             $lines[] = '[KEYWORD MEMORY — no embedding yet]';
-
             foreach ($supplementResultsOnce as $i => $result) {
-                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, composite: false);
+                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, $showRelativeDate, composite: false);
             }
-
             $lines[] = '';
         }
 
-        // Flat results collected across all queries
         if (!empty($flatResults)) {
-            $lines[] = count($queries) > 1
-                ? '[MULTI-QUERY MEMORY]'
-                : '[ADDITIONAL MEMORY]';
-
+            $lines[] = count($queries) > 1 ? '[MULTI-QUERY MEMORY]' : '[ADDITIONAL MEMORY]';
             foreach ($flatResults as $i => $result) {
-                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, composite: false);
+                $lines[] = $this->formatMemoryLine($i + 1, $result, $maxContentLimit, $showRelativeDate, composite: false);
             }
-
             $lines[] = '';
         }
 
-        // Skills
         if (!empty($skillResults)) {
             $lines[] = '[RELEVANT SKILLS]';
             foreach ($skillResults as $item) {
@@ -514,13 +535,12 @@ class RagContextEnricher implements RagContextEnricherInterface
             $lines[] = '';
         }
 
-        // Journal
         if (!empty($journalResults)) {
             $lines[] = '[RELEVANT JOURNAL ENTRIES]';
 
             $anchorIds  = array_map(fn ($e) => $e->id, $journalResults);
-            $neighbours = $this->journalContextWindow > 0
-                ? $this->journalService->fetchNeighbours($preset, $anchorIds, $this->journalContextWindow)
+            $neighbours = $journalContextWindow > 0
+                ? $this->journalService->fetchNeighbours($preset, $anchorIds, $journalContextWindow)
                 : [];
 
             $timeline = [];
@@ -531,14 +551,11 @@ class RagContextEnricher implements RagContextEnricherInterface
                 $timeline[$id] = ['entry' => $entry, 'is_anchor' => false];
             }
 
-            uasort(
-                $timeline,
-                fn ($a, $b) => $a['entry']->recorded_at <=> $b['entry']->recorded_at
-            );
+            uasort($timeline, fn ($a, $b) => $a['entry']->recorded_at <=> $b['entry']->recorded_at);
 
             foreach ($timeline as ['entry' => $entry, 'is_anchor' => $isAnchor]) {
                 $date = $entry->recorded_at->format('Y-m-d H:i');
-                if ($this->showRelativeDate) {
+                if ($showRelativeDate) {
                     $date .= ' (' . $this->formatRelativeDate($entry->recorded_at) . ')';
                 }
 
@@ -566,6 +583,12 @@ class RagContextEnricher implements RagContextEnricherInterface
             $lines[] = '';
         }
 
+        // Persons block appended last — it has its own header/footer
+        if (!empty($personsBlock)) {
+            $lines[] = $personsBlock;
+            $lines[] = '';
+        }
+
         $lines[] = '[END RAG CONTEXT]';
 
         return implode("\n", $lines);
@@ -573,18 +596,21 @@ class RagContextEnricher implements RagContextEnricherInterface
 
     /**
      * Format a single memory result line.
-     *
-     * @param bool $composite Use composite_score when true, similarity otherwise.
      */
-    private function formatMemoryLine(int $num, array $result, int $maxContentLimit, bool $composite): string
-    {
+    private function formatMemoryLine(
+        int    $num,
+        array  $result,
+        int    $maxContentLimit,
+        bool   $showRelativeDate,
+        bool   $composite,
+    ): string {
         $memory    = $result['document'] ?? $result['memory'];
         $score     = round((($composite ? ($result['composite_score'] ?? null) : null) ?? $result['similarity']) * 100, 1);
         $content   = mb_substr($memory->getTextContent(), 0, $maxContentLimit);
         $createdAt = $memory->getCreatedAt();
         $dateStr   = $createdAt->format('Y-m-d');
 
-        if ($this->showRelativeDate) {
+        if ($showRelativeDate) {
             $dateStr .= ' (' . $this->formatRelativeDate($createdAt) . ')';
         }
 
@@ -606,8 +632,7 @@ class RagContextEnricher implements RagContextEnricherInterface
 
     private function formatRelativeDate(\DateTimeInterface|Carbon $date): string
     {
-        $now  = now();
-        $diff = abs($now->diffInSeconds($date, false));
+        $diff = abs(now()->diffInSeconds($date, false));
 
         return match (true) {
             $diff < 60         => 'just now',
@@ -619,10 +644,9 @@ class RagContextEnricher implements RagContextEnricherInterface
         };
     }
 
-    /**
-     * Create system message
-     */
-    protected function createMessage(string $content, int $presetId, string $role, array $metadata = []): Message
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    protected function createMessage(string $content, int $presetId, string $role): Message
     {
         return $this->messageModel->create([
             'role'               => 'system',
@@ -630,15 +654,12 @@ class RagContextEnricher implements RagContextEnricherInterface
             'from_user_id'       => null,
             'preset_id'          => $presetId,
             'is_visible_to_user' => true,
-            'metadata'           => $metadata,
         ]);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private function generateEmptyResponse(AiPreset $mainPreset, ?AiPreset $voicePreset = null): EnricherResponseInterface
+    private function emptyResponse(AiPreset $mainPreset, ?AiPreset $ragPreset = null): EnricherResponseInterface
     {
-        return new EnricherResponse($mainPreset, $voicePreset);
+        return new EnricherResponse($mainPreset, $ragPreset);
     }
 
     private function debugLog(string $message, array $context = []): void

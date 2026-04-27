@@ -389,7 +389,10 @@ class DeepSeekModel implements AIModelEngineInterface
                 return new ModelResponseDTO(
                     json_encode(['tool_calls' => $message['tool_calls']]),
                     false,
-                    $reasoningContent ? ['reasoning_content' => $reasoningContent] : []
+                    array_merge(
+                        $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                        ['system_prompt' => $request->getResolvedSystemPrompt()]
+                    )
                 );
             }
 
@@ -416,7 +419,10 @@ class DeepSeekModel implements AIModelEngineInterface
             return new ModelResponseDTO(
                 $this->cleanOutput($message['content']),
                 false,
-                $reasoningContent ? ['reasoning_content' => $reasoningContent] : []
+                array_merge(
+                    $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                    ['system_prompt' => $request->getResolvedSystemPrompt()]
+                )
             );
 
         } catch (\Exception $e) {

@@ -21,6 +21,7 @@ trait AiModelPromptTrait
             $request->getPreset()->getId()
         );
 
+        $request->setResolvedSystemPrompt($finalMessage);
         $this->dumpPrompt($request->getPreset()->getId(), $finalMessage);
 
         return $finalMessage;

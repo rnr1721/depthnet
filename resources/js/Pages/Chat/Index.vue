@@ -54,7 +54,7 @@
 
       <!-- Messages -->
       <ChatMessages v-if="!isInitialLoading" ref="messagesComponent" :messages="localMessages" :pagination="pagination"
-        :isDark="isDark" :appName="page.props.app_name" :showAgentResults="showAgentResults"
+        :isDark="isDark" :is-admin="isAdmin" :appName="page.props.app_name" :showAgentResults="showAgentResults"
         :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing" :hasTTS="hasTTS"
         :presetName="currentPreset?.name" :speakingMessageId="currentlySpeakingId" @deleteMessage="deleteMessage"
         @scrollUpdate="handleScrollUpdate" @loadOlder="handleLoadOlder" @speakMessage="handleSpeakMessage"

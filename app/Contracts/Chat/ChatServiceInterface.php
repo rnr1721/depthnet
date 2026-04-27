@@ -197,4 +197,12 @@ interface ChatServiceInterface
      * @return void
      */
     public function clearAllHistory(): void;
+
+    /**
+     * Find message by id or null
+     *
+     * @param integer $messageId
+     * @return Message|null
+     */
+    public function find(int $messageId): ?Message;
 }

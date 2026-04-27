@@ -7,7 +7,7 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
 
-**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.5
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.6
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 
@@ -83,7 +83,7 @@ DepthNet enables autonomous AI agents through:
 - **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, image, audio and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
-- **RAG (Retrieval-Augmented Generation)**: Built-in RAG support with configurable preset, provider, and retrieval mode (standard or associative). RAG data is injected into the system prompt via placeholder
+- **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single `[[rag_context]]` block. Sources per config: vector memory (flat or associative), journal, skills, persons. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
 - **Inner Voice**: A secondary preset (on any supported provider) can run alongside the main one. Its output is injected via placeholder (request-response mode) or added to the input pool as an additional source (loop mode)
@@ -145,7 +145,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Heart** | Attention and connection engine. Tracks named connections, emotional signals, dominant focus, and gravity. State visible via `[[heart_state]]`. Not an emotion simulator — a measurable attention system. | [→](docs/plugins/heart.md) |
 | **Being** | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
 | **Rhythm** | Temporal context snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset/sunrise. Injected via `[[rhythm]]`. Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
-| **RAG Query** | Explicit RAG search control — agent queues specific queries for the next cycle instead of relying on automatic formulation. | [→](docs/plugins/rag.md) |
+| **RAG Query** | Explicit RAG search control — agent queues specific queries for the next cycle. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
 | **Agent** | Lifecycle control — pause/resume thinking cycles, check status, send visible messages to user (`speak`), hand off to another preset. | [→](docs/plugins/agent.md) |
 | **Mode** | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
 | **Mood** | Lightweight tone control — agent sets a named mood (`friendly`, `analytical`, `focused`, etc.) visible via `[[mood]]`. | [→](docs/plugins/mood.md) |
@@ -698,7 +698,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[notepad_content]]` - Persistent memory content (2000 char limit)
   - `[[current_datetime]]` - Real-time timestamp
   - `[[command_instructions]]` - Auto-generated plugin documentation (tag mode only; empty in tool_calls mode)
-  - `[[rag_context]]` - RAG retrieval results injected into the prompt
+  - `[[rag_context]]` - Merged output from all RAG configs (deduplicated across sources)
   - `[[inner_voice]]` - Output from the inner voice preset (request-response mode)
   - `[[being]]` - Agent's self-defined essence phrase
   - `[[being_history]]` - Previous essence phrases
@@ -707,7 +707,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[pre_command_results]]` - Results of pre-cycle automatic commands
   - `[[agent_command_results]]` - Command results in internal mode
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
-  - `[[persons_context]]` - Relevant person facts, Heart-aware (focuses on people currently in attention)
+  - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
   - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.

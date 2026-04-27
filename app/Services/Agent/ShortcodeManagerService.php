@@ -33,7 +33,6 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setWorkspace();
         $this->setKnownSources();
         $this->setPreCommandResults();
-        $this->setPersonsContext();
     }
 
     /**
@@ -165,22 +164,6 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'pre_command_results',
             'Results of commands executed before generation (requires pre_run_commands to be configured on the preset)',
-            fn () => ''
-        );
-    }
-
-    /**
-     * Register persons_context placeholder stub (global).
-     * The actual content is injected per-preset by PersonContextBuilder
-     * when the Person plugin is enabled and relevant facts are found in memory.
-     *
-     * @return void
-     */
-    private function setPersonsContext(): void
-    {
-        $this->placeholderService->registerDynamic(
-            'persons_context',
-            'Relevant person facts from memory, Heart-aware — focuses on people currently in attention (requires Person plugin enabled)',
             fn () => ''
         );
     }

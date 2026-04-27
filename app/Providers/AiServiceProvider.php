@@ -126,6 +126,7 @@ use App\Services\Agent\Plugins\RagQueryPlugin;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
+use App\Services\Agent\Plugins\SelfNotePlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
@@ -381,6 +382,7 @@ class AiServiceProvider extends ServiceProvider
             DopaminePlugin::class,
             MoodPlugin::class,
             MyselfPlugin::class,
+            SelfNotePlugin::class,
             PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,

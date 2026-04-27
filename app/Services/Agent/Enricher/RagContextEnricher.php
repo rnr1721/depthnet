@@ -186,7 +186,7 @@ class RagContextEnricher implements RagContextEnricherInterface
                 );
 
                 foreach ($skillResults as $item) {
-                    $seenIds['skill:' . $item['item_id']] = true;
+                    $seenIds['skill:' . $item['skill_number'] . '.' . $item['item_number']] = true;
                 }
             }
 

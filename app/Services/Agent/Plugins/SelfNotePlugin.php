@@ -59,10 +59,13 @@ class SelfNotePlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        return 'Write a note to yourself for the next thinking cycle. '
-            . 'The note is placed into the input pool and arrives as an '
+        $info = '';
+        if (!empty($config['create_message'])) {
+            $info = 'The note is placed into the input pool and arrives as an '
             . 'authoritative directive on the next cycle — not as a fading thought, '
             . 'but as a message you sent to your future self.';
+        }
+        return 'Write a note to yourself for the next thinking cycle. ' . $info;
     }
 
     public function getInstructions(array $config = []): array
@@ -71,11 +74,16 @@ class SelfNotePlugin implements CommandPluginInterface
             'Leave a note for your next thinking cycle:',
             '  [memo]Next cycle: return to the question about X[/memo]',
             '  [memo]Remember: promised to check the file tomorrow[/memo]',
-            'The note arrives in your next cycle as a user-role message.',
-            'Use it for: deferred plans, reminders, continuity between cycles.',
-            'Only one note is kept at a time — writing a new one replaces the previous.',
-            'Only effective in loop (pool) input mode.',
+            'Only one note is kept at a time — writing a new one replaces the previous.'
         ];
+        if (!empty($config['create_message'])) {
+            $extra = [
+                'The note arrives in your next cycle as a user-role message.',
+                'Use it for: deferred plans, reminders, continuity between cycles.',
+            ];
+
+            array_splice($instructions, count($instructions) - 1, 0, $extra);
+        }
 
         $warning = $this->buildLanguageWarning($config, 'memo_language', 'memo notes');
         if ($warning) {
@@ -89,11 +97,16 @@ class SelfNotePlugin implements CommandPluginInterface
     {
         $langInstruction = $this->buildLanguageInstruction($config, 'memo_language');
 
+        $info = '';
+        if (!empty($config['create_message'])) {
+            $info = 'The note is placed into the input pool and arrives as a directive '
+                . 'on the next cycle — treated with the same weight as user input. ';
+        }
+
         return [
             'name'        => 'memo',
             'description' => 'Leave a note for your next thinking cycle. '
-                . 'The note is placed into the input pool and arrives as a directive '
-                . 'on the next cycle — treated with the same weight as user input. '
+                . $info
                 . 'Use for deferred plans, reminders, continuity between cycles. '
                 . 'Only one note is kept — writing a new one replaces the previous. '
                 . $langInstruction,
@@ -141,6 +154,10 @@ class SelfNotePlugin implements CommandPluginInterface
             return 'Error: memo content cannot be empty.';
         }
 
+        if (!$context->get('create_message', false)) {
+            return 'Note applied for next cycle.';
+        }
+
         if (!$this->inputPoolService->isEnabled($context->preset)) {
             return 'this tool works only in pool mode';
         }
@@ -157,7 +174,7 @@ class SelfNotePlugin implements CommandPluginInterface
             $content
         );
 
-        return 'Note saved for next cycle.';
+        return 'Note applied for next cycle.';
     }
 
     // ── Config ────────────────────────────────────────────────────────────────
@@ -171,6 +188,16 @@ class SelfNotePlugin implements CommandPluginInterface
                 'description' => 'Allow the agent to leave notes for its next thinking cycle',
                 'required'    => false,
             ],
+            'memo_language' => $this->getLanguageConfigField(
+                'Memo Language',
+                'Force language for memo notes. Should match the language your agent thinks in.'
+            ),
+            'create_message' => [
+                'type'        => 'checkbox',
+                'label'       => 'Create message from user in pool mode',
+                'description' => 'If preset has pool mode, will be added source pool item',
+                'required'    => false,
+            ],
             'source_name' => [
                 'type'        => 'text',
                 'label'       => 'Source name',
@@ -178,10 +205,6 @@ class SelfNotePlugin implements CommandPluginInterface
                 'placeholder' => 'self_note',
                 'required'    => false,
             ],
-            'memo_language' => $this->getLanguageConfigField(
-                'Memo Language',
-                'Force language for memo notes. Should match the language your agent thinks in.'
-            ),
         ];
     }
 
@@ -211,6 +234,7 @@ class SelfNotePlugin implements CommandPluginInterface
             [
                 'enabled'     => false,
                 'source_name' => '',
+                'create_message' => false
             ],
             $this->getDefaultLanguageConfig('memo_language')
         );

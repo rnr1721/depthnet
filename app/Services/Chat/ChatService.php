@@ -192,7 +192,7 @@ class ChatService implements ChatServiceInterface
             }
 
             $formattedContent = $this->inputPoolService->getAllAsJSON($preset) ?? $content;
-            $this->inputPoolService->clear($preset->getId());
+            $this->inputPoolService->clear($preset->getId(), true);
         } else {
             $formattedContent = "$messageFromUserLabel {$user->name}:\n$content";
         }
@@ -223,7 +223,7 @@ class ChatService implements ChatServiceInterface
 
         if ($dispatch) {
             $formattedContent = $this->inputPoolService->getAllAsJSON($preset);
-            $this->inputPoolService->clear($preset->getId());
+            $this->inputPoolService->clear($preset->getId(), true);
 
             // flush() returns null only if pool was somehow empty after our add()
             // that should never happen, but guard anyway
@@ -260,7 +260,7 @@ class ChatService implements ChatServiceInterface
         if ($this->inputPoolService->isEnabled($preset)) {
             $this->inputPoolService->add($presetId, $source, $content);
             $formattedContent = $this->inputPoolService->getAllAsJSON($preset);
-            $this->inputPoolService->clear($preset->getId());
+            $this->inputPoolService->clear($preset->getId(), true);
         } else {
             $formattedContent = "[{$source}]: {$content}";
         }

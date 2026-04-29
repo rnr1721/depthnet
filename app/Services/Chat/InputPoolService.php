@@ -88,19 +88,32 @@ class InputPoolService implements InputPoolServiceInterface
     /**
      * @inheritDoc
      */
-    public function flush(AiPreset $preset): ?string
+    public function flush(AiPreset $preset, bool $keepKnownSources = false): ?string
     {
         $result = $this->getAllAsJSON($preset);
-        $this->clear($preset->getId());
+        $this->clear($preset->getId(), $keepKnownSources);
         return $result;
     }
 
     /**
      * @inheritDoc
      */
-    public function clear(int $presetId): void
+    public function clear(int $presetId, bool $keepKnownSources = false): void
     {
-        $this->poolItemModel->forPreset($presetId)->delete();
+        $query = $this->poolItemModel->forPreset($presetId);
+
+        if ($keepKnownSources) {
+            $knownNames = $this->knownSourceModel
+                ->forPreset($presetId)
+                ->pluck('source_name')
+                ->toArray();
+
+            if (!empty($knownNames)) {
+                $query->whereNotIn('source_name', $knownNames);
+            }
+        }
+
+        $query->delete();
     }
 
     /**

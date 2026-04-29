@@ -92,6 +92,12 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         }
 
         $result = $this->processSuccessfulResponse($response, $preset, $mainPreset);
+        if ($this->inputPoolService->isEnabled($preset)) {
+            $remaining = $this->inputPoolService->getAllAsJSON($preset);
+            if ($remaining) {
+                $this->createUserMessage($remaining, $preset->getId());
+            }
+        }
         $this->inputPoolService->clear($preset->getId());
 
         return new AgentResponseDTO($result['message'], $result['actionsResult'], false);

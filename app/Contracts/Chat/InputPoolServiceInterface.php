@@ -53,17 +53,19 @@ interface InputPoolServiceInterface
      * Use when dispatching the pool as a user message.
      *
      * @param AiPreset $preset
+     * @param bool $keepKnownSources Default false
      * @return string|null Null if the pool was empty before clearing
      */
-    public function flush(AiPreset $preset): ?string;
+    public function flush(AiPreset $preset, bool $keepKnownSources = false): ?string;
 
     /**
      * Delete all pool items for a preset without returning anything.
      *
      * @param integer $presetId
+     * @param bool $keepKnownSources Default false
      * @return void
      */
-    public function clear(int $presetId): void;
+    public function clear(int $presetId, bool $keepKnownSources = false): void;
 
     /**
      * Get all current pool items for a preset (useful for UI monitoring).

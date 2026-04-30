@@ -164,7 +164,7 @@ class SelfNotePlugin implements CommandPluginInterface
 
         $sourceName = $context->get('source_name', 'self_note');
 
-        if (empty(trim($sourceName))) {
+        if (empty(trim($sourceName)) || $sourceName === 'self_note') {
             $sourceName = $context->preset->getName();
         }
 

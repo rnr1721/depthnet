@@ -79,11 +79,11 @@ class AiPreset extends Model
 
 
     protected $attributes = [
-        'input_mode'             => 'single',
+        'input_mode'             => 'pool',
         'pool_relative_dates' => false,
         'is_active'              => true,
         'is_default'             => false,
-        'agent_result_mode'      => 'internal',
+        'agent_result_mode'      => 'tool_calls',
         'allow_handoff_to'       => true,
         'allow_handoff_from'     => true,
         'error_behavior'         => 'stop',

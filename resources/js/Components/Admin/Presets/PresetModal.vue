@@ -66,13 +66,6 @@
                 <PresetPrompts v-model="form" :is-dark="isDark" :errors="errors" :placeholders="placeholders"
                     @success="showNotification" @error="showError" />
 
-                <!-- Sandbox Management Component -->
-                <PresetSandboxManager :preset="preset" :is-dark="isDark" @error="showError"
-                    @success="showNotification" />
-
-                <!-- Mcp Management Component -->
-                <PresetMcpManager :preset="preset" :is-dark="isDark" @error="showError" @success="showNotification" />
-
                 <!-- Agent Settings Component -->
                 <PresetAgentSettings v-model="form" :is-dark="isDark" :errors="errors"
                     :available-plugins="availablePlugins" :available-presets="availablePresets" />
@@ -84,6 +77,13 @@
                 <!-- RAG configs -->
                 <PresetRagConfigs :preset="preset" :is-dark="isDark" :available-presets="availablePresets"
                     @success="showNotification" @error="showError" />
+
+                <!-- Sandbox Management Component -->
+                <PresetSandboxManager :preset="preset" :is-dark="isDark" @error="showError"
+                    @success="showNotification" />
+
+                <!-- Mcp Management Component -->
+                <PresetMcpManager :preset="preset" :is-dark="isDark" @error="showError" @success="showNotification" />
 
                 <!-- Integrations Component -->
                 <PresetIntegrations v-model="form" :is-dark="isDark" :errors="errors" :preset-id="preset?.id ?? null" />
@@ -163,7 +163,7 @@ const form = ref({
     description: props.preset?.description || '',
     engine_name: props.preset?.engine_name || '',
     prompts: props.preset?.prompts ?? [],
-    input_mode: props.preset?.input_mode || 'single',
+    input_mode: props.preset?.input_mode || 'pool',
     pool_relative_dates: props.preset?.pool_relative_dates ?? false,
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
@@ -174,7 +174,7 @@ const form = ref({
     engine_config: props.preset?.engine_config || {},
     loop_interval: props.preset?.loop_interval || 15,
     max_context_limit: props.preset?.max_context_limit || 8,
-    agent_result_mode: props.preset?.agent_result_mode || 'separate',
+    agent_result_mode: props.preset?.agent_result_mode || 'tool_calls',
     error_behavior: props.preset?.error_behavior || 'stop',
     allow_handoff_to: props.preset?.allow_handoff_to ?? true,
     allow_handoff_from: props.preset?.allow_handoff_from ?? true,

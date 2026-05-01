@@ -31,7 +31,7 @@
               isDark
                 ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600'
                 : 'bg-gray-50 text-gray-900 placeholder-gray-500 ring-gray-300'
-            ]" rows="1" @input="autoResize" @keydown.enter.exact.prevent="handleSubmit"></textarea>
+            ]" rows="1" @input="autoResize" @keydown="handleKeydown">></textarea>
           <div v-if="isProcessing" class="absolute right-3 top-3">
             <div class="flex space-x-1">
               <div :class="['w-2 h-2 rounded-full animate-bounce', isDark ? 'bg-indigo-400' : 'bg-indigo-500']"
@@ -156,7 +156,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue';
+import { ref, nextTick, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -176,6 +176,13 @@ const emit = defineEmits(['send', 'toggleMic', 'toggleTTS']);
 
 const content = ref('');
 const messageInput = ref(null);
+
+// Определяем, мобильное ли устройство
+const isMobile = computed(() => {
+  if (typeof window === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    || window.innerWidth < 1024;
+});
 
 async function handleMicClick() {
   emit('toggleMic');
@@ -203,6 +210,24 @@ function handleSubmit() {
   content.value = '';
   if (messageInput.value) messageInput.value.style.height = 'auto';
   focusInput();
+}
+
+function handleKeydown(event) {
+  // On mobile devices: Enter always creates a new line (unless Shift is held down)
+  // On desktop devices: Enter sends, Shift+Enter creates a new line
+  if (event.key === 'Enter' && !event.shiftKey) {
+    if (isMobile.value) {
+      // На мобильных — новая строка
+      return; // позволяет стандартное поведение textarea (новая строка)
+    } else {
+      // На десктопе — отправка
+      event.preventDefault();
+      handleSubmit();
+    }
+  }
+
+  // Shift+Enter always creates a new line (on both mobile and desktop)
+  // This is the default behavior for textareas, so we do nothing.
 }
 
 function focusInput() {

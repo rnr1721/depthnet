@@ -53,7 +53,7 @@ class PresetService implements PresetServiceInterface
                 'engine_config' => $data['engine_config'] ?? [],
                 'loop_interval' => $data['loop_interval'] ?? 15,
                 'max_context_limit' => $data['max_context_limit'] ?? 8,
-                'agent_result_mode' => $data['agent_result_mode'] ?? 'separate',
+                'agent_result_mode' => $data['agent_result_mode'] ?? 'tool_calls',
                 'preset_code_next' => $data['preset_code_next'] ?? '',
                 'pre_run_commands' => $data['pre_run_commands'] ?? '',
                 'defrag_enabled'      => $data['defrag_enabled'] ?? false,
@@ -299,10 +299,13 @@ class PresetService implements PresetServiceInterface
             'description' => $originalPreset->description,
             'engine_name' => $originalPreset->engine_name,
             'input_mode' => $originalPreset->input_mode,
+            'agent_result_mode' => $originalPreset->agent_result_mode,
             'plugins_disabled' => $originalPreset->plugins_disabled,
             'engine_config' => $originalPreset->engine_config,
             'is_active' => false, // New copies are inactive by default
             'is_default' => false, // Duplicated presets are never default
+            'cp_context_limit' => $originalPreset->cp_context_limit,
+            'voice_context_limit' => $originalPreset->voice_context_limit
         ]);
 
         $this->presetRegistry->refresh();

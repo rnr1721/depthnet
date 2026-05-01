@@ -10,22 +10,55 @@
         <div class="space-y-6">
 
             <!-- Agent Result Mode -->
-            <!-- Agent Result Mode -->
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_agent_result_mode') }}
                 </label>
                 <select :value="modelValue.agent_result_mode"
                     @input="updateField('agent_result_mode', $event.target.value)" :class="inputClass">
+                    <option value="tool_calls">{{ t('p_modal_agent_result_tool_calls') }}</option>
                     <option value="internal">{{ t('p_modal_agent_result_internal') }}</option>
                     <option value="separate">{{ t('p_modal_agent_result_separate') }}</option>
-                    <option value="tool_calls">{{ t('p_modal_agent_result_tool_calls') }}</option>
                 </select>
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
                     {{ t('p_modal_agent_result_mode_desc_' + modelValue.agent_result_mode) }}
                 </p>
                 <div v-if="errors.agent_result_mode" class="text-red-500 text-xs mt-1">
                     {{ errors.agent_result_mode }}
+                </div>
+            </div>
+
+            <!-- Input Mode -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_input_mode') }}
+                </label>
+                <select :value="modelValue.input_mode" @input="updateField('input_mode', $event.target.value)"
+                    :class="inputClass">
+                    <option value="pool">{{ t('p_modal_input_mode_pool') }}</option>
+                    <option value="single">{{ t('p_modal_input_mode_single') }}</option>
+                </select>
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_input_mode_desc') }}
+                </p>
+                <div v-if="errors.input_mode" class="text-red-500 text-xs mt-1">
+                    {{ errors.input_mode }}
+                </div>
+            </div>
+
+            <!-- Max Context Limit -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_max_context_limit') }}
+                </label>
+                <input :value="modelValue.max_context_limit"
+                    @input="updateField('max_context_limit', parseNumber($event.target.value))" type="number" min="1"
+                    max="50" step="1" :class="inputClass" :placeholder="t('p_modal_max_context_placeholder')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_max_context_limit_desc') }}
+                </p>
+                <div v-if="errors.max_context_limit" class="text-red-500 text-xs mt-1">
+                    {{ errors.max_context_limit }}
                 </div>
             </div>
 
@@ -45,21 +78,13 @@
                 </div>
             </div>
 
-            <!-- Max Context Limit -->
-            <div>
-                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                    {{ t('p_modal_max_context_limit') }}
-                </label>
-                <input :value="modelValue.max_context_limit"
-                    @input="updateField('max_context_limit', parseNumber($event.target.value))" type="number" min="1"
-                    max="50" step="1" :class="inputClass" :placeholder="t('p_modal_max_context_placeholder')" />
-                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_max_context_limit_desc') }}
-                </p>
-                <div v-if="errors.max_context_limit" class="text-red-500 text-xs mt-1">
-                    {{ errors.max_context_limit }}
-                </div>
-            </div>
+            <!-- Enable toggle -->
+            <label :class="['flex items-center space-x-3 cursor-pointer', isDark ? 'text-white' : 'text-gray-900']">
+                <input :checked="modelValue.pool_relative_dates"
+                    @change="updateField('pool_relative_dates', $event.target.checked)" type="checkbox"
+                    class="w-4 h-4 rounded text-indigo-600" />
+                <span class="text-sm font-medium">Relative dates in pool known sources</span>
+            </label>
 
             <!-- Disabled Plugins -->
             <div>
@@ -107,33 +132,6 @@
                 </div>
 
             </div>
-
-
-            <!-- Input Mode -->
-            <div>
-                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                    {{ t('p_modal_input_mode') }}
-                </label>
-                <select :value="modelValue.input_mode" @input="updateField('input_mode', $event.target.value)"
-                    :class="inputClass">
-                    <option value="single">{{ t('p_modal_input_mode_single') }}</option>
-                    <option value="pool">{{ t('p_modal_input_mode_pool') }}</option>
-                </select>
-                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_input_mode_desc') }}
-                </p>
-                <div v-if="errors.input_mode" class="text-red-500 text-xs mt-1">
-                    {{ errors.input_mode }}
-                </div>
-            </div>
-
-            <!-- Enable toggle -->
-            <label :class="['flex items-center space-x-3 cursor-pointer', isDark ? 'text-white' : 'text-gray-900']">
-                <input :checked="modelValue.pool_relative_dates"
-                    @change="updateField('pool_relative_dates', $event.target.checked)" type="checkbox"
-                    class="w-4 h-4 rounded text-indigo-600" />
-                <span class="text-sm font-medium">Relative dates in pool known sources</span>
-            </label>
 
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">

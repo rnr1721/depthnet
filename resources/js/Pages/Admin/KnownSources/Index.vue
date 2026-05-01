@@ -115,6 +115,67 @@
 
                     <template v-if="currentPreset?.is_pool_mode">
 
+                        <!-- Current pool contents -->
+                        <div class="mt-8 mb-6">
+                            <div
+                                :class="['backdrop-blur-sm border shadow-xl rounded-2xl overflow-hidden', isDark ? 'bg-gray-800 bg-opacity-90 border-gray-700' : 'bg-white bg-opacity-90 border-gray-200']">
+                                <div
+                                    :class="['px-5 py-4 flex items-center justify-between border-b', isDark ? 'border-gray-700' : 'border-gray-200']">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-2 h-2 rounded-full"
+                                            :class="poolItems.length ? 'bg-green-400 animate-pulse' : 'bg-gray-400'">
+                                        </div>
+                                        <h3 :class="['font-semibold text-sm', isDark ? 'text-white' : 'text-gray-900']">
+                                            {{ t('ks_pool_title') }}</h3>
+                                        <span
+                                            :class="['text-xs px-2 py-0.5 rounded font-mono', isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500']">{{
+                                                poolItems.length }} {{ t('ks_pool_items') }}</span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <button @click="showPoolAddModal = true"
+                                            :class="['px-3 py-1.5 rounded-lg text-xs font-medium transition-all focus:outline-none focus:ring-2 focus:ring-violet-500', isDark ? 'bg-violet-600 hover:bg-violet-700 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white']">
+                                            + {{ t('ks_pool_add') }}
+                                        </button>
+                                        <button v-if="poolItems.length" @click="clearPool"
+                                            :class="['px-3 py-1.5 rounded-lg text-xs font-medium transition-all focus:outline-none focus:ring-2 focus:ring-red-500', isDark ? 'bg-red-900 bg-opacity-40 hover:bg-opacity-60 text-red-400' : 'bg-red-50 hover:bg-red-100 text-red-600']">
+                                            {{ t('ks_pool_clear') }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="!poolItems.length"
+                                    :class="['px-5 py-8 text-center text-sm', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                    {{ t('ks_pool_empty') }}
+                                </div>
+                                <ul v-else class="divide-y" :class="isDark ? 'divide-gray-700' : 'divide-gray-100'">
+                                    <li v-for="item in poolItems" :key="item.id"
+                                        :class="['flex items-start space-x-4 px-5 py-3 group', isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50']">
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center space-x-2 mb-0.5">
+                                                <span
+                                                    :class="['font-mono text-xs font-semibold', isDark ? 'text-violet-400' : 'text-violet-600']">{{
+                                                        item.source_name }}</span>
+                                                <span
+                                                    :class="['text-xs', isDark ? 'text-gray-600' : 'text-gray-400']">{{
+                                                        item.updated_at }}</span>
+                                            </div>
+                                            <p
+                                                :class="['text-sm font-mono break-all', isDark ? 'text-gray-300' : 'text-gray-700']">
+                                                {{ item.content }}</p>
+                                        </div>
+                                        <button @click="deletePoolItem(item)"
+                                            :class="['flex-shrink-0 p-1.5 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:outline-none', isDark ? 'hover:bg-red-900 text-red-400' : 'hover:bg-red-100 text-red-500']"
+                                            :title="t('ks_delete')">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor"
+                                                viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M6 18L18 6M6 6l12 12"></path>
+                                            </svg>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
                         <!-- Action bar -->
                         <div
                             :class="['mb-6 backdrop-blur-sm border shadow-xl rounded-2xl overflow-hidden transition-all p-4', isDark ? 'bg-gray-800 bg-opacity-90 border-gray-700' : 'bg-white bg-opacity-90 border-gray-200']">
@@ -208,67 +269,6 @@
                                 :class="['px-6 py-3 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-violet-500', isDark ? 'bg-violet-600 hover:bg-violet-700 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white']">
                                 {{ t('ks_add_first_source') }}
                             </button>
-                        </div>
-
-                        <!-- Current pool contents -->
-                        <div class="mt-8">
-                            <div
-                                :class="['backdrop-blur-sm border shadow-xl rounded-2xl overflow-hidden', isDark ? 'bg-gray-800 bg-opacity-90 border-gray-700' : 'bg-white bg-opacity-90 border-gray-200']">
-                                <div
-                                    :class="['px-5 py-4 flex items-center justify-between border-b', isDark ? 'border-gray-700' : 'border-gray-200']">
-                                    <div class="flex items-center space-x-3">
-                                        <div class="w-2 h-2 rounded-full"
-                                            :class="poolItems.length ? 'bg-green-400 animate-pulse' : 'bg-gray-400'">
-                                        </div>
-                                        <h3 :class="['font-semibold text-sm', isDark ? 'text-white' : 'text-gray-900']">
-                                            {{ t('ks_pool_title') }}</h3>
-                                        <span
-                                            :class="['text-xs px-2 py-0.5 rounded font-mono', isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500']">{{
-                                                poolItems.length }} {{ t('ks_pool_items') }}</span>
-                                    </div>
-                                    <div class="flex items-center space-x-2">
-                                        <button @click="showPoolAddModal = true"
-                                            :class="['px-3 py-1.5 rounded-lg text-xs font-medium transition-all focus:outline-none focus:ring-2 focus:ring-violet-500', isDark ? 'bg-violet-600 hover:bg-violet-700 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white']">
-                                            + {{ t('ks_pool_add') }}
-                                        </button>
-                                        <button v-if="poolItems.length" @click="clearPool"
-                                            :class="['px-3 py-1.5 rounded-lg text-xs font-medium transition-all focus:outline-none focus:ring-2 focus:ring-red-500', isDark ? 'bg-red-900 bg-opacity-40 hover:bg-opacity-60 text-red-400' : 'bg-red-50 hover:bg-red-100 text-red-600']">
-                                            {{ t('ks_pool_clear') }}
-                                        </button>
-                                    </div>
-                                </div>
-                                <div v-if="!poolItems.length"
-                                    :class="['px-5 py-8 text-center text-sm', isDark ? 'text-gray-500' : 'text-gray-400']">
-                                    {{ t('ks_pool_empty') }}
-                                </div>
-                                <ul v-else class="divide-y" :class="isDark ? 'divide-gray-700' : 'divide-gray-100'">
-                                    <li v-for="item in poolItems" :key="item.id"
-                                        :class="['flex items-start space-x-4 px-5 py-3 group', isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50']">
-                                        <div class="flex-1 min-w-0">
-                                            <div class="flex items-center space-x-2 mb-0.5">
-                                                <span
-                                                    :class="['font-mono text-xs font-semibold', isDark ? 'text-violet-400' : 'text-violet-600']">{{
-                                                        item.source_name }}</span>
-                                                <span
-                                                    :class="['text-xs', isDark ? 'text-gray-600' : 'text-gray-400']">{{
-                                                        item.updated_at }}</span>
-                                            </div>
-                                            <p
-                                                :class="['text-sm font-mono break-all', isDark ? 'text-gray-300' : 'text-gray-700']">
-                                                {{ item.content }}</p>
-                                        </div>
-                                        <button @click="deletePoolItem(item)"
-                                            :class="['flex-shrink-0 p-1.5 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:outline-none', isDark ? 'hover:bg-red-900 text-red-400' : 'hover:bg-red-100 text-red-500']"
-                                            :title="t('ks_delete')">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor"
-                                                viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M6 18L18 6M6 6l12 12"></path>
-                                            </svg>
-                                        </button>
-                                    </li>
-                                </ul>
-                            </div>
                         </div>
 
                     </template>

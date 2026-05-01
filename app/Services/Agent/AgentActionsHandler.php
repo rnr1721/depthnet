@@ -427,7 +427,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                 // receiving agent gets meaningful content rather than raw JSON.
                 // If there's nothing meaningful to send, skip delivery entirely.
                 if ($preset->getAgentResultMode() === 'tool_calls') {
-                    $messageText = trim($actionsResult->getResult());
+                    $messageText = trim($actionsResult->getSystemMessage());
                 } else {
                     $messageText = $this->extractAgentVoice($response->getResponse());
                 }

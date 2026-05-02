@@ -29,8 +29,6 @@ class UpdatePresetRequest extends FormRequest
             'agent_result_mode' => ['required','string'],
             'preset_code_next' => ['nullable', 'string', 'max:50'],
             'pre_run_commands' => ['nullable', 'string'],
-            'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
-            'voice_context_limit' => 'required|integer|min:0|max:20',
             'defrag_enabled'      => 'boolean',
             'defrag_prompt'       => 'nullable|string',
             'defrag_keep_per_day' => 'nullable|integer|min:1|max:20',

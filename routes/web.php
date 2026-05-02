@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\PersonController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetCapabilityController;
 use App\Http\Controllers\Admin\PresetController;
+use App\Http\Controllers\Admin\PresetInnerVoiceConfigController;
 use App\Http\Controllers\Admin\PresetMcpController;
 use App\Http\Controllers\Admin\PresetPromptController;
 use App\Http\Controllers\Admin\PresetRagConfigController;
@@ -122,6 +123,14 @@ Route::middleware('auth')->group(function () {
                 Route::put('/{configId}', [PresetRagConfigController::class, 'update'])->name('update');
                 Route::delete('/{configId}', [PresetRagConfigController::class, 'destroy'])->name('destroy');
                 Route::post('/reorder', [PresetRagConfigController::class, 'reorder'])->name('reorder');
+            });
+
+            Route::prefix('/{presetId}/inner-voice-configs')->name('inner-voice-configs.')->group(function () {
+                Route::get('/', [PresetInnerVoiceConfigController::class, 'index'])->name('index');
+                Route::post('/', [PresetInnerVoiceConfigController::class, 'store'])->name('store');
+                Route::put('/{configId}', [PresetInnerVoiceConfigController::class, 'update'])->name('update');
+                Route::delete('/{configId}', [PresetInnerVoiceConfigController::class, 'destroy'])->name('destroy');
+                Route::post('/reorder', [PresetInnerVoiceConfigController::class, 'reorder'])->name('reorder');
             });
 
             // MCP management routes

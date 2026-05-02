@@ -21,7 +21,9 @@ use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\Enricher\CyclePromptEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
+use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
@@ -46,6 +48,7 @@ use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\PresetInnerVoiceConfigServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetRagConfigServiceInterface;
@@ -82,8 +85,11 @@ use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
+use App\Services\Agent\Enricher\CyclePromptEnricher;
 use App\Services\Agent\Enricher\EnricherFactory;
+use App\Services\Agent\Enricher\InnerVoiceEnricher;
 use App\Services\Agent\Enricher\PersonContextEnricher;
+use App\Services\Agent\Enricher\Services\PresetInnerVoiceConfigService;
 use App\Services\Agent\Enricher\Services\PresetRagConfigService;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
@@ -182,9 +188,11 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
 
-        //$this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
+        $this->app->bind(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
+        $this->app->bind(CyclePromptEnricherInterface::class, CyclePromptEnricher::class);
+        $this->app->bind(PresetInnerVoiceConfigServiceInterface::class, PresetInnerVoiceConfigService::class);
 
-        $this->app->bind(PresetRagConfigServiceInterface::class,PresetRagConfigService::class);
+        $this->app->bind(PresetRagConfigServiceInterface::class, PresetRagConfigService::class);
         $this->app->bind(PersonContextEnricherInterface::class, PersonContextEnricher::class);
         $this->app->singleton(EnricherFactoryInterface::class, EnricherFactory::class);
 

@@ -26,8 +26,6 @@ class AiPreset extends Model
         'defrag_enabled',
         'defrag_prompt',
         'defrag_keep_per_day',
-        'voice_preset_id',
-        'voice_context_limit',
         'cycle_prompt_preset_id',
         'cp_context_limit',
         'voice_mp_commands',
@@ -61,8 +59,6 @@ class AiPreset extends Model
         'active_prompt_id'       => 'integer',
         'defrag_enabled'         => 'boolean',
         'defrag_keep_per_day'    => 'integer',
-        'voice_preset_id'        => 'integer',
-        'voice_context_limit'    => 'integer',
         'cycle_prompt_preset_id' => 'integer',
         'cp_context_limit'       => 'integer',
         'max_context_limit'      => 'integer',
@@ -91,7 +87,6 @@ class AiPreset extends Model
         'engine_config'          => '{}',
         'metadata'               => '{}',
         'plugins_disabled'       => '',
-        'voice_context_limit'    => 4,
         'cp_context_limit'       => 5,
         'voice_mp_commands'      => '',
         'pre_run_commands'       => '',
@@ -167,6 +162,16 @@ class AiPreset extends Model
     }
 
     /**
+     * InnerVoice pipeline configs for this preset, ordered for execution
+     *
+     * @return HasMany
+     */
+    public function innerVoiceConfigs(): HasMany
+    {
+        return $this->hasMany(PresetInnerVoiceConfig::class, 'preset_id');
+    }
+
+    /**
      * RAG pipeline configs for this preset, ordered for execution.
      * Each config points to a RAG preset and carries its own search settings.
      */
@@ -216,29 +221,6 @@ class AiPreset extends Model
                     ->update(['is_default' => false]);
             }
         });
-    }
-
-    /**
-     * Voice preset: if set, this preset will receive hints from another preset that is optimized for voice interactions
-     */
-    public function voicePreset(): BelongsTo
-    {
-        return $this->belongsTo(AiPreset::class, 'voice_preset_id');
-    }
-
-    /**
-     * Whether Internal Voice enrichment is enabled for this preset.
-     * True when voice_preset_id is set and points to an existing preset.
-     */
-    public function hasVoice(): bool
-    {
-        return !is_null($this->voice_preset_id);
-    }
-
-    public function commandResults(): HasMany
-    {
-        return $this->hasMany(PresetCommandResult::class, 'preset_id')
-                    ->orderBy('created_at', 'asc');
     }
 
     /**
@@ -406,16 +388,6 @@ class AiPreset extends Model
     public function getDefragKeepPerDay(): int
     {
         return $this->defrag_keep_per_day ?? 3;
-    }
-
-    /**
-     * Context limit for Inner Voice in single mode
-     *
-     * @return integer
-     */
-    public function getVoiceContextLimit(): int
-    {
-        return $this->voice_context_limit;
     }
 
     /**

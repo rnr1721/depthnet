@@ -20,6 +20,12 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
  *   passing $seenIds by reference so results are deduplicated across configs.
  *   All responses are concatenated and registered as [[rag_context]].
  *
+ * Inner voice pipeline:
+ *   Iterates over all enabled PresetInnerVoiceConfigs ordered by sort_order.
+ *   Each config runs enrich() on InnerVoiceEnricher independently.
+ *   All non-null responses are concatenated and registered as [[inner_voice]].
+ *   Each block is labeled with config->label or voicePreset->getName().
+ *
  *   Persons enrichment is now a source option inside each RAG config
  *   ('persons' in sources[]) rather than a separate step.
  */
@@ -85,16 +91,25 @@ class SingleContextBuilder implements ContextBuilderInterface
             fn () => implode("\n\n", $ragParts)
         );
 
-        // ── Inner voice — [[inner_voice]] ─────────────────────────────────────
-        $voiceEnricher = $this->enricherFactory->makeContextEnricher();
-        $voiceBlock    = $voiceEnricher->enrich($sourcePreset, $context, 'single');
+        // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
+        $voiceEnricher  = $this->enricherFactory->makeInnerVoiceEnricher();
+        $voiceConfigs   = $this->enricherFactory->getOrderedVoiceConfigs($sourcePreset);
+        $voiceParts     = [];
 
-        if ($voiceBlock->getResponse()) {
-            $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getPreset());
+        foreach ($voiceConfigs as $voiceConfig) {
+            $block = $voiceEnricher->enrich($sourcePreset, $context, $voiceConfig);
+
+            if ($block !== null) {
+                $voiceParts[] = $block;
+            }
+        }
+
+        if (!empty($voiceParts)) {
+            $voiceText = implode("\n\n", $voiceParts);
             $this->shortcodeManager->registerShortcodeForPreset(
-                $preset->getId(),
+                $sourcePreset->getId(),
                 'inner_voice',
-                'Inner voice: advice, doubt or intuition injected before each request',
+                'Inner voice: perspectives injected before each request',
                 fn () => $voiceText
             );
         }
@@ -125,21 +140,5 @@ class SingleContextBuilder implements ContextBuilderInterface
         }
 
         return $context;
-    }
-
-    /**
-     * Format text for placeholders before injecting into system prompt.
-     */
-    protected function formatForPlaceholder(?string $text, ?AiPreset $preset): string
-    {
-        if (empty($text) || !$preset) {
-            return '';
-        }
-
-        $cleanText = trim($text);
-        $start     = '[' . $preset->getName() . "]\r\n";
-        $end       = '[END OF ' . $preset->getName() . "]\r\n";
-
-        return $start . $cleanText . "\r\n" . $end;
     }
 }

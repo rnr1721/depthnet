@@ -78,6 +78,10 @@
                 <PresetRagConfigs :preset="preset" :is-dark="isDark" :available-presets="availablePresets"
                     @success="showNotification" @error="showError" />
 
+                <!-- Inner Voice configs -->
+                <PresetInnerVoiceConfigs :preset="preset" :is-dark="isDark" :available-presets="availablePresets"
+                    @success="showNotification" @error="showError" />
+
                 <!-- Sandbox Management Component -->
                 <PresetSandboxManager :preset="preset" :is-dark="isDark" @error="showError"
                     @success="showNotification" />
@@ -126,6 +130,7 @@ import PresetSandboxManager from './PresetSandboxManager.vue';
 import PresetMcpManager from './PresetMcpManager.vue';
 import PresetLogicInfo from './PresetLogicInfo.vue';
 import PresetRagConfigs from './PresetRagConfigs.vue';
+import PresetInnerVoiceConfigs from './PresetInnerVoiceConfigs.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
 import PresetIntegrations from './PresetIntegrations.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';

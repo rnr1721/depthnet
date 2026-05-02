@@ -59,8 +59,6 @@ class PresetService implements PresetServiceInterface
                 'defrag_enabled'      => $data['defrag_enabled'] ?? false,
                 'defrag_prompt'       => $data['defrag_prompt'] ?? null,
                 'defrag_keep_per_day' => $data['defrag_keep_per_day'] ?? 3,
-                'voice_preset_id' => $data['voice_preset_id'] ?? null,
-                'voice_context_limit' => $data['voice_context_limit'] ?? null,
                 'cycle_prompt_preset_id' => $data['cycle_prompt_preset_id'] ?? null,
                 'cp_context_limit' => $data['cp_context_limit'] ?? null,
                 'voice_mp_commands' => $data['voice_mp_commands'] ?? '',
@@ -139,8 +137,6 @@ class PresetService implements PresetServiceInterface
                 'defrag_enabled'      => array_key_exists('defrag_enabled', $data) ? $data['defrag_enabled'] : $preset->defrag_enabled,
                 'defrag_prompt'       => array_key_exists('defrag_prompt', $data) ? $data['defrag_prompt'] : $preset->defrag_prompt,
                 'defrag_keep_per_day' => array_key_exists('defrag_keep_per_day', $data) ? $data['defrag_keep_per_day'] : $preset->defrag_keep_per_day,
-                'voice_preset_id' => array_key_exists('voice_preset_id', $data) ? $data['voice_preset_id'] : $preset->voice_preset_id,
-                'voice_context_limit' => array_key_exists('voice_context_limit', $data) ? $data['voice_context_limit'] : $preset->voice_context_limit,
                 'cycle_prompt_preset_id' => array_key_exists('cycle_prompt_preset_id', $data) ? $data['cycle_prompt_preset_id'] : $preset->cycle_prompt_preset_id,
                 'cp_context_limit' => array_key_exists('cp_context_limit', $data) ? $data['cp_context_limit'] : $preset->cp_context_limit,
                 'voice_mp_commands' => array_key_exists('voice_mp_commands', $data) ? $data['voice_mp_commands'] : $preset->voice_mp_commands,
@@ -305,7 +301,6 @@ class PresetService implements PresetServiceInterface
             'is_active' => false, // New copies are inactive by default
             'is_default' => false, // Duplicated presets are never default
             'cp_context_limit' => $originalPreset->cp_context_limit,
-            'voice_context_limit' => $originalPreset->voice_context_limit
         ]);
 
         $this->presetRegistry->refresh();
@@ -731,8 +726,6 @@ class PresetService implements PresetServiceInterface
             'defrag_enabled'      => 'boolean',
             'defrag_prompt'       => 'nullable|string',
             'defrag_keep_per_day' => 'nullable|integer|min:1|max:20',
-            'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
-            'voice_context_limit' => 'required|integer|min:0|max:20',
             'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'cp_context_limit' => 'required|integer|min:4|max:20',
             'voice_mp_commands' => 'nullable|string',

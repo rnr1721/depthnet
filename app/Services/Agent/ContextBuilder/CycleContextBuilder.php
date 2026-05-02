@@ -3,7 +3,6 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
-use App\Contracts\Agent\Enricher\ContextEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
@@ -21,6 +20,16 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
  *   Each config runs enrichWithConfig() on the shared RagContextEnricher,
  *   passing $seenIds by reference so results are deduplicated across configs.
  *   All responses are concatenated and registered as [[rag_context]].
+ *
+ * Inner voice pipeline:
+ *   Iterates over all enabled PresetInnerVoiceConfigs ordered by sort_order.
+ *   Each config runs enrich() on InnerVoiceEnricher independently.
+ *   All non-null responses are concatenated and registered as [[inner_voice]].
+ *
+ * Cycle prompt (anti-loop):
+ *   A single CyclePromptEnricher call using cycle_prompt_preset_id.
+ *   Its output goes into the input pool — not into [[inner_voice]].
+ *   This is the anti-loop mechanism, separate from inner voices.
  *
  *   Persons enrichment is now a source option inside each RAG config
  *   ('persons' in sources[]) rather than a separate step.
@@ -42,8 +51,8 @@ class CycleContextBuilder implements ContextBuilderInterface
     /**
      * Build context with cycle management.
      *
-     * @param AiPreset      $preset       Preset for context
-     * @param AiPreset|null $sourcePreset Preset for RAG, Inner voice etc.
+     * @param AiPreset      $preset          Preset for context
+     * @param AiPreset|null $sourcePreset    Preset for RAG, Inner voice etc.
      * @param int|null      $maxContextLimit
      */
     public function build(AiPreset $preset, ?AiPreset $sourcePreset = null, ?int $maxContextLimit = null): array
@@ -88,6 +97,29 @@ class CycleContextBuilder implements ContextBuilderInterface
             fn () => implode("\n\n", $ragParts)
         );
 
+        // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
+        $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();
+        $voiceConfigs  = $this->enricherFactory->getOrderedVoiceConfigs($sourcePreset);
+        $voiceParts    = [];
+
+        foreach ($voiceConfigs as $voiceConfig) {
+            $block = $voiceEnricher->enrich($sourcePreset, $context, $voiceConfig);
+
+            if ($block !== null) {
+                $voiceParts[] = $block;
+            }
+        }
+
+        if (!empty($voiceParts)) {
+            $voiceText = implode("\n\n", $voiceParts);
+            $this->shortcodeManager->registerShortcodeForPreset(
+                $sourcePreset->getId(),
+                'inner_voice',
+                'Inner voice: perspectives injected before this thinking cycle',
+                fn () => $voiceText
+            );
+        }
+
         // ── Known sources — [[known_sources]] ─────────────────────────────────
         if ($this->inputPoolService->isEnabled($sourcePreset)) {
             $knownBlock = $this->inputPoolService->getKnownSourcesBlock($preset->getId());
@@ -99,14 +131,12 @@ class CycleContextBuilder implements ContextBuilderInterface
             );
         }
 
-        $contextEnricher = $this->enricherFactory->makeContextEnricher();
-
         // If context is empty, start first cycle
         if (empty($context)) {
             return [
                 [
                     'role'         => 'user',
-                    'content'      => $this->resolveStartInstruction($contextEnricher, $preset),
+                    'content'      => $this->resolveStartInstruction($preset),
                     'from_user_id' => null,
                 ]
             ];
@@ -116,7 +146,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         $lastRole = ($context[array_key_last($context)]['role'] ?? null);
 
         if ($lastRole !== 'user') {
-            $messageText = $this->resolveContinueInstruction($contextEnricher, $preset, $context);
+            $messageText = $this->resolveContinueInstruction($preset, $context);
 
             $content = $preset->input_mode === 'pool'
                 ? $this->inputPoolService->getAllAsJSON($preset)
@@ -141,14 +171,15 @@ class CycleContextBuilder implements ContextBuilderInterface
     }
 
     /**
-     * Resolve start instruction.
+     * Resolve start instruction for the first cycle.
      */
-    protected function resolveStartInstruction(ContextEnricherInterface $contextEnricher, AiPreset $preset): string
+    protected function resolveStartInstruction(AiPreset $preset): string
     {
         $source = $this->getCycleStartInstruction();
 
         if ($preset->input_mode === 'pool') {
-            $voicePreset = $contextEnricher->getVoicePreset($preset, 'cycle');
+            $cyclePromptEnricher = $this->enricherFactory->makeCyclePromptEnricher();
+            $voicePreset         = $cyclePromptEnricher->getVoicePreset($preset);
 
             if ($voicePreset) {
                 $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $source);
@@ -167,22 +198,21 @@ class CycleContextBuilder implements ContextBuilderInterface
 
     /**
      * Resolve the cycle continuation instruction.
+     * Calls CyclePromptEnricher for anti-loop impulse and adds it to the pool.
      */
-    protected function resolveContinueInstruction(
-        ContextEnricherInterface $contextEnricher,
-        AiPreset $preset,
-        array $context,
-    ): string {
-        $dynamic     = $contextEnricher->enrich($preset, $context, 'cycle');
-        $voicePreset = $dynamic->getPreset();
+    protected function resolveContinueInstruction(AiPreset $preset, array $context): string
+    {
+        $cyclePromptEnricher = $this->enricherFactory->makeCyclePromptEnricher();
+        $dynamic             = $cyclePromptEnricher->enrich($preset, $context);
+        $voicePreset         = $cyclePromptEnricher->getVoicePreset($preset);
 
-        if ($dynamic->getResponse() !== null && $preset->input_mode === 'pool' && $voicePreset) {
-            $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $dynamic->getResponse());
+        if ($dynamic !== null && $preset->input_mode === 'pool' && $voicePreset) {
+            $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $dynamic);
         } else {
             $this->inputPoolService->add($preset->getId(), $preset->getName(), $this->getCycleContinueInstruction());
         }
 
-        return $dynamic->getResponse() ?? $this->getCycleContinueInstruction();
+        return $dynamic ?? $this->getCycleContinueInstruction();
     }
 
     protected function getCycleStartInstruction(): string

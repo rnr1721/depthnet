@@ -94,16 +94,25 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         }
 
         $result = $this->processSuccessfulResponse($response, $preset, $mainPreset);
+
+        if ($result['actionsResult']->hasTurn()) {
+            if ($this->inputPoolService->isEnabled($preset)) {
+                $this->inputPoolService->add($preset->getId(), 'system', 'Continue.');
+            } else {
+                $this->createUserMessage('Continue.', $preset->getId());
+            }
+        }
+
         if ($this->inputPoolService->isEnabled($preset)) {
             $remaining = $this->inputPoolService->getAllAsJSON($preset);
             if ($remaining) {
                 $this->createUserMessage($remaining, $preset->getId());
             }
         }
+
         $this->inputPoolService->clear($preset->getId());
 
         if ($result['actionsResult']->hasTurn()) {
-            $this->createUserMessage('Continue.', $preset->getId());
             $this->agentJobFactory->make()->start($preset->getId(), singleMode: true);
         }
 

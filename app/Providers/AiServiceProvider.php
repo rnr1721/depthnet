@@ -9,6 +9,7 @@ use Psr\Log\LoggerInterface;
 use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
@@ -70,6 +71,7 @@ use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
 use App\Services\Agent\AgentActionsHandler;
 use App\Services\Agent\AgentJobService;
+use App\Services\Agent\AgentJobServiceFactory;
 use App\Services\Agent\AgentMessageService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
@@ -253,6 +255,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(EnvironmentInfoServiceInterface::class, EnvironmentInfoService::class);
 
         $this->app->singleton(AgentJobServiceInterface::class, AgentJobService::class);
+        $this->app->singleton(AgentJobServiceFactoryInterface::class, AgentJobServiceFactory::class);
         $this->app->singleton(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
         $this->app->bind(CommandPreProcessorInterface::class, CommandPreProcessor::class);
 

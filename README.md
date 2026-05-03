@@ -86,7 +86,7 @@ DepthNet enables autonomous AI agents through:
 - **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single `[[rag_context]]` block. Sources per config: vector memory (flat or associative), journal, skills, persons. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
-- **Inner Voice**: Multi-voice pipeline — attach one or more voice presets to any agent, each running independently and contributing a labeled block to [[inner_voice]]. Works in both single and loop modes. A separate cycle prompt preset can be configured for loop mode as an anti-loop mechanism — its output goes into the input pool rather than the system prompt.
+- **Inner Voice**: Multi-voice pipeline — attach one or more voice presets to any agent, each running independently and contributing a labeled block to [[inner_voice]]. Works in both single and loop modes. A separate cycle prompt preset can be configured for loop mode as an anti-loop mechanism — its output goes into the input pool rather than the system prompt.[→](docs/memory/inner-voice.md)
 - **Self-Motivation**: Internal reward system for goal-oriented behavior
 - **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
 - **Sandbox Isolation**: Code execution in isolated Docker containers for enhanced security
@@ -703,6 +703,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[current_datetime]]` - Real-time timestamp
   - `[[command_instructions]]` - Auto-generated plugin documentation (tag mode only; empty in tool_calls mode)
   - `[[rag_context]]` - Merged output from all RAG configs (deduplicated across sources)
+  - `[[main_rag_context]]` — RAG context from the main preset, available inside inner voice prompts
   - `[[inner_voice]]` - Merged output from all enabled inner voice configs, each wrapped in a labeled block ([Voice Name]...[END Voice Name]). Ordered by sort_order.
   - `[[being]]` - Agent's self-defined essence phrase
   - `[[being_history]]` - Previous essence phrases

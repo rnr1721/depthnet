@@ -135,6 +135,17 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
             $contextBuilder = $this->contextBuilderFactory->getContextBuilder('single');
             $builtContext   = $contextBuilder->build($mainPreset, $voicePreset, $contextLimit);
 
+            // Forward main preset's [[rag_context]] into voice preset scope.
+            // SingleContextBuilder already registered [[rag_context]] for the voice preset's
+            // own ragConfigs. Here we additionally expose the main preset's RAG result
+            // under [[main_rag_context]] so voice prompts can reference either independently.
+            $this->shortcodeManagerService->registerShortcodeForPreset(
+                $voicePreset->getId(),
+                'main_rag_context',
+                'RAG context from the main preset',
+                fn () => $this->shortcodeManagerService->getShortcodeValue('rag_context', $mainPreset->getId())
+            );
+
             $conversationText = collect($builtContext)
                 ->filter(fn ($m) => in_array($m['role'] ?? '', ['user', 'assistant', 'thinking', 'command'], true))
                 ->map(fn ($m) => strtoupper($m['role']) . ': ' . mb_substr($m['content'] ?? '', 0, 500))

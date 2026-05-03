@@ -4,6 +4,7 @@ namespace App\Services\Agent;
 
 use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\AiActionsResponseInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
@@ -49,6 +50,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
 
     public function __construct(
         protected Message $messageModel,
+        protected AgentJobServiceFactoryInterface $agentJobFactory,
         protected AgentActionsInterface $agentActions,
         protected CommandResultPoolInterface $commandResultPool,
         protected InputPoolServiceInterface $inputPoolService,
@@ -99,6 +101,11 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             }
         }
         $this->inputPoolService->clear($preset->getId());
+
+        if ($result['actionsResult']->hasTurn()) {
+            $this->createUserMessage('Continue.', $preset->getId());
+            $this->agentJobFactory->make()->start($preset->getId(), singleMode: true);
+        }
 
         return new AgentResponseDTO($result['message'], $result['actionsResult'], false);
     }

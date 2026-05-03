@@ -29,6 +29,7 @@ class ActionsResponseDTO implements AiActionsResponseInterface
         private ?string $systemMessage = null,
         private ?array $handoff = null,
         private array $commandResults = [],
+        private readonly bool $turn = false,
     ) {
     }
 
@@ -140,4 +141,10 @@ class ActionsResponseDTO implements AiActionsResponseInterface
     {
         return $this->handoff;
     }
+
+    public function hasTurn(): bool
+    {
+        return $this->turn;
+    }
+
 }

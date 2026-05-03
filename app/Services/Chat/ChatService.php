@@ -3,7 +3,7 @@
 namespace App\Services\Chat;
 
 use App\Contracts\Agent\AgentActionsInterface;
-use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Chat\ChatServiceInterface;
@@ -25,7 +25,7 @@ class ChatService implements ChatServiceInterface
     public function __construct(
         protected OptionsServiceInterface $optionsService,
         protected AgentActionsInterface $agentActions,
-        protected AgentJobServiceInterface $agentJobService,
+        protected AgentJobServiceFactoryInterface $agentJobServiceFactory,
         protected PresetRegistryInterface $presetRegistry,
         protected PluginRegistryInterface $pluginRegistry,
         protected ChatStatusServiceInterface $chatStatusService,
@@ -275,7 +275,7 @@ class ChatService implements ChatServiceInterface
         ]);
 
         $isActive = $this->chatStatusService->getPresetStatus($presetId);
-        $this->agentJobService->start($presetId, !$isActive);
+        $this->agentJobServiceFactory->make()->start($presetId, !$isActive);
 
         return $message;
     }
@@ -304,7 +304,7 @@ class ChatService implements ChatServiceInterface
         ]);
 
         $isActive = $this->chatStatusService->getPresetStatus($presetId);
-        $this->agentJobService->start($presetId, !$isActive);
+        $this->agentJobServiceFactory->make()->start($presetId, !$isActive);
 
         return $message;
     }

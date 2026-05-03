@@ -28,6 +28,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setCommandBuilderInstructions($preset);
         $this->setEnvironmentInfo();
         $this->setRagContext();
+        $this->setMainRagContext();
         $this->setInnerVoice();
         $this->setAgentCommandResults();
         $this->setWorkspace();
@@ -84,6 +85,23 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'rag_context',
             'Relevant memories retrieved from vector memory before each thinking cycle (requires RAG preset to be configured)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register main_rag_context placeholder stub (global).
+     * Actual content is forwarded per-voice-preset by InnerVoiceEnricher and
+     * CyclePromptEnricher from the main preset's rag_context scope.
+     * Available in voice preset system prompts as [[main_rag_context]].
+     *
+     * @return void
+     */
+    private function setMainRagContext(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'main_rag_context',
+            'RAG context from the main preset, available inside inner voice prompts',
             fn () => ''
         );
     }

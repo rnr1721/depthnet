@@ -24,6 +24,7 @@ Enable the **Agent** plugin in your preset settings and configure which capabili
 | `[agent pause]reason here[/agent]` | Pause with an explicit reason |
 | `[agent resume][/agent]` | Resume the thinking loop |
 | `[agent status][/agent]` | Check whether the agent is active or paused |
+| `[agent turn][/agent]` | Schedule one additional thinking step without entering a full loop |
 
 **Communicating with the user:**
 
@@ -46,9 +47,11 @@ Handoff routes the current conversation to another preset for the next cycle. Th
 
 - An agent working autonomously over many cycles uses `[agent speak]` when it has something to report, needs user input, or has completed a significant task
 - An agent pauses itself when it determines it has nothing meaningful to do until something changes — rather than spinning uselessly
+- An agent uses `[agent turn]` when it needs one more cycle to finish a task but does not want to enter a continuous loop — for example after sending a `speak` message while paused, or when processing a handoff response that requires a follow-up step
 - Handoff enables specialisation: a planner preset drafts an approach, then hands off to an executor preset to carry it out
 
 ## Notes
 
 - The `[[agent]]` placeholder (registered automatically when the plugin is enabled) injects the current agent status into the system prompt — useful for agents that need to be aware of whether they are in loop or single mode.
+- `[agent turn]` is a no-op when the agent is already in an active loop — the next cycle is already scheduled, so dispatching another is unnecessary. The command returns an informational message in that case.
 - In orchestrated mode, task routing is handled by the orchestrator automatically — handoff is primarily for free-form multi-agent workflows.

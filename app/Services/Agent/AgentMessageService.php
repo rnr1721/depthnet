@@ -2,14 +2,13 @@
 
 namespace App\Services\Agent;
 
-use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use Illuminate\Contracts\Cache\Repository as Cache;
-use Illuminate\Contracts\Container\Container;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -29,14 +28,11 @@ class AgentMessageService implements AgentMessageServiceInterface
     /** Reply-to TTL in seconds (10 minutes) */
     private const REPLY_TO_TTL = 600;
 
-    /** @var AgentJobServiceInterface|null Lazy-loaded to avoid circular dependency */
-    private ?AgentJobServiceInterface $agentJobService = null;
-
     public function __construct(
         protected InputPoolServiceInterface $inputPoolService,
         protected ChatStatusServiceInterface $chatStatusService,
         protected Cache $cache,
-        protected Container $container,
+        protected AgentJobServiceFactoryInterface $agentJobServiceFactory,
         protected Message $messageModel,
         protected LoggerInterface $logger,
     ) {
@@ -89,7 +85,7 @@ class AgentMessageService implements AgentMessageServiceInterface
 
         if ($triggerThinking) {
             $isActive = $this->chatStatusService->getPresetStatus($targetPresetId);
-            $this->getAgentJobService()->start($targetPresetId, !$isActive);
+            $this->agentJobServiceFactory->make()->start($targetPresetId, !$isActive);
         }
 
         // Remove the delivered item so it doesn't appear again
@@ -121,17 +117,5 @@ class AgentMessageService implements AgentMessageServiceInterface
     public function clearReplyTo(int $presetId): void
     {
         $this->cache->forget(self::REPLY_TO_PREFIX . $presetId);
-    }
-
-    /**
-     * Get AgentJobService with lazy loading to prevent circular dependency.
-     */
-    private function getAgentJobService(): AgentJobServiceInterface
-    {
-        if ($this->agentJobService === null) {
-            $this->agentJobService = $this->container->make(AgentJobServiceInterface::class);
-        }
-
-        return $this->agentJobService;
     }
 }

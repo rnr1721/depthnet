@@ -2,7 +2,7 @@
 
 namespace App\Services\Agent\Plugins;
 
-use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
@@ -12,7 +12,6 @@ use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
-use Illuminate\Contracts\Container\Container;
 
 /**
  * AgentPlugin — stateless.
@@ -26,32 +25,15 @@ class AgentPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
 
-    /** @var AgentJobServiceInterface|null Lazy-loaded service */
-    private ?AgentJobServiceInterface $agentJobService = null;
-
-    private const OWN_METHODS = ['speak', 'resume', 'pause', 'status', 'handoff'];
+    private const OWN_METHODS = ['speak', 'resume', 'pause', 'turn', 'status', 'handoff'];
 
     public function __construct(
-        protected Container $container,
+        protected AgentJobServiceFactoryInterface $agentJobServiceFactory,
         protected LoggerInterface $logger,
         protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
         protected PresetServiceInterface $presetService
     ) {
-    }
-
-    private function getAgentJobService(): AgentJobServiceInterface
-    {
-        if ($this->agentJobService === null) {
-            try {
-                $this->agentJobService = $this->container->make(AgentJobServiceInterface::class);
-            } catch (\Throwable $e) {
-                $this->logger->error("AgentPlugin: Failed to resolve AgentJobService: " . $e->getMessage());
-                throw new \RuntimeException("AgentJobService not available");
-            }
-        }
-
-        return $this->agentJobService;
     }
 
     public function getName(): string
@@ -78,6 +60,10 @@ class AgentPlugin implements CommandPluginInterface
 
         if ($config['allow_resume'] ?? true) {
             $instructions[] = 'Resume thinking cycles: [agent resume][/agent]';
+        }
+
+        if ($config['allow_turn'] ?? true) {
+            $instructions[] = 'Request one additional thinking step without entering a full loop: [agent turn][/agent]';
         }
 
         if ($config['allow_handoff'] ?? true) {
@@ -107,16 +93,59 @@ class AgentPlugin implements CommandPluginInterface
             $methods[] = 'resume';
         }
 
+        if ($config['allow_turn'] ?? true) {
+            $methods[] = 'turn';
+        }
+
         if ($config['allow_handoff'] ?? true) {
             $methods[] = 'handoff';
         }
 
+        $descParts = [
+            'Control agent lifecycle and communicate with the user.',
+            'Use speak to send a visible message to the user.',
+        ];
+
+        if ($config['allow_handoff'] ?? true) {
+            $descParts[] = 'Use handoff to delegate to another preset.';
+        }
+        if ($config['allow_pause'] ?? true) {
+            $descParts[] = 'Use pause to stop thinking cycles.';
+        }
+        if ($config['allow_resume'] ?? true) {
+            $descParts[] = 'Use resume to restart thinking cycles.';
+        }
+        if ($config['allow_turn'] ?? true) {
+            $descParts[] = 'Use turn to request one additional thinking step without entering a full loop.';
+        }
+
+        $contentParts = ['Argument depends on method:'];
+        $contentParts[] = 'speak — the message text to show the user (required);';
+
+        if ($config['allow_handoff'] ?? true) {
+            $contentParts[] = 'handoff — "preset_code" or "preset_code:message to pass" (required);';
+        }
+
+        $cycleParts = [];
+        if ($config['allow_pause'] ?? true) {
+            $cycleParts[] = 'pause';
+        }
+        if ($config['allow_resume'] ?? true) {
+            $cycleParts[] = 'resume';
+        }
+        if ($config['allow_turn'] ?? true) {
+            $cycleParts[] = 'turn';
+        }
+
+        if (!empty($cycleParts)) {
+            $contentParts[] = implode('/', $cycleParts) . ' — optional reason text;';
+        }
+
+        $contentParts[] = 'status — leave empty.';
+
         return [
             'name'        => 'agent',
-            'description' => 'Control agent lifecycle and communicate with the user. '
-                . 'Use speak to send a visible message to the user. '
-                . 'Use handoff to delegate to another preset. '
-                . 'Use pause/resume to control thinking cycles.',
+            'description' => implode(' ', $descParts),
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
@@ -127,13 +156,7 @@ class AgentPlugin implements CommandPluginInterface
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => implode(' ', [
-                            'Argument depends on method:',
-                            'speak — the message text to show the user (required);',
-                            'handoff — "preset_code" or "preset_code:message to pass" (required);',
-                            'pause/resume — optional reason text;',
-                            'status — leave empty.',
-                        ]),
+                        'description' => implode(' ', $contentParts),
                     ],
                 ],
                 'required'   => ['method'],
@@ -195,11 +218,32 @@ class AgentPlugin implements CommandPluginInterface
                 'value' => true,
                 'required' => false
             ],
+            'allow_turn' => [
+                'type' => 'checkbox',
+                'label' => 'Allow Turn',
+                'description' => 'Allow agent one turn to make additional thinking cycle',
+                'value' => true,
+                'required' => false
+            ],
             'require_reason' => [
                 'type' => 'checkbox',
                 'label' => 'Require Reason',
                 'description' => 'Require agent to provide reason for pause/resume actions',
                 'value' => false,
+                'required' => false
+            ],
+            'label_active' => [
+                'type' => 'text',
+                'label' => 'Active mode label',
+                'description' => 'Shown in status output when agent is in continuous loop mode',
+                'value' => 'continuous existence mode — I think in autonomous loops',
+                'required' => false
+            ],
+            'label_paused' => [
+                'type' => 'text',
+                'label' => 'Paused mode label',
+                'description' => 'Shown in status output when agent is in single response mode',
+                'value' => 'single response mode — I respond once and wait',
                 'required' => false
             ],
             'allow_handoff' => [
@@ -238,6 +282,10 @@ class AgentPlugin implements CommandPluginInterface
             'enabled' => true,
             'allow_pause' => true,
             'allow_resume' => true,
+            'allow_turn' => false,
+            'allow_handoff' => true,
+            'label_active' => 'continuous existence mode — I think in autonomous loops',
+            'label_paused' => 'single response mode — I respond once and wait',
             'require_reason' => false,
             'log_actions' => true,
         ];
@@ -263,7 +311,7 @@ class AgentPlugin implements CommandPluginInterface
         }
 
         try {
-            $service = $this->getAgentJobService();
+            $service = $this->agentJobServiceFactory->make();
             $settings = $service->getModelSettings($context->preset->getId());
 
             if (!$settings['chat_active']) {
@@ -302,7 +350,7 @@ class AgentPlugin implements CommandPluginInterface
         }
 
         try {
-            $service = $this->getAgentJobService();
+            $service = $this->agentJobServiceFactory->make();
             $settings = $service->getModelSettings($context->preset->getId());
 
             if ($settings['chat_active']) {
@@ -337,28 +385,94 @@ class AgentPlugin implements CommandPluginInterface
         }
 
         try {
-            $service = $this->getAgentJobService();
+            $service  = $this->agentJobServiceFactory->make();
             $settings = $service->getModelSettings($context->preset->getId());
 
-            $status = $settings['chat_active'] ? 'ACTIVE' : 'PAUSED';
-            $lockInfo = $settings['is_locked'] ? ' (currently thinking)' : '';
+            $isActive = $settings['chat_active'];
+            $isLocked = $settings['is_locked'];
+
+            $labelActive = $context->get('label_active', 'continuous existence mode — I think in autonomous loops');
+            $labelPaused = $context->get('label_paused', 'single response mode — I respond once and wait');
+
+            $modeLabel  = $isActive ? $labelActive : $labelPaused;
+            $lockInfo   = $isLocked ? ' (currently thinking)' : '';
             $presetInfo = " [Preset: {$settings['preset_id']}]";
 
-            $capabilities = [];
-            if ($context->get('allow_pause', true)) {
-                $capabilities[] = 'can pause';
-            }
-            if ($context->get('allow_resume', true)) {
-                $capabilities[] = 'can resume';
+            $hints = [];
+            if ($isActive) {
+                if ($context->get('allow_pause', true)) {
+                    $hints[] = 'use pause to stop the loop';
+                }
+            } else {
+                if ($context->get('allow_resume', true)) {
+                    $hints[] = 'use resume to enter continuous mode';
+                }
+                if ($context->get('allow_turn', false)) {
+                    $hints[] = 'use turn to take one additional step';
+                }
             }
 
-            $capabilityText = !empty($capabilities) ? ' | ' . implode(', ', $capabilities) : '';
+            $hintText = !empty($hints) ? ' | ' . implode(', ', $hints) : '';
 
-            return "Agent status: {$status}{$lockInfo}{$presetInfo}{$capabilityText}";
+            return "Agent: {$modeLabel}{$lockInfo}{$presetInfo}{$hintText}";
 
         } catch (\Throwable $e) {
             $this->logger->error("AgentPlugin::status error: " . $e->getMessage());
             return "Error getting agent status: " . $e->getMessage();
+        }
+    }
+
+
+
+    /**
+     * Request one additional thinking step without entering a full loop.
+     *
+     * Useful when the agent determines it needs another cycle to complete
+     * its current task — without committing to continuous autonomous mode.
+     * Safe to use in both active and paused presets.
+     *
+     * @param  string                $content  Ignored
+     * @param  PluginExecutionContext $context
+     * @return string
+     */
+    public function turn(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return "Error: Agent control plugin is disabled.";
+        }
+
+        if (!$context->get('allow_turn', true)) {
+            return "Error: Agent turn is not allowed in current configuration.";
+        }
+
+        try {
+            $service   = $this->agentJobServiceFactory->make();
+            $presetId  = $context->preset->getId();
+            $isActive  = $service->isActive($presetId);
+
+            // In active loop mode a new cycle is already scheduled — no need to dispatch.
+            if ($isActive) {
+                return "Agent is already in an active loop — turn is implicit.";
+            }
+
+            $this->setPluginExecutionMeta('turn', true);
+            return "One additional thinking step scheduled.";
+
+            /*
+            $dispatched = $service->start($presetId, singleMode: true);
+
+            if ($dispatched) {
+                $this->logActionSafely('turn', trim($content), $context);
+                return "One additional thinking step scheduled.";
+            }
+
+
+            return "Failed to schedule thinking step — agent may already be running.";
+            */
+
+        } catch (\Throwable $e) {
+            $this->logger->error("AgentPlugin::turn error: " . $e->getMessage());
+            return "Error scheduling turn: " . $e->getMessage();
         }
     }
 
@@ -456,7 +570,7 @@ class AgentPlugin implements CommandPluginInterface
 
     public function getSelfClosingTags(): array
     {
-        return ['pause', 'resume', 'status'];
+        return ['pause', 'resume', 'status', 'turn'];
     }
 
     /**

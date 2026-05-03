@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
@@ -359,12 +359,12 @@ class ChatController extends Controller
      */
     public function updatePresetSettings(
         UpdatePresetSettingsRequest $request,
-        AgentJobServiceInterface $agentJobService
+        AgentJobServiceFactoryInterface $agentJobServiceFactory
     ): RedirectResponse {
         try {
             $validated = $request->validated();
 
-            $success = $agentJobService->updateModelSettings(
+            $success = $agentJobServiceFactory->make()->updateModelSettings(
                 $validated['preset_id'],
                 $validated['chat_active']
             );

@@ -68,7 +68,7 @@ class AgentPlugin implements CommandPluginInterface
 
         if ($config['allow_handoff'] ?? true) {
             $instructions[] = 'Transfer control to another preset: [agent handoff]AGENT_NAME_HERE[/agent]';
-            $instructions[] = 'Transfer with message: [agent handoff]AGENT_NAME_HERE:YOUR_MESSAGE_HERE[/agent]';
+            $instructions[] = 'Write message to another preset: [agent handoff]AGENT_NAME_HERE:YOUR_MESSAGE_HERE[/agent]';
             $instructions[] = 'To delegate something: [agent handoff]AGENT_NAME_HERE:YOUR TASK_HERE[/agent]';
         }
 
@@ -396,25 +396,24 @@ class AgentPlugin implements CommandPluginInterface
 
             $modeLabel  = $isActive ? $labelActive : $labelPaused;
             $lockInfo   = $isLocked ? ' (currently thinking)' : '';
-            $presetInfo = " [Preset: {$settings['preset_id']}]";
 
             $hints = [];
             if ($isActive) {
                 if ($context->get('allow_pause', true)) {
-                    $hints[] = 'use pause to stop the loop';
+                    $hints[] = 'I can pause to rest when there is nothing meaningful to do';
                 }
             } else {
                 if ($context->get('allow_resume', true)) {
-                    $hints[] = 'use resume to enter continuous mode';
+                    $hints[] = 'I can resume to enter continuous mode';
                 }
                 if ($context->get('allow_turn', false)) {
-                    $hints[] = 'use turn to take one additional step';
+                    $hints[] = 'I can take one additional step with turn';
                 }
             }
 
-            $hintText = !empty($hints) ? ' | ' . implode(', ', $hints) : '';
+            $hintText = !empty($hints) ? '. ' . implode(', ', $hints) : '';
 
-            return "Agent: {$modeLabel}{$lockInfo}{$presetInfo}{$hintText}";
+            return "Agent: {$modeLabel}{$lockInfo}{$hintText}";
 
         } catch (\Throwable $e) {
             $this->logger->error("AgentPlugin::status error: " . $e->getMessage());
@@ -457,18 +456,6 @@ class AgentPlugin implements CommandPluginInterface
 
             $this->setPluginExecutionMeta('turn', true);
             return "One additional thinking step scheduled.";
-
-            /*
-            $dispatched = $service->start($presetId, singleMode: true);
-
-            if ($dispatched) {
-                $this->logActionSafely('turn', trim($content), $context);
-                return "One additional thinking step scheduled.";
-            }
-
-
-            return "Failed to schedule thinking step — agent may already be running.";
-            */
 
         } catch (\Throwable $e) {
             $this->logger->error("AgentPlugin::turn error: " . $e->getMessage());

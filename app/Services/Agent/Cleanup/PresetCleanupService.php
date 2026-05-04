@@ -4,6 +4,7 @@ namespace App\Services\Agent\Cleanup;
 
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
@@ -33,6 +34,7 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         protected SkillServiceInterface $skillService,
         protected PersonMemoryServiceInterface $personMemoryService,
         protected JournalServiceInterface $journalService,
+        protected HeartServiceInterface $heartService,
         protected PresetServiceInterface $presetService,
         protected LoggerInterface $logger
     ) {
@@ -84,6 +86,11 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         if ($this->option($options, 'clear_journal')) {
             $this->journalService->clear($preset);
             $cleared[] = 'journal';
+        }
+
+        if ($this->option($options, 'clear_heart')) {
+            $this->heartService->clear($preset);
+            $cleared[] = 'heart';
         }
 
         $this->logger->info('PresetCleanupService: cleared preset', [

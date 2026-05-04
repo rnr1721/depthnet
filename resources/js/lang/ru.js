@@ -104,6 +104,7 @@ export default {
   chat_clear_workspace: "Очистить workspace",
   chat_clear_goals: "Очистить цели",
   chat_clear_person_memory: "Очистить память о людях",
+  chat_clear_heart: "Очистить сердце",
   chat_clear_journal_memory: "Очистить журнал",
   chat_clear_warning: "Это действие нельзя отменить.",
   chat_clear_selected: "Очистить выбранное",

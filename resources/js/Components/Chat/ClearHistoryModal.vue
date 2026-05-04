@@ -159,6 +159,23 @@
                             </span>
                         </label>
 
+                        <!-- Clear heart memory -->
+                        <label class="flex items-center space-x-3 cursor-pointer">
+                            <input type="checkbox" v-model="clearHeart" :class="[
+                                'w-4 h-4 rounded border-2 transition-colors',
+                                'focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                isDark
+                                    ? 'bg-gray-700 border-gray-600 text-indigo-600 focus:ring-offset-gray-800'
+                                    : 'bg-white border-gray-300 text-indigo-600'
+                            ]">
+                            <span :class="[
+                                'text-sm font-medium',
+                                isDark ? 'text-gray-200' : 'text-gray-700'
+                            ]">
+                                {{ t('chat_clear_heart') || 'Clear heart' }}
+                            </span>
+                        </label>
+
                         <!-- Clear journal -->
                         <label class="flex items-center space-x-3 cursor-pointer">
                             <input type="checkbox" v-model="clearJournal" :class="[
@@ -289,13 +306,14 @@ const clearWorkspace = ref(true);
 const clearGoals = ref(true);
 const clearSkills = ref(true);
 const clearPerson = ref(true);
+const clearHeart = ref(true);
 const clearJournal = ref(true);
 const clearAgent = ref(false);
 
 const hasAnySelected = computed(() =>
     clearMessages.value || clearMemory.value || clearVectorMemory.value ||
     clearWorkspace.value || clearGoals.value || clearSkills.value ||
-    clearPerson.value || clearJournal.value
+    clearPerson.value || clearHeart.value || clearJournal.value
 );
 
 function closeModal() {
@@ -308,6 +326,7 @@ function closeModal() {
         clearGoals.value = true;
         clearSkills.value = true;
         clearPerson.value = true;
+        clearHeart.value = true;
         clearJournal.value = true;
         clearAgent.value = false;
     }, 300);
@@ -324,6 +343,7 @@ function confirmClear() {
         clearGoals: clearGoals.value,
         clearSkills: clearSkills.value,
         clearPerson: clearPerson.value,
+        clearHeart: clearHeart.value,
         clearJournal: clearJournal.value,
         // Only send clear_agent when checkbox is checked and agent exists
         clearAgent: props.agentName ? clearAgent.value : false,

@@ -28,6 +28,7 @@ use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Mcp\McpClientInterface;
 use App\Contracts\Agent\Mcp\McpServerRepositoryInterface;
@@ -95,6 +96,7 @@ use App\Services\Agent\Enricher\Services\PresetInnerVoiceConfigService;
 use App\Services\Agent\Enricher\Services\PresetRagConfigService;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
+use App\Services\Agent\Heart\HeartService;
 use App\Services\Agent\Journal\JournalService;
 use App\Services\Agent\Mcp\McpClient;
 use App\Services\Agent\Mcp\McpServerRepository;
@@ -246,6 +248,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
 
         $this->app->singleton(SkillServiceInterface::class, SkillService::class);
+
+        $this->app->bind(HeartServiceInterface::class, HeartService::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);

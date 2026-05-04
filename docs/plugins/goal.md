@@ -55,6 +55,18 @@ The injected content shows each active goal with its motivation and the most rec
 | `[goal list][/goal]` | List active goals |
 | `[goal list]all[/goal]` | List all goals including paused and done |
 
+## Heart integration
+
+When the **Heart** plugin is also enabled and has active data, goal status changes automatically register attention signals in Heart — no configuration required:
+
+| Event | Heart signal | Meaning |
+|---|---|---|
+| `[goal done]` | `relief` + `pride` toward goal title | Completion is a positive event |
+| `[goal pause]` | `unresolved` toward goal title | Unfinished work leaves mild tension |
+| `[goal resume]` | `anticipation` toward goal title | Resuming creates forward momentum |
+
+This means goals appear in `[[heart_state]]` alongside people — the agent's attention system reflects not only who matters but also what was accomplished. The integration activates silently when Heart has connections or signals; it does nothing when Heart is unused or cleared.
+
 ## How agents use it
 
 Goals are well suited for agents running in continuous autonomous loops — they provide a persistent thread of intention across cycles where conversation history alone isn't enough to maintain direction. Typical patterns:

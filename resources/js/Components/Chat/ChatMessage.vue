@@ -178,7 +178,11 @@
           isDark ? 'text-blue-300' : 'text-blue-700 hover:text-blue-800'
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
-            :class="{ 'rotate-90': commandStates[command.id] }">▶</span>
+            :class="{ 'rotate-90': commandStates[command.id] }">
+            <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5l8 7-8 7V5z" />
+            </svg>
+          </span>
           <span class="mr-2">{{ command.icon }}</span>
           <span class="flex-1">{{ command.name }}</span>
 
@@ -223,7 +227,11 @@
           isDark ? 'text-blue-300' : 'text-blue-700 hover:text-blue-800'
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
-            :class="{ 'rotate-90': commandStates[toolCall.id] }">▶</span>
+            :class="{ 'rotate-90': commandStates[toolCall.id] }">
+            <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5l8 7-8 7V5z" />
+            </svg>
+          </span>
           <span class="mr-2">{{ toolCall.icon }}</span>
           <span class="flex-1">{{ toolCall.displayName }}</span>
 
@@ -261,7 +269,11 @@
         'text-sm mt-2 mb-2 px-2 py-1 rounded transition-colors flex items-center',
         isDark ? 'text-blue-400 hover:text-blue-300 hover:bg-gray-700' : 'text-blue-600 hover:text-blue-800 hover:bg-blue-50'
       ]">
-        <span class="mr-1 transition-transform duration-200" :class="{ 'rotate-90': isResultsExpanded }">▶</span>
+        <span class="mr-1 transition-transform duration-200" :class="{ 'rotate-90': isResultsExpanded }">
+          <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5l8 7-8 7V5z" />
+          </svg>
+        </span>
         {{ isResultsExpanded ? t('chat_agent_results_show') : t('chat_agent_results_hide') }} {{ t('chat_agent_results')
         }}
       </button>
@@ -562,81 +574,73 @@ const extractedToolCalls = computed(() => {
   const content = props.message.content;
   if (!content) return [];
 
-  // Find JSON containing "tool_calls" — either array or object with tool_calls key
+  // Find the tool_calls JSON — try to parse the whole content first
   let toolCallsData = null;
 
-  // Try to find {...} or [...] containing "tool_calls"
-  const jsonMatches = content.match(/(\{[^{}]*"tool_calls"\s*:\s*\[[^\]]*\][^{}]*\}|\[[^\]]*"type"\s*:\s*"function"[^\]]*\])/g);
-  if (!jsonMatches) return [];
-
-  for (const candidate of jsonMatches) {
-    try {
-      const parsed = JSON.parse(candidate);
-      // Normalize to array of calls
-      if (Array.isArray(parsed)) {
-        // Anthropic-like format: array of objects with name, input fields
-        if (parsed[0]?.type === 'tool_use') {
-          toolCallsData = parsed.map(tc => ({
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.input
-          }));
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.tool_calls) {
+      toolCallsData = parsed.tool_calls.map(tc => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: JSON.parse(tc.function.arguments || '{}')
+      }));
+    }
+  } catch {
+    // Not pure JSON — try to find JSON substring
+    const start = content.indexOf('{"tool_calls"');
+    if (start !== -1) {
+      // Find matching closing brace
+      let depth = 0;
+      let end = -1;
+      for (let i = start; i < content.length; i++) {
+        if (content[i] === '{') depth++;
+        else if (content[i] === '}') {
+          depth--;
+          if (depth === 0) { end = i + 1; break; }
         }
-        // OpenAI bare array
-        else if (parsed[0]?.type === 'function') {
-          toolCallsData = parsed.map(tc => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: JSON.parse(tc.function.arguments || '{}')
-          }));
-        }
-      } else if (parsed.tool_calls) {
-        // OpenAI wrapped: {tool_calls: [...]}
-        toolCallsData = parsed.tool_calls.map(tc => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: JSON.parse(tc.function.arguments || '{}')
-        }));
       }
-      if (toolCallsData) break;
-    } catch (e) {
-      // invalid JSON, skip
+      if (end !== -1) {
+        try {
+          const parsed = JSON.parse(content.substring(start, end));
+          if (parsed.tool_calls) {
+            toolCallsData = parsed.tool_calls.map(tc => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: JSON.parse(tc.function.arguments || '{}')
+            }));
+          }
+        } catch { }
+      }
     }
   }
 
   if (!toolCallsData) return [];
 
-  // Фильтруем: убираем agent speak
+  // Filtering agent speak - everything else remains unchanged
   const filteredCalls = toolCallsData.filter(tc => {
     const name = tc.name?.toLowerCase();
     const method = tc.arguments?.method?.toLowerCase();
-    // Скрываем agent speak, но оставляем agent handoff, pause, resume и т.д.
     return !(name === 'agent' && method === 'speak');
   });
 
   if (filteredCalls.length === 0) return [];
 
-  // Convert to a format suitable for display
   return filteredCalls.map((tc, idx) => {
     const method = tc.arguments?.method || '';
     const argsContent = (() => {
-      const { method, ...rest } = tc.arguments || {};
-      if (Object.keys(rest).length === 1 && rest.content) {
-        return rest.content;
-      }
+      const { method: _, ...rest } = tc.arguments || {};
+      if (Object.keys(rest).length === 1 && rest.content) return rest.content;
       return JSON.stringify(rest, null, 2);
     })();
 
     const toolCallId = `tc_${props.message.id}_${idx}`;
-
-    if (!(toolCallId in commandStates)) {
-      commandStates[toolCallId] = props.showCommandResults;
-    }
+    if (!(toolCallId in commandStates)) commandStates[toolCallId] = props.showCommandResults;
 
     return {
       id: toolCallId,
       plugin: tc.name,
-      method: method,
+      method,
       displayName: method ? `${tc.name} ${method}` : tc.name,
       content: argsContent,
       rawArguments: tc.arguments,
@@ -646,11 +650,24 @@ const extractedToolCalls = computed(() => {
 });
 
 const formattedContent = computed(() => {
+
   let content = props.message.content;
 
-  content = content.replace(/\{(?:[^{}]*"tool_calls"\s*:\s*\[[^\]]*\][^{}]*)\}/g, '');
-  content = content.replace(/\[\s*\{[^]]*"type"\s*:\s*"function"[^]]*\}\s*\]/g, '');
-
+  // Remove tool_calls JSON block using depth counter
+  const tcStart = content.indexOf('{"tool_calls"');
+  if (tcStart !== -1) {
+    let depth = 0, end = -1;
+    for (let i = tcStart; i < content.length; i++) {
+      if (content[i] === '{') depth++;
+      else if (content[i] === '}') {
+        depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    if (end !== -1) {
+      content = content.substring(0, tcStart) + content.substring(end);
+    }
+  }
   const commandResultsMarker = '<system_output_results>';
   let userContent = content;
 

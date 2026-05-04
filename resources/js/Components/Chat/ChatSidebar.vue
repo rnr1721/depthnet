@@ -53,7 +53,7 @@
       <div class="mt-4 flex flex-wrap gap-2">
         <Link :href="route('profile.show')" :class="linkClass">{{ user.name }}</Link>
         <template v-if="isAdmin">
-          
+
           <Link :href="route('admin.presets.index')" :class="linkClass">{{ t('chat_presets') }}</Link>
           <Link :href="pluginsLink" :class="linkClass">{{ t('plugins') }}</Link>
 
@@ -65,7 +65,11 @@
               'inline-flex items-center gap-1 text-sm px-3 py-2 rounded-md transition-colors w-full text-left',
               isDark ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700' : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
             ]">
-              <span class="transition-transform duration-200" :class="{ 'rotate-90': memoryGroupOpen }">▶</span>
+              <span class="transition-transform duration-200" :class="{ 'rotate-90': memoryGroupOpen }">
+                <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5l8 7-8 7V5z" />
+                </svg>
+              </span>
               {{ t('memory') }}
             </button>
             <div v-if="memoryGroupOpen" class="flex flex-wrap gap-2 pl-3 mt-1">
@@ -86,7 +90,11 @@
               'inline-flex items-center gap-1 text-sm px-3 py-2 rounded-md transition-colors w-full text-left',
               isDark ? 'text-indigo-400 hover:text-indigo-300 hover:bg-gray-700' : 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50'
             ]">
-              <span class="transition-transform duration-200" :class="{ 'rotate-90': systemGroupOpen }">▶</span>
+              <span class="transition-transform duration-200" :class="{ 'rotate-90': systemGroupOpen }">
+                <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5l8 7-8 7V5z" />
+                </svg>
+              </span>
               {{ t('chat_system') }}
             </button>
             <div v-if="systemGroupOpen" class="flex flex-wrap gap-2 pl-3 mt-1">

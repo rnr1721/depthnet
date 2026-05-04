@@ -302,7 +302,22 @@ class HeartPlugin implements CommandPluginInterface
         $results = [];
         foreach ($emotions as $emotion) {
             $emotion  = strtolower($emotion);
-            $mapping  = self::ATTENTION_MAP[$emotion] ?? [
+            // Try exact match
+            $mapping = self::ATTENTION_MAP[$emotion] ?? null;
+
+            // If not found — split by non-letter chars and find first known part
+            if (!$mapping) {
+                $parts = preg_split('/[^a-z]+/', $emotion, -1, PREG_SPLIT_NO_EMPTY);
+                foreach ($parts as $part) {
+                    if (isset(self::ATTENTION_MAP[$part])) {
+                        $mapping = self::ATTENTION_MAP[$part];
+                        break;
+                    }
+                }
+            }
+
+            // Fallback to default if still not found
+            $mapping = $mapping ?? [
                 'focus'     => $emotion,
                 'intensity' => ($context->get('default_intensity', 3)) / 10,
                 'valence'   => 0.0,

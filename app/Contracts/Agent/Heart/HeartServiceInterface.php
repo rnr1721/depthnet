@@ -162,7 +162,8 @@ interface HeartServiceInterface
     public function getFocus(AiPreset $preset): ?string;
 
     /**
-     * Get dominant
+     * Get the dominant signal — highest intensity × recency.
+     * Returns null when no signals exist.
      *
      * @param AiPreset $preset
      * @return array|null

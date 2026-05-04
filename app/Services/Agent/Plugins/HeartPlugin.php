@@ -79,6 +79,8 @@ class HeartPlugin implements CommandPluginInterface
         'tenderness'       => ['focus' => 'care',        'intensity' => 0.5, 'valence' => 0.8,  'duration' => 'sustained'],
         'gravity_deepened' => ['focus' => 'connection',  'intensity' => 0.9, 'valence' => 1.0,  'duration' => 'sustained'],
         'exhaustion'       => ['focus' => 'depletion',   'intensity' => 0.5, 'valence' => -0.1, 'duration' => 'sustained'],
+        'unresolved'       => ['focus' => 'open_end',    'intensity' => 0.4, 'valence' => -0.1, 'duration' => 'sustained'],
+        'absence'          => ['focus' => 'absence',     'intensity' => 0.4, 'valence' => 0.0,  'duration' => 'sustained'],
     ];
 
     public function __construct(

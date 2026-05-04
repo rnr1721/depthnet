@@ -115,8 +115,6 @@ class HeartService implements HeartServiceInterface
         $presence = !empty($signals) ? 'engaged' : 'dormant';
         $this->setPresence($preset, $presence);
 
-        $this->pluginMetadata->set($preset, self::PLUGIN_NAME, 'last_beat', now()->toISOString());
-
         return [
             'removed'   => $before - count($signals),
             'remaining' => count($signals),
@@ -267,11 +265,14 @@ class HeartService implements HeartServiceInterface
             }
 
             if ($dominant) {
-                $parts[] = "Dominant: {$dominant['signal_type']} toward {$dominant['entity']}";
+                $dominantType = $dominant['signal_type'] ?? $dominant['emotion'] ?? 'unknown';
+                $parts[] = "Dominant: {$dominantType} toward {$dominant['entity']}";
             }
 
             $parts[] = "Signals: " . count($signals);
-            $parts[] = "Last signal: {$last['signal_type']} ({$valenceStr})";
+
+            $signalType = $last['signal_type'] ?? $last['emotion'] ?? 'unknown';
+            $parts[] = "Last signal: {$signalType} ({$valenceStr})";
         } else {
             $parts[] = "Focus: none";
         }

@@ -167,7 +167,7 @@ const { savePresetId } = useSelectedPreset();
 const mobileMenuOpen = ref(false);
 const mobileTabsOpen = ref(false);
 
-const form = useForm({ content: '' });
+const form = useForm({ content: '', files: [] });
 
 const isAdmin = computed(() => props.user && props.user.is_admin);
 
@@ -292,30 +292,28 @@ function handleTogglePresetActive(presetId, value) {
 // Message sending — must include preset_id
 // -------------------------------------------------------------------------
 
-function sendMessage(content) {
+function sendMessage(content, files = []) {
   if (!content.trim() || form.processing || isProcessing.value) return;
 
   isProcessing.value = true;
   mobileMenuOpen.value = false;
   mobileTabsOpen.value = false;
-
   isUserAtBottom.value = true;
   shouldAutoRefresh.value = true;
 
   form.content = content;
+  form.files = files;
 
-  // Send to the currently displayed preset
   form.transform(data => ({
     ...data,
     preset_id: selectedPresetId.value,
   })).post(route('chat.message'), {
     preserveScroll: true,
+    forceFormData: true,
     onSuccess: () => {
       form.reset();
       isProcessing.value = false;
-
       startFrequentRefresh();
-
       requestAnimationFrame(() => {
         messagesComponent.value?.scrollToBottom();
         messageInputComponent.value?.focusInput();

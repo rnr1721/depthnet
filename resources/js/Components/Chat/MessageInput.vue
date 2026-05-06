@@ -19,6 +19,25 @@
       </div>
     </Transition>
 
+    <!-- File previews -->
+    <Transition name="stt-hint">
+      <div v-if="attachedFiles.length" class="mb-2 flex flex-wrap gap-2">
+        <div v-for="(file, i) in attachedFiles" :key="i" :class="['flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs',
+          isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600']">
+          <span class="truncate max-w-32">{{ file.name }}</span>
+          <span :class="['flex-shrink-0', isDark ? 'text-gray-500' : 'text-gray-400']">
+            {{ humanSize(file.size) }}
+          </span>
+          <button type="button" @click="removeFile(i)" :class="['flex-shrink-0 hover:text-red-400 transition-colors']">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+
     <form @submit.prevent="handleSubmit">
 
       <!-- Main line: field + desktop buttons + submit -->
@@ -43,6 +62,28 @@
             </div>
           </div>
         </div>
+
+        <!-- Attach file - desktop only -->
+        <button type="button" @click="$refs.fileInput.click()" :disabled="disabled || isProcessing"
+          :title="t('chat_attach_file')" :class="[
+            'hidden lg:flex items-center justify-center',
+            'px-3 py-3 rounded-xl font-medium transition-all transform flex-shrink-0',
+            'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+            attachedFiles.length
+              ? (isDark ? 'bg-teal-700 text-white' : 'bg-teal-500 text-white')
+              : (isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:scale-105'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-600 hover:scale-105'),
+            isDark ? 'focus:ring-offset-gray-800' : ''
+          ]">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.414 6.585a6 6 0 108.486 8.486L20.5 13" />
+          </svg>
+          <span v-if="attachedFiles.length" :class="['ml-1 text-xs font-bold']">{{ attachedFiles.length }}</span>
+        </button>
+        <input ref="fileInput" type="file" multiple class="hidden" accept="*/*" @change="onFilesSelected" />
+
 
         <!-- Microphone - desktop only -->
         <button v-if="hasSTT" type="button" @click="handleMicClick" :disabled="disabled || isProcessing"
@@ -134,7 +175,7 @@
           <span>{{ isListening ? t('chat_voice_stop') : t('chat_voice_start') }}</span>
         </button>
 
-        <!-- TTS мобильный -->
+        <!-- TTS mobile -->
         <button v-if="hasTTS" type="button" @click="emit('toggleTTS')" :class="[
           'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
           ttsEnabled
@@ -149,6 +190,22 @@
           </svg>
           <span>{{ ttsEnabled ? t('chat_tts_disable') : t('chat_tts_enable') }}</span>
         </button>
+
+        <!-- Attach - mobile -->
+        <button type="button" @click="$refs.fileInput.click()" :class="[
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+          attachedFiles.length
+            ? (isDark ? 'bg-teal-700 text-white' : 'bg-teal-500 text-white')
+            : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')
+        ]">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.414 6.585a6 6 0 108.486 8.486L20.5 13" />
+          </svg>
+          <span>{{ attachedFiles.length ? attachedFiles.length + ' ' + t('chat_files') : t('chat_attach_file') }}</span>
+        </button>
+
+
       </div>
 
     </form>
@@ -177,7 +234,11 @@ const emit = defineEmits(['send', 'toggleMic', 'toggleTTS']);
 const content = ref('');
 const messageInput = ref(null);
 
-// Определяем, мобильное ли устройство
+// ── File attachment ──
+const attachedFiles = ref([]);
+const fileInput = ref(null);
+
+// Determine if the device is mobile
 const isMobile = computed(() => {
   if (typeof window === 'undefined') return false;
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
@@ -206,21 +267,23 @@ function autoResize() {
 
 function handleSubmit() {
   if (!content.value.trim() || props.disabled || props.isProcessing) return;
-  emit('send', content.value);
+  emit('send', content.value, attachedFiles.value);   // ← передаём файлы
   content.value = '';
+  attachedFiles.value = [];                           // ← сбросить после отправки
   if (messageInput.value) messageInput.value.style.height = 'auto';
   focusInput();
 }
+
 
 function handleKeydown(event) {
   // On mobile devices: Enter always creates a new line (unless Shift is held down)
   // On desktop devices: Enter sends, Shift+Enter creates a new line
   if (event.key === 'Enter' && !event.shiftKey) {
     if (isMobile.value) {
-      // На мобильных — новая строка
-      return; // позволяет стандартное поведение textarea (новая строка)
+      // On mobile devices - a new line
+      return;
     } else {
-      // На десктопе — отправка
+      // On desktop - sending
       event.preventDefault();
       handleSubmit();
     }
@@ -245,6 +308,23 @@ function setContent(newContent) {
     }
   });
 }
+
+function onFilesSelected(e) {
+  const newFiles = Array.from(e.target.files || []);
+  attachedFiles.value = [...attachedFiles.value, ...newFiles].slice(0, 10);
+  e.target.value = ''; // reset input so same file can be re-added
+}
+
+function removeFile(index) {
+  attachedFiles.value = attachedFiles.value.filter((_, i) => i !== index);
+}
+
+function humanSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1_048_576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1_048_576).toFixed(1) + ' MB';
+}
+
 
 defineExpose({ focusInput, setContent, insertRecognizedText });
 </script>

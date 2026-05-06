@@ -26,6 +26,8 @@ use App\Models\AiPreset;
  */
 final class PluginExecutionContext
 {
+    private array $meta = [];
+
     public function __construct(
         public readonly AiPreset $preset,
         public readonly array $config,
@@ -41,4 +43,21 @@ final class PluginExecutionContext
     {
         return $this->config[$key] ?? $default;
     }
+
+    public function addMeta(string $key, mixed $value, bool $merge = false): void
+    {
+        if ($merge) {
+            $existing = $this->meta[$key] ?? [];
+            $this->meta[$key] = array_values(array_unique(array_merge($existing, (array)$value)));
+            return;
+        }
+
+        $this->meta[$key] = $value;
+    }
+
+    public function getMeta(): array
+    {
+        return $this->meta;
+    }
+
 }

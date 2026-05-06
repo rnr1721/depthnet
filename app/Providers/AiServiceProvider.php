@@ -121,6 +121,8 @@ use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
+use App\Services\Agent\Plugins\CodePlugin;
+use App\Services\Agent\Plugins\DocumentManagerPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\HeartPlugin;
@@ -391,6 +393,8 @@ class AiServiceProvider extends ServiceProvider
             JournalPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
+            CodePlugin::class,
+            DocumentManagerPlugin::class,
             TerminalPlugin::class,
             PromptPlugin::class,
             ShellPlugin::class,

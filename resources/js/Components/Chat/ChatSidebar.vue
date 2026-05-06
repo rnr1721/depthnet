@@ -75,6 +75,7 @@
             <div v-if="memoryGroupOpen" class="flex flex-wrap gap-2 pl-3 mt-1">
               <Link :href="memoryLink" :class="linkClass">{{ t('memory') }}</Link>
               <Link :href="vectorMemoryLink" :class="linkClass">{{ t('vm_vector_memory') }}</Link>
+              <Link :href="documentsLink" :class="linkClass">{{ t('docs_title') }}</Link>
               <Link :href="journalLink" :class="linkClass">{{ t('journal') }}</Link>
               <Link :href="personLink" :class="linkClass">{{ t('person_memory') }}</Link>
               <Link :href="skillsLink" :class="linkClass">{{ t('skills') }}</Link>
@@ -244,6 +245,9 @@ const memoryLink = computed(() =>
 );
 const vectorMemoryLink = computed(() =>
   routeWithPreset(route('admin.vector-memory.index'), props.currentPresetId)
+);
+const documentsLink = computed(() =>
+  routeWithPreset(route('admin.documents.index'), props.currentPresetId)
 );
 const skillsLink = computed(() =>
   routeWithPreset(route('admin.skills.index'), props.currentPresetId)

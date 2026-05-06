@@ -12,6 +12,7 @@ use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
+use App\Contracts\Chat\ChatFileAttachmentServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
@@ -134,7 +135,8 @@ class ChatController extends Controller
     public function sendMessage(
         SendMessageRequest $request,
         AuthServiceInterface $authService,
-        ChatStatusServiceInterface $chatStatusService
+        ChatStatusServiceInterface $chatStatusService,
+        ChatFileAttachmentServiceInterface $chatFileAttachmentService
     ) {
         $user     = $authService->getCurrentUser();
         $presetId = (int) $request->input('preset_id', 0);
@@ -144,16 +146,38 @@ class ChatController extends Controller
             $presetId = $this->presetService->getDefaultPreset()->getId();
         }
 
+        $content = $request->validated()['content'];
+
+        $files = $request->file('files', []);
+        if (!empty($files)) {
+            $preset = $this->presetService->findById($presetId)
+                ?? $this->presetService->getDefaultPreset();
+
+            $attachmentResult = $chatFileAttachmentService->process($files, $preset);
+
+            if ($attachmentResult['annotation']) {
+                $content .= $attachmentResult['annotation'];
+            }
+        }
+
         // In cycle mode the pool accumulates; dispatch=true flushes it immediately
         $presetActive = $chatStatusService->getPresetStatus($presetId);
         $dispatch = !$presetActive;
 
-        $this->chatService->sendUserMessage(
+        $message = $this->chatService->sendUserMessage(
             $user,
             $presetId,
             $request->validated()['content'],
             $dispatch
         );
+
+        if (!empty($attachmentResult['file_ids'])) {
+            $message->update([
+                'metadata' => array_merge($message->metadata ?? [], [
+                    'attachments' => $attachmentResult['files'], // [{id, original_name, human_size, mime_type}]
+                ]),
+            ]);
+        }
 
         return back();
     }

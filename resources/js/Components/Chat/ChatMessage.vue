@@ -294,6 +294,9 @@
       ]">
         {{ formatTime(message.created_at) }}
       </div>
+      <!-- File attachments -->
+      <MessageAttachments v-if="message.metadata?.attachments?.length" :metadata="message.metadata" :isDark="isDark" />
+
     </div>
   </div>
 </template>
@@ -303,6 +306,7 @@ import { computed, ref, reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import MessageAttachments from '@/Components/Chat/MessageAttachments.vue';
 
 const { t } = useI18n();
 

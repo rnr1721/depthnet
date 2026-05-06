@@ -261,6 +261,7 @@ const allSources = [
     { value: 'journal', label: 'Journal' },
     { value: 'skills', label: 'Skills' },
     { value: 'persons', label: 'Persons' },
+    { value: 'files', label: 'Files' },
 ];
 
 const baseUrl = computed(() => `/admin/presets/${props.preset?.id}/rag-configs`);

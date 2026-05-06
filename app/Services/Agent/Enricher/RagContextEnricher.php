@@ -6,6 +6,7 @@ use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\Enricher\EnricherResponseInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
+use App\Contracts\Agent\FileStorage\FileServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
@@ -46,6 +47,7 @@ class RagContextEnricher implements RagContextEnricherInterface
         protected PluginMetadataServiceInterface     $pluginMetadataService,
         protected SkillServiceInterface              $skillService,
         protected JournalServiceInterface            $journalService,
+        protected FileServiceInterface               $fileService,
         protected PersonContextEnricherInterface     $personEnricher,
         protected Message                            $messageModel,
         protected LoggerInterface                    $logger,
@@ -190,6 +192,30 @@ class RagContextEnricher implements RagContextEnricherInterface
                 }
             }
 
+            // ── Files ─────────────────────────────────────────────────────────────────
+            $fileResults = [];
+
+            if ($config->hasFiles()) {
+                foreach ($queries as $query) {
+                    $result = $this->fileService->search(
+                        preset:    $preset,
+                        query:     $query,
+                        limit:     $config->getRagResults(),
+                        threshold: 0.2,
+                    );
+
+                    if ($result['success'] ?? false) {
+                        foreach ($result['results'] ?? [] as $r) {
+                            $key = 'file_chunk:' . $r['chunk']->id;
+                            if (!isset($seenIds[$key])) {
+                                $fileResults[] = $r;
+                                $seenIds[$key] = true;
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── Persons ───────────────────────────────────────────────────────
             $personsBlock = null;
 
@@ -218,7 +244,8 @@ class RagContextEnricher implements RagContextEnricherInterface
                 empty($allFlatResults) &&
                 empty($skillResults) &&
                 empty($allJournalResults) &&
-                $personsBlock === null
+                $personsBlock === null &&
+                empty($fileResults)
             ) {
                 return $this->emptyResponse($preset, $ragPreset);
             }
@@ -233,6 +260,7 @@ class RagContextEnricher implements RagContextEnricherInterface
                 flatResults:            $allFlatResults,
                 skillResults:           $skillResults,
                 journalResults:         $allJournalResults,
+                fileResults:            $fileResults,
                 personsBlock:           $personsBlock,
                 maxContentLimit:        $config->getRagContentLimit(),
                 showRelativeDate:       $showRelative,
@@ -484,6 +512,7 @@ class RagContextEnricher implements RagContextEnricherInterface
         array    $flatResults,
         array    $skillResults,
         array    $journalResults,
+        array    $fileResults,
         ?string  $personsBlock,
         int      $maxContentLimit,
         bool     $showRelativeDate,
@@ -580,6 +609,25 @@ class RagContextEnricher implements RagContextEnricherInterface
                 }
             }
 
+            $lines[] = '';
+        }
+
+        if (!empty($fileResults)) {
+            $lines[] = '[RELEVANT FILE CONTENT]';
+            foreach ($fileResults as $i => $r) {
+                $chunk    = $r['chunk'];
+                $score    = round($r['similarity'] * 100, 1);
+                $preview  = mb_substr($chunk->content, 0, $maxContentLimit);
+                $fileName = $chunk->file->original_name ?? "file#{$chunk->file_id}";
+                $lines[]  = sprintf(
+                    '%d. [%s | chunk#%d | %s%%] %s',
+                    $i + 1,
+                    $fileName,
+                    $chunk->chunk_index,
+                    $score,
+                    $preview
+                );
+            }
             $lines[] = '';
         }
 

@@ -130,6 +130,16 @@ class AiPreset extends Model
     }
 
     /**
+     * Attachment files (documents), related to preset
+     *
+     * @return HasMany
+     */
+    public function files(): HasMany
+    {
+        return $this->hasMany(File::class, 'preset_id');
+    }
+
+    /**
      * User who created this preset
      */
     public function creator(): BelongsTo

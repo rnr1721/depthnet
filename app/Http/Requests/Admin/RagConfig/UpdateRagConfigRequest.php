@@ -15,7 +15,7 @@ class UpdateRagConfigRequest extends FormRequest
     {
         return [
             'sources'                    => 'sometimes|nullable|array',
-            'sources.*'                  => 'string|in:vector_memory,journal,skills,persons',
+            'sources.*'                  => 'string|in:vector_memory,journal,skills,persons,files',
             'rag_mode'                   => 'sometimes|in:flat,associative',
             'rag_engine'                 => 'sometimes|in:tfidf,embedding',
             'rag_context_limit'          => 'sometimes|integer|min:1|max:50',

@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
+    libzip-dev \
     zip \
     unzip \
     supervisor \
@@ -31,7 +32,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     gnupg \
     lsb-release \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl && rm -rf /var/lib/apt/lists/*
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl zip && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (LTS version)
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \

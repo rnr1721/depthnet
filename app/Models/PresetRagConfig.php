@@ -135,6 +135,11 @@ class PresetRagConfig extends Model
         return $this->hasSource('persons');
     }
 
+    public function hasFiles(): bool
+    {
+        return $this->hasSource('files');
+    }
+
     // ── Accessors ─────────────────────────────────────────────────────────────
 
     public function getRagMode(): string

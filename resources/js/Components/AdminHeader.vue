@@ -122,6 +122,11 @@
                         <span>{{ $t('vm_vector_memory') }}</span>
                       </Link>
 
+                      <Link :href="documentsLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
+                        <span class="mr-3"></span>
+                        <span>{{ $t('docs_title') }}</span>
+                      </Link>
+
                       <Link :href="skillsLink" @click="dropdownOpen = false" :class="dropdownLinkClass">
                         <span class="mr-3"></span>
                         <span>{{ $t('skills') }}</span>
@@ -233,7 +238,7 @@
             <div>
               <p :class="['font-medium', isDark ? 'text-white' : 'text-gray-900']">{{ $page.props.auth.user.name }}</p>
               <p :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">{{ isAdmin ? $t('admin') : $t('user')
-                }}</p>
+              }}</p>
             </div>
           </div>
 
@@ -284,6 +289,11 @@
                   <Link :href="vectorMemoryLink" :class="mobileSubLinkClass"
                     @click="mobileMenuOpen = false; mobileAdminOpen = false">
                     <span class="text-lg"></span><span>{{ $t('vm_vector_memory') }}</span>
+                  </Link>
+
+                  <Link :href="documentsLink" :class="mobileSubLinkClass"
+                    @click="mobileMenuOpen = false; mobileAdminOpen = false">
+                    <span class="text-lg"></span><span>{{ $t('docs_title') }}</span>
                   </Link>
 
                   <Link :href="skillsLink" :class="mobileSubLinkClass"
@@ -393,6 +403,7 @@ const isDark = ref(false);
 // Preset-aware computed links — read saved preset from localStorage
 const memoryLink = computed(() => routeWithPreset(route('admin.memory.index')));
 const vectorMemoryLink = computed(() => routeWithPreset(route('admin.vector-memory.index')));
+const documentsLink = computed(() => routeWithPreset(route('admin.documents.index')));
 const skillsLink = computed(() => routeWithPreset(route('admin.skills.index')));
 const workspaceLink = computed(() => routeWithPreset(route('admin.workspace.index')));
 const goalsLink = computed(() => routeWithPreset(route('admin.goals.index')));

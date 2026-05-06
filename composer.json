@@ -25,11 +25,13 @@
         "ext-pdo": "*",
         "ext-tokenizer": "*",
         "ext-xml": "*",
+        "ext-zip": "*",
         "inertiajs/inertia-laravel": "^2.0",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
-        "rnr1721/codecraft": "*",
+        "phpoffice/phpspreadsheet": "^5.7",
+        "smalot/pdfparser": "^2.12",
         "tightenco/ziggy": "^2.5"
     },
     "require-dev": {

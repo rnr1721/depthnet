@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AgentController;
 use App\Http\Controllers\Admin\AgentTaskController;
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\FileController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\JournalController;
 use App\Http\Controllers\Admin\KnownSourceController;
@@ -213,6 +214,16 @@ Route::middleware('auth')->group(function () {
             Route::get('/export', [VectorMemoryController::class, 'export'])->name('export');
             Route::post('/import', [VectorMemoryController::class, 'import'])->name('import');
             Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
+        });
+
+        // Document Management routes
+        Route::prefix('documents')->name('documents.')->group(function () {
+            Route::get('/', [FileController::class, 'index'])->name('index');
+            Route::post('/', [FileController::class, 'store'])->name('store');
+            Route::delete('/{fileId}', [FileController::class, 'destroy'])->name('destroy');
+            Route::post('/search', [FileController::class, 'search'])->name('search');
+            Route::post('/{fileId}/reprocess', [FileController::class, 'reprocess'])->name('reprocess');
+            Route::get('/{fileId}/download', [FileController::class, 'download'])->name('download');
         });
 
         // Capabilities Management routes

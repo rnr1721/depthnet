@@ -131,6 +131,8 @@ export default {
   chat_system_prompt: 'System Prompt',
   chat_copy: 'Copy',
   chat_copied: 'Copied!',
+  chat_file_deleted: 'deleted',
+  chat_attach_file: 'Attach',
   settings_user_can_run_commands: "User can run model commands",
   settings_user_can_run_commands_desc: "If enabled, admin users will be able to run commands in the chat.",
   settings_header: "System Configuration and AI Settings",
@@ -1317,5 +1319,4 @@ export default {
   docs_uploading: 'Uploading...',
   docs_upload_error: 'Upload failed. Please try again.',
   docs_download: 'Download',
-  chat_file_deleted: 'deleted',
 }

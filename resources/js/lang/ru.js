@@ -131,6 +131,8 @@ export default {
   chat_system_prompt: 'Системный промпт',
   chat_copy: 'Копировать',
   chat_copied: 'Скопировано!',
+  chat_file_deleted: 'удалён',
+  chat_attach_file: 'Прикрепить',
   settings_user_can_run_commands: "Пользователь может выполнять команды как модель",
   settings_user_can_run_commands_desc: "При включении администраторы смогут выполнять команды в чате аналогично модели.",
   settings_header: "Конфигурация системы и настройки ИИ",
@@ -1315,5 +1317,4 @@ export default {
   docs_uploading: 'Загружается...',
   docs_upload_error: 'Ошибка загрузки. Попробуйте ещё раз.',
   docs_download: 'Download',
-  chat_file_deleted: 'удалён',
 }

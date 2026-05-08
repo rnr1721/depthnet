@@ -381,6 +381,7 @@ async function handleClearHistory(options) {
     if (options.clearSkills) requestData.clear_skills = true;
     if (options.clearPerson) requestData.clear_person = true;
     if (options.clearHeart) requestData.clear_heart = true;
+    if (options.clearOntology) requestData.clear_ontology = true;
     if (options.clearJournal) requestData.clear_journal = true;
     if (options.clearAgent) requestData.clear_agent = true;
 

@@ -105,6 +105,7 @@ export default {
   chat_clear_goals: "Clear goals",
   chat_clear_person_memory: "Clear person memory",
   chat_clear_heart: "Clear heart",
+  chat_clear_ontology: "Clear ontology",
   chat_clear_journal_memory: "Clear journal",
   chat_clear_warning: "This action cannot be undone.",
   chat_clear_selected: "Clear Selected",

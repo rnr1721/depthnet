@@ -292,7 +292,15 @@ class ToolCallParser implements ToolCallParserInterface
 
         $arguments = $tc['function']['arguments'] ?? '{}';
         if (is_string($arguments)) {
+            $arguments = $this->normalizeDsml($arguments);
             $arguments = json_decode($arguments, true) ?? [];
+        }
+
+        // DeepSeek V4 variant: {"arguments": {...}} wrapper
+        if (is_array($arguments) && count($arguments) === 1 && isset($arguments['arguments'])) {
+            $arguments = is_array($arguments['arguments'])
+                ? $arguments['arguments']
+                : (json_decode($arguments['arguments'], true) ?? []);
         }
 
         return [
@@ -364,4 +372,49 @@ class ToolCallParser implements ToolCallParserInterface
             toolCallId: $toolCallId,
         );
     }
+
+    /**
+     * Normalize DeepSeek DSML-wrapped parameters.
+     *
+     * DeepSeek sometimes emits tool call arguments wrapped in DSML tags:
+     *   <|DSML|parameter name="content" string="true">value</|DSML|parameter>
+     *   <|DSML|parameter name="arguments" string="false">{"key":"val"}</|DSML|parameter>
+     *
+     * This method extracts all named parameters and rebuilds a clean JSON object.
+     * If no DSML tags are found, the original string is returned unchanged.
+     */
+    private function normalizeDsml(string $raw): string
+    {
+        if (!str_contains($raw, 'DSML')) {
+            return $raw;
+        }
+
+        $params = [];
+        $pattern = '/<\|DSML\|parameter\s+name="([^"]+)"\s+string="([^"]+)">(.*?)<\/\|DSML\|parameter>/si';
+
+        if (!preg_match_all($pattern, $raw, $matches, PREG_SET_ORDER)) {
+            return $raw;
+        }
+
+        foreach ($matches as $match) {
+            $name     = $match[1];
+            $isString = strtolower($match[2]) === 'true';
+            $value    = trim($match[3]);
+
+            if (!$isString) {
+                $decoded = json_decode($value, true);
+                $params[$name] = (json_last_error() === JSON_ERROR_NONE) ? $decoded : $value;
+            } else {
+                $params[$name] = $value;
+            }
+        }
+
+        if (empty($params)) {
+            return $raw;
+        }
+
+        $encoded = json_encode($params, JSON_UNESCAPED_UNICODE);
+        return $encoded !== false ? $encoded : $raw;
+    }
+
 }

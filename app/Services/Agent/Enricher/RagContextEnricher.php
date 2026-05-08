@@ -11,6 +11,7 @@ use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Ontology\OntologyServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
@@ -49,6 +50,7 @@ class RagContextEnricher implements RagContextEnricherInterface
         protected JournalServiceInterface            $journalService,
         protected FileServiceInterface               $fileService,
         protected PersonContextEnricherInterface     $personEnricher,
+        protected OntologyServiceInterface           $ontologyService,
         protected Message                            $messageModel,
         protected LoggerInterface                    $logger,
     ) {
@@ -177,6 +179,37 @@ class RagContextEnricher implements RagContextEnricherInterface
                 }
             }
 
+            // ── Ontology ──────────────────────────────────────────────────────────────
+            $ontologyResults = [];
+
+            if ($config->hasOntology()) {
+                $retrievedText = $this->collectRetrievedText(
+                    $primaryResults,
+                    $supplementResultsOnce,
+                    $allFlatResults,
+                    $allJournalResults,
+                    $queries,
+                );
+
+                if (!empty($retrievedText)) {
+                    $mentionedNodes = $this->ontologyService->findMentionedNodes($preset, $retrievedText);
+
+                    foreach ($mentionedNodes as $node) {
+                        $key = 'ontology:' . $node->id;
+                        if (!isset($seenIds[$key])) {
+                            $snapshot = $this->ontologyService->getSnapshot($preset, [
+                                'node'  => $node->canonical_name,
+                                'depth' => 1,
+                            ]);
+                            if ($snapshot['success']) {
+                                $ontologyResults[] = $snapshot['message'];
+                                $seenIds[$key]     = true;
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── Skills ────────────────────────────────────────────────────────
             $skillResults = [];
 
@@ -244,6 +277,7 @@ class RagContextEnricher implements RagContextEnricherInterface
                 empty($allFlatResults) &&
                 empty($skillResults) &&
                 empty($allJournalResults) &&
+                empty($ontologyResults) &&
                 $personsBlock === null &&
                 empty($fileResults)
             ) {
@@ -260,6 +294,7 @@ class RagContextEnricher implements RagContextEnricherInterface
                 flatResults:            $allFlatResults,
                 skillResults:           $skillResults,
                 journalResults:         $allJournalResults,
+                ontologyResults:        $ontologyResults,
                 fileResults:            $fileResults,
                 personsBlock:           $personsBlock,
                 maxContentLimit:        $config->getRagContentLimit(),
@@ -512,6 +547,7 @@ class RagContextEnricher implements RagContextEnricherInterface
         array    $flatResults,
         array    $skillResults,
         array    $journalResults,
+        array    $ontologyResults,
         array    $fileResults,
         ?string  $personsBlock,
         int      $maxContentLimit,
@@ -609,6 +645,14 @@ class RagContextEnricher implements RagContextEnricherInterface
                 }
             }
 
+            $lines[] = '';
+        }
+
+        if (!empty($ontologyResults)) {
+            $lines[] = '[ONTOLOGY CONTEXT]';
+            foreach ($ontologyResults as $snapshot) {
+                $lines[] = $snapshot;
+            }
             $lines[] = '';
         }
 
@@ -716,4 +760,28 @@ class RagContextEnricher implements RagContextEnricherInterface
             $this->logger->debug('RAG: ' . $message, $context);
         }
     }
+
+    private function collectRetrievedText(
+        array $primary,
+        array $supplement,
+        array $flat,
+        array $journal,
+        array $queries,
+    ): string {
+        $parts = $queries;
+
+        foreach (array_merge($primary, $supplement, $flat) as $r) {
+            $parts[] = ($r['document'] ?? $r['memory'])->getTextContent();
+        }
+
+        foreach ($journal as $entry) {
+            $parts[] = $entry->summary;
+            if ($entry->details) {
+                $parts[] = $entry->details;
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
 }

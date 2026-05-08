@@ -262,6 +262,7 @@ const allSources = [
     { value: 'skills', label: 'Skills' },
     { value: 'persons', label: 'Persons' },
     { value: 'files', label: 'Files' },
+    { value: 'ontology', label: 'Ontology' },
 ];
 
 const baseUrl = computed(() => `/admin/presets/${props.preset?.id}/rag-configs`);

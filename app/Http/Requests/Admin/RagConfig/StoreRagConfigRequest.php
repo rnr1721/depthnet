@@ -16,7 +16,7 @@ class StoreRagConfigRequest extends FormRequest
         return [
             'rag_preset_id'              => 'required|integer|exists:ai_presets,id',
             'sources'                    => 'nullable|array',
-            'sources.*'                  => 'string|in:vector_memory,journal,skills,persons,files',
+            'sources.*'                  => 'string|in:vector_memory,journal,skills,persons,files,ontology',
             'rag_mode'                   => 'sometimes|in:flat,associative',
             'rag_engine'                 => 'sometimes|in:tfidf,embedding',
             'rag_context_limit'          => 'sometimes|integer|min:1|max:50',

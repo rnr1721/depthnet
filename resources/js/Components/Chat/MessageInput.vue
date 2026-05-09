@@ -151,61 +151,62 @@
       </div>
 
       <!-- Mobile row with voice buttons - only < lg -->
-      <div v-if="hasSTT || hasTTS" class="flex lg:hidden items-center gap-2 mt-2">
-        <span :class="['text-xs flex-shrink-0', isDark ? 'text-gray-500' : 'text-gray-400']">
-          {{ t('chat_voice') }}:
-        </span>
+      <!-- Mobile buttons - responsive grid -->
+      <div class="flex lg:hidden flex-col gap-2 mt-2">
+        <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          <!-- Attach -->
+          <button type="button" @click="$refs.fileInput.click()" :class="[
+            'flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-xs font-medium transition-all',
+            attachedFiles.length
+              ? (isDark ? 'bg-teal-700 text-white' : 'bg-teal-500 text-white')
+              : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')
+          ]">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.414 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            <span class="hidden sm:inline">{{ attachedFiles.length ? attachedFiles.length + ' ' + t('chat_files') :
+              t('chat_attach_file') }}</span>
+            <span class="sm:hidden">{{ attachedFiles.length || t('chat_file') }}</span>
+          </button>
 
-        <!-- Mobile microphone -->
-        <button v-if="hasSTT" type="button" @click="handleMicClick" :disabled="disabled || isProcessing" :class="[
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-          'disabled:opacity-50 disabled:cursor-not-allowed',
-          isListening
-            ? (isDark ? 'bg-red-700 text-white ring-2 ring-red-500' : 'bg-red-500 text-white ring-2 ring-red-400')
-            : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')
-        ]">
-          <span v-if="isListening" class="relative flex h-2 w-2 flex-shrink-0">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-300 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-2 w-2 bg-red-200"></span>
-          </span>
-          <svg v-else class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-          </svg>
-          <span>{{ isListening ? t('chat_voice_stop') : t('chat_voice_start') }}</span>
-        </button>
+          <!-- Mic -->
+          <button v-if="hasSTT" type="button" @click="handleMicClick" :disabled="disabled || isProcessing" :class="[
+            'flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-xs font-medium transition-all',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+            isListening
+              ? (isDark ? 'bg-red-700 text-white ring-2 ring-red-500' : 'bg-red-500 text-white ring-2 ring-red-400')
+              : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')
+          ]">
+            <span v-if="isListening" class="relative flex h-5 w-5">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-300 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-5 w-5 bg-red-200"></span>
+            </span>
+            <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+            <span class="hidden sm:inline">{{ isListening ? t('chat_voice_stop') : t('chat_voice_start') }}</span>
+            <span class="sm:hidden">{{ isListening ? t('chat_voice_input_stop') : t('chat_voice_input_start') }}</span>
+          </button>
 
-        <!-- TTS mobile -->
-        <button v-if="hasTTS" type="button" @click="emit('toggleTTS')" :class="[
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-          ttsEnabled
-            ? (isDark ? 'bg-indigo-600 text-white' : 'bg-indigo-500 text-white')
-            : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')
-        ]">
-          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path v-if="ttsEnabled" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M12 6v12m0 0L8 14H5a1 1 0 01-1-1v-2a1 1 0 011-1h3l4-4z" />
-            <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-          </svg>
-          <span>{{ ttsEnabled ? t('chat_tts_disable') : t('chat_tts_enable') }}</span>
-        </button>
-
-        <!-- Attach - mobile -->
-        <button type="button" @click="$refs.fileInput.click()" :class="[
-          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-          attachedFiles.length
-            ? (isDark ? 'bg-teal-700 text-white' : 'bg-teal-500 text-white')
-            : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')
-        ]">
-          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.414 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
-          <span>{{ attachedFiles.length ? attachedFiles.length + ' ' + t('chat_files') : t('chat_attach_file') }}</span>
-        </button>
-
-
+          <!-- TTS -->
+          <button v-if="hasTTS" type="button" @click="emit('toggleTTS')" :class="[
+            'flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-xs font-medium transition-all',
+            ttsEnabled
+              ? (isDark ? 'bg-indigo-600 text-white' : 'bg-indigo-500 text-white')
+              : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')
+          ]">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path v-if="ttsEnabled" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M12 6v12m0 0L8 14H5a1 1 0 01-1-1v-2a1 1 0 011-1h3l4-4z" />
+              <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            </svg>
+            <span class="hidden sm:inline">{{ ttsEnabled ? t('chat_tts_disable') : t('chat_tts_enable') }}</span>
+            <span class="sm:hidden">{{ ttsEnabled ? t('chat_tts_on') : t('chat_tts_off') }}</span>
+          </button>
+        </div>
       </div>
 
     </form>

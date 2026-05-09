@@ -39,6 +39,7 @@ use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Ontology\OntologyQueryServiceInterface;
 use App\Contracts\Agent\Ontology\OntologyServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
@@ -109,6 +110,7 @@ use App\Services\Agent\Memory\TextMemoryExporter;
 use App\Services\Agent\Memory\TextMemoryImporter;
 use App\Services\Agent\Memory\MemoryService;
 use App\Services\Agent\Memory\PersonMemoryService;
+use App\Services\Agent\Ontology\OntologyQueryService;
 use App\Services\Agent\Ontology\OntologyService;
 use App\Services\Agent\Orchestrator\AgentService;
 use App\Services\Agent\Orchestrator\AgentTaskService;
@@ -210,6 +212,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(JournalServiceInterface::class, JournalService::class);
 
         $this->app->singleton(OntologyServiceInterface::class, OntologyService::class);
+        $this->app->bind(OntologyQueryServiceInterface::class, OntologyQueryService::class);
 
         // EmbeddingRegistry: singleton so all drivers are registered once.
         $this->app->singleton(EmbeddingRegistry::class, function ($app) {

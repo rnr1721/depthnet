@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\JournalController;
 use App\Http\Controllers\Admin\KnownSourceController;
 use App\Http\Controllers\Admin\MemoryController;
+use App\Http\Controllers\Admin\OntologyController;
 use App\Http\Controllers\Admin\PersonController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetCapabilityController;
@@ -323,6 +324,15 @@ Route::middleware('auth')->group(function () {
             Route::delete('/{entryId}', [JournalController::class, 'destroy'])->name('destroy');
             Route::post('/clear', [JournalController::class, 'clear'])->name('clear');
             Route::post('/search', [JournalController::class, 'search'])->name('search');
+        });
+
+        // Ontology Management routes
+        Route::prefix('ontology')->name('ontology.')->group(function () {
+            Route::get('/', [OntologyController::class, 'index'])->name('index');
+            Route::put('/nodes/{nodeId}', [OntologyController::class, 'updateNode'])->name('node.update');
+            Route::delete('/nodes/{nodeId}', [OntologyController::class, 'destroyNode'])->name('node.destroy');
+            Route::delete('/edges/{edgeId}', [OntologyController::class, 'destroyEdge'])->name('edge.destroy');
+            Route::post('/clear', [OntologyController::class, 'clear'])->name('clear');
         });
 
         if (config('sandbox.enabled', false)) {

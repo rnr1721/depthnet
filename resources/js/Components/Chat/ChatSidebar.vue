@@ -77,6 +77,7 @@
               <Link :href="vectorMemoryLink" :class="linkClass">{{ t('vm_vector_memory') }}</Link>
               <Link :href="documentsLink" :class="linkClass">{{ t('docs_title') }}</Link>
               <Link :href="journalLink" :class="linkClass">{{ t('journal') }}</Link>
+              <Link :href="ontologyLink" :class="linkClass">{{ t('ontology') }}</Link>
               <Link :href="personLink" :class="linkClass">{{ t('person_memory') }}</Link>
               <Link :href="skillsLink" :class="linkClass">{{ t('skills') }}</Link>
               <Link :href="goalsLink" :class="linkClass">{{ t('goals') }}</Link>
@@ -263,6 +264,9 @@ const goalsLink = computed(() =>
 );
 const journalLink = computed(() =>
   routeWithPreset(route('admin.journal.index'), props.currentPresetId)
+);
+const ontologyLink = computed(() =>
+  routeWithPreset(route('admin.ontology.index'), props.currentPresetId)
 );
 const personLink = computed(() =>
   routeWithPreset(route('admin.person-memory.index'), props.currentPresetId)

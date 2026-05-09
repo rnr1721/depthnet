@@ -87,7 +87,7 @@ DepthNet enables autonomous AI agents through:
 - **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, image, audio and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
-- **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single `[[rag_context]]` block. Sources per config: vector memory (flat or associative), journal, skills, persons. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
+- **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single `[[rag_context]]` block. Sources per config: vector memory (flat or associative), journal, skills, persons, ontology. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
 - **Inner Voice**: Multi-voice pipeline — attach one or more voice presets to any agent, each running independently and contributing a labeled block to [[inner_voice]]. Works in both single and loop modes. A separate cycle prompt preset can be configured for loop mode as an anti-loop mechanism — its output goes into the input pool rather than the system prompt.[→](docs/memory/inner-voice.md)
@@ -151,6 +151,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Browser** (`browser`) | Persistent Playwright browser with session memory surviving across thinking cycles. Open pages, click, type, read structured snapshots. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |
 | **Dopamine** (`dopamine`) | Self-motivation system. Agent rewards/penalises itself; level visible via `[[dopamine_level]]`. Optional auto-decay. | [→](docs/plugins/dopamine.md) |
 | **Heart** (`heart`) | Attention and connection engine. Tracks named connections, emotional signals, dominant focus, and gravity. State visible via `[[heart_state]]`. Not an emotion simulator — a measurable attention system. | [→](docs/plugins/heart.md) |
+| **Ontology** (`ontology`) | World-model graph — temporal property graph of entities and relationships. Stores durable facts about people, places, concepts and how they connect over time. Integrates with RAG pipeline as an `ontology` source. | [→](docs/plugins/ontology.md) [→](docs/memory/ontology.md) |
 | **Being** (`being`) | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
 | **Rhythm** (`rhythm`) | Temporal context snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset/sunrise. Injected via `[[rhythm]]`. Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
 | **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
@@ -308,6 +309,17 @@ The AI communicates through special command tags that trigger plugin execution. 
 [telegram info]@username[/telegram]
 [telegram mark_read]@username[/telegram]
 [telegram me][/telegram]
+
+# Ontology — world-model graph
+[ontology find]eugeny[/ontology]
+[ontology add_node]eugeny | Person | Женя, Евгений[/ontology]
+[ontology add_edge]eugeny | lives_in | kharkiv[/ontology]
+[ontology add_edge]sergey | lived_in | kharkiv | 2010-01-01[/ontology]
+[ontology set_property]eugeny | occupation | software_engineer[/ontology]
+[ontology set_property]eugeny | current_city | @kharkiv[/ontology]
+[ontology snapshot]eugeny | 2[/ontology]
+[ontology merge]женя | eugeny[/ontology]
+[ontology close]old_project[/ontology]
 
 ```
 

@@ -6,9 +6,12 @@ use App\Contracts\Agent\Ontology\OntologyServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Ontology\OntologyPresetRequest;
+use App\Http\Requests\Admin\Ontology\StoreOntologyNodeRequest;
+use App\Http\Requests\Admin\Ontology\StoreOntologyEdgeRequest;
 use App\Http\Requests\Admin\Ontology\DeleteOntologyNodeRequest;
 use App\Http\Requests\Admin\Ontology\DeleteOntologyEdgeRequest;
 use App\Http\Requests\Admin\Ontology\UpdateOntologyNodeRequest;
+use App\Http\Requests\Admin\Ontology\UpdateOntologyEdgeRequest;
 use App\Services\Agent\Ontology\OntologyQueryService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -61,15 +64,54 @@ class OntologyController extends Controller
         ]);
     }
 
-    public function updateNode(UpdateOntologyNodeRequest $request, int $nodeId)
+    // -------------------------------------------------------------------------
+    // Node CRUD
+    // -------------------------------------------------------------------------
+
+    public function storeNode(StoreOntologyNodeRequest $request)
     {
-        $node = $this->ontologyQueryService->findOrFailNode($nodeId);
-        $node->update([
+        $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
+
+        $result = $this->ontologyService->addNode($preset, [
+            'name'    => $request->validated('canonical_name'),
             'class'   => $request->validated('class'),
-            'aliases' => $request->validated('aliases') ?: null,
+            'aliases' => $request->validated('aliases') ?: [],
         ]);
 
-        return back()->with('success', "Node \"{$node->canonical_name}\" updated.");
+        return back()->with(
+            $result['success'] ? 'success' : 'error',
+            $result['message']
+        );
+    }
+
+    public function updateNode(UpdateOntologyNodeRequest $request, int $nodeId)
+    {
+        $node   = $this->ontologyQueryService->findOrFailNode($nodeId);
+        $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
+
+        $aliases = $request->validated('aliases');
+        if (is_array($aliases)) {
+            $aliases = array_values(array_filter(array_map('trim', $aliases)));
+        }
+
+        $params = [];
+
+        if ($request->has('canonical_name')) {
+            $params['canonical_name'] = $request->validated('canonical_name');
+        }
+        if ($request->has('class')) {
+            $params['class'] = $request->validated('class');
+        }
+        if ($request->has('aliases')) {
+            $params['aliases'] = $aliases;
+        }
+        if ($request->has('weight')) {
+            $params['weight'] = $request->validated('weight');
+        }
+
+        $result = $this->ontologyService->updateNode($preset, $node, $params);
+
+        return back()->with($result['success'] ? 'success' : 'error', $result['message']);
     }
 
     public function destroyNode(DeleteOntologyNodeRequest $request, int $nodeId)
@@ -81,6 +123,38 @@ class OntologyController extends Controller
         return back()->with('success', "Node \"{$name}\" deleted.");
     }
 
+    // -------------------------------------------------------------------------
+    // Edge CRUD
+    // -------------------------------------------------------------------------
+
+    public function storeEdge(StoreOntologyEdgeRequest $request)
+    {
+        $preset = $this->presetRegistry->getPreset($request->validated('preset_id'));
+
+        $result = $this->ontologyService->addEdge($preset, [
+            'source'   => $request->validated('source'),
+            'target'   => $request->validated('target'),
+            'relation' => $request->validated('relation_type'),
+            'weight'   => $request->validated('weight') ?? 1.0,
+        ]);
+
+        return back()->with(
+            $result['success'] ? 'success' : 'error',
+            $result['message']
+        );
+    }
+
+    public function updateEdge(UpdateOntologyEdgeRequest $request, int $edgeId)
+    {
+        $edge = $this->ontologyQueryService->findOrFailEdge($edgeId);
+        $edge->update([
+            'relation_type' => $request->validated('relation_type'),
+            'weight'        => $request->validated('weight') ?? $edge->weight,
+        ]);
+
+        return back()->with('success', 'Edge updated.');
+    }
+
     public function destroyEdge(DeleteOntologyEdgeRequest $request, int $edgeId)
     {
         $edge = $this->ontologyQueryService->findOrFailEdge($edgeId);
@@ -88,6 +162,10 @@ class OntologyController extends Controller
 
         return back()->with('success', 'Edge deleted.');
     }
+
+    // -------------------------------------------------------------------------
+    // Bulk
+    // -------------------------------------------------------------------------
 
     public function clear(OntologyPresetRequest $request)
     {

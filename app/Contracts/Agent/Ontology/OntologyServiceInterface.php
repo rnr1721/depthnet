@@ -115,4 +115,41 @@ interface OntologyServiceInterface
      * @return array
      */
     public function clear(AiPreset $preset): array;
+
+    /**
+     * Update a node's mutable fields. Insert-only design is preserved:
+     * the node's identity (id, preset_id) and history (edges, properties)
+     * are never touched by this method.
+     *
+     * Supported fields in $params:
+     *   - 'canonical_name' (string): rename the node. Lowercased and trimmed.
+     *                                Must be unique within the preset; if
+     *                                another node already owns the new name
+     *                                (by canonical_name or alias), the update
+     *                                fails. To merge two nodes use mergeNodes()
+     *                                instead.
+     *   - 'class' (string): change the node's class (e.g. "Concept" → "Person").
+     *   - 'aliases' (array<string>|null): replace the alias set entirely.
+     *                                     Pass [] or null to clear all aliases.
+     *                                     Aliases are normalized (trim, lowercase,
+     *                                     dedupe) and the canonical_name is
+     *                                     stripped from the set if present.
+     *   - 'add_aliases' (array<string>): merge these aliases into the existing
+     *                                    set. Mutually exclusive with 'aliases'.
+     *   - 'remove_aliases' (array<string>): drop these aliases from the existing
+     *                                       set. Mutually exclusive with 'aliases'.
+     *   - 'weight' (float): set the node's weight to an absolute value.
+     *                       Must be >= 0.
+     *
+     * Any field not present in $params is left unchanged. Passing an empty
+     * $params is a no-op and returns success.
+     *
+     * @param  AiPreset     $preset
+     * @param  OntologyNode $node    The node to update. Must belong to $preset.
+     * @param  array        $params  Fields to update (see above).
+     * @return array{success: bool, message: string, node?: OntologyNode, changed?: array<string>}
+     *         On success: 'changed' lists the names of fields that actually changed.
+     */
+    public function updateNode(AiPreset $preset, OntologyNode $node, array $params): array;
+
 }

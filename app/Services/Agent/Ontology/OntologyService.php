@@ -668,6 +668,264 @@ class OntologyService implements OntologyServiceInterface
     }
 
     // -------------------------------------------------------------------------
+    // Update
+    // -------------------------------------------------------------------------
+
+    /**
+     * {@inheritdoc}
+     */
+    public function updateNode(AiPreset $preset, OntologyNode $node, array $params): array
+    {
+        try {
+            // Sanity check: node must belong to this preset
+            if ((string) $node->preset_id !== (string) $preset->id) {
+                return ['success' => false, 'message' => 'Node does not belong to this preset.'];
+            }
+
+            // Validate mutually exclusive alias options
+            $hasReplace = array_key_exists('aliases', $params);
+            $hasAdd     = array_key_exists('add_aliases', $params);
+            $hasRemove  = array_key_exists('remove_aliases', $params);
+
+            if ($hasReplace && ($hasAdd || $hasRemove)) {
+                return [
+                    'success' => false,
+                    'message' => "Cannot combine 'aliases' with 'add_aliases' or 'remove_aliases' — use one or the other.",
+                ];
+            }
+
+            $presetId = (string) $preset->id;
+
+            // Snapshot original values to detect actual changes
+            $originalCanonicalName = $node->canonical_name;
+
+            $result = $this->db->transaction(function () use ($preset, $node, $params, $presetId, $hasReplace, $hasAdd, $hasRemove) {
+                // Re-load with FOR UPDATE so we have a stable view of the row
+                $locked = $this->nodeModel
+                    ->forPreset($presetId)
+                    ->where('id', $node->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$locked) {
+                    throw new \DomainException('__node_gone__');
+                }
+
+                $originalAliases = $locked->aliases ?? [];
+
+                $changed = [];
+                $dirty   = [];
+
+                // ----- canonical_name -----
+                if (array_key_exists('canonical_name', $params)) {
+                    $newName = mb_strtolower(trim((string) $params['canonical_name']));
+
+                    if ($newName === '') {
+                        throw new \DomainException('canonical_name cannot be empty.');
+                    }
+
+                    if ($newName !== $locked->canonical_name) {
+                        // Make sure no other node in this preset owns the new name
+                        // (either as canonical_name or as an alias).
+                        $conflict = $this->nodeModel
+                            ->forPreset($presetId)
+                            ->where('id', '!=', $locked->id)
+                            ->where(function ($q) use ($newName) {
+                                $q->where('canonical_name', $newName)
+                                  ->orWhereJsonContains('aliases', $newName);
+                            })
+                            ->lockForUpdate()
+                            ->first();
+
+                        if ($conflict) {
+                            throw new \DomainException(
+                                "canonical_name conflict: \"{$newName}\" already belongs to node id:{$conflict->id} ({$conflict->canonical_name}). Use mergeNodes() to combine."
+                            );
+                        }
+
+                        $dirty['canonical_name'] = $newName;
+                        $changed[] = 'canonical_name';
+                    }
+                }
+
+                // ----- class -----
+                if (array_key_exists('class', $params)) {
+                    $newClass = trim((string) $params['class']);
+
+                    if ($newClass === '') {
+                        throw new \DomainException('class cannot be empty.');
+                    }
+
+                    if ($newClass !== $locked->class) {
+                        $dirty['class'] = $newClass;
+                        $changed[] = 'class';
+                    }
+                }
+
+                // ----- aliases (replace / add / remove) -----
+                $finalCanonical = $dirty['canonical_name'] ?? $locked->canonical_name;
+                $newAliases     = null;
+                $aliasesTouched = false;
+
+                if ($hasReplace) {
+                    $raw = $params['aliases'] ?? [];
+                    if ($raw === null) {
+                        $raw = [];
+                    }
+                    if (!is_array($raw)) {
+                        throw new \DomainException("'aliases' must be an array or null.");
+                    }
+                    $newAliases     = $this->normalizeAliases($raw);
+                    $aliasesTouched = true;
+
+                } elseif ($hasAdd || $hasRemove) {
+                    $current = $locked->aliases ?? [];
+
+                    if ($hasAdd) {
+                        $toAdd = $params['add_aliases'] ?? [];
+                        if (!is_array($toAdd)) {
+                            throw new \DomainException("'add_aliases' must be an array.");
+                        }
+                        $current = array_merge($current, $this->normalizeAliases($toAdd));
+                    }
+
+                    if ($hasRemove) {
+                        $toRemove = $params['remove_aliases'] ?? [];
+                        if (!is_array($toRemove)) {
+                            throw new \DomainException("'remove_aliases' must be an array.");
+                        }
+                        $removeSet = array_flip($this->normalizeAliases($toRemove));
+                        $current = array_filter(
+                            $current,
+                            fn ($alias) => !isset($removeSet[mb_strtolower((string) $alias)])
+                        );
+                    }
+
+                    $newAliases     = $this->normalizeAliases($current);
+                    $aliasesTouched = true;
+                }
+
+                if ($aliasesTouched) {
+                    // Strip the canonical_name from aliases — it's redundant.
+                    $newAliases = array_values(array_filter(
+                        $newAliases,
+                        fn ($alias) => $alias !== $finalCanonical
+                    ));
+
+                    // Detect alias-set changes (order-independent, exact set equality)
+                    $origSorted = $originalAliases;
+                    sort($origSorted);
+                    $newSorted = $newAliases;
+                    sort($newSorted);
+
+                    if ($origSorted !== $newSorted) {
+                        // Conflict check: none of the new aliases may belong to another node
+                        if (!empty($newAliases)) {
+                            foreach ($newAliases as $alias) {
+                                $conflict = $this->nodeModel
+                                    ->forPreset($presetId)
+                                    ->where('id', '!=', $locked->id)
+                                    ->where(function ($q) use ($alias) {
+                                        $q->where('canonical_name', $alias)
+                                          ->orWhereJsonContains('aliases', $alias);
+                                    })
+                                    ->lockForUpdate()
+                                    ->first();
+
+                                if ($conflict) {
+                                    throw new \DomainException(
+                                        "alias conflict: \"{$alias}\" already belongs to node id:{$conflict->id} ({$conflict->canonical_name})."
+                                    );
+                                }
+                            }
+                        }
+
+                        $dirty['aliases'] = $newAliases ?: null;
+                        $changed[] = 'aliases';
+                    }
+                }
+
+                // ----- weight -----
+                if (array_key_exists('weight', $params)) {
+                    if (!is_numeric($params['weight'])) {
+                        throw new \DomainException("'weight' must be numeric.");
+                    }
+                    $newWeight = (float) $params['weight'];
+
+                    if ($newWeight < 0) {
+                        throw new \DomainException("'weight' must be >= 0.");
+                    }
+
+                    // Compare with a small epsilon to avoid spurious "changes" on float roundtrips
+                    if (abs($newWeight - (float) $locked->weight) > 1e-9) {
+                        $dirty['weight'] = $newWeight;
+                        $changed[] = 'weight';
+                    }
+                }
+
+                // Apply if anything actually changed
+                if (!empty($dirty)) {
+                    $locked->update($dirty);
+                }
+
+                return [
+                    'node'    => $locked->fresh(),
+                    'changed' => $changed,
+                ];
+            });
+
+            $updatedNode = $result['node'];
+            $changed     = $result['changed'];
+
+            // Cache hygiene:
+            //   - If canonical_name or aliases changed, the old keys point to a stale view.
+            //     Drop the whole preset cache (cheap, predictable) and re-cache the fresh node.
+            //   - If only class/weight changed, just refresh the cached entries.
+            if (in_array('canonical_name', $changed, true) || in_array('aliases', $changed, true)) {
+                $this->invalidatePresetCache($presetId);
+            }
+            $this->cacheNodeWithAliases($presetId, $updatedNode);
+
+            if (empty($changed)) {
+                return [
+                    'success' => true,
+                    'message' => "No changes applied to node \"{$updatedNode->canonical_name}\".",
+                    'node'    => $updatedNode,
+                    'changed' => [],
+                ];
+            }
+
+            $message = "Node updated: \"{$updatedNode->canonical_name}\" (id:{$updatedNode->id}). Changed: "
+                     . implode(', ', $changed) . '.';
+
+            // Mention rename explicitly if it happened, since downstream code/agents may care
+            if (in_array('canonical_name', $changed, true) && $originalCanonicalName !== $updatedNode->canonical_name) {
+                $message .= " Renamed from \"{$originalCanonicalName}\" to \"{$updatedNode->canonical_name}\".";
+            }
+
+            return [
+                'success' => true,
+                'message' => $message,
+                'node'    => $updatedNode,
+                'changed' => $changed,
+            ];
+
+        } catch (\DomainException $e) {
+            // Validation / conflict errors — return as a clean failure, not a 500
+            $msg = $e->getMessage();
+            if ($msg === '__node_gone__') {
+                $msg = "Node id:{$node->id} no longer exists.";
+            }
+            return ['success' => false, 'message' => $msg];
+
+        } catch (\Throwable $e) {
+            $this->logger->error('OntologyService::updateNode error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Error updating node: ' . $e->getMessage()];
+        }
+    }
+
+
+    // -------------------------------------------------------------------------
     // Close node
     // -------------------------------------------------------------------------
 

@@ -328,12 +328,19 @@ Route::middleware('auth')->group(function () {
 
         // Ontology Management routes
         Route::prefix('ontology')->name('ontology.')->group(function () {
-            Route::get('/', [OntologyController::class, 'index'])->name('index');
-            Route::put('/nodes/{nodeId}', [OntologyController::class, 'updateNode'])->name('node.update');
-            Route::delete('/nodes/{nodeId}', [OntologyController::class, 'destroyNode'])->name('node.destroy');
-            Route::delete('/edges/{edgeId}', [OntologyController::class, 'destroyEdge'])->name('edge.destroy');
-            Route::post('/clear', [OntologyController::class, 'clear'])->name('clear');
+            Route::get('/', [OntologyController::class, 'index'])       ->name('index');
+            // Nodes
+            Route::post('/nodes', [OntologyController::class, 'storeNode'])   ->name('node.store');
+            Route::put('/nodes/{nodeId}', [OntologyController::class, 'updateNode'])  ->name('node.update');
+            Route::delete('/nodes/{nodeId}', [OntologyController::class, 'destroyNode']) ->name('node.destroy');
+            // Edges
+            Route::post('/edges', [OntologyController::class, 'storeEdge'])   ->name('edge.store');
+            Route::put('/edges/{edgeId}', [OntologyController::class, 'updateEdge'])  ->name('edge.update');
+            Route::delete('/edges/{edgeId}', [OntologyController::class, 'destroyEdge']) ->name('edge.destroy');
+            // Bulk
+            Route::post('/clear', [OntologyController::class, 'clear'])       ->name('clear');
         });
+
 
         if (config('sandbox.enabled', false)) {
             // Sandbox Management routes

@@ -105,6 +105,7 @@
                 {{ t('hypervisor') }}
               </Link>
               <Link :href="route('admin.settings')" :class="linkClass">{{ t('chat_settings') }}</Link>
+              <Link :href="route('admin.capabilities.index')" :class="linkClass">{{ t('capabilities') }}</Link>
             </div>
           </div>
         </template>
@@ -273,6 +274,9 @@ const personLink = computed(() =>
 );
 const knownSourcesLink = computed(() =>
   routeWithPreset(route('admin.known-sources.index'), props.currentPresetId)
+);
+const capabilitiesLink = computed(() =>
+  routeWithPreset(route('admin.capabilities.index'), props.currentPresetId)
 );
 
 // Agent tasks link — carries selected agent_id if one is chosen in the preset filter

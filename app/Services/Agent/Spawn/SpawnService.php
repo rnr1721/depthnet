@@ -4,10 +4,11 @@ namespace App\Services\Agent\Spawn;
 
 use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\Spawn\SpawnServiceInterface;
 use App\Exceptions\PresetException;
 use App\Models\AiPreset;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
 
@@ -61,6 +62,9 @@ class SpawnService implements SpawnServiceInterface
     public function __construct(
         protected PresetServiceInterface $presetService,
         protected PresetCleanupFactoryInterface $cleanupFactory,
+        protected AiPreset $presetModel,
+        protected DatabaseManager $db,
+        protected PresetMetadataServiceInterface $metadataService,
         protected LoggerInterface $logger,
     ) {
     }
@@ -105,7 +109,7 @@ class SpawnService implements SpawnServiceInterface
             'parent_preset_id' => $parentPresetId,
         ]);
 
-        $spawned = DB::transaction(function () use ($data) {
+        $spawned = $this->db->transaction(function () use ($data) {
             return $this->presetService->createPreset($data);
         });
 
@@ -115,6 +119,9 @@ class SpawnService implements SpawnServiceInterface
             'is_spawned'       => true,
             'parent_preset_id' => $parentPresetId,
         ]);
+
+        // Copy sandbox assignment from parent if exists
+        $this->copySandboxToSpawn($parent, $spawned->fresh());
 
         $this->logger->info('SpawnService: spawned preset created', [
             'parent_preset_id' => $parentPresetId,
@@ -199,7 +206,7 @@ class SpawnService implements SpawnServiceInterface
      */
     public function listSpawns(int $parentPresetId): Collection
     {
-        return AiPreset::where('parent_preset_id', $parentPresetId)
+        return $this->presetModel->where('parent_preset_id', $parentPresetId)
             ->where('is_spawned', true)
             ->orderBy('created_at')
             ->get();
@@ -244,7 +251,7 @@ class SpawnService implements SpawnServiceInterface
      */
     public function findSpawnByCode(string $presetCode, int $parentPresetId): ?AiPreset
     {
-        return AiPreset::where('preset_code', $presetCode)
+        return $this->presetModel->where('preset_code', $presetCode)
             ->where('parent_preset_id', $parentPresetId)
             ->where('is_spawned', true)
             ->first();
@@ -342,4 +349,24 @@ class SpawnService implements SpawnServiceInterface
 
         return $data;
     }
+
+    /**
+     * Copy sandbox assignment from parent preset to spawned preset.
+     * Spawned preset shares the parent's sandbox — no new container needed.
+     */
+    private function copySandboxToSpawn(AiPreset $parent, AiPreset $spawned): void
+    {
+        $sandboxMeta = $this->metadataService->getPluginMetadata($parent, 'sandbox');
+
+        if (empty($sandboxMeta['current_sandbox_id'])) {
+            return;
+        }
+
+        $this->metadataService->updatePluginMetadata($spawned, 'sandbox', [
+            'current_sandbox_id' => $sandboxMeta['current_sandbox_id'],
+            'sandbox_type'       => $sandboxMeta['sandbox_type'] ?? null,
+            'assigned_at'        => now()->toISOString(),
+        ]);
+    }
+
 }

@@ -55,6 +55,7 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\PresetInnerVoiceConfigServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
+use App\Contracts\Agent\PresetPluginDataServiceInterface;
 use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetRagConfigServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
@@ -143,6 +144,7 @@ use App\Services\Agent\Plugins\PersonPlugin;
 use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\RagQueryPlugin;
+use App\Services\Agent\Plugins\Related\PluginData\PresetPluginDataService;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
@@ -150,6 +152,7 @@ use App\Services\Agent\Plugins\SelfNotePlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
 use App\Services\Agent\Plugins\SpawnPlugin;
+use App\Services\Agent\Plugins\SwitchPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\TerminalPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
@@ -323,6 +326,7 @@ class AiServiceProvider extends ServiceProvider
         });
         $this->app->bind(AgentMessageServiceInterface::class, AgentMessageService::class);
         $this->app->singleton(PresetPromptServiceInterface::class, PresetPromptService::class);
+        $this->app->singleton(PresetPluginDataServiceInterface::class, PresetPluginDataService::class);
         $this->app->bind(PresetServiceInterface::class, PresetService::class);
         $this->app->singleton(PresetRegistryInterface::class, PresetRegistry::class);
 
@@ -414,6 +418,7 @@ class AiServiceProvider extends ServiceProvider
             ShellPlugin::class,
             McpPlugin::class,
             PromptPlugin::class,
+            SwitchPlugin::class,
             SpawnPlugin::class,
             DopaminePlugin::class,
             MoodPlugin::class,

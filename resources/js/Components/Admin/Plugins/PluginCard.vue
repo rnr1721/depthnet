@@ -185,10 +185,77 @@
                         ]">{{ field.description || field.label }}</span>
                     </label>
 
-                    <p v-if="field.description && field.type !== 'checkbox'" :class="[
-                        'text-xs',
-                        isDark ? 'text-gray-400' : 'text-gray-600'
-                    ]">{{ field.description }}</p>
+                    <!-- Plugin Data List (key/value pairs stored in preset_plugin_data) -->
+                    <div v-else-if="field.type === 'plugin_data_list'" class="space-y-2">
+                        <!-- Existing entries -->
+                        <div v-for="entry in pluginDataEntries[fieldName]" :key="entry.id"
+                            class="flex items-start gap-2">
+                            <div class="flex-1 min-w-0">
+                                <input v-model="entry.key" :placeholder="field.key_label || 'Code'"
+                                    @blur="updatePluginDataEntry(fieldName, entry)" :class="[
+                                        'w-full px-2 py-1 text-xs rounded border mb-1',
+                                        isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'
+                                    ]" />
+                                <textarea v-if="field.value_type === 'textarea'" v-model="entry.value"
+                                    :placeholder="field.value_label || 'Content'"
+                                    @blur="updatePluginDataEntry(fieldName, entry)" rows="3" :class="[
+                                        'w-full px-2 py-1 text-xs rounded border resize-y',
+                                        isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'
+                                    ]" />
+                                <input v-else v-model="entry.value" :placeholder="field.value_label || 'Value'"
+                                    @blur="updatePluginDataEntry(fieldName, entry)" :class="[
+                                        'w-full px-2 py-1 text-xs rounded border',
+                                        isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'
+                                    ]" />
+                            </div>
+                            <button @click="deletePluginDataEntry(fieldName, entry.id)" :class="[
+                                'mt-1 p-1 rounded text-xs flex-shrink-0',
+                                isDark ? 'text-red-400 hover:bg-red-900' : 'text-red-500 hover:bg-red-50'
+                            ]" title="Delete">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Add new entry -->
+                        <div class="flex items-start gap-2 pt-1 border-t"
+                            :class="isDark ? 'border-gray-700' : 'border-gray-200'">
+                            <div class="flex-1 min-w-0">
+                                <input v-model="newEntries[fieldName].key" :placeholder="field.key_label || 'Code'"
+                                    :class="[
+                                        'w-full px-2 py-1 text-xs rounded border mb-1',
+                                        isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900'
+                                    ]" />
+                                <textarea v-if="field.value_type === 'textarea'" v-model="newEntries[fieldName].value"
+                                    :placeholder="field.value_label || 'Content'" rows="3" :class="[
+                                        'w-full px-2 py-1 text-xs rounded border resize-y',
+                                        isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900'
+                                    ]" />
+                                <input v-else v-model="newEntries[fieldName].value"
+                                    :placeholder="field.value_label || 'Value'" :class="[
+                                        'w-full px-2 py-1 text-xs rounded border',
+                                        isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900'
+                                    ]" />
+                            </div>
+                            <button @click="addPluginDataEntry(fieldName)" :class="[
+                                'mt-1 p-1 rounded text-xs flex-shrink-0',
+                                isDark ? 'text-green-400 hover:bg-green-900' : 'text-green-600 hover:bg-green-50'
+                            ]" title="Add">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 4v16m8-8H4" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <p v-if="field.description && field.type !== 'checkbox' && field.type !== 'plugin_data_list'"
+                        :class="[
+                            'text-xs',
+                            isDark ? 'text-gray-400' : 'text-gray-600'
+                        ]">{{ field.description }}</p>
                 </div>
             </div>
         </div>
@@ -282,6 +349,9 @@ const originalConfig = ref({});
 const validationErrors = ref({});
 const errorMessage = ref('');
 const successMessage = ref('');
+
+const pluginDataEntries = ref({});
+const newEntries = ref({});
 
 // Computed
 const hasConfigFields = computed(() => {
@@ -379,6 +449,65 @@ const getFieldClasses = (fieldName) => {
     ];
 };
 
+const pluginDataUrl = (fieldName, suffix = '') => {
+    const presetId = props.plugin.preset_id;
+    const pluginCode = props.plugin.name;
+    const base = `/admin/presets/${presetId}/plugin-data/${pluginCode}`;
+    return suffix ? `${base}/${suffix}` : base;
+};
+
+const loadPluginData = async (fieldName) => {
+    try {
+        const response = await axios.get(pluginDataUrl(fieldName));
+        if (response.data.success) {
+            pluginDataEntries.value[fieldName] = response.data.data;
+        }
+    } catch (error) {
+        console.error(`Failed to load plugin data for ${fieldName}:`, error);
+    }
+};
+
+const addPluginDataEntry = async (fieldName) => {
+    const entry = newEntries.value[fieldName];
+    if (!entry?.key?.trim()) return;
+
+    try {
+        const response = await axios.post(pluginDataUrl(fieldName), {
+            key: entry.key.trim(),
+            value: entry.value ?? '',
+        });
+        if (response.data.success) {
+            pluginDataEntries.value[fieldName].push(response.data.data);
+            newEntries.value[fieldName] = { key: '', value: '' };
+        } else {
+            errorMessage.value = response.data.message || 'Failed to add entry';
+        }
+    } catch (error) {
+        errorMessage.value = error.response?.data?.message || 'Failed to add entry';
+    }
+};
+
+const updatePluginDataEntry = async (fieldName, entry) => {
+    if (!entry.id) return;
+    try {
+        await axios.put(pluginDataUrl(fieldName, entry.id), {
+            key: entry.key,
+            value: entry.value,
+        });
+    } catch (error) {
+        console.error('Failed to update entry:', error);
+    }
+};
+
+const deletePluginDataEntry = async (fieldName, id) => {
+    try {
+        await axios.delete(pluginDataUrl(fieldName, id));
+        pluginDataEntries.value[fieldName] = pluginDataEntries.value[fieldName].filter(e => e.id !== id);
+    } catch (error) {
+        console.error('Failed to delete entry:', error);
+    }
+};
+
 watch(() => props.plugin, (newPlugin) => {
     if (newPlugin?.current_config) {
         const config = { ...newPlugin.current_config };
@@ -392,6 +521,18 @@ watch(() => props.plugin, (newPlugin) => {
 
         localConfig.value = config;
         originalConfig.value = { ...newPlugin.current_config };
+
+        // Initialize plugin_data_list fields
+        if (newPlugin?.config_fields) {
+            Object.entries(newPlugin.config_fields).forEach(([fieldName, field]) => {
+                if (field.type === 'plugin_data_list') {
+                    newEntries.value[fieldName] = { key: '', value: '' };
+                    loadPluginData(fieldName);
+                }
+            });
+        }
+
     }
 }, { immediate: true, deep: true });
+
 </script>

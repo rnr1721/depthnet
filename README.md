@@ -158,6 +158,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
 | **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, send visible messages to user (`speak`), hand off to another preset. | [→](docs/plugins/agent.md) |
 | **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
+| Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
 | **Mood** (`mood`) | Lightweight tone control — agent sets a named mood (`friendly`, `analytical`, `focused`, etc.) visible via `[[mood]]`. | [→](docs/plugins/mood.md) |
 | **Agent Task** (`task`) | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
 | **Spawn** (`spawn`) | LLM-driven orchestrator — dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime. Agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity or memory plugins). Alternative to the deterministic orchestrator for flexible, model-driven task decomposition. Active spawns visible via `[[active_spawns]]`. | [→](docs/plugins/spawn.md) |
@@ -322,6 +323,14 @@ The AI communicates through special command tags that trigger plugin execution. 
 [ontology snapshot]eugeny | 2[/ontology]
 [ontology merge]женя | eugeny[/ontology]
 [ontology close]old_project[/ontology]
+
+# Conditional prompt blocks
+[switch]cautious[/switch]        # activate a named block
+[switch list][/switch]           # list available block codes
+[switch current][/switch]        # show active block code
+[switch get]cautious[/switch]    # read block content (if allow_inspect enabled)
+[switch write]code | content[/switch]  # create/overwrite block (if allow_write enabled)
+[switch remove]cautious[/switch] # delete block (if allow_write enabled)
 
 ```
 
@@ -740,6 +749,9 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.
   - `[[active_spawns]]` - List of active spawned instruments created by this agent. Injected when Spawn plugin is enabled.
   - `[[terminal_screen]]` - Current terminal screen content. Injected when Terminal plugin is enabled and monitor is on (`[terminal on][/terminal]`). Empty string when monitor is off.
+  - `[[active_switch]]` - Content of the currently active prompt block (Switch plugin). Empty if no block is active.
+  - `[[active_switch_code]]` - Code of the currently active prompt block. Useful for agent self-awareness.
+
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**

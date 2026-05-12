@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\PresetCapabilityController;
 use App\Http\Controllers\Admin\PresetController;
 use App\Http\Controllers\Admin\PresetInnerVoiceConfigController;
 use App\Http\Controllers\Admin\PresetMcpController;
+use App\Http\Controllers\Admin\PresetPluginDataController;
 use App\Http\Controllers\Admin\PresetPromptController;
 use App\Http\Controllers\Admin\PresetRagConfigController;
 use App\Http\Controllers\Admin\PresetSandboxController;
@@ -163,6 +164,16 @@ Route::middleware('auth')->group(function () {
                 Route::patch('/{promptId}/activate', [PresetPromptController::class, 'activate'])->name('activate');
                 Route::post('/{promptId}/duplicate', [PresetPromptController::class, 'duplicate'])->name('duplicate');
             });
+
+            // Plugin Data — universal key-value storage for plugins
+            Route::prefix('/{presetId}/plugin-data/{pluginCode}')->name('plugin-data.')->group(function () {
+                Route::get('/', [PresetPluginDataController::class, 'index'])->name('index');
+                Route::post('/', [PresetPluginDataController::class, 'store'])->name('store');
+                Route::put('/{id}', [PresetPluginDataController::class, 'update'])->name('update');
+                Route::delete('/{id}', [PresetPluginDataController::class, 'destroy'])->name('destroy');
+                Route::post('/reorder', [PresetPluginDataController::class, 'reorder'])->name('reorder');
+            });
+
         });
 
         // AI Engines management routes

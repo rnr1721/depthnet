@@ -43,6 +43,8 @@ class PresetService implements PresetServiceInterface
 
         return $this->db->transaction(function () use ($data) {
             $preset = $this->aiPresetModel->create([
+                'parent_preset_id' => $data['parent_preset_id'] ?? null,
+                'is_spawned'       => $data['is_spawned'] ?? false,
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
                 'engine_name' => $data['engine_name'],
@@ -121,6 +123,8 @@ class PresetService implements PresetServiceInterface
 
         return $this->db->transaction(function () use ($preset, $data) {
             $preset->update([
+                'parent_preset_id' => array_key_exists('parent_preset_id', $data) ? $data['parent_preset_id'] : $preset->parent_preset_id,
+                'is_spawned'       => array_key_exists('is_spawned', $data) ? $data['is_spawned'] : $preset->is_spawned,
                 'name' => $data['name'] ?? $preset->name,
                 'description' => $data['description'] ?? $preset->description,
                 'engine_name' => $data['engine_name'] ?? $preset->engine_name,
@@ -290,26 +294,53 @@ class PresetService implements PresetServiceInterface
             $counter++;
         }
 
-        $newPreset = $this->createPresetWithValidation([
-            'name' => $newName,
-            'description' => $originalPreset->description,
-            'engine_name' => $originalPreset->engine_name,
-            'input_mode' => $originalPreset->input_mode,
-            'agent_result_mode' => $originalPreset->agent_result_mode,
-            'plugins_disabled' => $originalPreset->plugins_disabled,
-            'engine_config' => $originalPreset->engine_config,
-            'is_active' => false, // New copies are inactive by default
-            'is_default' => false, // Duplicated presets are never default
-            'cp_context_limit' => $originalPreset->cp_context_limit,
-        ]);
+        return $this->db->transaction(function () use ($originalPreset, $newName) {
 
-        $this->presetRegistry->refresh();
+            $newPreset = $this->createPreset([
+                // Identity
+                'name'             => $newName,
+                'description'      => $originalPreset->description,
+                // Engine
+                'engine_name'      => $originalPreset->engine_name,
+                'engine_config'    => $originalPreset->engine_config,
+                // Input
+                'input_mode'          => $originalPreset->input_mode,
+                'pool_relative_dates' => $originalPreset->pool_relative_dates,
+                // Behaviour
+                'agent_result_mode'  => $originalPreset->agent_result_mode,
+                'max_context_limit'  => $originalPreset->max_context_limit,
+                'loop_interval'      => $originalPreset->loop_interval,
+                'before_execution_wait' => $originalPreset->before_execution_wait,
+                'error_behavior'     => $originalPreset->error_behavior,
+                'allow_handoff_to'   => $originalPreset->allow_handoff_to,
+                'allow_handoff_from' => $originalPreset->allow_handoff_from,
+                // Plugins
+                'plugins_disabled'   => $originalPreset->plugins_disabled,
+                'cp_context_limit'   => $originalPreset->cp_context_limit,
+                'pre_run_commands'   => $originalPreset->pre_run_commands,
+                'preset_code_next'   => $originalPreset->preset_code_next,
+                'voice_mp_commands'  => $originalPreset->voice_mp_commands,
+                // Defrag
+                'defrag_enabled'      => $originalPreset->defrag_enabled,
+                'defrag_prompt'       => $originalPreset->defrag_prompt,
+                'defrag_keep_per_day' => $originalPreset->defrag_keep_per_day,
+                // Cycle prompt
+                'cycle_prompt_preset_id' => $originalPreset->cycle_prompt_preset_id,
+                // State — duplicates are inactive and never default
+                'is_active'   => false,
+                'is_default'  => false,
+                // Spawn fields — duplicates are never spawns
+                'is_spawned'       => false,
+                'parent_preset_id' => null,
+            ]);
 
-        $this->pluginManagerFactory->get()->initializeConfigsForPreset($newPreset);
+            $this->presetRegistry->refresh();
+            $this->pluginManagerFactory->get()->initializeConfigsForPreset($newPreset);
+            $this->logPresetDuplicated($originalPreset->id, $newPreset->id);
 
-        $this->logPresetDuplicated($id, $newPreset->id);
+            return $newPreset;
+        });
 
-        return $newPreset;
     }
 
     /**
@@ -710,6 +741,8 @@ class PresetService implements PresetServiceInterface
     protected function validatePresetData(array $data, ?int $excludeId = null): void
     {
         $rules = [
+            'parent_preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'is_spawned'       => 'boolean', 
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'engine_name' => 'required|string|max:100',

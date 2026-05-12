@@ -13,6 +13,7 @@ use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
@@ -60,6 +61,7 @@ use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
+use App\Contracts\Agent\Spawn\SpawnServiceInterface;
 use App\Contracts\Agent\Terminal\TerminalServiceInterface;
 use App\Contracts\Agent\ToolCallParserInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
@@ -79,6 +81,7 @@ use App\Services\Agent\AgentMessageService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
+use App\Services\Agent\Cleanup\PresetCleanupFactory;
 use App\Services\Agent\Cleanup\PresetCleanupService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
@@ -146,6 +149,7 @@ use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\SelfNotePlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
+use App\Services\Agent\Plugins\SpawnPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\TerminalPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
@@ -162,6 +166,7 @@ use App\Services\Agent\Providers\NovitaModel;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\Spawn\SpawnService;
 use App\Services\Agent\Terminal\TerminalService;
 use App\Services\Agent\ToolCallParser;
 use App\Services\Agent\ToolSchemaBuilder;
@@ -325,7 +330,10 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(AgentActionsInterface::class, AgentActions::class);
         $this->app->singleton(AgentInterface::class, Agent::class);
 
+        $this->app->bind(PresetCleanupFactoryInterface::class, PresetCleanupFactory::class);
         $this->app->singleton(PresetCleanupServiceInterface::class, PresetCleanupService::class);
+
+        $this->app->bind(SpawnServiceInterface::class, SpawnService::class);
 
         $this->app->singleton(TelegramServiceInterface::class, function () {
             return new TelegramService(
@@ -403,8 +411,10 @@ class AiServiceProvider extends ServiceProvider
             CodePlugin::class,
             DocumentManagerPlugin::class,
             TerminalPlugin::class,
-            PromptPlugin::class,
             ShellPlugin::class,
+            McpPlugin::class,
+            PromptPlugin::class,
+            SpawnPlugin::class,
             DopaminePlugin::class,
             MoodPlugin::class,
             MyselfPlugin::class,
@@ -414,7 +424,6 @@ class AiServiceProvider extends ServiceProvider
             GoalPlugin::class,
             AgentTaskPlugin::class,
             SkillPlugin::class,
-            McpPlugin::class,
             HeartPlugin::class,
             BeingPlugin::class,
             RhythmPlugin::class,

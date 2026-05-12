@@ -14,6 +14,8 @@ class CreatePresetRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'parent_preset_id' => ['nullable', 'integer', 'exists:ai_presets,id'],
+            'is_spawned'       => ['boolean'],
             'name' => ['required', 'string', 'max:255', 'unique:ai_presets,name'],
             'input_mode' => ['required', 'in:single,pool'],
             'pool_relative_dates' => 'boolean',

@@ -58,6 +58,25 @@
 
             <!-- Body -->
             <form @submit.prevent="submit" class="p-6 space-y-6">
+
+                <!-- Spawn notice -->
+                <div v-if="form.is_spawned" :class="[
+                    'px-4 py-3 rounded-xl border flex items-start gap-3 text-sm',
+                    isDark
+                        ? 'bg-amber-900 bg-opacity-30 border-amber-700 text-amber-300'
+                        : 'bg-amber-50 border-amber-300 text-amber-800'
+                ]">
+                    <!-- icon -->
+                    <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" />
+                    </svg>
+                    <div>
+                        <p class="font-medium">{{ t('p_modal_spawned_preset') }}</p>
+                        <p class="mt-0.5 opacity-80">{{ t('p_modal_spawned_preset_desc') }}</p>
+                    </div>
+                </div>
+
                 <!-- Basic Info Component -->
                 <PresetBasicInfo v-model="form" :engines="engines" :is-dark="isDark" :errors="errors"
                     :hide-default-option="preset?.is_default" @engine-changed="onEngineChange" />
@@ -185,6 +204,8 @@ const form = ref({
     allow_handoff_from: props.preset?.allow_handoff_from ?? true,
     is_active: props.preset?.is_active ?? true,
     is_default: props.preset?.is_default || false,
+    is_spawned: props.preset?.is_spawned ?? false,
+    parent_preset_id: props.preset?.parent_preset_id ?? null,
     voice_preset_id: props.preset?.voice_preset_id || null,
     cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
     defrag_enabled: props.preset?.defrag_enabled ?? false,

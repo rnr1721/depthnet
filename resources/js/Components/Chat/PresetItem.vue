@@ -4,7 +4,9 @@
         'hover:scale-[1.02] transform',
         isActive
             ? (isDark ? 'bg-indigo-900 bg-opacity-50 border-indigo-500 shadow-lg' : 'bg-indigo-50 border-indigo-500 shadow-lg')
-            : (isDark ? 'bg-gray-700 bg-opacity-50 border-gray-600 hover:bg-gray-600 hover:border-gray-500' : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300')
+            : preset.is_spawned
+                ? (isDark ? 'bg-gray-700 bg-opacity-30 border-gray-600 border-dashed hover:bg-gray-600 hover:border-gray-500' : 'bg-gray-50 border-gray-300 border-dashed hover:bg-gray-100 hover:border-gray-400')
+                : (isDark ? 'bg-gray-700 bg-opacity-50 border-gray-600 hover:bg-gray-600 hover:border-gray-500' : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300')
     ]" @click="$emit('select')">
 
         <!-- Header with name and actions -->
@@ -13,6 +15,14 @@
                 <div class="flex items-center space-x-2">
                     <!-- Selected indicator (green pulse) -->
                     <div v-if="isActive" class="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0"></div>
+
+                    <!-- Spawn badge -->
+                    <span v-if="preset.is_spawned" :class="[
+                        'text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0',
+                        isDark ? 'bg-amber-800 bg-opacity-60 text-amber-300' : 'bg-amber-100 text-amber-700'
+                    ]">
+                        ⚙ spawn
+                    </span>
 
                     <!-- Preset name -->
                     <h4 :class="[

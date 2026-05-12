@@ -16,6 +16,8 @@ class UpdatePresetRequest extends FormRequest
         $presetId = $this->route('id');
 
         return [
+            'parent_preset_id' => ['nullable', 'integer', 'exists:ai_presets,id'],
+            'is_spawned'       => ['boolean'],
             'name' => ['string', 'max:255', "unique:ai_presets,name,{$presetId}"],
             'input_mode' => ['required', 'in:single,pool'],
             'pool_relative_dates' => 'boolean',

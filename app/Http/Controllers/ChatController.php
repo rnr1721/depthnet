@@ -92,6 +92,8 @@ class ChatController extends Controller
             $data = array_merge($data, [
                 'availablePresets' => $availablePresets->map(fn ($preset) => [
                     'id'                      => $preset->id,
+                    'is_spawned'               => $preset->is_spawned,
+                    'parent_preset_id'        => $preset->parent_preset_id,
                     'name'                    => $preset->name,
                     'description'             => $preset->description,
                     'engine_name'             => $preset->engine_name,

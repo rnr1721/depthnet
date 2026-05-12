@@ -14,6 +14,8 @@ class AiPreset extends Model
     protected $table = "ai_presets";
 
     protected $fillable = [
+        'parent_preset_id',
+        'is_spawned',
         'name',
         'description',
         'engine_name',
@@ -52,47 +54,68 @@ class AiPreset extends Model
 
 
     protected $casts = [
-        'pool_relative_dates' => 'boolean',
-        'engine_config'          => 'array',
-        'metadata'               => 'array',
-        'loop_interval'          => 'integer',
-        'active_prompt_id'       => 'integer',
-        'defrag_enabled'         => 'boolean',
-        'defrag_keep_per_day'    => 'integer',
-        'cycle_prompt_preset_id' => 'integer',
-        'cp_context_limit'       => 'integer',
-        'max_context_limit'      => 'integer',
-        'before_execution_wait'  => 'integer',
-        'allow_handoff_to'       => 'boolean',
-        'allow_handoff_from'     => 'boolean',
-        'rhasspy_enabled'        => 'boolean',
+        'parent_preset_id'         => 'integer',
+        'is_spawned'               => 'boolean',
+        'pool_relative_dates'      => 'boolean',
+        'engine_config'            => 'array',
+        'metadata'                 => 'array',
+        'loop_interval'            => 'integer',
+        'active_prompt_id'         => 'integer',
+        'defrag_enabled'           => 'boolean',
+        'defrag_keep_per_day'      => 'integer',
+        'cycle_prompt_preset_id'   => 'integer',
+        'cp_context_limit'         => 'integer',
+        'max_context_limit'        => 'integer',
+        'before_execution_wait'    => 'integer',
+        'allow_handoff_to'         => 'boolean',
+        'allow_handoff_from'       => 'boolean',
+        'rhasspy_enabled'          => 'boolean',
         'rhasspy_incoming_enabled' => 'boolean',
-        'is_active'              => 'boolean',
-        'is_default'             => 'boolean',
-        'created_at'             => 'datetime',
-        'updated_at'             => 'datetime',
+        'is_active'                => 'boolean',
+        'is_default'               => 'boolean',
+        'created_at'               => 'datetime',
+        'updated_at'               => 'datetime',
     ];
 
 
     protected $attributes = [
-        'input_mode'             => 'pool',
-        'pool_relative_dates' => false,
-        'is_active'              => true,
-        'is_default'             => false,
-        'agent_result_mode'      => 'tool_calls',
-        'allow_handoff_to'       => true,
-        'allow_handoff_from'     => true,
-        'error_behavior'         => 'stop',
-        'before_execution_wait'  => 5,
-        'engine_config'          => '{}',
-        'metadata'               => '{}',
-        'plugins_disabled'       => '',
-        'cp_context_limit'       => 5,
-        'voice_mp_commands'      => '',
-        'pre_run_commands'       => '',
-        'rhasspy_enabled'        => false,
+        'is_spawned'               => false,
+        'parent_preset_id'         => null,
+        'input_mode'               => 'pool',
+        'pool_relative_dates'      => false,
+        'is_active'                => true,
+        'is_default'               => false,
+        'agent_result_mode'        => 'tool_calls',
+        'allow_handoff_to'         => true,
+        'allow_handoff_from'       => true,
+        'error_behavior'           => 'stop',
+        'before_execution_wait'    => 5,
+        'engine_config'            => '{}',
+        'metadata'                 => '{}',
+        'plugins_disabled'         => '',
+        'cp_context_limit'         => 5,
+        'voice_mp_commands'        => '',
+        'pre_run_commands'         => '',
+        'rhasspy_enabled'          => false,
         'rhasspy_incoming_enabled' => false,
     ];
+
+    /**
+     * Parent preset that spawned this one.
+     * Null for regular (non-spawned) presets.
+     */
+    public function parentPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'parent_preset_id');
+    }
+
+    /**
+     * Ephemeral child presets spawned by this preset.
+     */
+    public function spawnedPresets(): HasMany
+    {
+        return $this->hasMany(AiPreset::class, 'parent_preset_id');
+    }
 
 
     /**
@@ -242,6 +265,23 @@ class AiPreset extends Model
     {
         return $this->id;
     }
+
+    /**
+     * Whether this preset was created by SpawnPlugin at runtime.
+     */
+    public function isSpawned(): bool
+    {
+        return $this->is_spawned;
+    }
+
+    /**
+     * ID of the parent preset, or null if this is a regular preset.
+     */
+    public function getParentPresetId(): ?int
+    {
+        return $this->parent_preset_id;
+    }
+
 
     /**
      * Get name of the preset
@@ -555,6 +595,15 @@ class AiPreset extends Model
     public function allowsHandoffFrom(): bool
     {
         return $this->allow_handoff_from;
+    }
+
+    /**
+     * Scope: exclude ephemeral spawned presets from regular listings.
+     * Use in UI queries: AiPreset::withoutSpawns()->orderBy('name')->get()
+     */
+    public function scopeWithoutSpawns($query)
+    {
+        return $query->where('is_spawned', false);
     }
 
     /**

@@ -10,6 +10,7 @@ use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHandoffTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
 
@@ -24,6 +25,7 @@ class AgentPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHandoffTrait;
 
     private const OWN_METHODS = ['speak', 'resume', 'pause', 'turn', 'status', 'handoff'];
 
@@ -471,40 +473,24 @@ class AgentPlugin implements CommandPluginInterface
 
     public function handoff(string $content, PluginExecutionContext $context): string
     {
+        if (!$context->get('allow_handoff', true)) {
+            return "Error: Agent handoff is not allowed in current configuration.";
+        }
+
+        if (empty(trim($content))) {
+            return "Error: Empty preset code for handoff";
+        }
+
         $targetPreset = trim($content);
         $message = null;
 
-        if (strpos($content, ':') !== false) {
+        if (str_contains($content, ':')) {
             [$targetPreset, $message] = explode(':', $content, 2);
             $targetPreset = trim($targetPreset);
             $message = trim($message);
         }
 
-        if (!$context->get('allow_handoff', true)) {
-            return "Error: Agent handoff is not allowed in current configuration.";
-        }
-
-        if (empty($content)) {
-            return "Error: Empty preset code for handoff";
-        }
-
-        $preset = $this->presetService->findByCode($targetPreset);
-        if (!$preset) {
-            return "Cannot Transfer control to preset: $targetPreset";
-        }
-
-        if (!$preset->allow_handoff_to) {
-            return "Error: Preset '$targetPreset' does not allow handoff transfers";
-        }
-
-        $this->setPluginExecutionMeta('handoff', [
-            'target_preset' => $targetPreset,
-            'handoff_message' => $message,
-            'error_behavior' => $preset->error_behavior ?? 'stop'
-        ]);
-
-        $messageInfo = $message ? " with message: '$message'" : "";
-        return "Transferring control to preset: $targetPreset$messageInfo";
+        return $this->dispatchHandoff($targetPreset, $message, $context);
     }
 
     /**

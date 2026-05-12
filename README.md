@@ -751,6 +751,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[terminal_screen]]` - Current terminal screen content. Injected when Terminal plugin is enabled and monitor is on (`[terminal on][/terminal]`). Empty string when monitor is off.
   - `[[active_switch]]` - Content of the currently active prompt block (Switch plugin). Empty if no block is active.
   - `[[active_switch_code]]` - Code of the currently active prompt block. Useful for agent self-awareness.
+  - `[[available_switches]]` - All available switch variants
 
 - Even small prompt modifications can dramatically affect agent behavior
 

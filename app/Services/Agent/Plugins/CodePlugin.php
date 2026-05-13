@@ -65,6 +65,11 @@ class CodePlugin implements CommandPluginInterface
             'Write file: [code write]path: file.php' . "\n" . 'content: <?php ...[/code]',
             'Edit or overwrite file: [code edit]path: file.php' . "\n" . 'replace: full content[/code]',
             '⚠️ INDENTATION: For Python, YAML, or any indentation-sensitive code — copy leading whitespace from search to replace exactly.',
+            'Batch edit multiple files: [code batch]' . "\n"
+                . '1. path: app/Models/User.php | search: getStatus | replace: fetchStatus | limit: 1' . "\n"
+                . '2. path: app/Services/UserService.php | search: getStatus | replace: fetchStatus' . "\n"
+                . '3. path: resources/js/components/UserCard.vue | search: getStatus | replace: fetchStatus' . "\n"
+                . '[/code]',
         ] : [
             'Replace in file: [code replace]path: ...' . "\n" . 'search: ...' . "\n" . 'replace: ...[/code]',
             'Apply patch: [code patch]--- a/...' . "\n" . '+++ b/...[/code]',
@@ -92,7 +97,7 @@ class CodePlugin implements CommandPluginInterface
     {
 
         $editMethods = ($config['unified_edit'] ?? true)
-            ? ['edit']
+            ? ['edit', 'batch']
             : ['replace', 'patch'];
 
         return [
@@ -124,6 +129,11 @@ class CodePlugin implements CommandPluginInterface
                             '  if file does not exist and no search is provided, "replace" becomes full file content.',
                             '  either key-value: "path: ...\nsearch: ...\nreplace: ...\n[limit: 1]"',
                             '  or unified diff: "--- a/...\n+++ b/...\n@@ -l,c +l,c @@\n- old\n+ new".',
+                            '',
+                            '• batch: numbered list of operations, each on a new line.',
+                            '  Format per line: "path: file.php | search: old | replace: new [| limit: 1] [| create: true]"',
+                            '  Lines starting with # are comments. Operations execute sequentially.',
+                            '  If an operation fails, remaining operations continue.',
                             '',
                             '⚠️ For indentation-sensitive languages (Python, YAML, etc.): '
                             . 'preserve exact leading whitespace from search in replace. '
@@ -248,7 +258,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
-        $path  = trim($content) ?: '.';
+        $path = $this->normalizePath($content) ?: '.';
         $depth = (int) $context->get('max_tree_depth', 4);
 
         $cmd = sprintf(
@@ -269,7 +279,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
-        $path = trim($content);
+        $path = $this->normalizePath($content);
         if (!$path) {
             return 'Error: path required.';
         }
@@ -299,6 +309,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
+        $content = $this->normalizePath($content);
         [$path, $modifier] = $this->splitModifier($content);
 
         if (!$path) {
@@ -372,6 +383,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
+        $content = $this->normalizePath($content);
         [$query, $modifier] = $this->splitModifier($content);
 
         if (!$query) {
@@ -420,7 +432,17 @@ class CodePlugin implements CommandPluginInterface
         $params = $this->parseKeyValue($content);
 
         $path    = $params['path']    ?? null;
+        $path = $this->normalizePath($path);
+
+        $fileSize = (int) trim($this->execRaw($context, sprintf('stat -c%%s %s 2>/dev/null || echo 0', escapeshellarg($path))));
+        if ($fileSize > 1024 * 1024) { // 1MB
+            return "Error: file too large ({$fileSize} bytes). Use [terminal] for large file editing.";
+        }
+
         $search  = $params['search']  ?? null;
+        if ($search === '') {
+            $search = null;
+        }
         $replace = $params['replace'] ?? null;
         $limit   = isset($params['limit']) ? (int)$params['limit'] : null;
         $autoCreate = filter_var($params['create'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -622,6 +644,7 @@ class CodePlugin implements CommandPluginInterface
         $params = $this->parseKeyValue($content);
 
         $path = $params['path'] ?? null;
+        $path = $this->normalizePath($path);
         $data = $params['content'] ?? $params['text'] ?? $params['code'] ?? $params['data'] ?? null;
 
         if (!$path || $data === null) {
@@ -654,6 +677,147 @@ class CodePlugin implements CommandPluginInterface
         }
 
         return "Error writing {$path}: {$result}";
+    }
+
+    /**
+     * [code batch]
+     * 1. path: app/Models/User.php | search: getStatus | replace: fetchStatus | limit: 1
+     * 2. path: app/Services/UserService.php | search: getStatus | replace: fetchStatus
+     * 3. path: resources/js/components/UserCard.vue | search: getStatus | replace: fetchStatus
+     * [/code batch]
+     *
+     * Or in tool_calls mode:
+     * {method: "batch", content: "1. path:...\n2. path:..."}
+     */
+    public function batch(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $operations = $this->parseBatchOperations($content);
+
+        if (empty($operations)) {
+            return 'Error: No valid operations found. Format:\n'
+                 . '1. path: file.php | search: old | replace: new\n'
+                 . '2. path: file2.php | search: old | replace: new';
+        }
+
+        $results = [];
+        $hasErrors = false;
+        $totalFiles = count($operations);
+
+        foreach ($operations as $i => $op) {
+            $label = "[{$op['index']}/{$totalFiles}] {$op['path']}";
+
+            try {
+                // Checking for the existence of the file
+                $type = $this->pathType($context, $op['path']);
+
+                if ($type === 'NO') {
+                    if ($op['create'] ?? false) {
+                        $writeResult = $this->write(
+                            "path: {$op['path']}\ncontent: {$op['replace']}",
+                            $context
+                        );
+                        $results[] = "{$label} — CREATED";
+                    } else {
+                        $results[] = "{$label} — SKIPPED: file not found (use create:true to create)";
+                        $hasErrors = true;
+                    }
+                    continue;
+                }
+
+                if ($type === 'DIR') {
+                    $results[] = "{$label} — SKIPPED: is a directory";
+                    $hasErrors = true;
+                    continue;
+                }
+
+                // Constructing parameters for replace
+                $replaceContent = "path: {$op['path']}\nsearch: {$op['search']}\nreplace: {$op['replace']}";
+                if (isset($op['limit'])) {
+                    $replaceContent .= "\nlimit: {$op['limit']}";
+                }
+
+                // Calling the existing replace
+                $replaceResult = $this->replace($replaceContent, $context);
+
+                if (str_starts_with($replaceResult, 'Error:') || str_starts_with($replaceResult, 'Warning:')) {
+                    $results[] = "{$label} — FAILED: {$replaceResult}";
+                    $hasErrors = true;
+                } else {
+                    $results[] = "{$label} — OK";
+                }
+
+            } catch (\Throwable $e) {
+                $results[] = "{$label} — ERROR: {$e->getMessage()}";
+                $hasErrors = true;
+            }
+        }
+
+        $summary = $hasErrors
+            ? "Batch completed with errors ({$totalFiles} files processed):"
+            : "Batch completed successfully ({$totalFiles} files):";
+
+        return $summary . "\n" . implode("\n", $results);
+    }
+
+    /**
+     * Parse batch content into array of operations.
+     *
+     * Format:
+     *   1. path: file.php | search: old | replace: new | limit: 1
+     *   2. path: file2.php | search: old | replace: new | create: true
+     *
+     * Lines starting with # are comments.
+     *
+     * @return array<int, array{index: int, path: string, search: string, replace: string, limit?: int, create?: bool}>
+     */
+    private function parseBatchOperations(string $content): array
+    {
+        $operations = [];
+        $lines = explode("\n", trim($content));
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+
+            // Skip empty lines and comments.
+            if (empty($line) || str_starts_with($line, '#')) {
+                continue;
+            }
+
+            // Remove numbering (1. / 2. / [1] / etc.)
+            $line = preg_replace('/^(\d+[\.\)]\s*|\[\d+\]\s*)/', '', trim($line));
+
+            $line = str_replace(' | ', "\n", $line);
+
+            // Parsing key-value pairs
+            $params = $this->parseKeyValue($line);
+
+            if (!isset($params['path']) || !isset($params['replace'])) {
+                continue; // Skip invalid lines
+            }
+
+            $op = [
+                'index'   => count($operations) + 1,
+                'path'    => $params['path'],
+                'search'  => $params['search'] ?? null,
+                'replace' => $params['replace'],
+            ];
+
+            if (isset($params['limit'])) {
+                $op['limit'] = (int) $params['limit'];
+            }
+
+            if (isset($params['create'])) {
+                $op['create'] = filter_var($params['create'], FILTER_VALIDATE_BOOLEAN);
+            }
+
+            $operations[] = $op;
+        }
+
+        return $operations;
     }
 
     // -------------------------------------------------------------------------
@@ -689,7 +853,7 @@ class CodePlugin implements CommandPluginInterface
             $error  = trim($result->error);
 
             if ($result->exitCode !== 0) {
-                return $error ?: $output ?: 'Unknown error';
+                return "[exit={$result->exitCode}] " . ($error ?: $output ?: 'Unknown error');
             }
 
             return $output ?: '(no output)';
@@ -739,13 +903,14 @@ class CodePlugin implements CommandPluginInterface
      */
     private function parseKeyValue(string $content): array
     {
+        $content = str_replace(' | ', "\n", $content);
         $result = [];
         $lines  = explode("\n", $content);
         $currentKey = null;
         $buffer = [];
 
         foreach ($lines as $line) {
-            if (preg_match('/^(\w+):\s*(.*)$/', $line, $m)) {
+            if (preg_match('/^\s*([\w\-]+):\s*(.*)$/', $line, $m)) {
                 if ($currentKey !== null) {
                     $result[$currentKey] = implode("\n", $buffer);
                 }
@@ -795,6 +960,41 @@ class CodePlugin implements CommandPluginInterface
         );
 
         return trim($this->execRaw($context, $cmd));
+    }
+
+    /**
+     * Strip "key: " prefix and expand ~ to /home/sandbox-user.
+     * Safe to call on any model-provided path input.
+     */
+    private function normalizePath(string $input): string
+    {
+        $input = trim($input);
+
+        // If ": " is present, trim everything preceding it (the model may have added a "key:" prefix).
+        if (str_contains($input, ': ')) {
+            $input = trim(substr($input, strpos($input, ': ') + 2));
+        }
+
+        if ($input === '' || $input === '.') {
+            return $input;
+        }
+
+        // Revealing...
+        if (str_starts_with($input, '~/')) {
+            $input = '/home/sandbox-user/' . substr($input, 2);
+        } elseif ($input === '~') {
+            $input = '/home/sandbox-user';
+        }
+
+        // Collapse /../ and /./ for security (but do not break legitimate paths).
+        $input = preg_replace('#/\./#', '/', $input);  // /./ → /
+        do {
+            $prev = $input;
+            $input = preg_replace('#/[^/]+/\.\./#', '/', $input);
+        } while ($input !== $prev);  // /dir/../ → /
+        $input = preg_replace('#^/\.\./#', '/', $input);  // в начале
+
+        return $input;
     }
 
 }

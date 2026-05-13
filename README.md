@@ -98,7 +98,7 @@ DepthNet enables autonomous AI agents through:
 - **Known Sources**: Named data sources (sensors, projections, signals) defined per-preset. Their values are excluded from the regular input pool JSON and instead injected into the system prompt via `[[known_sources]]`, allowing the agent to treat sensor data as part of its own context rather than incoming messages
 - **Pre-Run Commands**: Automatic command execution before each thinking cycle via CommandPreRunner. Results available in the system prompt via `[[pre_command_results]]` — useful for gathering fresh data before each cycle without explicit agent action
 - **Document Manager**: File storage layer for agents — upload PDFs, spreadsheets, code and text files, chunk and index them for semantic search. Files live in Laravel storage (read-only reference) or directly in the sandbox (full agent access). Integrates with the RAG pipeline as a source (files in RAG config sources). Agents can search, inspect and delete files via the documents plugin. [→](docs/plugins/documents.md)
-- **Code Plugin**: Structured filesystem access for agents working on software projects in their sandbox. Navigate directory trees, read files with precise line control (lines:N-M or around:functionName), search by text, and apply targeted edits via key-value replace or unified diff patch — without rewriting entire files. [→](docs/plugins/code.md)
+- **Code Plugin**: Structured filesystem access for agents working on software projects in their sandbox. Navigate directory trees, read files with precise line control (lines:N-M or around:functionName), search by text, and apply targeted edits via key-value replace, unified diff patch, or batch multi-file coordinated changes — all without rewriting entire files. Paths are automatically normalized (tilde expansion, `../` collapse, key prefix stripping) for robust model interaction. Includes file size caps (1MB) for safety and structured error reporting with exit codes. [→](docs/plugins/code.md)
 - **Auto-Handoff Chains**: Presets can be configured with `preset_code_next` to automatically hand off to the next preset after every response, enabling pipeline workflows without prompt engineering
 - **LLM Orchestrator (Spawn Plugin)**: Agents can dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime — without human intervention. An agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity, memory, or personality plugins), but can be configured freely. This enables model-driven orchestration as an alternative to the deterministic   orchestrator — flexible and dynamic, with the agent itself deciding decomposition and delegation. [→](docs/plugins/spawn.md)
 - **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
@@ -136,7 +136,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | Plugin | Description | Docs |
 |---|---|---|
 | **Sandbox** (`run`) | Execute PHP, Python, Node.js, and shell commands in isolated Docker containers. Requires a sandbox assigned to the preset. | [→](docs/plugins/sandbox.md) |
-| **Terminal** (`terminal`) | Persistent interactive terminal (tmux) inside the sandbox. Working directory, running processes, and shell history survive between cycles. Supports special keys (`C-c`, `F10`, `Up`, etc.) for interactive programs. Monitor mode auto-injects screen via `[[terminal_screen]]`. | [→](docs/plugins/terminal.md) |
+| **Terminal** (`terminal`) | Persistent interactive terminal (tmux) inside the sandbox. Working directory, running processes, and shell history survive between cycles. Supports special keys (`C-c`, `F10`, `Up`, etc.) for interactive programs, mixed input mode (`text | Enter`), and configurable prompt detection patterns for command synchronization. Monitor mode auto-injects screen via `[[terminal_screen]]`. Built with literal text mode (`send-keys -l`) for safe handling of special characters, pipe-aware parsing (shell pipelines vs mixed mode disambiguation), and micro-delay timing for reliable PTY synchronization. |
 | **Shell** | Run shell commands directly on the host as the PHP process user. Use only for trusted operational tasks — prefer Sandbox for code execution. | [→](docs/plugins/shell.md) |
 | **Memory** (`memory`) | Persistent flat notepad injected into every cycle via `[[notepad_content]]`. Best for identity anchors, rules, and always-visible facts. Supports export/import. | [→](docs/plugins/memory.md) |
 | **Workspace** (`workspace`) | Persistent key-value scratchpad for structured working state — plans, drafts, intermediate results. Accessible via `[[workspace]]`. | [→](docs/plugins/workspace.md) |
@@ -422,6 +422,9 @@ Built on modern Laravel principles with dependency injection:
 - **InnerVoiceEnricherInterface**: Executes a single voice preset in a synthetic flat context and returns a labeled block for [[inner_voice]]
 - **CyclePromptEnricherInterface**: Anti-loop impulse for cycle mode — calls cycle_prompt_preset and injects result into the input pool
 - **EnricherFactoryInterface**: Factory for all enricher types; manages ordered RAG and inner voice config pipelines
+- **TerminalServiceInterface**: Persistent terminal session management with prompt-synced command execution, literal text handling, and special key abstraction
+- **WorkspaceTopologyServiceInterface**: Workspace mapping with pluggable project adapters (Laravel, Next.js, Go, Python, etc.), auto-detection, and persistent workspace root
+- **ProjectAdapterInterface**: Language/framework-specific project detection — root markers, file icons, ignored paths, and fingerprint identification
 
 **Core Interfaces:**
 - **AiAgentResponseInterface**: Unified agent response handling with handoff support
@@ -764,6 +767,10 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
 - Small models may fabricate reasons for dopamine changes or forget command syntax
 - Large models demonstrate genuine strategic thinking and adaptation
 - **Memory integration creates powerful knowledge discovery**: Agents can see semantic memory references in their constant context, leading to better information retrieval and learning patterns. Semantic journal search enables pattern recognition across past decisions and actions — the agent can find "I decided X" and "I did Y" connections even when phrased differently
+**Terminal & PTY Synchronization:**
+- Tmux `send-keys -l` (literal mode) and bare control keys must be sent as separate commands — combining them in one `send-keys` call causes literal interpretation of key names (e.g. `Enter` becomes text, not a keypress)
+- Micro-delays (50ms) between literal text and control keys prevent race conditions in shell command processing
+- Prompt detection via regex (configurable per sandbox) prevents command output mixing across multiple terminal calls in one cycle
 
 ## Default Credentials
 

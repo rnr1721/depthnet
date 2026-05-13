@@ -35,6 +35,8 @@ interface TerminalServiceInterface
      * @param  int      $timeout     Docker exec timeout
      * @param  int      $delayMs     Milliseconds to wait before capturing output
      * @param  int      $captureLines Lines to capture from screen
+     * @param  bool     $waitForPrompt Whether to wait for the shell prompt after sending the command
+     * @param  string|null $promptPattern Regex pattern to detect shell prompt
      * @return string|null           Captured output, or null on failure
      */
     public function sendCommand(
@@ -43,7 +45,9 @@ interface TerminalServiceInterface
         string $user,
         int    $timeout,
         int    $delayMs,
-        int    $captureLines
+        int    $captureLines,
+        bool   $waitForPrompt = true,
+        ?string $promptPattern = null
     ): ?string;
 
     /**

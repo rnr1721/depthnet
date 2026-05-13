@@ -15,6 +15,8 @@ use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
+use App\Contracts\Agent\Code\ProjectAdapterRegistryInterface;
+use App\Contracts\Agent\Code\WorkspaceTopologyServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
@@ -72,6 +74,7 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
+use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
@@ -84,6 +87,16 @@ use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
 use App\Services\Agent\Cleanup\PresetCleanupFactory;
 use App\Services\Agent\Cleanup\PresetCleanupService;
+use App\Services\Agent\Code\Adapters\Go\GoAdapter;
+use App\Services\Agent\Code\Adapters\Node\GenericNodeAdapter;
+use App\Services\Agent\Code\Adapters\Node\NextJsAdapter;
+use App\Services\Agent\Code\Adapters\Node\ViteAdapter;
+use App\Services\Agent\Code\Adapters\Php\GenericPhpAdapter;
+use App\Services\Agent\Code\Adapters\Php\LaravelAdapter;
+use App\Services\Agent\Code\Adapters\Php\SymfonyAdapter;
+use App\Services\Agent\Code\Adapters\Python\PythonAdapter;
+use App\Services\Agent\Code\ProjectAdapterRegistry;
+use App\Services\Agent\Code\WorkspaceTopologyService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandLinter;
@@ -142,6 +155,7 @@ use App\Services\Agent\Plugins\MyselfPlugin;
 use App\Services\Agent\Plugins\OntologyPlugin;
 use App\Services\Agent\Plugins\PersonPlugin;
 use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
+use App\Services\Agent\Plugins\ProjectMapPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\RagQueryPlugin;
 use App\Services\Agent\Plugins\Related\PluginData\PresetPluginDataService;
@@ -349,6 +363,36 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(TerminalServiceInterface::class, TerminalService::class);
 
+        // Registering adapters as tagged services
+        $this->app->tag([
+            GenericPhpAdapter::class,
+            LaravelAdapter::class,
+            SymfonyAdapter::class,
+            NextJsAdapter::class,
+            GenericNodeAdapter::class,
+            ViteAdapter::class,
+            PythonAdapter::class,
+            GoAdapter::class
+        ], 'project.adapters');
+
+        // Registry
+        $this->app->singleton(ProjectAdapterRegistryInterface::class, function ($app) {
+            return new ProjectAdapterRegistry(
+                $app->tagged('project.adapters')
+            );
+        });
+
+        // WorkspaceTopologyService
+        $this->app->singleton(WorkspaceTopologyServiceInterface::class, function ($app) {
+            return new WorkspaceTopologyService(
+                $app->make(SandboxManagerInterface::class),
+                $app->make(PresetSandboxServiceInterface::class),
+                $app->make(PluginMetadataServiceInterface::class),
+                $app->make(ProjectAdapterRegistryInterface::class),
+                $app->make(LoggerInterface::class),
+            );
+        });
+
     }
 
     /**
@@ -413,6 +457,7 @@ class AiServiceProvider extends ServiceProvider
             PersonPlugin::class,
             SandboxPlugin::class,
             CodePlugin::class,
+            ProjectMapPlugin::class,
             DocumentManagerPlugin::class,
             TerminalPlugin::class,
             ShellPlugin::class,

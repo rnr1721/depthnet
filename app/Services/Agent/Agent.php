@@ -180,6 +180,17 @@ class Agent implements AgentInterface
             );
         }
 
+        $memo = $this->pluginMetadataService->get($preset, 'memo', 'self_system_note', null);
+        if ($memo && is_string($memo)) {
+            $this->shortcodeManagerService->registerShortcodeForPreset(
+                $preset->getId(),
+                'memo',
+                '',
+                fn () => $memo
+            );
+            $this->pluginMetadataService->remove($preset, 'memo', 'self_system_note');
+        }
+
         $this->commandPreRunner->run($preset, $preset);
     }
 }

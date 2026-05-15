@@ -3,6 +3,9 @@
 namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
@@ -29,7 +32,7 @@ use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
  *   [memo]Next cycle: follow up on the database question. User is waiting.[/memo]
  *   [memo]Remember: I promised to check the file tomorrow.[/memo]
  *
- * Only meaningful in pool input mode.
+ * Only meaningful in pool input mode or with system messages.
  *
  * Multiple [memo] calls within one cycle accumulate — each overwrites the
  * previous note for the same source_name. To preserve all notes, set a
@@ -46,7 +49,10 @@ class SelfNotePlugin implements CommandPluginInterface
     public const PLUGIN_NAME = 'memo';
 
     public function __construct(
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
+        protected PlaceholderServiceInterface $placeholderService,
         protected InputPoolServiceInterface $inputPoolService,
+        protected PluginMetadataServiceInterface $metadataService
     ) {
     }
 
@@ -60,10 +66,15 @@ class SelfNotePlugin implements CommandPluginInterface
     public function getDescription(array $config = []): string
     {
         $info = '';
-        if (!empty($config['create_message'])) {
+        if (($config['message_mode'] ?? 'none') === 'user_message') {
             $info = 'The note is placed into the input pool and arrives as an '
             . 'authoritative directive on the next cycle — not as a fading thought, '
             . 'but as a message you sent to your future self.';
+        }
+        if (($config['message_mode'] ?? 'none') === 'system_message') {
+            $info = 'The note is placed into the system prompt and arrives as an '
+                . 'authoritative directive on the next cycle — not as a fading thought, '
+                . 'but as a directive you sent to your future self.';
         }
         return 'Write a note to yourself for the next thinking cycle. ' . $info;
     }
@@ -76,13 +87,27 @@ class SelfNotePlugin implements CommandPluginInterface
             '  [memo]Remember: promised to check the file tomorrow[/memo]',
             'Only one note is kept at a time — writing a new one replaces the previous.'
         ];
-        if (!empty($config['create_message'])) {
+        if (($config['message_mode'] ?? 'none') === 'user_message') {
             $extra = [
                 'The note arrives in your next cycle as a user-role message.',
                 'Use it for: deferred plans, reminders, continuity between cycles.',
             ];
 
             array_splice($instructions, count($instructions) - 1, 0, $extra);
+        }
+
+        if (($config['message_mode'] ?? 'none') === 'system_message') {
+            $extra = [
+                'The note arrives in your next cycle as a system-role message.',
+                'Use it for: personal instructions, reminders, continuity between cycles.',
+            ];
+
+            array_splice($instructions, count($instructions) - 1, 0, $extra);
+        }
+
+        $hint = $config['user_hint'] ?? '';
+        if (!empty(trim($hint))) {
+            $instructions[] = $hint;
         }
 
         $warning = $this->buildLanguageWarning($config, 'memo_language', 'memo notes');
@@ -98,9 +123,20 @@ class SelfNotePlugin implements CommandPluginInterface
         $langInstruction = $this->buildLanguageInstruction($config, 'memo_language');
 
         $info = '';
-        if (!empty($config['create_message'])) {
+        if (($config['message_mode'] ?? 'none') === 'user_message') {
             $info = 'The note is placed into the input pool and arrives as a directive '
                 . 'on the next cycle — treated with the same weight as user input. ';
+        }
+
+        if (($config['message_mode'] ?? 'none') === 'system_message') {
+            $info = 'The note is placed into system prompt as a directive '
+                . 'on the next cycle — it will be personal instructions. ';
+        }
+
+        $hint = $config['user_hint'] ?? '';
+        $hintText = '';
+        if (!empty(trim($hint))) {
+            $hintText = "{$hint} ";
         }
 
         return [
@@ -109,6 +145,7 @@ class SelfNotePlugin implements CommandPluginInterface
                 . $info
                 . 'Use for deferred plans, reminders, continuity between cycles. '
                 . 'Only one note is kept — writing a new one replaces the previous. '
+                . $hintText
                 . $langInstruction,
             'parameters'  => [
                 'type'       => 'object',
@@ -154,10 +191,18 @@ class SelfNotePlugin implements CommandPluginInterface
             return 'Error: memo content cannot be empty.';
         }
 
-        if (!$context->get('create_message', false)) {
+        if ($context->get('message_mode', 'none') === 'none') {
             return 'Note applied for next cycle.';
         }
 
+        if ($context->get('message_mode', 'none') === 'system_message') {
+            // In system message mode, we add the note directly to the system prompt via placeholder.
+            // The actual insertion is handled in the agent's prompt assembly logic, where it checks for this placeholder.
+            $this->metadataService->set($context->preset, self::PLUGIN_NAME, 'self_system_note', $content);
+            return 'Note applied for next cycle.';
+        }
+
+        // For user_message mode, we add the note to the input pool under the specified source name.
         if (!$this->inputPoolService->isEnabled($context->preset)) {
             return 'this tool works only in pool mode';
         }
@@ -192,17 +237,30 @@ class SelfNotePlugin implements CommandPluginInterface
                 'Memo Language',
                 'Force language for memo notes. Should match the language your agent thinks in.'
             ),
-            'create_message' => [
-                'type'        => 'checkbox',
-                'label'       => 'Create message from user in pool mode',
-                'description' => 'If preset has pool mode, will be added source pool item',
-                'required'    => false,
+            'message_mode' => [
+                'type' => 'select',
+                'label' => 'Message Mode',
+                'description' => 'How to handle messages',
+                'options' => [
+                    'none' => 'No action',
+                    'user_message' => 'User message in pool mode',
+                    'system_message' => 'System message via placeholder.'
+                ],
+                'value' => 'none',
+                'required' => false
             ],
             'source_name' => [
                 'type'        => 'text',
                 'label'       => 'Source name',
                 'description' => 'Pool source name for self-notes. Appears as this label in the input pool JSON.',
                 'placeholder' => 'self_note',
+                'required'    => false,
+            ],
+            'user_hint' => [
+                'type'        => 'text',
+                'label'       => 'Custom hint for LLM',
+                'description' => 'Custom instruction for the agent about when and how to use memo. Appears in plugin instructions and tool description.',
+                'placeholder' => 'Use memo to remind yourself about important deadlines.',
                 'required'    => false,
             ],
         ];
@@ -225,6 +283,14 @@ class SelfNotePlugin implements CommandPluginInterface
             }
         }
 
+        if (isset($config['message_mode']) && !in_array($config['message_mode'], ['none', 'user_message', 'system_message'], true)) {
+            $errors['message_mode'] = 'Invalid message mode selection.';
+        }
+
+        if (isset($config['user_hint']) && strlen($config['user_hint']) > 500) {
+            $errors['user_hint'] = 'Hint must be under 500 characters.';
+        }
+
         return $errors;
     }
 
@@ -234,7 +300,8 @@ class SelfNotePlugin implements CommandPluginInterface
             [
                 'enabled'     => false,
                 'source_name' => '',
-                'create_message' => false
+                'message_mode' => 'none',
+                'user_hint' => '',
             ],
             $this->getDefaultLanguageConfig('memo_language')
         );
@@ -269,6 +336,12 @@ class SelfNotePlugin implements CommandPluginInterface
 
     public function registerShortcodes(PluginExecutionContext $context): void
     {
-        // No shortcodes needed
+        $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
+        $this->placeholderService->registerDynamic(
+            'memo',
+            'SelfNotePlugin — write a note to yourself for the next thinking cycle.',
+            fn () => '',
+            $scope
+        );
     }
 }

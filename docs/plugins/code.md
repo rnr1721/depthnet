@@ -1,6 +1,6 @@
 # Code Plugin
 
-The Code plugin gives the agent structured access to its sandbox filesystem: navigate directory trees, read files with precise line control, search by text, and apply targeted edits without rewriting entire files.
+The Code plugin gives the agent structured access to its sandbox filesystem: navigate directory trees, read files with precise line control, search by text, apply targeted edits, and understand code through Language Server Protocol (LSP) intelligence — symbols, references, hover, definition, and diagnostics.
 
 Intentionally separate from the Document Manager — Documents handles uploaded knowledge files and semantic search, Code handles the sandbox workspace as a living project directory.
 
@@ -12,6 +12,7 @@ Requires a sandbox assigned to the preset.
 
 - A sandbox must be assigned to the preset and be in `running` state.
 - All paths are relative to sandbox-user home (`~/`).
+- For code intelligence features, `lsp-runner` must be installed in the sandbox (auto-starts on first use).
 
 ## Setup
 
@@ -25,6 +26,30 @@ Enable the **Code** plugin in your preset settings and configure:
 | **Use unified edit command** | When enabled, exposes a single `edit` method that auto-detects format (replace or patch). When disabled, exposes separate `replace` and `patch` methods. Default: `true`. |
 
 ## Commands
+
+### Code Intelligence (LSP)
+
+LSP auto-starts on first use — no manual start needed. Use these to understand code without reading entire files.
+
+| Command | Description |
+|---|---|
+| `[code symbols]app/Http/Controllers/ApiKeyController.php[/code]` | List all symbols (classes, methods, functions) in a file |
+| `[code references]app/Models/User.php \| User[/code]` | Find everywhere a symbol is used across the project |
+| `[code definition]app/Http/Controllers/ApiKeyController.php \| ApiKeyController[/code]` | Jump to where a symbol is defined |
+| `[code hover]app/Http/Controllers/ApiKeyController.php \| index[/code]` | View documentation — signature, params, return type, PHPDoc |
+| `[code diagnostics]app/Http/Controllers[/code]` | Check for errors and warnings in a file or directory |
+
+Format for references/definition/hover: `"file | symbol"`.
+
+**Typical pattern for understanding code:**
+```
+[code symbols]app/Http/Controllers/ApiKeyController.php[/code]
+  → Shows: ApiKeyController (class), index, store, destroy (methods)
+[code hover]app/Http/Controllers/ApiKeyController.php | index[/code]
+  → Shows: public function index(Request $request): JsonResponse
+[code references]app/Http/Controllers/ApiKeyController.php | index[/code]
+  → Shows: routes/web.php:75, ApiKeyController.php:25
+```
 
 ### Navigation
 
@@ -60,6 +85,8 @@ Returns up to 50 matches with file paths and line numbers, plus a total match co
 | Command | Description |
 |---|---|
 | `[code edit]...[/code]` | Edit a file — auto-detects format (replace or patch) |
+| `[code batch]...[/code]` | Multi-file coordinated changes |
+| `[code write]path: file.php\ncontent: ...[/code]` | Create or overwrite a file |
 
 The plugin detects which format you used:
 - If the content starts with `--- a/...` and contains `@@` markers → treated as unified diff patch
@@ -74,17 +101,7 @@ replace: return round($total, 2);
 [/code]
 ```
 
-Add `limit: 1` to replace only the first occurrence when the search string appears multiple times:
-```
-[code edit]
-path: app/Services/UserService.php
-search: $result = null;
-replace: $result = [];
-limit: 1
-[/code]
-```
-
-If the search string appears more than once and `limit` is not set, the plugin returns a warning with the match count rather than replacing all occurrences silently.
+Add `limit: 1` to replace only the first occurrence when the search string appears multiple times. If the search string appears more than once and `limit` is not set, the plugin returns a warning with the match count rather than replacing all occurrences silently.
 
 **Unified diff format:**
 ```
@@ -97,13 +114,20 @@ If the search string appears more than once and `limit` is not set, the plugin r
 [/code]
 ```
 
-The patch runs a dry-run first. If it would fail (e.g. context lines don't match), the agent gets the failure output before any changes are made.
+The patch runs a dry-run first. If it would fail (e.g. context lines don't match), the agent gets the failure output before any changes are made. After every successful edit, the agent receives a unified diff showing exactly what changed.
 
-After every successful edit, the agent receives a unified diff showing exactly what changed.
+**Batch editing:**
+```
+[code batch]
+1. path: app/Models/User.php | search: getStatus | replace: fetchStatus | limit: 1
+2. path: app/Services/UserService.php | search: getStatus | replace: fetchStatus
+3. path: resources/js/components/UserCard.vue | search: getStatus | replace: fetchStatus
+[/code]
+```
 
-**With `unified_edit` disabled:**
+Lines starting with `#` are comments. Operations execute sequentially. If an operation fails, remaining operations continue.
 
-`replace` and `patch` are available as separate methods with the same syntax as above.
+**With `unified_edit` disabled:** `replace` and `patch` are available as separate methods with the same syntax as above.
 
 ## Document Manager vs Code Plugin
 
@@ -113,6 +137,7 @@ After every successful edit, the agent receives a unified diff showing exactly w
 | **Search** | Semantic (meaning-based) | Text/grep (exact match) |
 | **Reading** | Chunk previews | Full file content |
 | **Writing** | ✗ | ✓ |
+| **Code Intelligence** | ✗ | ✓ (LSP: symbols, references, hover, definition) |
 | **Requires sandbox** | Only for sandbox-driver files | Always |
 | **Best for** | Reference documents, PDFs, data | Source code, config files, scripts |
 
@@ -120,17 +145,18 @@ After every successful edit, the agent receives a unified diff showing exactly w
 
 Code Plugin is designed for agents that work on software projects or maintain files in their sandbox over time:
 
+- Explore an unfamiliar codebase with symbols and hover before reading
+- Find all usages of a symbol before renaming it
+- View documentation without opening the file
 - Navigate an unfamiliar codebase before making changes
-- Read a function's implementation before calling or modifying it
-- Search for all usages of a symbol before renaming it
 - Apply a targeted fix without rewriting an entire file
-- Inspect build output or log files
-- Maintain configuration files across thinking cycles
+- Make coordinated changes across multiple files with batch edits
 
 **Typical pattern for a code change:**
 ```
-[code search]calculateTotal | path:app/Services[/code]
-[code read]app/Services/OrderService.php | around:calculateTotal[/code]
+[code symbols]app/Services/OrderService.php[/code]
+[code hover]app/Services/OrderService.php | calculateTotal[/code]
+[code references]app/Services/OrderService.php | calculateTotal[/code]
 [code edit]
 path: app/Services/OrderService.php
 search: return $sum;

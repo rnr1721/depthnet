@@ -15,6 +15,7 @@ use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
+use App\Contracts\Agent\Code\LspServiceInterface;
 use App\Contracts\Agent\Code\ProjectAdapterRegistryInterface;
 use App\Contracts\Agent\Code\WorkspaceTopologyServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
@@ -95,6 +96,7 @@ use App\Services\Agent\Code\Adapters\Php\GenericPhpAdapter;
 use App\Services\Agent\Code\Adapters\Php\LaravelAdapter;
 use App\Services\Agent\Code\Adapters\Php\SymfonyAdapter;
 use App\Services\Agent\Code\Adapters\Python\PythonAdapter;
+use App\Services\Agent\Code\LspService;
 use App\Services\Agent\Code\ProjectAdapterRegistry;
 use App\Services\Agent\Code\WorkspaceTopologyService;
 use App\Services\Agent\CommandExecutor;
@@ -393,6 +395,7 @@ class AiServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(LspServiceInterface::class, LspService::class);
     }
 
     /**

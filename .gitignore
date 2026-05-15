@@ -62,6 +62,7 @@ docker-compose.override.yml
 /shared
 /docker/rhasspy
 /docker/ssl
+/sandboxes/templates/user-*
 
 #Backups
 /backups/*.sql

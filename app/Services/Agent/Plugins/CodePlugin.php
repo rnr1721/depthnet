@@ -2,7 +2,9 @@
 
 namespace App\Services\Agent\Plugins;
 
+use App\Contracts\Agent\Code\LspServiceInterface;
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
@@ -34,6 +36,8 @@ class CodePlugin implements CommandPluginInterface
     public function __construct(
         protected PresetSandboxServiceInterface $presetSandboxService,
         protected SandboxManagerInterface $sandboxManager,
+        protected LspServiceInterface $lspService,
+        protected PluginMetadataServiceInterface $pluginMetadata,
         protected LoggerInterface $logger,
     ) {
     }
@@ -49,16 +53,41 @@ class CodePlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        return 'Navigate and edit files in the sandbox workspace (requires sandbox assigned to preset). '
-            . 'All paths are relative to sandbox home (~/).';
+        return 'Navigate, understand, and edit files in the sandbox workspace. '
+            . 'Includes code intelligence (LSP): symbols, references, hover, definition, diagnostics. '
+            . 'All paths are relative to sandbox home (~/). '
+            . 'Requires a sandbox assigned to the preset.';
     }
 
     public function getInstructions(array $config = []): array
     {
-
         $unified = $config['unified_edit'] ?? true;
 
         $editInstructions = $unified ? [
+            // LSP Code Intelligence — first, so models see it
+            '── Code Intelligence (LSP) ──────────────────────────────',
+            'Understand code faster without reading entire files:',
+            '',
+            '• List symbols (classes, methods) in a file:',
+            '  [code symbols]app/Http/Controllers/ApiKeyController.php[/code]',
+            '',
+            '• Find everywhere a symbol is used in the project:',
+            '  [code references]app/Models/User.php | User[/code]',
+            '',
+            '• View documentation for a symbol (signature, params):',
+            '  [code hover]app/Http/Controllers/ApiKeyController.php | index[/code]',
+            '',
+            '• Jump to definition of a symbol:',
+            '  [code definition]app/Http/Controllers/ApiKeyController.php | ApiKeyController[/code]',
+            '',
+            '• Check for errors and warnings:',
+            '  [code diagnostics]app/Http/Controllers[/code]',
+            '',
+            'Format: "file | symbol" for references/definition/hover.',
+            'LSP auto-starts on first use — no manual start needed.',
+            'Tip: Use [code symbols] first to see what is in a file.',
+            '',
+            '── File Operations ──────────────────────────────────────',
             'Edit file (replace format): [code edit]path: ...' . "\n" . 'search: ...' . "\n" . 'replace: ...[/code]',
             'Edit file (diff format): [code edit]--- a/...' . "\n" . '+++ b/...[/code]',
             'Create or edit file: [code edit]path: ...' . "\n" . 'replace: ...' . "\n" . 'create:true[/code]',
@@ -73,7 +102,7 @@ class CodePlugin implements CommandPluginInterface
         ] : [
             'Replace in file: [code replace]path: ...' . "\n" . 'search: ...' . "\n" . 'replace: ...[/code]',
             'Apply patch: [code patch]--- a/...' . "\n" . '+++ b/...[/code]',
-             '⚠️ INDENTATION: For Python, YAML, or any indentation-sensitive code — copy leading whitespace from search to replace exactly.'
+            '⚠️ INDENTATION: For Python, YAML, or any indentation-sensitive code — copy leading whitespace from search to replace exactly.',
         ];
 
         return array_merge([
@@ -95,51 +124,56 @@ class CodePlugin implements CommandPluginInterface
 
     public function getToolSchema(array $config = []): array
     {
-
         $editMethods = ($config['unified_edit'] ?? true)
             ? ['edit', 'batch']
             : ['replace', 'patch'];
 
         return [
             'name'        => 'code',
-            'description' => 'Navigate and edit files in the sandbox workspace. '
+            'description' => 'Navigate, understand, and edit files in the sandbox workspace. '
+                . 'Includes code intelligence: symbols, references, hover, definition, diagnostics. '
                 . 'All paths relative to sandbox home (~/). '
-                . 'Use for structural file operations on the current project. '
-                . 'Use "documents" plugin instead for semantic search over uploaded knowledge files.',
+                . 'Use "documents" plugin for semantic search over uploaded knowledge files.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method'  => [
                         'type'        => 'string',
                         'description' => 'Operation to perform',
-                        'enum' => array_merge(['tree', 'info', 'read', 'search', 'write'], $editMethods),
+                        'enum' => array_merge([
+                            'tree', 'info', 'read', 'search', 'write',
+                            'symbols', 'references', 'definition', 'hover', 'diagnostics',
+                        ], $editMethods),
                     ],
                     'content' => [
                         'type'        => 'string',
                         'description' => implode(' ', [
                             'Argument depends on method:',
                             '',
+                            '── Navigation & Reading ────────────────────────────',
                             '• tree: optional path (empty = current directory).',
                             '• info: file or directory path.',
                             '• read: "path" or "path | lines:N-M" or "path | around:functionName".',
                             '• search: "query" or "query | path:dir".',
                             '',
-                            '• edit: automatically detects format —',
-                            '  supports "create:true" to create file if it does not exist.',
-                            '  if file does not exist and no search is provided, "replace" becomes full file content.',
-                            '  either key-value: "path: ...\nsearch: ...\nreplace: ...\n[limit: 1]"',
-                            '  or unified diff: "--- a/...\n+++ b/...\n@@ -l,c +l,c @@\n- old\n+ new".',
+                            '── Code Intelligence (LSP) ─────────────────────────',
+                            '• symbols: List all symbols in a file. Use to explore unfamiliar code.',
+                            '• references: Find all usages across the project. Format: "file | symbol".',
+                            '  Use before renaming or refactoring to see impact.',
+                            '• definition: Jump to where a symbol is defined. Format: "file | symbol".',
+                            '• hover: Show documentation — signature, params, return type. Format: "file | symbol".',
+                            '• diagnostics: Check for errors/warnings in a file or directory.',
                             '',
-                            '• batch: numbered list of operations, each on a new line.',
-                            '  Format per line: "path: file.php | search: old | replace: new [| limit: 1] [| create: true]"',
-                            '  Lines starting with # are comments. Operations execute sequentially.',
-                            '  If an operation fails, remaining operations continue.',
+                            '── Editing ─────────────────────────────────────────',
+                            '• edit: Key-value replace or unified diff. Auto-detects format.',
+                            '  Key-value: "path: ...\nsearch: ...\nreplace: ...\n[limit: 1]".',
+                            '  Diff: "--- a/...\n+++ b/...\n@@ ... @@\n- old\n+ new".',
+                            '  Supports "create:true" to create file if it does not exist.',
+                            '• write: Create or overwrite file. Format: "path: ...\ncontent: ...".',
+                            '• batch: Multi-file edits. Numbered list, each line:',
+                            '  "path: file.php | search: old | replace: new [| limit: 1] [| create: true]".',
                             '',
-                            '⚠️ For indentation-sensitive languages (Python, YAML, etc.): '
-                            . 'preserve exact leading whitespace from search in replace. '
-                            . 'Example: if search has 8 spaces → replace must keep 8 spaces.',
-                            '',
-                            'Tip: for edit, both formats work — the plugin will auto-detect which to use.',
+                            '⚠️ For indentation-sensitive languages, preserve exact whitespace.',
                         ]),
                     ],
                 ],
@@ -233,7 +267,7 @@ class CodePlugin implements CommandPluginInterface
 
     public function getSelfClosingTags(): array
     {
-        return ['tree'];
+        return ['tree', 'lsp-start', 'lsp-stop', 'lsp-status'];
     }
 
     // -------------------------------------------------------------------------
@@ -258,7 +292,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
-        $path = $this->normalizePath($content) ?: '.';
+        $path = $this->normalizePath($content, $context) ?: '.';
         $depth = (int) $context->get('max_tree_depth', 4);
 
         $cmd = sprintf(
@@ -279,7 +313,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
-        $path = $this->normalizePath($content);
+        $path = $this->normalizePath($content, $context);
         if (!$path) {
             return 'Error: path required.';
         }
@@ -309,7 +343,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
-        $content = $this->normalizePath($content);
+        $content = $this->normalizePath($content, $context);
         [$path, $modifier] = $this->splitModifier($content);
 
         if (!$path) {
@@ -383,7 +417,7 @@ class CodePlugin implements CommandPluginInterface
             return 'Error: Code plugin is disabled.';
         }
 
-        $content = $this->normalizePath($content);
+        $content = $this->normalizePath($content, $context);
         [$query, $modifier] = $this->splitModifier($content);
 
         if (!$query) {
@@ -413,6 +447,261 @@ class CodePlugin implements CommandPluginInterface
     }
 
     // -------------------------------------------------------------------------
+    // LSP — Language Server Protocol
+    // -------------------------------------------------------------------------
+
+    /**
+     * [code lsp-start][/code]
+     */
+    public function lspStart(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $root = $this->pluginMetadata->get($context->preset, 'projectmap', 'workspace_root');
+        $workingDir = is_string($root) && $root !== '' ? $root : '/home/sandbox-user';
+
+        $result = $this->lspService->start($sandboxId, $context->get('user', 'sandbox-user'), 10, $workingDir);
+
+        if ($result->success) {
+            $this->pluginMetadata->set($context->preset, 'code', 'lsp_language', $result->language);
+            $this->pluginMetadata->set($context->preset, 'code', 'lsp_pid', $result->pid);
+        }
+
+        return $result->message;
+    }
+
+    /**
+     * [code lsp-stop][/code]
+     */
+    public function lspStop(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $this->lspService->stop($sandboxId, $context->get('user', 'sandbox-user'), 5);
+        $this->pluginMetadata->remove($context->preset, 'code', 'lsp_language');
+        $this->pluginMetadata->remove($context->preset, 'code', 'lsp_pid');
+
+        return 'LSP server stopped.';
+    }
+
+    /**
+     * [code lsp-status][/code]
+     */
+    public function lspStatus(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $status = $this->lspService->status($sandboxId, $context->get('user', 'sandbox-user'), 5);
+
+        return $status->running
+            ? "LSP server: running (language: {$status->language}, PID: {$status->pid})"
+            : 'LSP server: not running. Start with [code lsp-start][/code].';
+    }
+
+    /**
+     * [code references]app/Models/User.php | User[/code]
+     */
+    public function references(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $this->ensureLspRunning($sandboxId, $context);
+
+        [$file, $symbol] = $this->splitModifier($content);
+        $file = $this->normalizePath($file, $context);
+        $symbol = $this->normalizeSymbol($symbol);
+
+        if (!$file || !$symbol) {
+            return 'Error: Format: "file | symbol".';
+        }
+
+        $locations = $this->lspService->references($sandboxId, $file, $symbol, $context->get('user', 'sandbox-user'), 10);
+
+        if (empty($locations)) {
+            return "No references found for '{$symbol}'.";
+        }
+
+        $lines = ["References to '{$symbol}' (" . count($locations) . " found):"];
+        foreach ($locations as $i => $loc) {
+            $lines[] = "  [{$i}] {$loc->position()}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * [code definition]src/main.ts | fetchData[/code]
+     */
+    public function definition(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $this->ensureLspRunning($sandboxId, $context);
+
+        [$file, $symbol] = $this->splitModifier($content);
+        $file = $this->normalizePath($file, $context);
+        $symbol = $this->normalizeSymbol($symbol);
+
+        if (!$file || !$symbol) {
+            return 'Error: Format: "file | symbol".';
+        }
+
+        $location = $this->lspService->definition($sandboxId, $file, $symbol, $context->get('user', 'sandbox-user'), 10);
+
+        return $location
+            ? "Definition of '{$symbol}':\n  → {$location->position()}"
+            : "Definition not found for '{$symbol}'.";
+    }
+
+    /**
+     * [code hover]lib/query.ts | calculatePrice[/code]
+     */
+    public function hover(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $this->ensureLspRunning($sandboxId, $context);
+
+        [$file, $symbol] = $this->splitModifier($content);
+        $file = $this->normalizePath($file, $context);
+        $symbol = $this->normalizeSymbol($symbol);
+
+        if (!$file || !$symbol) {
+            return 'Error: Format: "file | symbol".';
+        }
+
+        $result = $this->lspService->hover($sandboxId, $file, $symbol, $context->get('user', 'sandbox-user'), 10);
+
+        return $result ?: 'No hover information available.';
+    }
+
+    /**
+     * [code symbols]app/Services[/code]
+     */
+    public function symbols(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $this->ensureLspRunning($sandboxId, $context);
+
+        $path = $this->normalizePath($content, $context) ?: '.';
+
+        $locations = $this->lspService->symbols($sandboxId, $path, $context->get('user', 'sandbox-user'), 10);
+
+        if (empty($locations)) {
+            return "No symbols found in {$path}.";
+        }
+
+        $lines = ["Symbols in {$path}:"];
+        foreach ($locations as $i => $loc) {
+            $lines[] = "  [{$i}] {$loc->position()}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * [code diagnostics]app/[/code]
+     */
+    public function diagnostics(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Code plugin is disabled.';
+        }
+
+        $sandboxId = $this->resolvesSandboxId($context);
+        if (!$sandboxId) {
+            return 'Error: No running sandbox assigned.';
+        }
+
+        $this->ensureLspRunning($sandboxId, $context);
+
+        $path = $this->normalizePath($content, $context) ?: '.';
+
+        $diagnostics = $this->lspService->diagnostics($sandboxId, $path, $context->get('user', 'sandbox-user'), 10);
+
+        if (empty($diagnostics)) {
+            return "No diagnostics issues found. ✅";
+        }
+
+        $lines = ["Diagnostics for {$path}:"];
+        foreach ($diagnostics as $d) {
+            $lines[] = "  {$d->icon()} {$d->file}:{$d->line} — {$d->message}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Auto-start LSP if not running and auto_start config is enabled.
+     */
+    private function ensureLspRunning(string $sandboxId, PluginExecutionContext $context): void
+    {
+        if ($this->lspService->isRunning($sandboxId, $context->get('user', 'sandbox-user'), 5)) {
+            return;
+        }
+
+        // Получаем workspace_root из метаданных projectmap
+        $root = $this->pluginMetadata->get($context->preset, 'projectmap', 'workspace_root');
+        $workingDir = is_string($root) && $root !== '' ? $root : '/home/sandbox-user';
+
+        $result = $this->lspService->start($sandboxId, $context->get('user', 'sandbox-user'), 10, $workingDir);
+
+        if ($result->success) {
+            $this->pluginMetadata->set($context->preset, 'code', 'lsp_language', $result->language);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Editing
     // -------------------------------------------------------------------------
 
@@ -432,7 +721,7 @@ class CodePlugin implements CommandPluginInterface
         $params = $this->parseKeyValue($content);
 
         $path    = $params['path']    ?? null;
-        $path = $this->normalizePath($path);
+        $path = $this->normalizePath($path, $context);
 
         $fileSize = (int) trim($this->execRaw($context, sprintf('stat -c%%s %s 2>/dev/null || echo 0', escapeshellarg($path))));
         if ($fileSize > 1024 * 1024) { // 1MB
@@ -644,7 +933,7 @@ class CodePlugin implements CommandPluginInterface
         $params = $this->parseKeyValue($content);
 
         $path = $params['path'] ?? null;
-        $path = $this->normalizePath($path);
+        $path = $this->normalizePath($path, $context);
         $data = $params['content'] ?? $params['text'] ?? $params['code'] ?? $params['data'] ?? null;
 
         if (!$path || $data === null) {
@@ -966,35 +1255,97 @@ class CodePlugin implements CommandPluginInterface
      * Strip "key: " prefix and expand ~ to /home/sandbox-user.
      * Safe to call on any model-provided path input.
      */
-    private function normalizePath(string $input): string
+    private function normalizePath(string $input, PluginExecutionContext $context): string
     {
         $input = trim($input);
 
-        // If ": " is present, trim everything preceding it (the model may have added a "key:" prefix).
-        if (str_contains($input, ': ')) {
-            $input = trim(substr($input, strpos($input, ': ') + 2));
+        // 1. Strip model noise like "key: /path"
+        // (only safe prefixes, not arbitrary ":")
+        if (preg_match('/^[a-zA-Z_]+:\s+/', $input)) {
+            $input = preg_replace('/^[a-zA-Z_]+:\s+/', '', $input);
+            $input = trim($input);
         }
 
         if ($input === '' || $input === '.') {
             return $input;
         }
 
-        // Revealing...
-        if (str_starts_with($input, '~/')) {
-            $input = '/home/sandbox-user/' . substr($input, 2);
-        } elseif ($input === '~') {
+        // 2. Expand ~
+        if ($input === '~') {
             $input = '/home/sandbox-user';
+        } elseif (str_starts_with($input, '~/')) {
+            $input = '/home/sandbox-user/' . substr($input, 2);
         }
 
-        // Collapse /../ and /./ for security (but do not break legitimate paths).
-        $input = preg_replace('#/\./#', '/', $input);  // /./ → /
-        do {
-            $prev = $input;
-            $input = preg_replace('#/[^/]+/\.\./#', '/', $input);
-        } while ($input !== $prev);  // /dir/../ → /
-        $input = preg_replace('#^/\.\./#', '/', $input);  // в начале
+        // 3. Resolve relative paths using workspace root (if available)
+        if (!str_starts_with($input, '/')) {
+            if ($context !== null) {
+                $root = $this->pluginMetadata->get(
+                    $context->preset,
+                    'projectmap',
+                    'workspace_root'
+                );
 
-        return $input;
+                if (is_string($root) && $root !== '') {
+                    $root = $this->normalizeAbsolutePath($root);
+                    $input = rtrim($root, '/') . '/' . $input;
+                }
+            }
+        }
+
+        // 4. Normalize absolute/merged path safely
+        return $this->normalizeAbsolutePath($input);
+    }
+
+
+    private function normalizeAbsolutePath(string $path): string
+    {
+        $path = str_replace('\\', '/', $path);
+
+        $isAbsolute = str_starts_with($path, '/');
+
+        $parts = explode('/', $path);
+        $stack = [];
+
+        foreach ($parts as $part) {
+            if ($part === '' || $part === '.') {
+                continue;
+            }
+
+            if ($part === '..') {
+                if (!empty($stack)) {
+                    array_pop($stack);
+                }
+                continue;
+            }
+
+            $stack[] = $part;
+        }
+
+        $normalized = implode('/', $stack);
+
+        if ($isAbsolute) {
+            $normalized = '/' . $normalized;
+        }
+
+        return $normalized === '' ? ($isAbsolute ? '/' : '') : $normalized;
+    }
+
+    /**
+     * Strip "symbol: " or other key: prefix from a symbol name.
+     * Model may pass "symbol: index" instead of just "index".
+     */
+    private function normalizeSymbol(?string $symbol): ?string
+    {
+        if ($symbol === null || $symbol === '') {
+            return $symbol;
+        }
+
+        if (str_contains($symbol, ': ')) {
+            $symbol = trim(substr($symbol, strpos($symbol, ': ') + 2));
+        }
+
+        return $symbol;
     }
 
 }

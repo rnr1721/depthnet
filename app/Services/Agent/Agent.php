@@ -71,8 +71,8 @@ class Agent implements AgentInterface
      */
     public function think(AiPreset $currentPreset): AiAgentResponseInterface
     {
+        $presetId = $currentPreset->getId();
         try {
-            $presetId = $currentPreset->getId();
             $this->setupPresetEnvironment($currentPreset);
 
             $context  = $this->buildContext($currentPreset);
@@ -186,9 +186,12 @@ class Agent implements AgentInterface
                 $preset->getId(),
                 'memo',
                 '',
-                fn () => $memo
+                function () use ($preset, $memo) {
+                    // Clear the note after retrieving it once, so it doesn't persist indefinitely.
+                    $this->pluginMetadataService->remove($preset, 'memo', 'self_system_note');
+                    return $memo;
+                }
             );
-            $this->pluginMetadataService->remove($preset, 'memo', 'self_system_note');
         }
 
         $this->commandPreRunner->run($preset, $preset);

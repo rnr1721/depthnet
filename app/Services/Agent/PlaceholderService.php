@@ -195,12 +195,25 @@ class PlaceholderService implements PlaceholderServiceInterface
     /**
      * @inheritDoc
      */
-    public function registerDynamic(string $name, string $description, callable $contentProvider, string $scope = 'global'): self
-    {
-        $this->scopes[$scope]['[[' . $name . ']]'] = [
+    public function registerDynamic(
+        string $name,
+        string $description,
+        callable $contentProvider,
+        string $scope = 'global',
+        bool $stub = false
+    ): self {
+        $key = '[[' . $name . ']]';
+
+        // If a stub arrives, and the key already has a NON-stub, do not touch it.
+        if ($stub && isset($this->scopes[$scope][$key]) && !($this->scopes[$scope][$key]['stub'] ?? false)) {
+            return $this;
+        }
+
+        $this->scopes[$scope][$key] = [
             'content' => $contentProvider,
             'description' => $description,
             'dynamic' => true,
+            'stub' => $stub,
         ];
 
         return $this;

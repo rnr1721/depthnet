@@ -25,15 +25,16 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     public function setDefaultShortcodes(AiPreset $preset): void
     {
         $this->setDateTime();
-        $this->setCommandBuilderInstructions($preset);
+        if ($preset->getAgentResultMode() !== 'tool_calls') {
+            $this->setCommandBuilderInstructions($preset);
+            $this->setPreCommandResults();
+            $this->setAgentCommandResults();
+        }
         $this->setEnvironmentInfo();
         $this->setRagContext();
         $this->setMainRagContext();
         $this->setInnerVoice();
-        $this->setAgentCommandResults();
-        $this->setWorkspace();
         $this->setKnownSources();
-        $this->setPreCommandResults();
     }
 
     /**
@@ -117,21 +118,6 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'inner_voice',
             'Inner voice: advice, doubt or intuition from a dedicated preset (requires Voice preset to be configured)',
-            fn () => ''
-        );
-    }
-
-    /**
-     * Register the [[workspace]] placeholder stub (global).
-     * The real implementation is provided per-preset by WorkspacePlugin::pluginReady().
-     *
-     * @return void
-     */
-    private function setWorkspace(): void
-    {
-        $this->placeholderService->registerDynamic(
-            'workspace',
-            'Persistent key-value scratchpad contents for this preset. Updated each cycle via [workspace] commands.',
             fn () => ''
         );
     }

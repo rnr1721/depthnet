@@ -340,8 +340,9 @@ class SelfNotePlugin implements CommandPluginInterface
         $this->placeholderService->registerDynamic(
             'memo',
             'SelfNotePlugin — write a note to yourself for the next thinking cycle.',
-            fn () => $this->metadataService->get($context->preset, self::PLUGIN_NAME, 'self_system_note', ''),
-            $scope
+            fn () => '',
+            $scope,
+            true
         );
     }
 }

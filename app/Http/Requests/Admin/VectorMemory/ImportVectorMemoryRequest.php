@@ -12,11 +12,15 @@ class ImportVectorMemoryRequest extends BaseVectorMemoryRequest
      */
     public function rules(): array
     {
-        return array_merge($this->presetValidationRules(), [
-            'file' => 'nullable|file|mimes:json,txt|max:2048', // 2MB max
-            'content' => 'nullable|string|max:20000',
-            'replace_existing' => 'boolean',
-        ]);
+        return array_merge(
+            $this->presetValidationRules(),
+            $this->optionalDomainRules('target_domain'),
+            [
+                'file' => 'nullable|file|mimes:json,txt|max:2048', // 2MB max
+                'content' => 'nullable|string|max:20000',
+                'replace_existing' => 'boolean',
+            ],
+        );
     }
 
     /**
@@ -69,5 +73,14 @@ class ImportVectorMemoryRequest extends BaseVectorMemoryRequest
             'is_json' => $isJson,
             'replace_existing' => $this->boolean('replace_existing')
         ];
+    }
+
+    /**
+     * Optional target domain — if set, every imported record is routed into this domain
+     * regardless of what the source export says.
+     */
+    public function getValidatedTargetDomain(): ?string
+    {
+        return $this->readDomain('target_domain');
     }
 }

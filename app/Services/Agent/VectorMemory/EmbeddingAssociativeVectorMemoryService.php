@@ -14,17 +14,25 @@ use Carbon\Carbon;
  * because hops follow semantic similarity rather than keyword overlap.
  *
  * Algorithm:
- *  1. Embed the query via EmbeddingService
- *  2. Find top-K candidates by cosine similarity (initial retrieval)
- *  3. Build a local similarity graph over all loaded embeddings
- *  4. Walk the graph from top candidates: each hop expands to the
+ *  1. Resolve domain filter (config wins; otherwise parse inline prefix)
+ *  2. Load memories restricted to those domains (or all if none specified)
+ *  3. Embed the cleaned query via EmbeddingService
+ *  4. Find top-K candidates by cosine similarity (initial retrieval)
+ *  5. Build a local similarity graph over the loaded embeddings
+ *  6. Walk the graph from top candidates: each hop expands to the
  *     semantically nearest unvisited neighbours
- *  5. Score every visited node: cosine_sim * access_weight * time_decay
- *  6. Return top-K by composite score, update access stats
+ *  7. Score every visited node: cosine_sim * access_weight * time_decay
+ *  8. Return top-K by composite score, update access stats
  *
  * Falls back to EmbeddingVectorMemoryService (no graph) when the preset
  * has no embedding capability configured, and further to TF-IDF when
  * embeddings are fully unavailable.
+ *
+ * Domain support (inherited from base):
+ *   Filtering by domain happens BEFORE graph construction. For a domain
+ *   with 200 records the graph is O(200²)=40k pair comparisons instead
+ *   of O(1000²)=1M — domains become both a semantic filter and a perf win.
+ *   The chain stays scoped to whatever domains the caller asked for.
  */
 class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryService
 {
@@ -71,25 +79,39 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            $memories = $this->getVectorMemories($preset);
+            // Resolve domain filter once, here. Pass the resolved list down into
+            // any fallback paths via $config['domains'] so they don't re-parse.
+            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+
+            if (empty($cleanQuery)) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                ];
+            }
+
+            $config['domains'] = $domains;
+
+            $memories = $this->getVectorMemories($preset, null, $domains);
 
             if ($memories->isEmpty()) {
-                return ['success' => true, 'message' => 'No memories found.', 'results' => []];
+                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
+                return ['success' => true, 'message' => "No memories found{$where}.", 'results' => []];
             }
 
             $searchLimit = $config['search_limit'] ?? 5;
             $chainDepth  = $config['chain_depth']  ?? 3;
             $threshold   = $config['similarity_threshold'] ?? 0.2;
 
-            // ── Step 1: embed the query ───────────────────────────────────────
-            $queryEmbedding = $this->embeddingService->embed($query, $preset);
+            // ── Step 1: embed the cleaned query ──────────────────────────────
+            $queryEmbedding = $this->embeddingService->embed($cleanQuery, $preset);
 
             if ($queryEmbedding === null) {
                 $this->logger->info('EmbeddingAssociativeVectorMemoryService: no embedding — falling back.', [
                     'preset_id' => $preset->id,
                 ]);
                 // Graceful degradation chain: embedding → associative TF-IDF
-                return $this->fallbackSearch($preset, $query, $config);
+                return $this->fallbackSearch($preset, $cleanQuery, $config);
             }
 
             // Split records: only those with a stored embedding participate in
@@ -98,7 +120,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
             $withoutEmbedding = $memories->filter(fn ($m) => empty($m->embedding))->values();
 
             if ($withEmbedding->isEmpty()) {
-                return $this->fallbackSearch($preset, $query, $config);
+                return $this->fallbackSearch($preset, $cleanQuery, $config);
             }
 
             // Trim to MAX_GRAPH_NODES BEFORE computing scores and building the graph,
@@ -126,7 +148,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 return $this->buildResultWithTfIdfSupplement(
                     [],
                     $withoutEmbedding,
-                    $query,
+                    $cleanQuery,
                     $searchLimit,
                     $config
                 );
@@ -206,11 +228,11 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 ];
             }
 
-            // ── Step 6: TF-IDF supplement for records without embedding ───────
+            // ── Step 6: supplement with TF-IDF results for records without embedding ──
             $result = $this->buildResultWithTfIdfSupplement(
                 $results,
                 $withoutEmbedding,
-                $query,
+                $cleanQuery,
                 $searchLimit,
                 $config
             );
@@ -224,6 +246,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 'total_searched'  => $memories->count(),
                 'embedding_used'  => true,
                 'graph_nodes'     => count($visited),
+                'domains'         => $domains,
             ]);
 
         } catch (\Throwable $e) {
@@ -409,7 +432,11 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
     }
 
     /**
-     * Graceful degradation: try parent (embedding flat search), then TF-IDF associative.
+     * Graceful degradation: try parent (embedding flat search), which itself
+     * falls through to TF-IDF if embedding is unavailable.
+     *
+     * The caller must pass the already-cleaned query — parent will not re-parse
+     * the inline "domain:..." prefix (domains travel via $config['domains']).
      */
     private function fallbackSearch(AiPreset $preset, string $query, array $config): array
     {

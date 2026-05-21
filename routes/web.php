@@ -226,6 +226,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/export', [VectorMemoryController::class, 'export'])->name('export');
             Route::post('/import', [VectorMemoryController::class, 'import'])->name('import');
             Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
+            Route::post('/purge-domain', [VectorMemoryController::class, 'purgeDomain'])->name('purge-domain');
         });
 
         // Document Management routes

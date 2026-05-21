@@ -15,6 +15,15 @@ use Carbon\Carbon;
  * - Access tracking: each touched memory gets access_count++ and last_accessed_at update
  * - Importance reinforcement: memories that act as "bridges" gain importance over time
  * - Smart cleanup: removes lowest composite score first, not oldest
+ *
+ * Domain support (inherited from base):
+ *   When a domain filter is applied (via $config['domains'] or inline
+ *   "domain:..." prefix), the entire associative chain runs inside the
+ *   filtered set. Domains never re-enter the chain via hops — the chain
+ *   stays scoped to whatever the caller asked for.
+ *
+ *   This gives a useful semantic effect: "associations within a context"
+ *   — the chain is free to follow meaning, but bounded by the domain.
  */
 class VectorMemoryAssociativeService extends VectorMemoryService
 {
@@ -44,12 +53,14 @@ class VectorMemoryAssociativeService extends VectorMemoryService
      * Search with associative chain traversal and composite scoring.
      *
      * Steps:
-     * 1. Search memories using TF-IDF similarity for the original query
-     * 2. Apply composite score = tfidf * access_weight * time_weight
-     * 3. Take the top result, use its content to seed next search step
-     * 4. Repeat for configured chain depth, avoiding already-visited memories
-     * 5. Update access stats for all touched memories
-     * 6. Return all unique results sorted by composite score descending
+     * 1. Resolve domain filter (from $config['domains'] or inline "domain:..." prefix)
+     * 2. Load memories restricted to those domains (or all if none specified)
+     * 3. Search memories using TF-IDF similarity for the cleaned query
+     * 4. Apply composite score = tfidf * access_weight * time_weight
+     * 5. Take the top result, use its content to seed next search step
+     * 6. Repeat for configured chain depth, avoiding already-visited memories
+     * 7. Update access stats for all touched memories
+     * 8. Return all unique results sorted by composite score descending
      *
      * @inheritDoc
      */
@@ -64,12 +75,24 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 ];
             }
 
-            $memories = $this->getVectorMemories($preset);
+            // Resolve domain filter (config wins; otherwise parse inline prefix)
+            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+
+            if (empty($cleanQuery)) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                ];
+            }
+
+            // Load only memories belonging to the requested domains
+            $memories = $this->getVectorMemories($preset, null, $domains);
 
             if ($memories->isEmpty()) {
+                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
                 return [
                     'success' => true,
-                    'message' => 'No memories found. Store some content first.',
+                    'message' => "No memories found{$where}. Store some content first.",
                     'results' => []
                 ];
             }
@@ -80,7 +103,7 @@ class VectorMemoryAssociativeService extends VectorMemoryService
 
             $visitedIds   = [];
             $chainResults = [];
-            $currentQuery = $query;
+            $currentQuery = $cleanQuery;
 
             for ($step = 0; $step < $chainDepth; $step++) {
                 // Filter out already-visited memories
@@ -161,6 +184,7 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 'results'        => $finalResults,
                 'total_searched' => $memories->count(),
                 'chain_steps'    => $step,
+                'domains'        => $domains,
             ];
 
         } catch (\Throwable $e) {

@@ -15,9 +15,32 @@ use Psr\Log\LoggerInterface;
 /**
  * Service for managing vector memory operations
  * Handles CRUD operations, semantic search, and memory limit enforcement
+ *
+ * Domain support:
+ *   Each record belongs to exactly one named domain (default: 'global').
+ *   Domains are agent-managed namespaces — no separate domain table:
+ *   a domain exists as long as at least one record uses its name.
+ *
+ *   - storeVectorMemory($preset, $content, ['domain' => 'work']) writes to 'work'
+ *   - searchVectorMemories accepts $config['domains'] = ['work', 'global'] for filtering
+ *   - searchVectorMemories also parses inline "domain:work,global | actual query"
+ *   - getVectorMemories accepts optional $domains list
+ *   - Empty/missing domains list = search across ALL domains
+ *   - $config['domains'] (when set) wins over inline syntax
  */
 class VectorMemoryService implements VectorMemoryServiceInterface
 {
+    /**
+     * Characters not allowed in a domain name — they would break the
+     * inline parser ("domain:a,b | query") and command tag content.
+     */
+    protected const DOMAIN_FORBIDDEN_CHARS = ['|', ',', ':', '"', "'", "\n", "\r", "\t"];
+
+    /**
+     * Max domain name length (matches DB column).
+     */
+    protected const DOMAIN_MAX_LENGTH = 64;
+
     public function __construct(
         protected LoggerInterface $logger,
         protected TfIdfServiceInterface $tfIdfService,
@@ -44,10 +67,15 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     /**
      * @inheritDoc
      */
-    public function getVectorMemories(AiPreset $preset, ?int $limit = null): Collection
+    public function getVectorMemories(AiPreset $preset, ?int $limit = null, array $domains = []): Collection
     {
-        $query = $this->vectorMemoryModel->where('preset_id', $preset->id)
+        $query = $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
             ->orderBy('created_at', 'desc');
+
+        if (!empty($domains)) {
+            $query->whereIn('domain', $domains);
+        }
 
         if ($limit) {
             $query->limit($limit);
@@ -70,6 +98,15 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 ];
             }
 
+            $domain = $this->resolveDomain($config['domain'] ?? null, $config);
+            if ($domain === null) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Invalid domain name. Forbidden chars: | , : " \' or length > '
+                        . self::DOMAIN_MAX_LENGTH . '.'
+                ];
+            }
+
             $this->cleanupIfNeeded($preset, $config);
             $this->configureTfIdfService($config);
 
@@ -79,6 +116,7 @@ class VectorMemoryService implements VectorMemoryServiceInterface
 
             $vectorMemory = $this->vectorMemoryModel->create([
                 'preset_id'    => $preset->id,
+                'domain'       => $domain,
                 'content'      => $content,
                 'tfidf_vector' => $vector,
                 'keywords'     => $keywords,
@@ -87,8 +125,9 @@ class VectorMemoryService implements VectorMemoryServiceInterface
 
             return [
                 'success'        => true,
-                'message'        => "Content stored in vector memory successfully. Generated " . count($vector) . " features (language: {$language}).",
+                'message'        => "Content stored in vector memory [{$domain}]. Generated " . count($vector) . " features (language: {$language}).",
                 'memory'         => $vectorMemory,
+                'domain'         => $domain,
                 'language'       => $language,
                 'features_count' => count($vector)
             ];
@@ -106,11 +145,12 @@ class VectorMemoryService implements VectorMemoryServiceInterface
      * Store memory with preserved metadata (used during import).
      *
      * Restores original created_at, updated_at, access_count, last_accessed_at
-     * from export data. Gracefully handles v1 exports where these fields are absent.
+     * from export data. Gracefully handles v1/v2 exports where these fields
+     * (including 'domain') are absent — missing domain falls back to default.
      *
      * @param AiPreset $preset
      * @param string $content
-     * @param array $meta Metadata from export: importance, access_count, last_accessed_at, created_at, updated_at
+     * @param array $meta Metadata from export: importance, access_count, last_accessed_at, created_at, updated_at, domain
      * @param array $config
      * @return array
      */
@@ -125,6 +165,21 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 ];
             }
 
+            // Admin-side import override: $config['force_domain'] beats $meta['domain'].
+            // This lets the user funnel an entire export into one chosen domain regardless
+            // of the source records' own domain metadata.
+            $rawDomain = $config['force_domain'] ?? $meta['domain'] ?? null;
+            $domain    = $this->resolveDomain($rawDomain, $config);
+            if ($domain === null) {
+                // Bad domain in import — fall back to default, don't fail the import
+                $domain = $config['default_domain'] ?? VectorMemory::DEFAULT_DOMAIN;
+                $this->logger->warning('VectorMemoryService::storeWithMeta: invalid domain in import, using default.', [
+                    'preset_id'         => $preset->id,
+                    'raw_domain'        => $meta['domain'] ?? null,
+                    'fallback_domain'   => $domain,
+                ]);
+            }
+
             $this->cleanupIfNeeded($preset, $config);
             $this->configureTfIdfService($config);
 
@@ -136,6 +191,7 @@ class VectorMemoryService implements VectorMemoryServiceInterface
 
             $data = [
                 'preset_id'        => $preset->id,
+                'domain'           => $domain,
                 'content'          => $content,
                 'tfidf_vector'     => $vector,
                 'keywords'         => $keywords,
@@ -167,8 +223,9 @@ class VectorMemoryService implements VectorMemoryServiceInterface
 
             return [
                 'success'        => true,
-                'message'        => "Content imported successfully. Generated " . count($vector) . " features (language: {$language}).",
+                'message'        => "Content imported into [{$domain}]. Generated " . count($vector) . " features (language: {$language}).",
                 'memory'         => $vectorMemory,
+                'domain'         => $domain,
                 'language'       => $language,
                 'features_count' => count($vector)
             ];
@@ -196,18 +253,29 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 ];
             }
 
-            $memories = $this->getVectorMemories($preset);
+            // Resolve domain filter: config wins; otherwise parse inline prefix
+            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+
+            if (empty($cleanQuery)) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                ];
+            }
+
+            $memories = $this->getVectorMemories($preset, null, $domains);
 
             if ($memories->isEmpty()) {
+                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
                 return [
                     'success'  => true,
-                    'message'  => 'No memories found. Store some content first.',
+                    'message'  => "No memories found{$where}.",
                     'results'  => []
                 ];
             }
 
             $results = $this->tfIdfService->findSimilar(
-                $query,
+                $cleanQuery,
                 $memories,
                 $config['search_limit'] ?? 5,
                 $config['similarity_threshold'] ?? 0.1,
@@ -218,7 +286,8 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 'success'        => true,
                 'message'        => "Found " . count($results) . " similar memories.",
                 'results'        => $results,
-                'total_searched' => $memories->count()
+                'total_searched' => $memories->count(),
+                'domains'        => $domains,
             ];
 
         } catch (\Throwable $e) {
@@ -228,6 +297,52 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 'message' => "Error searching memories: " . $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function listDomains(AiPreset $preset): array
+    {
+        return $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
+            ->selectRaw('domain, COUNT(*) as cnt')
+            ->groupBy('domain')
+            ->orderByDesc('cnt')
+            ->get()
+            ->map(fn ($row) => [
+                'name'  => $row->domain,
+                'count' => (int) $row->cnt,
+            ])
+            ->all();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function dropDomain(AiPreset $preset, string $domain, array $config = []): int
+    {
+        $defaultDomain = $config['default_domain'] ?? VectorMemory::DEFAULT_DOMAIN;
+
+        if ($domain === $defaultDomain) {
+            return 0;
+        }
+
+        return $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
+            ->where('domain', $domain)
+            ->update(['domain' => $defaultDomain]);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function purgeDomain(AiPreset $preset, string $domain): int
+    {
+        return $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
+            ->where('domain', $domain)
+            ->delete();
     }
 
     /**
@@ -489,7 +604,7 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     }
 
     /**
-     * Test vector memory service connection and functionality
+     * @inheritDoc
      */
     public function testConnection(AiPreset $preset): array
     {
@@ -538,6 +653,88 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             ];
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Domain helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Normalize and validate a domain name. Returns null on invalid input.
+     *
+     * Rules:
+     *  - trim + mb_strtolower
+     *  - empty → fallback to config's default_domain or VectorMemory::DEFAULT_DOMAIN
+     *  - no forbidden chars (would break parser)
+     *  - length ≤ DOMAIN_MAX_LENGTH
+     *
+     * NOTE: We do NOT restrict alphabet (no ASCII-only). VectorMemoryPlugin's
+     * language_mode already steers the agent toward a consistent naming language.
+     */
+    protected function resolveDomain(?string $raw, array $config): ?string
+    {
+        $defaultDomain = $config['default_domain'] ?? VectorMemory::DEFAULT_DOMAIN;
+
+        if ($raw === null || trim($raw) === '') {
+            return $defaultDomain;
+        }
+
+        $normalized = mb_strtolower(trim($raw));
+
+        foreach (self::DOMAIN_FORBIDDEN_CHARS as $forbidden) {
+            if (str_contains($normalized, $forbidden)) {
+                return null;
+            }
+        }
+
+        if (mb_strlen($normalized) > self::DOMAIN_MAX_LENGTH) {
+            return null;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Resolve domain filter for a search call.
+     * Returns [array $domains, string $cleanQuery].
+     *
+     * Priority:
+     *   1. $config['domains'] (RAG-config style)
+     *   2. Inline "domain:a,b | actual query"
+     *   3. No filter — search all domains
+     */
+    protected function resolveSearchDomains(string $query, array $config): array
+    {
+        // Config takes precedence
+        if (!empty($config['domains']) && is_array($config['domains'])) {
+            $valid = [];
+            foreach ($config['domains'] as $raw) {
+                $resolved = $this->resolveDomain((string) $raw, $config);
+                if ($resolved !== null) {
+                    $valid[] = $resolved;
+                }
+            }
+            return [array_values(array_unique($valid)), $query];
+        }
+
+        // Inline prefix: "domain:a,b | rest"
+        if (preg_match('/^domain\s*:\s*([^|]+)\|(.+)$/iu', $query, $m)) {
+            $rawDomains = array_filter(array_map('trim', explode(',', $m[1])));
+            $valid = [];
+            foreach ($rawDomains as $raw) {
+                $resolved = $this->resolveDomain($raw, $config);
+                if ($resolved !== null) {
+                    $valid[] = $resolved;
+                }
+            }
+            return [array_values(array_unique($valid)), trim($m[2])];
+        }
+
+        return [[], $query];
+    }
+
+    // -------------------------------------------------------------------------
+    // Existing helpers — unchanged
+    // -------------------------------------------------------------------------
 
     /**
      * Configure TF-IDF service with custom language settings
@@ -606,6 +803,10 @@ class VectorMemoryService implements VectorMemoryServiceInterface
      * Deletes the weakest memories first using a lightweight composite score:
      *   importance * (1 + log(1 + access_count))
      * Only scalar columns are fetched — no vectors loaded into memory.
+     *
+     * NOTE: This is a per-preset limit, NOT per-domain. A noisy domain can
+     * push records out of quieter ones. Per-domain quotas are intentionally
+     * deferred until there's a clear use case.
      */
     protected function cleanupIfNeeded(AiPreset $preset, array $config): void
     {
@@ -640,9 +841,6 @@ class VectorMemoryService implements VectorMemoryServiceInterface
 
     /**
      * Parse a datetime string into a Carbon instance, returning null on failure.
-     *
-     * @param string|null $value
-     * @return \Illuminate\Support\Carbon|null
      */
     protected function parseDateTime(?string $value): ?CarbonInterface
     {

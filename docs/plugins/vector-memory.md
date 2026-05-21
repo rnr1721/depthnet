@@ -13,6 +13,20 @@ Two similarity engines are available:
 - **TF-IDF** — keyword-based similarity, works out of the box with no external API required. Good general-purpose choice.
 - **Embedding** — true semantic similarity using a language model. Understands meaning across different phrasings and languages. Requires an embedding capability configured for the preset.
 
+## Domains
+
+Memories are organized into named **domains** — agent-managed namespaces inside a single preset's memory. Think of them as folders: `work`, `relationships`, `architecture_notes`, `experiments`. The agent creates and uses them freely as it works.
+
+A domain exists for as long as it has at least one record. There's no separate registry to maintain — write the first record into `archive` and the domain appears; delete the last record from it and the domain quietly vanishes. The default domain is `global` (configurable per preset); memories stored without specifying a domain land there.
+
+When the agent searches, it can:
+
+- Search across **all** domains (the default — useful when it doesn't know where a memory lives).
+- Filter to **specific** domains (e.g. "search only within `work`").
+- Search across **several** named domains at once.
+
+In the admin UI, the live list of domains with record counts is shown in the action bar, and you can filter the view to a single domain at any time.
+
 ## Setup
 
 Enable the **Vector Memory** plugin in your preset settings and configure:
@@ -21,7 +35,10 @@ Enable the **Vector Memory** plugin in your preset settings and configure:
 |---|---|
 | **Search mode** | `Flat` returns the top-K most similar memories directly. `Associative` starts from the best match and then traverses related memories via a graph walk — useful for agents that need richer, interconnected recall. |
 | **Similarity engine** | `TF-IDF` (no API needed) or `Embedding` (requires embedding capability on the preset). |
-| **Max entries** | How many memories to store per preset (100–5000). Oldest entries are removed automatically when the limit is reached if auto-cleanup is enabled. |
+| **Default domain** | Domain assigned to memories stored without an explicit domain name. Defaults to `global`. |
+| **Allow agent to clear ALL memories** | When enabled, the agent can wipe the entire vector memory of this preset with `[vectormemory clear][/vectormemory]`. **Off by default** — this is the most destructive action available. |
+| **Allow agent to purge a domain** | When enabled, the agent can permanently delete all records of a single domain via `[vectormemory purge]name[/vectormemory]` (or the shorthand `[vectormemory clear]name[/vectormemory]`). The default domain is always protected from purge. **On by default** — less destructive than full clear. |
+| **Max entries** | How many memories to store per preset (100–5000). Weakest entries are removed automatically when the limit is reached if auto-cleanup is enabled. |
 | **Similarity threshold** | Minimum similarity score (0.0–1.0) for a result to be returned. Lower values return more results; higher values return only close matches. Default: `0.1`. |
 | **Search results limit** | Maximum number of results returned per search query (1–20). Default: `5`. |
 | **Boost recent memories** | Give higher relevance to more recently stored memories. |
@@ -31,24 +48,50 @@ Enable the **Vector Memory** plugin in your preset settings and configure:
 ## Search modes in detail
 
 ### Flat mode
+
 The default. Searches all memories and returns the top-K most similar results directly. Fast, predictable, and works well in most cases.
 
 ### Associative mode
+
 Designed for agents that build deep interconnected knowledge over time. The search starts with the best match for your query, then uses *that memory's content* to seed the next search step — and so on, up to a configured chain depth. This way, the agent doesn't just find directly relevant memories, it also surfaces related ones that wouldn't appear in a plain similarity search.
 
 Memories in associative mode also accumulate access statistics. Frequently retrieved memories gain a small importance boost over time (similar to long-term potentiation), while memories that haven't been accessed in a long time gradually become lower priority. When the memory limit is reached, the *weakest* memories are removed first — not necessarily the oldest ones.
 
+When the agent applies a domain filter, the associative chain stays inside the requested domains for the entire walk — giving "associations within a context" semantics.
+
 ## Commands
+
+### Storage
 
 | Command | Description |
 |---|---|
-| `[vectormemory]text to remember[/vectormemory]` | Store a new memory |
-| `[vectormemory search]query[/vectormemory]` | Search by meaning |
+| `[vectormemory]text to remember[/vectormemory]` | Store a new memory in the default domain |
+| `[vectormemory work]text to remember[/vectormemory]` | Store a new memory in the `work` domain (creates the domain if it doesn't exist) |
+
+Any method name that is not one of the known commands below (`search`, `recent`, `show`, `delete`, `clear`, `domains`, `purge`) is interpreted as a domain name. So `[vectormemory architecture_notes]...[/vectormemory]` writes into a domain called `architecture_notes`.
+
+### Retrieval
+
+| Command | Description |
+|---|---|
+| `[vectormemory search]query[/vectormemory]` | Search across all domains |
+| `[vectormemory search]domain:work | query[/vectormemory]` | Search only within the `work` domain |
+| `[vectormemory search]domain:work,relationships | query[/vectormemory]` | Search across multiple specific domains |
 | `[vectormemory recent]5[/vectormemory]` | Show the N most recent memories |
 | `[vectormemory show]42[/vectormemory]` | Show full content of memory by ID |
+| `[vectormemory domains][/vectormemory]` | List all domains with their record counts |
+
+### Maintenance
+
+| Command | Description |
+|---|---|
 | `[vectormemory delete]42[/vectormemory]` | Delete by ID |
 | `[vectormemory delete]some content[/vectormemory]` | Delete by content search (finds best match) |
-| `[vectormemory clear][/vectormemory]` | Wipe all vector memories for this preset |
+| `[vectormemory purge]work[/vectormemory]` | Permanently delete all records of the `work` domain (gated by **Allow agent to purge a domain**) |
+| `[vectormemory clear]work[/vectormemory]` | Shorthand for purge — same as above |
+| `[vectormemory clear][/vectormemory]` | Wipe ALL vector memories for this preset (gated by **Allow agent to clear ALL memories**) |
+
+The default domain is always protected from purge. To remove its contents you need to clear everything.
 
 ## How agents use it
 
@@ -58,9 +101,11 @@ Vector memory is designed for **knowledge**, not events. The distinction matters
 - **Store in Journal instead**: what happened, what was said, what was done
 
 Typical agent behaviour:
-- After solving a problem, stores the solution approach for future reference
-- Before starting a task, searches for relevant past knowledge
-- Accumulates a personal knowledge base over time that makes it progressively more capable in its domain
+
+- After solving a problem, stores the solution approach for future reference in an appropriate domain (e.g. `architecture`, `debugging`).
+- Before starting a task, searches for relevant past knowledge — first across all domains, then narrows down if needed.
+- Organizes long-term knowledge into themed domains as it grows: `relationships`, `preferences`, `tooling`, etc.
+- Accumulates a personal knowledge base over time that makes it progressively more capable in its domain.
 
 ## Memory + Vector Memory integration
 
@@ -121,10 +166,13 @@ The command processes records in batches and shows a progress bar. If some recor
 
 Vector memories can be exported and imported via the preset's UI. This is useful for backups, transferring a knowledge base between presets or installations, or seeding a new agent with existing knowledge.
 
-**Export** produces a JSON file containing all memories with their content, keywords, importance scores, and access statistics.
+**Export** produces a JSON file (format v3) containing all memories with their content, keywords, importance scores, access statistics, and per-record domain.
 
 **Import** accepts either:
-- A previously exported JSON file — timestamps and access stats are preserved
-- A plain text file — one memory per line, stored with default metadata
 
-Both v1 (legacy) and v2 export formats are supported transparently on import.
+- A previously exported JSON file — timestamps, access stats, and domains are preserved.
+- A plain text file — one memory per line, stored with default metadata in the default domain.
+
+Older export formats (v1, v2) are supported transparently on import — they simply don't carry per-record domain, so all imported records land in the default domain.
+
+On import you can optionally set a **Target domain** which overrides per-record domain values from the source. This is useful when migrating data from another preset and you want everything funneled into a single domain regardless of how it was organized originally.

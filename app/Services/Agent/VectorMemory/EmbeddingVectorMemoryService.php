@@ -23,6 +23,11 @@ use Psr\Log\LoggerInterface;
  * Register as DRIVER_EMBEDDING in VectorMemoryFactory.
  * The preset passed to each method is also used to resolve the embedding
  * provider config from preset_capability_configs.
+ *
+ * Domain support (inherited from base):
+ *   - storeVectorMemory: $config['domain'] is honoured by parent before embedding is attached
+ *   - searchVectorMemories: domain filter is resolved before query embedding, so the
+ *     cosine comparisons only run over the filtered subset — saves CPU on irrelevant records
  */
 class EmbeddingVectorMemoryService extends VectorMemoryService
 {
@@ -43,6 +48,8 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
      * TF-IDF vector is always computed for backward compatibility and fallback.
      * Embedding is computed synchronously — dispatch a job here if latency matters.
      *
+     * Domain handling is delegated to parent::storeVectorMemory().
+     *
      * {@inheritDoc}
      */
     public function storeVectorMemory(AiPreset $preset, string $content, array $config = []): array
@@ -62,11 +69,12 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
      * Semantic search using cosine similarity over dense embedding vectors.
      *
      * Algorithm:
-     *  1. Embed the query via EmbeddingService (uses preset's capability config)
-     *  2. Fall back to TF-IDF if embedding is unavailable
-     *  3. Compute cosine similarity for records that have an embedding
-     *  4. Supplement with TF-IDF results for records without embedding
-     *  5. Sort combined results by similarity and return top-K
+     *  1. Resolve domain filter (config wins; otherwise parse inline prefix)
+     *  2. Embed the cleaned query via EmbeddingService (uses preset's capability config)
+     *  3. Fall back to parent TF-IDF if embedding is unavailable (with resolved domains)
+     *  4. Compute cosine similarity for records that have an embedding (within filtered set)
+     *  5. Supplement with TF-IDF results for records without embedding
+     *  6. Sort combined results by similarity and return top-K
      *
      * {@inheritDoc}
      */
@@ -78,23 +86,40 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            $memories = $this->getVectorMemories($preset);
+            // Resolve domain filter once, here. Pass the resolved list down into
+            // any fallback paths via $config['domains'] so they don't re-parse.
+            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+
+            if (empty($cleanQuery)) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                ];
+            }
+
+            // Carry resolved domains downstream so fallback chains see them
+            // without re-parsing the inline prefix from a now-clean query.
+            $config['domains'] = $domains;
+
+            $memories = $this->getVectorMemories($preset, null, $domains);
 
             if ($memories->isEmpty()) {
-                return ['success' => true, 'message' => 'No memories found.', 'results' => []];
+                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
+                return ['success' => true, 'message' => "No memories found{$where}.", 'results' => []];
             }
 
             $searchLimit = $config['search_limit'] ?? 5;
             $threshold   = $config['similarity_threshold'] ?? 0.2;
 
             // Try embedding search first
-            $queryEmbedding = $this->embeddingService->embed($query, $preset);
+            $queryEmbedding = $this->embeddingService->embed($cleanQuery, $preset);
 
             if ($queryEmbedding === null) {
                 $this->logger->info('EmbeddingVectorMemoryService: falling back to TF-IDF.', [
                     'preset_id' => $preset->id,
                 ]);
-                return parent::searchVectorMemories($preset, $query, $config);
+                // Parent will re-resolve domains from $config['domains'] and use $cleanQuery as-is.
+                return parent::searchVectorMemories($preset, $cleanQuery, $config);
             }
 
             $withEmbedding    = $memories->filter(fn ($m) => !empty($m->embedding));
@@ -128,7 +153,7 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 $remaining = $searchLimit - count($results);
 
                 $tfidfResults = $this->tfIdfService->findSimilar(
-                    $query,
+                    $cleanQuery,
                     $withoutEmbedding,
                     $remaining,
                     $config['similarity_threshold'] ?? 0.1,
@@ -154,6 +179,7 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 'results'        => $results,
                 'total_searched' => $memories->count(),
                 'embedding_used' => true,
+                'domains'        => $domains,
             ];
 
         } catch (\Throwable $e) {

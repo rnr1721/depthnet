@@ -10,11 +10,19 @@ use Psr\Log\LoggerInterface;
 /**
  * Service for importing vector memories from various content types.
  *
- * Supports two export format versions:
- *   v1 — legacy format (no access_count, last_accessed_at, updated_at)
- *   v2 — full format with all associative memory fields
+ * Supports three export format versions:
+ *   v1 — legacy format (no access_count, last_accessed_at, updated_at, domain)
+ *   v2 — full format with associative memory fields (no domain)
+ *   v3 — adds per-record `domain` field
  *
- * Both formats are handled transparently — missing fields fall back to safe defaults.
+ * Missing fields fall back to safe defaults:
+ *   - missing access_count/last_accessed_at → 0 / null
+ *   - missing domain → null (storeWithMeta uses default_domain or 'global')
+ *   - missing created_at/updated_at → current timestamp
+ *
+ * The importer is forward-compatible: it reads any known version transparently
+ * and ignores unknown fields, so newer exports loaded into older versions of
+ * the system still work for the fields they share.
  */
 class VectorMemoryImporter implements VectorMemoryImporterInterface
 {
@@ -60,14 +68,8 @@ class VectorMemoryImporter implements VectorMemoryImporterInterface
     /**
      * Import from JSON format.
      *
-     * Extracts metadata (dates, access stats) from each memory entry and passes
-     * it to the store callback so original timestamps can be preserved.
-     *
-     * @param AiPreset $preset
-     * @param string $content
-     * @param array $config
-     * @param Closure $storeMemoryCallback
-     * @return array
+     * Extracts metadata (dates, access stats, domain) from each memory entry
+     * and passes it to the store callback so original values can be preserved.
      */
     protected function importFromJson(
         AiPreset $preset,
@@ -101,7 +103,6 @@ class VectorMemoryImporter implements VectorMemoryImporterInterface
                 continue;
             }
 
-            // Extract metadata — gracefully handle v1 exports without these fields
             $meta = $this->extractMeta($memoryData, $exportVersion);
 
             $result = $storeMemoryCallback($preset, $memoryData['content'], $meta, $config);
@@ -124,12 +125,8 @@ class VectorMemoryImporter implements VectorMemoryImporterInterface
     /**
      * Import from plain text format.
      * Each non-empty line becomes a separate memory with default metadata.
-     *
-     * @param AiPreset $preset
-     * @param string $content
-     * @param array $config
-     * @param Closure $storeMemoryCallback
-     * @return array
+     * Domain is taken from $config['default_domain'] (or 'global') unless
+     * the caller passes 'force_domain' in $config.
      */
     protected function importFromText(
         AiPreset $preset,
@@ -144,7 +141,7 @@ class VectorMemoryImporter implements VectorMemoryImporterInterface
 
         foreach ($lines as $line) {
             if (!empty($line)) {
-                // Plain text imports get no metadata — store callback uses defaults
+                // Plain text imports get no per-record metadata — store callback uses defaults
                 $result = $storeMemoryCallback($preset, $line, [], $config);
 
                 if ($result['success']) {
@@ -165,11 +162,12 @@ class VectorMemoryImporter implements VectorMemoryImporterInterface
     /**
      * Extract and normalize metadata from a memory entry.
      *
-     * For v1 exports: missing fields return null/defaults so the store method
-     * knows to use current timestamp instead of trying to restore a non-existent one.
+     * For older exports (v1, v2): missing fields return null/defaults so the
+     * store method knows to use sensible substitutes (current timestamp,
+     * default domain, etc) instead of trying to restore non-existent data.
      *
-     * @param array $memoryData Single memory entry from export JSON
-     * @param int $exportVersion Export format version
+     * @param array $memoryData   Single memory entry from export JSON
+     * @param int   $exportVersion Export format version
      * @return array Normalized metadata array
      */
     protected function extractMeta(array $memoryData, int $exportVersion): array
@@ -186,9 +184,14 @@ class VectorMemoryImporter implements VectorMemoryImporterInterface
 
             'last_accessed_at' => $memoryData['last_accessed_at'] ?? null,
 
-            // Restore original creation date if present (v1 has created_at, v2 has both)
+            // Restore original creation date if present (v1 has created_at, v2+ has both)
             'created_at'       => $memoryData['created_at'] ?? null,
             'updated_at'       => $memoryData['updated_at'] ?? null,
+
+            // v3+ field — null means "use default_domain (or 'global') in store method".
+            // storeWithMeta also respects $config['force_domain'] which overrides this
+            // regardless of source version — used by the admin "Target domain" feature.
+            'domain'           => $memoryData['domain'] ?? null,
         ];
     }
 }

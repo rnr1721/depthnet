@@ -12,9 +12,13 @@ class SearchVectorMemoryRequest extends BaseVectorMemoryRequest
      */
     public function rules(): array
     {
-        return array_merge($this->presetValidationRules(), [
-            'query' => 'required|string|min:1|max:255',
-        ]);
+        return array_merge(
+            $this->presetValidationRules(),
+            $this->optionalDomainRules('domain'),
+            [
+                'query' => 'required|string|min:1|max:255',
+            ],
+        );
     }
 
     /**
@@ -41,5 +45,13 @@ class SearchVectorMemoryRequest extends BaseVectorMemoryRequest
         }
 
         return trim($query);
+    }
+
+    /**
+     * Get optional domain filter, or null if not provided.
+     */
+    public function getValidatedDomain(): ?string
+    {
+        return $this->readDomain('domain');
     }
 }

@@ -156,7 +156,8 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Being** (`being`) | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
 | **Rhythm** (`rhythm`) | Temporal context snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset/sunrise. Injected via `[[rhythm]]`. Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
 | **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
-| **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, send visible messages to user (`speak`), hand off to another preset. | [→](docs/plugins/agent.md) |
+| **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, request additional steps. | [→](docs/plugins/agent.md) |
+| **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
 | **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
 | Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
 | **Mood** (`mood`) | Lightweight tone control — agent sets a named mood (`friendly`, `analytical`, `focused`, etc.) visible via `[[mood]]`. | [→](docs/plugins/mood.md) |
@@ -193,12 +194,15 @@ The AI communicates through special command tags that trigger plugin execution. 
 [run python]import datetime; print(f"Server time: {datetime.now()}")[/run]
 [run node]console.log(`Memory: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/run]
 
-# Agent workflow management
-[agent handoff]analyst[/agent]  # Transfer control to another preset
-[agent handoff]researcher:Find data about Tesla[/agent]  # Transfer with specific task
+# Agent lifecycle control
 [agent pause][/agent]   # Pause autonomous thinking
 [agent resume][/agent]  # Resume autonomous thinking
 [agent status][/agent]  # Check current agent status
+[agent turn][/agent]    # Request one additional thinking step
+
+# Speaking and delegation (Speak plugin)
+[speak]I found something interesting[/speak]       # Send message to interlocutor
+[speak analyst]Please review these findings[/speak] # Delegate to another preset
 
 # Persistent memory management
 [memory]This information will be appended to memory content[/memory]
@@ -446,10 +450,10 @@ Integrations (Telegram, Rhasspy) are configured per-preset — each agent can us
 
 ### Agent Handoff System
 
-DepthNet provides a **decentralized asynchronous messaging system** that allows AI presets to communicate with each other independently.
+DepthNet provides a **decentralized asynchronous messaging system** via the Speak plugin...
 
 **How it works:**
-- Any preset can send a message to another using `[agent handoff]preset_code:message[/agent]`
+- Any preset can send a message to another using `[speak analyst]Please review these findings[/speak]`
 - Messages are delivered via `AgentMessageService` respecting the target's input mode (pool or plain)
 - The target preset processes the message in its own independent thinking cycle
 - Responses are automatically routed back to the sender (reply-to mechanism)

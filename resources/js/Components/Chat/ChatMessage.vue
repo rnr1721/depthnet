@@ -422,6 +422,9 @@ const pluginIcons = {
 
   // MCP
   'mcp': '🔌',
+
+  // Speak
+  'speak': '💬',
 };
 
 // ─── TTS helpers ─────────────────────────────────────────────────────────────
@@ -561,7 +564,7 @@ const extractedCommands = computed(() => {
   while ((match = commandRegex.exec(userContent)) !== null) {
     const [, plugin, method, commandContent] = match;
 
-    if (plugin === 'agent' && method === 'speak') {
+    if (plugin === 'agent' && !method) {
       continue;
     }
 
@@ -624,8 +627,11 @@ const extractedToolCalls = computed(() => {
   // Filtering agent speak - everything else remains unchanged
   const filteredCalls = toolCallsData.filter(tc => {
     const name = tc.name?.toLowerCase();
-    const method = tc.arguments?.method?.toLowerCase();
-    return !(name === 'agent' && method === 'speak');
+    if (name === 'speak') {
+      const content = tc.arguments?.content || '';
+      return /^[a-z][a-z0-9_]*:/.test(content.trim()); // handoff = show
+    }
+    return true; // all other calls are shown by default
   });
 
   if (filteredCalls.length === 0) return [];

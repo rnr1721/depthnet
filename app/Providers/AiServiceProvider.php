@@ -168,6 +168,7 @@ use App\Services\Agent\Plugins\SelfNotePlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
 use App\Services\Agent\Plugins\SpawnPlugin;
+use App\Services\Agent\Plugins\SpeakPlugin;
 use App\Services\Agent\Plugins\SwitchPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\TerminalPlugin;
@@ -452,10 +453,11 @@ class AiServiceProvider extends ServiceProvider
     {
         return [
             AgentPlugin::class,
+            SpeakPlugin::class,
+            JournalPlugin::class,
             VectorMemoryPlugin::class,
             MemoryPlugin::class,
             RagQueryPlugin::class,
-            JournalPlugin::class,
             OntologyPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
@@ -495,7 +497,7 @@ class AiServiceProvider extends ServiceProvider
 
         // Method 1: From config - manual registration
         $configPlugins = config('ai.plugins.composer', []);
-        $discovered = array_merge($discovered, $configPlugins);
+        $discovered = $configPlugins;
 
         // Method 2: Tagged services - automatic registration
         try {

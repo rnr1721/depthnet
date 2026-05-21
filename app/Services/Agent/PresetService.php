@@ -626,6 +626,19 @@ class PresetService implements PresetServiceInterface
         ->get();
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function getHandoffTargets(AiPreset $excludePreset): Collection
+    {
+        return $this->aiPresetModel
+            ->where('is_active', true)
+            ->where('allow_handoff_to', true)
+            ->where('id', '!=', $excludePreset->getId())
+            ->orderBy('name')
+            ->get();
+    }
+
     // ============================================
     // Helper Methods
     // ============================================
@@ -742,7 +755,7 @@ class PresetService implements PresetServiceInterface
     {
         $rules = [
             'parent_preset_id' => 'nullable|integer|exists:ai_presets,id',
-            'is_spawned'       => 'boolean', 
+            'is_spawned'       => 'boolean',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'engine_name' => 'required|string|max:100',

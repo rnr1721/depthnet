@@ -46,6 +46,6 @@ trait PluginHandoffTrait
         ]);
 
         $messageInfo = $message ? " with message: '{$message}'" : '';
-        return "Transferring control to preset: {$presetCode}{$messageInfo}";
+        return "Transferring control to agent: {$presetCode}{$messageInfo}";
     }
 }

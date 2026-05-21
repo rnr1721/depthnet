@@ -1,6 +1,8 @@
 # Agent Plugin
 
-The Agent plugin gives the agent control over its own lifecycle — it can pause and resume its thinking cycles, check its current status, send visible messages to the user, and hand off control to another preset. These are the tools the agent uses to manage itself and communicate directly.
+The Agent plugin gives the agent control over its own lifecycle — it can pause and resume its thinking cycles, check its current status, and request additional thinking steps. These are the tools the agent uses to manage itself.
+
+For sending messages to the user or delegating to another preset, see the [Speak plugin](speak.md).
 
 ## Setup
 
@@ -10,13 +12,11 @@ Enable the **Agent** plugin in your preset settings and configure which capabili
 |---|---|
 | **Allow pause** | The agent can pause its own thinking cycles. |
 | **Allow resume** | The agent can resume its own thinking cycles. |
-| **Allow handoff** | The agent can delegate to another preset. |
+| **Allow turn** | The agent can request one additional thinking step. |
 | **Require reason** | When enabled, the agent must provide a reason when pausing or resuming. |
 | **Log actions** | Write a log entry for each lifecycle action. |
 
 ## Commands
-
-**Lifecycle control:**
 
 | Command | Description |
 |---|---|
@@ -26,32 +26,12 @@ Enable the **Agent** plugin in your preset settings and configure which capabili
 | `[agent status][/agent]` | Check whether the agent is active or paused |
 | `[agent turn][/agent]` | Schedule one additional thinking step without entering a full loop |
 
-**Communicating with the user:**
-
-| Command | Description |
-|---|---|
-| `[agent speak]I have a question for you...[/agent]` | Send a visible message to the user |
-
-The `speak` command is the primary way an autonomous agent surfaces something to the user during an unattended run. Everything else the agent thinks and does stays internal — `speak` is what becomes visible in the chat.
-
-**Handoff to another preset:**
-
-| Command | Description |
-|---|---|
-| `[agent handoff]analyst[/agent]` | Transfer control to the preset with code `analyst` |
-| `[agent handoff]analyst:Please review these findings[/agent]` | Transfer with a message |
-
-Handoff routes the current conversation to another preset for the next cycle. The target preset must have handoff transfers allowed in its settings. This is how multi-agent pipelines are built in free-form mode — one preset hands off to another, which may hand off further.
-
 ## How agents use it
 
-- An agent working autonomously over many cycles uses `[agent speak]` when it has something to report, needs user input, or has completed a significant task
 - An agent pauses itself when it determines it has nothing meaningful to do until something changes — rather than spinning uselessly
-- An agent uses `[agent turn]` when it needs one more cycle to finish a task but does not want to enter a continuous loop — for example after sending a `speak` message while paused, or when processing a handoff response that requires a follow-up step
-- Handoff enables specialisation: a planner preset drafts an approach, then hands off to an executor preset to carry it out
+- An agent uses `[agent turn]` when it needs one more cycle to finish a task but does not want to enter a continuous loop — for example after sending a speak message while paused, or when processing a handoff response that requires a follow-up step
 
 ## Notes
 
 - The `[[agent]]` placeholder (registered automatically when the plugin is enabled) injects the current agent status into the system prompt — useful for agents that need to be aware of whether they are in loop or single mode.
 - `[agent turn]` is a no-op when the agent is already in an active loop — the next cycle is already scheduled, so dispatching another is unnecessary. The command returns an informational message in that case.
-- In orchestrated mode, task routing is handled by the orchestrator automatically — handoff is primarily for free-form multi-agent workflows.

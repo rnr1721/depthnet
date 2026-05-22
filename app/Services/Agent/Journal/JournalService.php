@@ -5,8 +5,10 @@ namespace App\Services\Agent\Journal;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Models\AiPreset;
 use App\Models\JournalEntry;
+use App\Services\Agent\Search\ParsedSearchQuery;
 use Illuminate\Support\Carbon;
 use Psr\Log\LoggerInterface;
 
@@ -20,8 +22,12 @@ use Psr\Log\LoggerInterface;
  *
  * Search modes:
  *   - Semantic only:       "worked on database"
- *   - Date only:           "2024-03-15" / "yesterday" / "last week"
+ *   - Date only:           "2024-03-15" / "yesterday" / "last week" / "сегодня"
  *   - Date + semantic:     "2024-03-15 | worked on database"
+ *
+ * Date expression parsing is delegated to SearchDateParserInterface, which
+ * is shared with VectorMemory so both services understand the same DSL
+ * across the same set of languages.
  *
  * Similarity engine:
  *   - If the preset has an embedding capability configured → cosine similarity
@@ -40,10 +46,11 @@ class JournalService implements JournalServiceInterface
     public const OUTCOMES = ['success', 'failure', 'pending'];
 
     public function __construct(
-        protected TfIdfServiceInterface    $tfIdfService,
-        protected EmbeddingServiceInterface $embeddingService,
-        protected JournalEntry             $journalModel,
-        protected LoggerInterface          $logger,
+        protected TfIdfServiceInterface       $tfIdfService,
+        protected EmbeddingServiceInterface   $embeddingService,
+        protected JournalEntry                $journalModel,
+        protected LoggerInterface             $logger,
+        protected SearchDateParserInterface   $searchDateParser,
     ) {
     }
 
@@ -157,39 +164,37 @@ class JournalService implements JournalServiceInterface
     public function search(AiPreset $preset, string $query, int $limit = 10): array
     {
         try {
-            [$dateFilter, $semanticQuery] = $this->parseSearchQuery($query);
+            $parsed = $this->searchDateParser->parse($query);
 
             $dbQuery = $this->journalModel->forPreset($preset->id);
 
-            if ($dateFilter) {
-                if (isset($dateFilter['from'], $dateFilter['to'])) {
-                    $dbQuery->between($dateFilter['from'], $dateFilter['to']);
-                } elseif (isset($dateFilter['date'])) {
-                    $dbQuery->onDate($dateFilter['date']);
-                }
+            if ($parsed->hasTimeFilter()) {
+                $dbQuery->between($parsed->from, $parsed->to);
             }
 
             $entries = $dbQuery->orderBy('recorded_at', 'desc')->get();
 
             if ($entries->isEmpty()) {
-                $dateStr = $dateFilter ? ' for the specified date' : '';
+                $dateStr = $parsed->hasTimeFilter() ? ' for the specified date' : '';
                 return ['success' => true, 'message' => "No journal entries found{$dateStr}."];
             }
 
-            if (!empty($semanticQuery)) {
-                $matched = $this->semanticSearch($entries, $semanticQuery, $limit, $preset);
+            if ($parsed->hasSemanticQuery()) {
+                $matched = $this->semanticSearch($entries, $parsed->query, $limit, $preset);
 
                 if (empty($matched)) {
-                    return ['success' => true, 'message' => "No entries matching \"{$semanticQuery}\" found."];
+                    return ['success' => true, 'message' => "No entries matching \"{$parsed->query}\" found."];
                 }
 
-                $header = "Journal search: \"{$semanticQuery}\"" . ($dateFilter ? ' (date filtered)' : '');
+                $header = "Journal search: \"{$parsed->query}\"" . ($parsed->hasTimeFilter() ? ' (date filtered)' : '');
                 return ['success' => true, 'message' => $this->formatEntries($matched, $header)];
             }
 
             // Date-only: return chronological results
             $limited = $entries->take($limit)->all();
-            $header  = $dateFilter ? 'Journal entries for ' . $this->describeDateFilter($dateFilter) : "Journal entries";
+            $header  = $parsed->hasTimeFilter()
+                ? 'Journal entries for ' . $parsed->describeTimeFilter()
+                : 'Journal entries';
             return ['success' => true, 'message' => $this->formatEntries($limited, $header)];
 
         } catch (\Throwable $e) {
@@ -206,15 +211,12 @@ class JournalService implements JournalServiceInterface
     public function searchEntries(AiPreset $preset, string $query, int $limit = 3): array
     {
         try {
-            [$dateFilter, $semanticQuery] = $this->parseSearchQuery($query);
+            $parsed = $this->searchDateParser->parse($query);
+
             $dbQuery = $this->journalModel->forPreset($preset->id);
 
-            if ($dateFilter) {
-                if (isset($dateFilter['from'], $dateFilter['to'])) {
-                    $dbQuery->between($dateFilter['from'], $dateFilter['to']);
-                } elseif (isset($dateFilter['date'])) {
-                    $dbQuery->onDate($dateFilter['date']);
-                }
+            if ($parsed->hasTimeFilter()) {
+                $dbQuery->between($parsed->from, $parsed->to);
             }
 
             $entries = $dbQuery->orderBy('recorded_at', 'desc')->get();
@@ -223,8 +225,8 @@ class JournalService implements JournalServiceInterface
                 return [];
             }
 
-            if (!empty($semanticQuery)) {
-                return $this->semanticSearch($entries, $semanticQuery, $limit, $preset);
+            if ($parsed->hasSemanticQuery()) {
+                return $this->semanticSearch($entries, $parsed->query, $limit, $preset);
             }
 
             return $entries->take($limit)->all();
@@ -508,54 +510,6 @@ class JournalService implements JournalServiceInterface
         return compact('type', 'summary', 'details', 'outcome');
     }
 
-    /**
-     * Parse search query into [dateFilter, semanticQuery].
-     */
-    protected function parseSearchQuery(string $query): array
-    {
-        $query = trim($query);
-
-        if (str_contains($query, '|')) {
-            [$datePart, $semanticPart] = array_map('trim', explode('|', $query, 2));
-            $dateFilter = $this->parseDateExpression($datePart);
-            if ($dateFilter !== null) {
-                return [$dateFilter, $semanticPart];
-            }
-        }
-
-        $dateFilter = $this->parseDateExpression($query);
-        if ($dateFilter !== null) {
-            return [$dateFilter, ''];
-        }
-
-        return [null, $query];
-    }
-
-    protected function parseDateExpression(string $expr): ?array
-    {
-        $expr = trim(strtolower($expr));
-
-        if (preg_match('/^(\d{4}-\d{2}-\d{2})\s*:\s*(\d{4}-\d{2}-\d{2})$/', $expr, $m)) {
-            return [
-                'from' => Carbon::parse($m[1])->startOfDay(),
-                'to'   => Carbon::parse($m[2])->endOfDay(),
-            ];
-        }
-
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $expr)) {
-            return ['date' => Carbon::parse($expr)];
-        }
-
-        return match ($expr) {
-            'today'               => ['date' => Carbon::today()],
-            'yesterday'           => ['date' => Carbon::yesterday()],
-            'last week', 'week'   => ['from' => Carbon::now()->subDays(7)->startOfDay(), 'to' => Carbon::now()->endOfDay()],
-            'this week'           => ['from' => Carbon::now()->startOfWeek()->startOfDay(), 'to' => Carbon::now()->endOfDay()],
-            'last month', 'month' => ['from' => Carbon::now()->subDays(30)->startOfDay(), 'to' => Carbon::now()->endOfDay()],
-            default               => null,
-        };
-    }
-
     // -------------------------------------------------------------------------
     // Formatting helpers
     // -------------------------------------------------------------------------
@@ -593,13 +547,5 @@ class JournalService implements JournalServiceInterface
         }
 
         return implode("\n", $lines);
-    }
-
-    protected function describeDateFilter(array $filter): string
-    {
-        if (isset($filter['date'])) {
-            return $filter['date']->toDateString();
-        }
-        return $filter['from']->toDateString() . ' to ' . $filter['to']->toDateString();
     }
 }

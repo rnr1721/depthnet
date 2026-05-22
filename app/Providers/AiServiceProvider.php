@@ -62,6 +62,7 @@ use App\Contracts\Agent\PresetPluginDataServiceInterface;
 use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetRagConfigServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
@@ -183,6 +184,7 @@ use App\Services\Agent\Providers\DeepSeekModel;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
+use App\Services\Agent\Search\SearchDateParser;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
@@ -214,6 +216,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(McpServerRepositoryInterface::class, McpServerRepository::class);
 
         $this->app->singleton(CommandResultPoolInterface::class, CommandResultPoolService::class);
+
+        $this->app->singleton(SearchDateParserInterface::class,SearchDateParser::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
         $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);

@@ -1,0 +1,181 @@
+{
+    "_comment": "Date keywords for search parsers. Canonical keys are English, but lookup is language-agnostic — the parser builds a flat hashmap from all language variants. To add a new language, add its array under each key. ISO date formats (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY) are handled separately in code and don't need entries here.",
+    "today": {
+        "en": [
+            "today"
+        ],
+        "ru": [
+            "сегодня"
+        ],
+        "de": [
+            "heute"
+        ],
+        "es": [
+            "hoy"
+        ],
+        "fr": [
+            "aujourd'hui"
+        ]
+    },
+    "yesterday": {
+        "en": [
+            "yesterday"
+        ],
+        "ru": [
+            "вчера"
+        ],
+        "de": [
+            "gestern"
+        ],
+        "es": [
+            "ayer"
+        ],
+        "fr": [
+            "hier"
+        ]
+    },
+    "last_week": {
+        "en": [
+            "last week",
+            "past week",
+            "week"
+        ],
+        "ru": [
+            "прошлая неделя",
+            "прошлой недели",
+            "за неделю",
+            "неделя"
+        ],
+        "de": [
+            "letzte woche",
+            "vergangene woche",
+            "woche"
+        ],
+        "es": [
+            "semana pasada",
+            "última semana",
+            "semana"
+        ],
+        "fr": [
+            "semaine dernière",
+            "semaine passée",
+            "semaine"
+        ]
+    },
+    "this_week": {
+        "en": [
+            "this week"
+        ],
+        "ru": [
+            "эта неделя",
+            "этой недели",
+            "на этой неделе"
+        ],
+        "de": [
+            "diese woche",
+            "dieser woche"
+        ],
+        "es": [
+            "esta semana"
+        ],
+        "fr": [
+            "cette semaine"
+        ]
+    },
+    "last_month": {
+        "en": [
+            "last month",
+            "past month",
+            "month"
+        ],
+        "ru": [
+            "прошлый месяц",
+            "прошлого месяца",
+            "за месяц",
+            "месяц"
+        ],
+        "de": [
+            "letzter monat",
+            "vergangener monat",
+            "monat"
+        ],
+        "es": [
+            "mes pasado",
+            "último mes",
+            "mes"
+        ],
+        "fr": [
+            "mois dernier",
+            "mois passé",
+            "mois"
+        ]
+    },
+    "this_month": {
+        "en": [
+            "this month"
+        ],
+        "ru": [
+            "этот месяц",
+            "этого месяца",
+            "в этом месяце"
+        ],
+        "de": [
+            "diesen monat",
+            "dieser monat"
+        ],
+        "es": [
+            "este mes"
+        ],
+        "fr": [
+            "ce mois"
+        ]
+    },
+    "last_year": {
+        "en": [
+            "last year",
+            "past year",
+            "year"
+        ],
+        "ru": [
+            "прошлый год",
+            "прошлого года",
+            "за год",
+            "год"
+        ],
+        "de": [
+            "letztes jahr",
+            "vergangenes jahr",
+            "jahr"
+        ],
+        "es": [
+            "año pasado",
+            "último año",
+            "año"
+        ],
+        "fr": [
+            "année dernière",
+            "année passée",
+            "année"
+        ]
+    },
+    "this_year": {
+        "en": [
+            "this year"
+        ],
+        "ru": [
+            "этот год",
+            "этого года",
+            "в этом году"
+        ],
+        "de": [
+            "dieses jahr",
+            "diesem jahr"
+        ],
+        "es": [
+            "este año"
+        ],
+        "fr": [
+            "cette année"
+        ]
+    }
+}

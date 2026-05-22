@@ -6,6 +6,7 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
@@ -47,6 +48,19 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     private const KNOWN_METHODS = ['search', 'recent', 'show', 'delete', 'clear', 'domains', 'purge'];
 
+    /**
+     * Localised semantic-fragment used inside date-search examples.
+     * Only the SEMANTIC half varies — date keywords themselves come from
+     * the parser's vocabulary via localisedKeyword().
+     */
+    private const EXAMPLE_SEMANTIC = [
+        'en' => 'optimization',
+        'ru' => 'оптимизация',
+        'de' => 'Optimierung',
+        'fr' => 'optimisation',
+        'es' => 'optimización',
+    ];
+
     protected VectorMemoryServiceInterface $vectorMemoryService;
 
     protected array $languages = [
@@ -65,6 +79,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
         protected MemoryServiceInterface $memoryService,
         protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface $placeholderService,
+        protected SearchDateParserInterface $searchDateParser,
     ) {
         $this->vectorMemoryService = $this->vectorMemoryFactory->make();
     }
@@ -104,12 +119,23 @@ class VectorMemoryPlugin implements CommandPluginInterface
         $allowClear = $config['allow_agent_clear']        ?? false;
         $allowPurge = $config['allow_agent_purge_domain'] ?? true;
 
+        // Localised tokens for date-search examples
+        $yesterday  = $this->localisedKeyword('yesterday', $lang);
+        $lastWeek   = $this->localisedKeyword('last_week', $lang);
+        $thisMonth  = $this->localisedKeyword('this_month', $lang);
+        $exQuery    = self::EXAMPLE_SEMANTIC[$lang] ?? 'optimization';
+
         $instructions = [
             "Store in default domain '{$defaultDomain}': [vectormemory]Successfully optimized database queries using indexes[/vectormemory]",
             'Store in a specific domain: [vectormemory work]Eugeny prefers concise responses[/vectormemory]',
             'Search across all domains: [vectormemory search]how to speed up code[/vectormemory]',
             'Search in specific domain(s): [vectormemory search]domain:work | optimization[/vectormemory]',
             'Search in multiple domains: [vectormemory search]domain:work,relationships | something[/vectormemory]',
+            "Search in time window: [vectormemory search]time:{$yesterday} | {$exQuery}[/vectormemory]",
+            "Search by month: [vectormemory search]time:2026-03 | {$exQuery}[/vectormemory]",
+            "Search by year: [vectormemory search]time:2025 | {$exQuery}[/vectormemory]",
+            "Combine time + domain: [vectormemory search]time:{$lastWeek} | domain:work | {$exQuery}[/vectormemory]",
+            "Listing only (no semantics): [vectormemory search]time:{$thisMonth}[/vectormemory]",
             'List all domains with counts: [vectormemory domains][/vectormemory]',
             'Show recent memories: [vectormemory recent]5[/vectormemory]',
             'Show full memory item by id: [vectormemory show]42[/vectormemory]',
@@ -128,6 +154,14 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
         if ($forceLanguage) {
             array_unshift($instructions, "⚠️ All vectormemory entries MUST be stored in {$langName}.");
+        }
+
+        // Date keywords reference, drawn from the parser's live vocabulary.
+        // Helps the agent discover the vocabulary instead of guessing.
+        $keywordList = $this->buildKeywordListLine($lang);
+        if ($keywordList !== null) {
+            $instructions[] = 'Date keywords available for time:<...>: ' . $keywordList;
+            $instructions[] = 'Date ISO formats also accepted: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY';
         }
 
         $instructions[] = "Note: any method name that is NOT one of [search, recent, show, delete, clear, domains, purge] is interpreted as a domain name for storing.";
@@ -191,7 +225,11 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $forceLanguage ? "MUST be in {$langName}." : null,
             'Example: "Eugeny prefers concise responses".',
             "STORE in a specific domain: set method to the domain name (e.g. method='work') and content to the text.",
-            'search: a natural language query. Optional inline filter: "domain:work,relationships | actual query".',
+            'search: a natural language query. Optional inline filters (any order, separated by "|"): '
+                . '"domain:work,relationships | ..." filters by domain, '
+                . '"time:yesterday | ..." or "time:2026-03 | ..." or "time:2025 | ..." filters by time range. '
+                . 'Can combine: "time:last week | domain:work | optimization". '
+                . 'Empty query with only a time filter returns chronological listing.',
             'recent: number of entries to return, e.g. "5" (default 5).',
             'show/delete: numeric memory ID (delete also accepts a content fragment).',
             'domains: leave empty.',
@@ -570,8 +608,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Search memories by semantic similarity.
-     * Domain filter is parsed from the query by the service ("domain:..." prefix).
+     * Search memories by semantic similarity, optionally with time/domain filters.
      */
     public function search(string $query, PluginExecutionContext $context): string
     {
@@ -586,27 +623,47 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 return $result['message'];
             }
 
+            $temporal = !empty($result['temporal']);
+
             if (empty($result['results'])) {
-                $where = !empty($result['domains'])
-                    ? ' in [' . implode(', ', $result['domains']) . ']'
-                    : '';
-                return "No similar memories found for query: '{$query}'{$where}. Try broader search terms.";
+                return $result['message'] ?? "No memories found for query: '{$query}'.";
             }
 
-            $domainsNote = !empty($result['domains'])
-                ? ' (in [' . implode(', ', $result['domains']) . '])'
-                : '';
-            $output = "Found " . count($result['results']) . " similar memories for '{$query}'{$domainsNote}:\n\n";
+            $headerParts = [];
+            if (!empty($result['domains'])) {
+                $headerParts[] = 'in [' . implode(', ', $result['domains']) . ']';
+            }
+            if (!empty($result['from']) && !empty($result['to'])) {
+                $from = $result['from'];
+                $to   = $result['to'];
+                $headerParts[] = $from->isSameDay($to)
+                    ? 'on ' . $from->toDateString()
+                    : 'between ' . $from->toDateString() . ' and ' . $to->toDateString();
+            } elseif (!empty($result['from'])) {
+                $headerParts[] = 'from ' . $result['from']->toDateString();
+            } elseif (!empty($result['to'])) {
+                $headerParts[] = 'until ' . $result['to']->toDateString();
+            }
+            $headerNote = !empty($headerParts) ? ' (' . implode(', ', $headerParts) . ')' : '';
+
+            $countWord = $temporal ? 'memories in window' : 'similar memories';
+            $output = "Found " . count($result['results']) . " {$countWord}{$headerNote}:\n\n";
 
             foreach ($result['results'] as $searchResult) {
                 $memory = $searchResult['document'] ?? $searchResult['memory'];
-                $similarity = round($searchResult['similarity'] * 100, 1);
                 $date = $memory->getCreatedAt()->format('M j, H:i');
                 $truncateLength = $context->config['display_content_length'] ?? 500;
                 $content = $this->truncateContent($memory->getTextContent(), $truncateLength);
                 $id = $memory->id;
                 $domain = $memory->domain ?? VectorMemory::DEFAULT_DOMAIN;
-                $output .= "• [ID:{$id}, domain:{$domain}, {$similarity}% match, {$date}] {$content}\n";
+
+                if ($temporal) {
+                    // No similarity score makes sense for chronological listing
+                    $output .= "• [ID:{$id}, domain:{$domain}, {$date}] {$content}\n";
+                } else {
+                    $similarity = round(($searchResult['similarity'] ?? 0) * 100, 1);
+                    $output .= "• [ID:{$id}, domain:{$domain}, {$similarity}% match, {$date}] {$content}\n";
+                }
             }
 
             return $output;
@@ -1079,5 +1136,107 @@ class VectorMemoryPlugin implements CommandPluginInterface
     public function getSelfClosingTags(): array
     {
         return ['clear', 'domains'];
+    }
+
+    // -------------------------------------------------------------------------
+    // Localisation helpers (mirror JournalPlugin)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Pick a localised variant of a keyword for inline use in an example.
+     * Falls back to English variant, then to the canonical key.
+     */
+    private function localisedKeyword(string $canonicalKey, string $lang): string
+    {
+        $variants = $this->searchDateParser->listKeywords()[$canonicalKey] ?? [];
+        if (empty($variants)) {
+            return $canonicalKey;
+        }
+
+        $filter = $this->resolveLanguagesToShow($lang);
+        $picked = $this->pickVariantsForLanguages($variants, $filter);
+
+        return $picked[0] ?? $variants[0];
+    }
+
+    /**
+     * Build the "Date keywords available" line listing every variant recognised
+     * for the configured language. Returns null when the parser vocabulary
+     * is empty so the caller can omit the label entirely.
+     */
+    private function buildKeywordListLine(string $lang): ?string
+    {
+        $keywords = $this->searchDateParser->listKeywords();
+        if (empty($keywords)) {
+            return null;
+        }
+
+        $filter = $this->resolveLanguagesToShow($lang);
+        $items = [];
+
+        foreach ($keywords as $variants) {
+            $picked = $this->pickVariantsForLanguages($variants, $filter);
+            if (empty($picked)) {
+                continue;
+            }
+            $items[] = implode(' / ', $picked);
+        }
+
+        return empty($items) ? null : implode(', ', $items);
+    }
+
+    /**
+     * Decide which languages to expose given a language_mode setting.
+     *
+     *  - Specific language ('en', 'ru', ...): only that language.
+     *  - 'auto' / 'multilingual' / unknown: all loaded languages.
+     */
+    private function resolveLanguagesToShow(string $lang): ?array
+    {
+        if ($lang === 'auto' || $lang === 'multilingual') {
+            return null;
+        }
+        if (!isset($this->languages[$lang])) {
+            return null;
+        }
+        return [$lang];
+    }
+
+    /**
+     * Filter the variants list by language via a cheap script-based heuristic.
+     * Cyrillic-only → ru, Latin-only → en. Unknown scripts pass through, since
+     * hiding a keyword the user might need is worse than showing an extra one.
+     *
+     * @param string[] $variants
+     * @param string[]|null $allowedLanguages null = no filter
+     * @return string[]
+     */
+    private function pickVariantsForLanguages(array $variants, ?array $allowedLanguages): array
+    {
+        if ($allowedLanguages === null) {
+            return $variants;
+        }
+
+        return array_values(array_filter($variants, function (string $v) use ($allowedLanguages) {
+            $detected = $this->guessLanguage($v);
+            if ($detected === null) {
+                return true;
+            }
+            return in_array($detected, $allowedLanguages, true);
+        }));
+    }
+
+    /**
+     * Cheap language guess by script. Good enough for the en/ru baseline.
+     */
+    private function guessLanguage(string $text): ?string
+    {
+        if (preg_match('/[\x{0400}-\x{04FF}]/u', $text)) {
+            return 'ru';
+        }
+        if (preg_match('/^[a-zA-Z0-9 \-\']+$/', $text)) {
+            return 'en';
+        }
+        return null;
     }
 }

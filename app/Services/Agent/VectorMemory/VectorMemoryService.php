@@ -3,9 +3,11 @@
 namespace App\Services\Agent\VectorMemory;
 
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
+use App\Services\Agent\VectorMemory\VectorMemoryQuery;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -24,9 +26,18 @@ use Psr\Log\LoggerInterface;
  *   - storeVectorMemory($preset, $content, ['domain' => 'work']) writes to 'work'
  *   - searchVectorMemories accepts $config['domains'] = ['work', 'global'] for filtering
  *   - searchVectorMemories also parses inline "domain:work,global | actual query"
- *   - getVectorMemories accepts optional $domains list
+ *   - getVectorMemories accepts a VectorMemoryQuery with domains/from/to/limit
  *   - Empty/missing domains list = search across ALL domains
  *   - $config['domains'] (when set) wins over inline syntax
+ *
+ * Temporal filtering:
+ *   - $config['from'] / $config['to'] — Carbon, RAG-config style
+ *   - Inline "time:<expr> | rest" — primary inline form
+ *   - Bare keyword as first prefix ("yesterday | rest") — fallback
+ *
+ *   When query is empty after parsing but a time filter is set, search
+ *   switches to temporal mode: chronological listing in the window, newest
+ *   first, no semantic ranking.
  */
 class VectorMemoryService implements VectorMemoryServiceInterface
 {
@@ -42,11 +53,12 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     protected const DOMAIN_MAX_LENGTH = 64;
 
     public function __construct(
-        protected LoggerInterface $logger,
-        protected TfIdfServiceInterface $tfIdfService,
-        protected VectorMemoryImporter $importer,
-        protected VectorMemoryExporter $exporter,
-        protected VectorMemory $vectorMemoryModel
+        protected LoggerInterface           $logger,
+        protected TfIdfServiceInterface     $tfIdfService,
+        protected VectorMemoryImporter      $importer,
+        protected VectorMemoryExporter      $exporter,
+        protected VectorMemory              $vectorMemoryModel,
+        protected SearchDateParserInterface $searchDateParser,
     ) {
     }
 
@@ -67,21 +79,32 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     /**
      * @inheritDoc
      */
-    public function getVectorMemories(AiPreset $preset, ?int $limit = null, array $domains = []): Collection
+    public function getVectorMemories(AiPreset $preset, VectorMemoryQuery $query = new VectorMemoryQuery()): Collection
     {
-        $query = $this->vectorMemoryModel
+        $dbQuery = $this->vectorMemoryModel
             ->where('preset_id', $preset->id)
             ->orderBy('created_at', 'desc');
 
-        if (!empty($domains)) {
-            $query->whereIn('domain', $domains);
+        if ($query->hasDomainFilter()) {
+            $dbQuery->whereIn('domain', $query->domains);
         }
 
-        if ($limit) {
-            $query->limit($limit);
+        // Time filter is applied on created_at — vector memories are
+        // immutable as far as "when did I store this" goes, so created_at
+        // is the right column. last_accessed_at exists for associative
+        // scoring, not for "what did I think on Monday" queries.
+        if ($query->from !== null) {
+            $dbQuery->where('created_at', '>=', $query->from);
+        }
+        if ($query->to !== null) {
+            $dbQuery->where('created_at', '<=', $query->to);
         }
 
-        return $query->get();
+        if ($query->limit !== null) {
+            $dbQuery->limit($query->limit);
+        }
+
+        return $dbQuery->get();
     }
 
     /**
@@ -253,24 +276,64 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 ];
             }
 
-            // Resolve domain filter: config wins; otherwise parse inline prefix
-            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+            // Both inline prefixes ("domain:" and "time:") can appear in any order.
+            // Peel them iteratively until no recognised prefix remains, so the
+            // user can write either ordering without surprises.
+            $domains = [];
+            $from = $to = null;
+            $cleanQuery = $query;
+            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
 
-            if (empty($cleanQuery)) {
+            $hasTimeFilter = ($from !== null || $to !== null);
+
+            if (empty($cleanQuery) && !$hasTimeFilter) {
                 return [
                     'success' => false,
-                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                    'message' => 'Error: Search query cannot be empty after parsing prefixes.'
                 ];
             }
 
-            $memories = $this->getVectorMemories($preset, null, $domains);
+            $memQuery = new VectorMemoryQuery(
+                domains: $domains,
+                from:    $from,
+                to:      $to,
+            );
+            $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
-                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
                 return [
                     'success'  => true,
-                    'message'  => "No memories found{$where}.",
-                    'results'  => []
+                    'message'  => $this->describeEmptyResult($domains, $from, $to),
+                    'results'  => [],
+                    'domains'  => $domains,
+                    'from'     => $from,
+                    'to'       => $to,
+                    'temporal' => empty($cleanQuery),
+                ];
+            }
+
+            // Temporal mode: no semantic query, just chronological listing.
+            // Already ordered by created_at desc in getVectorMemories().
+            if (empty($cleanQuery)) {
+                $limit  = $config['search_limit'] ?? 5;
+                $sliced = $memories->take($limit);
+
+                $results = $sliced->map(fn (VectorMemory $m) => [
+                    'document'   => $m,
+                    'memory'     => $m,
+                    'similarity' => 1.0, // No semantic ranking — surfaced by time only
+                    'source'     => 'temporal',
+                ])->all();
+
+                return [
+                    'success'        => true,
+                    'message'        => 'Found ' . count($results) . ' memories in time window.',
+                    'results'        => $results,
+                    'total_searched' => $memories->count(),
+                    'domains'        => $domains,
+                    'from'           => $from,
+                    'to'             => $to,
+                    'temporal'       => true,
                 ];
             }
 
@@ -288,6 +351,9 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 'results'        => $results,
                 'total_searched' => $memories->count(),
                 'domains'        => $domains,
+                'from'           => $from,
+                'to'             => $to,
+                'temporal'       => false,
             ];
 
         } catch (\Throwable $e) {
@@ -297,6 +363,30 @@ class VectorMemoryService implements VectorMemoryServiceInterface
                 'message' => "Error searching memories: " . $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * Build a friendly "nothing found" message based on which filters were active.
+     */
+    protected function describeEmptyResult(array $domains, ?CarbonInterface $from, ?CarbonInterface $to): string
+    {
+        $parts = [];
+        if (!empty($domains)) {
+            $parts[] = 'in [' . implode(', ', $domains) . ']';
+        }
+        if ($from !== null && $to !== null) {
+            $parts[] = $from->isSameDay($to)
+                ? 'on ' . $from->toDateString()
+                : 'between ' . $from->toDateString() . ' and ' . $to->toDateString();
+        } elseif ($from !== null) {
+            $parts[] = 'from ' . $from->toDateString();
+        } elseif ($to !== null) {
+            $parts[] = 'until ' . $to->toDateString();
+        }
+
+        return empty($parts)
+            ? 'No memories found.'
+            : 'No memories found ' . implode(' ', $parts) . '.';
     }
 
     /**
@@ -716,8 +806,9 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             return [array_values(array_unique($valid)), $query];
         }
 
-        // Inline prefix: "domain:a,b | rest"
-        if (preg_match('/^domain\s*:\s*([^|]+)\|(.+)$/iu', $query, $m)) {
+        // Inline prefix: "domain:a,b | rest" — `rest` may be empty (so this
+        // composes cleanly with subsequent time-only prefixes during peel)
+        if (preg_match('/^domain\s*:\s*([^|]+)\|(.*)$/iu', $query, $m)) {
             $rawDomains = array_filter(array_map('trim', explode(',', $m[1])));
             $valid = [];
             foreach ($rawDomains as $raw) {
@@ -730,6 +821,144 @@ class VectorMemoryService implements VectorMemoryServiceInterface
         }
 
         return [[], $query];
+    }
+
+    /**
+     * Resolve time filter for a search call.
+     * Returns [?CarbonInterface $from, ?CarbonInterface $to, string $cleanQuery].
+     *
+     * Priority:
+     *   1. $config['from'] / $config['to'] — Carbon, RAG-config style.
+     *      Either or both may be set; the other defaults to null.
+     *   2. Inline "time:<expr> | rest" — primary inline form. <expr> can be
+     *      anything SearchDateParser understands: "yesterday", "2026-03",
+     *      "2025", "2026-03-10:2026-03-15", "last week", etc.
+     *   3. Bare date keyword as the first prefix — fallback for natural
+     *      writing like "yesterday | meeting notes". Only triggers when the
+     *      first pipe-separated chunk is unambiguously a date expression.
+     *   4. No filter.
+     *
+     * Invariant: when this method returns from/to, they are absolute Carbon
+     * instances. No keyword resolution happens downstream.
+     */
+    protected function resolveSearchTime(string $query, array $config): array
+    {
+        // Config takes precedence — RAG configs and admin overrides.
+        // Accept either Carbon flavour (CarbonInterface covers both
+        // Carbon\Carbon and Illuminate\Support\Carbon).
+        $configFrom = $config['from'] ?? null;
+        $configTo   = $config['to']   ?? null;
+        if ($configFrom instanceof CarbonInterface || $configTo instanceof CarbonInterface) {
+            return [
+                $configFrom instanceof CarbonInterface ? $configFrom : null,
+                $configTo   instanceof CarbonInterface ? $configTo : null,
+                $query,
+            ];
+        }
+
+        // Inline "time:<expr> | rest" — `rest` may be empty (pure temporal query)
+        if (preg_match('/^time\s*:\s*([^|]+)\|(.*)$/iu', $query, $m)) {
+            $expr = trim($m[1]);
+            $range = $this->searchDateParser->parseDateExpression($expr);
+            if ($range !== null) {
+                [$from, $to] = $range;
+                return [$from, $to, trim($m[2])];
+            }
+            // time: was named but the expression isn't recognised — treat
+            // the whole thing as semantic. Don't silently drop the prefix.
+            return [null, null, $query];
+        }
+
+        // "time:<expr>" without pipe — strip prefix and parse
+        if (preg_match('/^time\s*:\s*(.+)$/iu', $query, $m)) {
+            $expr = trim($m[1]);
+            $range = $this->searchDateParser->parseDateExpression($expr);
+            if ($range !== null) {
+                [$from, $to] = $range;
+                return [$from, $to, ''];  // empty semantic part → temporal mode
+            }
+            // Not a recognised date expression — leave intact for semantic search
+            return [null, null, $query];
+        }
+
+        // Fallback: bare date keyword as first chunk.
+        // Only the FIRST "|" matters here; if there is no "|", the parser
+        // will also accept a whole-query date (e.g. "yesterday" alone).
+        if (str_contains($query, '|')) {
+            [$head, $tail] = array_map('trim', explode('|', $query, 2));
+            $range = $this->searchDateParser->parseDateExpression($head);
+            if ($range !== null) {
+                [$from, $to] = $range;
+                return [$from, $to, $tail];
+            }
+        } else {
+            // No pipe — could the whole query be just a date keyword?
+            $range = $this->searchDateParser->parseDateExpression($query);
+            if ($range !== null) {
+                [$from, $to] = $range;
+                return [$from, $to, ''];
+            }
+        }
+
+        return [null, null, $query];
+    }
+
+    /**
+     * Iteratively strip domain: and time: prefixes from the query, in
+     * whatever order they appear inline. Config-level filters (RAG-style)
+     * are applied via the resolvers in their initial call.
+     *
+     * Returns [array $domains, ?CarbonInterface $from, ?CarbonInterface $to, string $cleanQuery].
+     *
+     * Algorithm:
+     *   1. Call each resolver once WITH config — this captures any
+     *      RAG-pinned filters AND, if the first inline prefix matches,
+     *      strips it too.
+     *   2. Loop calling each resolver WITHOUT config (empty array) until
+     *      neither strips anything more. This handles the case where the
+     *      user wrote prefixes in either order.
+     *
+     * The loop is capped at a few iterations as a safety net.
+     */
+    protected function peelSearchPrefixes(string $query, array $config): array
+    {
+        // First pass — with config. Either captures RAG-pinned filters or
+        // strips the first inline prefix, whichever applies.
+        [$domains, $cleanQuery]       = $this->resolveSearchDomains($query, $config);
+        [$from, $to, $cleanQuery]     = $this->resolveSearchTime($cleanQuery, $config);
+
+        // Loop with empty config to peel any remaining inline prefix that
+        // was second in line. Bounded to avoid pathological infinite loops
+        // if a future regex regresses.
+        $emptyConfig = [];
+        for ($i = 0; $i < 4; $i++) {
+            $progressed = false;
+
+            if (empty($domains)) {
+                [$d, $afterD] = $this->resolveSearchDomains($cleanQuery, $emptyConfig);
+                if (!empty($d)) {
+                    $domains = $d;
+                    $cleanQuery = $afterD;
+                    $progressed = true;
+                }
+            }
+
+            if ($from === null && $to === null) {
+                [$f, $t, $afterT] = $this->resolveSearchTime($cleanQuery, $emptyConfig);
+                if ($f !== null || $t !== null) {
+                    $from = $f;
+                    $to = $t;
+                    $cleanQuery = $afterT;
+                    $progressed = true;
+                }
+            }
+
+            if (!$progressed) {
+                break;
+            }
+        }
+
+        return [$domains, $from, $to, trim($cleanQuery)];
     }
 
     // -------------------------------------------------------------------------

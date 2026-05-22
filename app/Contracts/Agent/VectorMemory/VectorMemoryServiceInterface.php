@@ -4,6 +4,7 @@ namespace App\Contracts\Agent\VectorMemory;
 
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
+use App\Services\Agent\VectorMemory\VectorMemoryQuery;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
@@ -35,13 +36,39 @@ use Illuminate\Support\Collection;
  *   - storeVectorMemory:    $config['domain']  → single string, optional
  *   - searchVectorMemories: $config['domains'] → string[], optional
  *   - searchVectorMemories: inline prefix "domain:a,b | actual query"
- *   - getVectorMemories:    array $domains parameter
+ *   - getVectorMemories:    VectorMemoryQuery::domains
  *
  *  Empty/missing domain filter ⇒ search across ALL domains of the preset.
  *
  *  $config['domains'] (when set) takes precedence over the inline prefix.
  *  This separation lets RAG configs hard-pin a domain at the wiring layer
  *  while leaving the inline form free for ad-hoc agent queries.
+ *
+ * ---------------------------------------------------------------------------
+ *  Temporal filtering
+ * ---------------------------------------------------------------------------
+ *  Vector memories can be filtered by a time range on `created_at`. The range
+ *  is resolved by a shared SearchDateParserInterface, so the DSL matches
+ *  what the journal supports (ISO dates, year-month, year, plus localised
+ *  keywords like "yesterday" / "вчера" / "last month").
+ *
+ *  Sources of the time filter (first wins):
+ *   1. $config['from'] / $config['to']           — Carbon, RAG-config style
+ *   2. Inline "time:<expr> | rest"               — explicit, primary form
+ *   3. Bare date keyword as first prefix          — fallback ("yesterday | rest")
+ *   4. No filter
+ *
+ *  Behaviour matrix:
+ *
+ *    | query   | time filter | mode                              |
+ *    |---------|-------------|-----------------------------------|
+ *    | yes     | no          | semantic (current behaviour)      |
+ *    | yes     | yes         | semantic, bounded by time window  |
+ *    | no      | yes         | temporal: chronological listing   |
+ *    | no      | no          | error                             |
+ *
+ *  In associative search, the time filter constrains the starting set of
+ *  the chain; subsequent associative hops stay within that window.
  */
 interface VectorMemoryServiceInterface
 {
@@ -55,14 +82,17 @@ interface VectorMemoryServiceInterface
     public function getPaginatedVectorMemories(AiPreset $preset, int $perPage = 20): LengthAwarePaginator;
 
     /**
-     * Get vector memories for preset, optionally filtered by domain(s).
+     * Get vector memories for preset, filtered by a VectorMemoryQuery.
      *
-     * @param  AiPreset   $preset
-     * @param  int|null   $limit    Max records (null = no limit)
-     * @param  string[]   $domains  Domain whitelist; empty array = no filter (all domains)
+     * The query describes WHICH records to fetch (domain whitelist, time
+     * range, limit). Search algorithm parameters belong to $config in
+     * search methods, not here.
+     *
+     * @param  AiPreset           $preset
+     * @param  VectorMemoryQuery  $query  Filter criteria; defaults to "everything".
      * @return Collection<int, VectorMemory>
      */
-    public function getVectorMemories(AiPreset $preset, ?int $limit = null, array $domains = []): Collection;
+    public function getVectorMemories(AiPreset $preset, VectorMemoryQuery $query = new VectorMemoryQuery()): Collection;
 
     /**
      * Store content in vector memory.
@@ -82,18 +112,34 @@ interface VectorMemoryServiceInterface
     public function storeVectorMemory(AiPreset $preset, string $content, array $config = []): array;
 
     /**
-     * Search vector memories by semantic similarity.
+     * Search vector memories by semantic similarity, optionally bounded by time.
      *
      * Domain filter resolution (first match wins):
      *   1. $config['domains'] — explicit list (used by RAG configs)
      *   2. Inline prefix in $query: "domain:a,b | actual query"
      *   3. No filter — searches all domains of the preset
      *
+     * Time filter resolution (first match wins):
+     *   1. $config['from'] / $config['to'] — Carbon instances (RAG configs)
+     *   2. Inline "time:<expr> | rest"
+     *   3. Bare date keyword as first prefix ("yesterday | rest") — fallback
+     *   4. No filter
+     *
+     * Both domain and time prefixes may appear together in any order:
+     *   "time:last week | domain:work | optimization"
+     *   "domain:work | time:last week | optimization"
+     *
+     * When the cleaned query is empty AND a time filter is set, the call
+     * returns records in the window sorted by created_at descending (temporal
+     * mode) — no semantic ranking. When both are empty, returns an error.
+     *
      * @param AiPreset $preset
-     * @param string $query Search text; may carry an inline "domain:..." prefix
-     * @param array $config Plugin configuration. Domain-relevant keys:
+     * @param string $query Search text; may carry inline "domain:..." / "time:..." prefixes
+     * @param array $config Plugin configuration. Filter-relevant keys:
      *                      - 'domains' (string[]): hard whitelist, wins over inline
-     * @return array Result with search results and the resolved 'domains' list
+     *                      - 'from' (Carbon|null): time lower bound, wins over inline
+     *                      - 'to'   (Carbon|null): time upper bound, wins over inline
+     * @return array Result with search results, resolved 'domains', 'from'/'to', and 'temporal' flag
      */
     public function searchVectorMemories(AiPreset $preset, string $query, array $config = []): array;
 

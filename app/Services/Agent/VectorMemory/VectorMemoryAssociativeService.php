@@ -53,14 +53,16 @@ class VectorMemoryAssociativeService extends VectorMemoryService
      * Search with associative chain traversal and composite scoring.
      *
      * Steps:
-     * 1. Resolve domain filter (from $config['domains'] or inline "domain:..." prefix)
-     * 2. Load memories restricted to those domains (or all if none specified)
-     * 3. Search memories using TF-IDF similarity for the cleaned query
-     * 4. Apply composite score = tfidf * access_weight * time_weight
-     * 5. Take the top result, use its content to seed next search step
-     * 6. Repeat for configured chain depth, avoiding already-visited memories
-     * 7. Update access stats for all touched memories
-     * 8. Return all unique results sorted by composite score descending
+     * 1. Peel inline prefixes ("domain:", "time:", or bare keyword) plus any
+     *    RAG-config filters into [$domains, $from, $to, $cleanQuery].
+     * 2. Load memories restricted to those domains AND that time window.
+     *    The window pins down the STARTING set for the chain — subsequent
+     *    associative hops walk only within these memories.
+     * 3. If $cleanQuery is empty but a time filter is set, return chronological
+     *    listing (temporal mode) — no chain walk, no semantic ranking.
+     * 4. Otherwise: TF-IDF search seeded by $cleanQuery; top hit seeds the
+     *    next hop; repeat for chain_depth steps with composite scoring.
+     * 5. Update access stats for all touched memories.
      *
      * @inheritDoc
      */
@@ -75,25 +77,64 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 ];
             }
 
-            // Resolve domain filter (config wins; otherwise parse inline prefix)
-            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
 
-            if (empty($cleanQuery)) {
+            $hasTimeFilter = ($from !== null || $to !== null);
+
+            if (empty($cleanQuery) && !$hasTimeFilter) {
                 return [
                     'success' => false,
-                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                    'message' => 'Error: Search query cannot be empty after parsing prefixes.'
                 ];
             }
 
-            // Load only memories belonging to the requested domains
-            $memories = $this->getVectorMemories($preset, null, $domains);
+            $memQuery = new VectorMemoryQuery(
+                domains: $domains,
+                from:    $from,
+                to:      $to,
+            );
+            $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
-                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
                 return [
-                    'success' => true,
-                    'message' => "No memories found{$where}. Store some content first.",
-                    'results' => []
+                    'success'  => true,
+                    'message'  => $this->describeEmptyResult($domains, $from, $to),
+                    'results'  => [],
+                    'domains'  => $domains,
+                    'from'     => $from,
+                    'to'       => $to,
+                    'temporal' => empty($cleanQuery),
+                ];
+            }
+
+            // Temporal mode: chronological listing inside the time window.
+            // No chain walk — the question "what was I thinking on Monday"
+            // is best answered straight, not via associations.
+            if (empty($cleanQuery)) {
+                $limit  = $config['search_limit'] ?? 5;
+                $sliced = $memories->take($limit);
+
+                $results = $sliced->map(fn (VectorMemory $m) => [
+                    'document'        => $m,
+                    'memory'          => $m,
+                    'similarity'      => 1.0,
+                    'composite_score' => 1.0,
+                    'source'          => 'temporal',
+                    'chain_step'      => 0,
+                ])->all();
+
+                // Still update access stats — these are real touches
+                $this->updateAccessStats(array_column($results, 'memory'));
+
+                return [
+                    'success'        => true,
+                    'message'        => 'Found ' . count($results) . ' memories in time window.',
+                    'results'        => $results,
+                    'total_searched' => $memories->count(),
+                    'domains'        => $domains,
+                    'from'           => $from,
+                    'to'             => $to,
+                    'temporal'       => true,
                 ];
             }
 
@@ -104,6 +145,7 @@ class VectorMemoryAssociativeService extends VectorMemoryService
             $visitedIds   = [];
             $chainResults = [];
             $currentQuery = $cleanQuery;
+            $step         = 0;
 
             for ($step = 0; $step < $chainDepth; $step++) {
                 // Filter out already-visited memories
@@ -160,9 +202,13 @@ class VectorMemoryAssociativeService extends VectorMemoryService
 
             if (empty($chainResults)) {
                 return [
-                    'success' => true,
-                    'message' => 'No similar memories found.',
-                    'results' => []
+                    'success'  => true,
+                    'message'  => 'No similar memories found.',
+                    'results'  => [],
+                    'domains'  => $domains,
+                    'from'     => $from,
+                    'to'       => $to,
+                    'temporal' => false,
                 ];
             }
 
@@ -173,18 +219,21 @@ class VectorMemoryAssociativeService extends VectorMemoryService
             $finalResults = array_slice($chainResults, 0, $searchLimit);
 
             // Update access stats for all touched memories
-            // 'memory' alias is present in every $chainResults entry (added above)
             $this->updateAccessStats(
                 collect($finalResults)->pluck('memory')->all()
             );
 
+            $windowNote = $hasTimeFilter ? ' within time window' : '';
             return [
                 'success'        => true,
-                'message'        => "Found " . count($finalResults) . " memories via associative search (chain depth: {$chainDepth}).",
+                'message'        => "Found " . count($finalResults) . " memories via associative search{$windowNote} (chain depth: {$chainDepth}).",
                 'results'        => $finalResults,
                 'total_searched' => $memories->count(),
                 'chain_steps'    => $step,
                 'domains'        => $domains,
+                'from'           => $from,
+                'to'             => $to,
+                'temporal'       => false,
             ];
 
         } catch (\Throwable $e) {

@@ -3,6 +3,7 @@
 namespace App\Services\Agent\VectorMemory;
 
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
@@ -37,9 +38,10 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
         VectorMemoryImporter $importer,
         VectorMemoryExporter $exporter,
         VectorMemory $vectorMemoryModel,
+        SearchDateParserInterface $searchDateParser,
         protected EmbeddingService $embeddingService,
     ) {
-        parent::__construct($logger, $tfIdfService, $importer, $exporter, $vectorMemoryModel);
+        parent::__construct($logger, $tfIdfService, $importer, $exporter, $vectorMemoryModel, $searchDateParser);
     }
 
     /**
@@ -69,12 +71,14 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
      * Semantic search using cosine similarity over dense embedding vectors.
      *
      * Algorithm:
-     *  1. Resolve domain filter (config wins; otherwise parse inline prefix)
-     *  2. Embed the cleaned query via EmbeddingService (uses preset's capability config)
-     *  3. Fall back to parent TF-IDF if embedding is unavailable (with resolved domains)
-     *  4. Compute cosine similarity for records that have an embedding (within filtered set)
-     *  5. Supplement with TF-IDF results for records without embedding
-     *  6. Sort combined results by similarity and return top-K
+     *  1. Peel inline prefixes ("domain:", "time:", or bare keyword) plus any
+     *     RAG-config filters into [$domains, $from, $to, $cleanQuery].
+     *  2. Load the candidate set scoped to those filters.
+     *  3. If $cleanQuery is empty but a time filter is set, return chronological
+     *     listing (temporal mode) — no embedding work needed.
+     *  4. Otherwise: embed $cleanQuery via EmbeddingService; cosine over
+     *     records that have an embedding; TF-IDF supplement for those that
+     *     don't; merge and trim to top-K.
      *
      * {@inheritDoc}
      */
@@ -86,26 +90,59 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            // Resolve domain filter once, here. Pass the resolved list down into
-            // any fallback paths via $config['domains'] so they don't re-parse.
-            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
 
-            if (empty($cleanQuery)) {
+            $hasTimeFilter = ($from !== null || $to !== null);
+
+            if (empty($cleanQuery) && !$hasTimeFilter) {
                 return [
                     'success' => false,
-                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                    'message' => 'Error: Search query cannot be empty after parsing prefixes.'
                 ];
             }
 
-            // Carry resolved domains downstream so fallback chains see them
-            // without re-parsing the inline prefix from a now-clean query.
-            $config['domains'] = $domains;
-
-            $memories = $this->getVectorMemories($preset, null, $domains);
+            $memQuery = new VectorMemoryQuery(
+                domains: $domains,
+                from:    $from,
+                to:      $to,
+            );
+            $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
-                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
-                return ['success' => true, 'message' => "No memories found{$where}.", 'results' => []];
+                return [
+                    'success'  => true,
+                    'message'  => $this->describeEmptyResult($domains, $from, $to),
+                    'results'  => [],
+                    'domains'  => $domains,
+                    'from'     => $from,
+                    'to'       => $to,
+                    'temporal' => empty($cleanQuery),
+                ];
+            }
+
+            // Temporal mode: chronological listing, no embedding round-trip.
+            if (empty($cleanQuery)) {
+                $limit  = $config['search_limit'] ?? 5;
+                $sliced = $memories->take($limit);
+
+                $results = $sliced->map(fn (VectorMemory $m) => [
+                    'document'   => $m,
+                    'memory'     => $m,
+                    'similarity' => 1.0,
+                    'source'     => 'temporal',
+                ])->all();
+
+                return [
+                    'success'        => true,
+                    'message'        => 'Found ' . count($results) . ' memories in time window.',
+                    'results'        => $results,
+                    'total_searched' => $memories->count(),
+                    'domains'        => $domains,
+                    'from'           => $from,
+                    'to'             => $to,
+                    'temporal'       => true,
+                    'embedding_used' => false,
+                ];
             }
 
             $searchLimit = $config['search_limit'] ?? 5;
@@ -118,8 +155,15 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 $this->logger->info('EmbeddingVectorMemoryService: falling back to TF-IDF.', [
                     'preset_id' => $preset->id,
                 ]);
-                // Parent will re-resolve domains from $config['domains'] and use $cleanQuery as-is.
-                return parent::searchVectorMemories($preset, $cleanQuery, $config);
+                // Parent fallback handles its own filter resolution; we pass the
+                // already-peeled clean query and inject resolved filters into config
+                // so the parent doesn't re-parse them.
+                $fallbackConfig = array_merge($config, [
+                    'domains' => $domains,
+                    'from'    => $from,
+                    'to'      => $to,
+                ]);
+                return parent::searchVectorMemories($preset, $cleanQuery, $fallbackConfig);
             }
 
             $withEmbedding    = $memories->filter(fn ($m) => !empty($m->embedding));
@@ -180,6 +224,9 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 'total_searched' => $memories->count(),
                 'embedding_used' => true,
                 'domains'        => $domains,
+                'from'           => $from,
+                'to'             => $to,
+                'temporal'       => false,
             ];
 
         } catch (\Throwable $e) {

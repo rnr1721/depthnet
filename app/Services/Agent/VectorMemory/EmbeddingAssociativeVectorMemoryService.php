@@ -79,24 +79,63 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            // Resolve domain filter once, here. Pass the resolved list down into
-            // any fallback paths via $config['domains'] so they don't re-parse.
-            [$domains, $cleanQuery] = $this->resolveSearchDomains($query, $config);
+            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
 
-            if (empty($cleanQuery)) {
+            $hasTimeFilter = ($from !== null || $to !== null);
+
+            if (empty($cleanQuery) && !$hasTimeFilter) {
                 return [
                     'success' => false,
-                    'message' => 'Error: Search query cannot be empty after parsing domain prefix.'
+                    'message' => 'Error: Search query cannot be empty after parsing prefixes.'
                 ];
             }
 
-            $config['domains'] = $domains;
-
-            $memories = $this->getVectorMemories($preset, null, $domains);
+            $memQuery = new VectorMemoryQuery(
+                domains: $domains,
+                from:    $from,
+                to:      $to,
+            );
+            $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
-                $where = empty($domains) ? '' : ' in [' . implode(', ', $domains) . ']';
-                return ['success' => true, 'message' => "No memories found{$where}.", 'results' => []];
+                return [
+                    'success'  => true,
+                    'message'  => $this->describeEmptyResult($domains, $from, $to),
+                    'results'  => [],
+                    'domains'  => $domains,
+                    'from'     => $from,
+                    'to'       => $to,
+                    'temporal' => empty($cleanQuery),
+                ];
+            }
+
+            // Temporal mode: chronological listing, no graph walk.
+            // Building the O(N²) graph just to throw it away would be wasteful.
+            if (empty($cleanQuery)) {
+                $limit  = $config['search_limit'] ?? 5;
+                $sliced = $memories->take($limit);
+
+                $results = $sliced->map(fn (VectorMemory $m) => [
+                    'document'        => $m,
+                    'memory'          => $m,
+                    'similarity'      => 1.0,
+                    'composite_score' => 1.0,
+                    'source'          => 'temporal',
+                ])->all();
+
+                $this->updateAccessStats(array_column($results, 'memory'));
+
+                return [
+                    'success'        => true,
+                    'message'        => 'Found ' . count($results) . ' memories in time window.',
+                    'results'        => $results,
+                    'total_searched' => $memories->count(),
+                    'domains'        => $domains,
+                    'from'           => $from,
+                    'to'             => $to,
+                    'temporal'       => true,
+                    'embedding_used' => false,
+                ];
             }
 
             $searchLimit = $config['search_limit'] ?? 5;
@@ -106,12 +145,21 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
             // ── Step 1: embed the cleaned query ──────────────────────────────
             $queryEmbedding = $this->embeddingService->embed($cleanQuery, $preset);
 
+            // Helper config for fallbacks: inject already-resolved filters so
+            // the parent's searchVectorMemories doesn't re-parse them from a
+            // now-clean query.
+            $fallbackConfig = array_merge($config, [
+                'domains' => $domains,
+                'from'    => $from,
+                'to'      => $to,
+            ]);
+
             if ($queryEmbedding === null) {
                 $this->logger->info('EmbeddingAssociativeVectorMemoryService: no embedding — falling back.', [
                     'preset_id' => $preset->id,
                 ]);
-                // Graceful degradation chain: embedding → associative TF-IDF
-                return $this->fallbackSearch($preset, $cleanQuery, $config);
+                // Graceful degradation chain: embedding → flat embedding → TF-IDF
+                return $this->fallbackSearch($preset, $cleanQuery, $fallbackConfig);
             }
 
             // Split records: only those with a stored embedding participate in
@@ -120,7 +168,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
             $withoutEmbedding = $memories->filter(fn ($m) => empty($m->embedding))->values();
 
             if ($withEmbedding->isEmpty()) {
-                return $this->fallbackSearch($preset, $cleanQuery, $config);
+                return $this->fallbackSearch($preset, $cleanQuery, $fallbackConfig);
             }
 
             // Trim to MAX_GRAPH_NODES BEFORE computing scores and building the graph,
@@ -247,6 +295,9 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 'embedding_used'  => true,
                 'graph_nodes'     => count($visited),
                 'domains'         => $domains,
+                'from'            => $from,
+                'to'              => $to,
+                'temporal'        => false,
             ]);
 
         } catch (\Throwable $e) {

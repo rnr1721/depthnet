@@ -686,32 +686,35 @@ const formattedContent = computed(() => {
     if (lastIndex !== -1) userContent = content.substring(0, lastIndex).trim();
   }
 
-  userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
-  userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
-  userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  userContent = userContent.replace(
-    /___FAKE_AGENT_MARKER___/g,
-    `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
+  if (props.message.role === 'system') {
+    userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  } else {
+    userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
+    userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
+    userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    userContent = userContent.replace(
+      /___FAKE_AGENT_MARKER___/g,
+      `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
       <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
     </span>`
-  );
-  userContent = userContent.replace(
-    /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1(?:\s+[a-z][a-z0-9_]*)?\])/g,
-    (match, plugin, method) => {
-      const methodDisplay = method ? ` ${method}` : '';
-      const pluginName = `${plugin}${methodDisplay}`;
-      return `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Unclosed command tag">
+    );
+    userContent = userContent.replace(
+      /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1(?:\s+[a-z][a-z0-9_]*)?\])/g,
+      (match, plugin, method) => {
+        const methodDisplay = method ? ` ${method}` : '';
+        const pluginName = `${plugin}${methodDisplay}`;
+        return `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Unclosed command tag">
         <span class="mr-1">⚠️</span>[${pluginName}]
       </span>`;
-    }
-  );
-  userContent = userContent.replace(
-    /<system_output_results>/g,
-    `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
+      }
+    );
+    userContent = userContent.replace(
+      /<system_output_results>/g,
+      `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
       <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
     </span>`
-  );
-
+    );
+  }
   const userHtml = marked.parse(userContent, { breaks: true, gfm: true });
   return DOMPurify.sanitize(userHtml);
 });

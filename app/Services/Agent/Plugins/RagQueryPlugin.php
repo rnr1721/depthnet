@@ -5,9 +5,11 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasDateKeywordsTrait;
 use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
@@ -37,6 +39,7 @@ class RagQueryPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
     use PluginHasLanguageSettingsTrait;
+    use PluginHasDateKeywordsTrait;
 
     public const PLUGIN_NAME = 'rag';
     public const META_KEY    = 'pending_queries';
@@ -52,6 +55,7 @@ class RagQueryPlugin implements CommandPluginInterface
         protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface            $placeholderService,
         protected PluginMetadataServiceInterface         $pluginMetadata,
+        protected SearchDateParserInterface              $searchDateParser,
     ) {
     }
 
@@ -71,11 +75,30 @@ class RagQueryPlugin implements CommandPluginInterface
     /** @inheritDoc */
     public function getInstructions(array $config = []): array
     {
+        $lang = $config['rag_language'] ?? 'auto';
+
+        $yesterday = $this->localisedKeyword('yesterday', $lang);
+        $lastWeek  = $this->localisedKeyword('last_week', $lang);
+        $exQuery   = $this->exampleSemantic($lang);
+
         $instructions = [
-            'Add a RAG query for next cycle: [rag query]your search query here[/rag]',
+            "Add a simple RAG query: [rag query]{$exQuery}[/rag]",
+            "Add a time-bounded RAG query: [rag query]time:{$yesterday} | {$exQuery}[/rag]",
+            "Search by month: [rag query]time:2026-03 | {$exQuery}[/rag]",
+            "Search by year: [rag query]time:2025 | {$exQuery}[/rag]",
+            "Add a domain-bounded RAG query: [rag query]domain:work | {$exQuery}[/rag]",
+            "Combine time + domain: [rag query]time:{$lastWeek} | domain:work | {$exQuery}[/rag]",
             'Show current pending RAG queries: [rag show][/rag]',
             'Clear all pending RAG queries: [rag clear][/rag]',
         ];
+
+        // Date keywords reference, drawn from the parser's live vocabulary —
+        // helps the agent discover what time:<expr> understands instead of guessing.
+        $keywordList = $this->buildKeywordListLine($lang);
+        if ($keywordList !== null) {
+            $instructions[] = 'Date keywords available for time:<...>: ' . $keywordList;
+            $instructions[] = 'Date ISO formats also accepted: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY';
+        }
 
         $warning = $this->buildLanguageWarning($config, 'rag_language', 'RAG queries');
         if ($warning) {
@@ -88,6 +111,10 @@ class RagQueryPlugin implements CommandPluginInterface
     public function getToolSchema(array $config = []): array
     {
         $langInstruction = $this->buildLanguageInstruction($config, 'rag_language');
+        $lang            = $config['rag_language'] ?? 'auto';
+
+        $sampleKeyword  = $this->localisedKeyword('yesterday', $lang);
+        $sampleSemantic = $this->exampleSemantic($lang);
 
         return [
             'name'        => 'rag',
@@ -104,11 +131,17 @@ class RagQueryPlugin implements CommandPluginInterface
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => implode(' ', [
+                        'description' => implode(' ', array_filter([
                             'query: the search query text.',
                             $langInstruction ? 'Must be written in the configured language.' : '',
+                            'Optional inline filters (any order, separated by "|"): '
+                                . '"domain:work,relationships | ..." filters by domain, '
+                                . '"time:<expr> | ..." filters by time. '
+                                . 'Time expr accepts keywords (today, yesterday, this/last week/month/year — and localised forms) '
+                                . 'and ISO formats (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY). '
+                                . "Example: \"time:{$sampleKeyword} | {$sampleSemantic}\" or \"domain:work | {$sampleSemantic}\".",
                             'show/clear: leave empty.',
-                        ]),
+                        ])),
                     ],
                 ],
                 'required'   => ['method'],

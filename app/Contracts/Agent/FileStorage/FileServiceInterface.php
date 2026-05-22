@@ -71,4 +71,16 @@ interface FileServiceInterface
     public function backfillEmbeddings(AiPreset $preset, int $batchSize = 50): array;
 
     public function getDownloadPath(File $file): string;
+
+    /**
+     * Generate and persist an embedding vector for a single file chunk.
+     * Safe to call multiple times — skips if embedding already exists.
+     *
+     * Called from GenerateChunkEmbedding job (async) and backfillEmbeddings (sync).
+     *
+     * @param integer $chunkId Chunk ID to generate embedding for
+     * @param integer $presetId Preset ID to determine which embedding model to use
+     * @return void
+     */
+    public function generateChunkEmbedding(int $chunkId, int $presetId): void;
 }

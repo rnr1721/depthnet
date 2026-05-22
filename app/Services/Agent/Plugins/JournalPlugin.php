@@ -8,6 +8,7 @@ use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasDateKeywordsTrait;
 use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
@@ -21,12 +22,19 @@ use Psr\Log\LoggerInterface;
  * This is the agent's diary: not what it knows (vectormemory / skills),
  * but what *happened* — with timestamp, type, and outcome.
  *
- * Date filter DSL (delegated to SearchDateParserInterface):
- *   - Keywords (multilingual, defined in data/search/keywords.json):
- *     today / yesterday / this_week / last_week / this_month / last_month /
- *     this_year / last_year — plus their localised variants
- *   - ISO formats: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY
- *   - Combine with `|` to add a semantic query: "yesterday | optimization"
+ * Commands:
+ *   [journal]type | summary[/journal]                        — add entry
+ *   [journal]type | summary | details[/journal]              — add with details
+ *   [journal]type | summary | details | outcome:success[/journal] — full entry
+ *   [journal recent]10[/journal]                             — last N entries
+ *   [journal show]42[/journal]                               — full entry details
+ *   [journal search]query[/journal]                          — semantic search
+ *   [journal search]2024-03-15 | query[/journal]             — date + semantic
+ *   [journal search]yesterday | query[/journal]              — relative date
+ *   [journal search]2024-03-10:2024-03-15 | query[/journal]  — date range
+ *   [journal search]today[/journal]                          — date only
+ *   [journal delete]42[/journal]                             — delete entry
+ *   [journal clear][/journal]                                — clear all
  */
 class JournalPlugin implements CommandPluginInterface
 {
@@ -34,31 +42,7 @@ class JournalPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
     use PluginHasLanguageSettingsTrait;
-
-    /**
-     * Language-localised templates for the date-search example inserted into
-     * agent instructions. Keys match `journal_language` values. We only
-     * localise the *semantic part* — the date keywords themselves come from
-     * the parser's vocabulary at runtime.
-     *
-     * For 'auto' and 'multilingual' we fall back to English semantic text
-     * since we can't pick one language sensibly.
-     */
-    private const EXAMPLE_SEMANTIC = [
-        'en' => 'optimization',
-        'ru' => 'оптимизация',
-        'de' => 'Optimierung',
-        'fr' => 'optimisation',
-        'es' => 'optimización',
-    ];
-
-    private const EXAMPLE_RANGE_SEMANTIC = [
-        'en' => 'database',
-        'ru' => 'база данных',
-        'de' => 'Datenbank',
-        'fr' => 'base de données',
-        'es' => 'base de datos',
-    ];
+    use PluginHasDateKeywordsTrait;
 
     public function __construct(
         protected JournalServiceInterface     $journalService,
@@ -80,8 +64,10 @@ class JournalPlugin implements CommandPluginInterface
     public function getInstructions(array $config = []): array
     {
         $lang = $config['journal_language'] ?? 'auto';
-        $examples = $this->buildDateSearchExamples($lang);
-        $keywordList = $this->buildKeywordListLine($lang);
+
+        $yesterday = $this->localisedKeyword('yesterday', $lang);
+        $today     = $this->localisedKeyword('today', $lang);
+        $exQuery   = $this->exampleSemantic($lang);
 
         $instructions = [
             'Add entry:              [journal]action | Refactored memory plugin[/journal]',
@@ -89,19 +75,22 @@ class JournalPlugin implements CommandPluginInterface
             'Add decision:           [journal]decision | Chose approach A over B | Simpler implementation[/journal]',
             'Recent entries:         [journal recent]10[/journal]',
             'Show full entry:        [journal show]42[/journal]',
-            'Semantic search:        [journal search]memory optimization[/journal]',
-            'Date + semantic:        ' . $examples['relative'],
-            'ISO date + semantic:    ' . $examples['iso_single'],
-            'Date range + semantic:  ' . $examples['iso_range'],
-            'Month-level search:     ' . $examples['iso_month'],
-            'Year-level search:      ' . $examples['iso_year'],
-            'Date only:              ' . $examples['date_only'],
+            "Semantic search:        [journal search]{$exQuery}[/journal]",
+            "Date + semantic:        [journal search]2024-03-15 | {$exQuery}[/journal]",
+            "Relative date:          [journal search]{$yesterday} | {$exQuery}[/journal]",
+            "Date range + semantic:  [journal search]2024-03-10:2024-03-15 | {$exQuery}[/journal]",
+            "Month-level search:     [journal search]2024-03 | {$exQuery}[/journal]",
+            "Year-level search:      [journal search]2024 | {$exQuery}[/journal]",
+            "Date only:              [journal search]{$today}[/journal]",
             'Delete entry:           [journal delete]42[/journal]',
             'Clear all:              [journal clear][/journal]',
         ];
 
+        // Date keywords reference — helps the agent discover what date expressions work
+        $keywordList = $this->buildKeywordListLine($lang);
         if ($keywordList !== null) {
             $instructions[] = 'Date keywords available: ' . $keywordList;
+            $instructions[] = 'Date ISO formats also accepted: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY';
         }
 
         $warning = $this->buildLanguageWarning($config, 'journal_language', 'journal entries');
@@ -124,10 +113,10 @@ class JournalPlugin implements CommandPluginInterface
     public function getToolSchema(array $config = []): array
     {
         $langInstruction = $this->buildLanguageInstruction($config, 'journal_language');
-        $lang = $config['journal_language'] ?? 'auto';
+        $lang            = $config['journal_language'] ?? 'auto';
 
-        $sampleKeyword = $this->pickSampleKeyword($lang); // e.g. "yesterday" or "вчера"
-        $sampleSemantic = self::EXAMPLE_SEMANTIC[$lang] ?? 'errors';
+        $sampleKeyword  = $this->localisedKeyword('yesterday', $lang);
+        $sampleSemantic = $this->exampleSemantic($lang);
 
         return [
             'name'        => 'journal',
@@ -151,13 +140,13 @@ class JournalPlugin implements CommandPluginInterface
                             '"type | summary" or',
                             '"type | summary | details" or',
                             '"type | summary | details | outcome:success".',
-                            'Types: action, decision, interaction, error, observation, reflection.',
+                            'Types: action, decision, interaction, error, observation, event.',
                             'Example: "interaction | Eugeny introduced himself as viking | told me his name | outcome:success".',
                             'recent: number of entries to return (default 10).',
-                            'search: query string, optionally prefixed with a date filter and "|" separator.',
-                            'Date filter accepts ISO formats (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY)',
-                            'and keywords (today, yesterday, this/last week, this/last month, this/last year — and their localised forms).',
-                            "Example: \"{$sampleKeyword} | {$sampleSemantic}\" or \"2024-03-15 | memory\".",
+                            'search: query string, optionally prefixed with a date filter and "|" separator. '
+                                . 'Date filter accepts ISO formats (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY) '
+                                . 'and keywords (today, yesterday, this/last week/month/year — and their localised forms). '
+                                . "Example: \"{$sampleKeyword} | {$sampleSemantic}\" or \"2024-03-15 | memory\".",
                             'show/delete: numeric entry ID.',
                             'clear: leave empty.',
                         ]),
@@ -179,7 +168,7 @@ class JournalPlugin implements CommandPluginInterface
             ],
             'journal_language' => $this->getLanguageConfigField(
                 'Journal Language',
-                'Force language for journal entries. Also affects which date keywords appear in agent instructions and tool examples.'
+                'Force language for journal entries.'
             ),
             'default_limit' => [
                 'type'        => 'number',
@@ -334,159 +323,6 @@ class JournalPlugin implements CommandPluginInterface
 
         $result = $this->journalService->clear($context->preset);
         return $result['message'];
-    }
-
-    // -------------------------------------------------------------------------
-    // Localised example/keyword helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Build the date-search example lines for getInstructions().
-     * Keywords come from the parser vocabulary, filtered by language;
-     * if the requested language has no variant for a key, English is used
-     * as a fallback so the example always renders something usable.
-     *
-     * @return array{relative: string, iso_single: string, iso_range: string, iso_month: string, iso_year: string, date_only: string}
-     */
-    private function buildDateSearchExamples(string $lang): array
-    {
-        $yesterday  = $this->localisedKeyword('yesterday', $lang);
-        $today      = $this->localisedKeyword('today', $lang);
-        $lastMonth  = $this->localisedKeyword('last_month', $lang);
-        $semantic   = self::EXAMPLE_SEMANTIC[$lang] ?? 'errors';
-        $rangeSem   = self::EXAMPLE_RANGE_SEMANTIC[$lang] ?? 'database';
-
-        return [
-            'relative'   => "[journal search]{$yesterday} | {$semantic}[/journal]",
-            'iso_single' => "[journal search]2024-03-15 | {$semantic}[/journal]",
-            'iso_range'  => "[journal search]2024-03-10:2024-03-15 | {$rangeSem}[/journal]",
-            'iso_month'  => "[journal search]2024-03 | {$semantic}[/journal]",
-            'iso_year'   => "[journal search]2024 | {$semantic}[/journal]",
-            'date_only'  => "[journal search]{$today}[/journal]   (also: {$lastMonth})",
-        ];
-    }
-
-    /**
-     * Build the "Date keywords available" line listing every variant the
-     * parser will recognise for the configured language.
-     *
-     * Returns null if no keywords are loaded (parser vocabulary empty) —
-     * caller skips the line in that case so we don't show a hanging label.
-     */
-    private function buildKeywordListLine(string $lang): ?string
-    {
-        $keywords = $this->searchDateParser->listKeywords();
-        if (empty($keywords)) {
-            return null;
-        }
-
-        $filter = $this->resolveLanguagesToShow($lang);
-
-        $items = [];
-        foreach ($keywords as $canonicalKey => $variants) {
-            $picked = $this->pickVariantsForLanguages($variants, $filter);
-            if (empty($picked)) {
-                continue;
-            }
-            // Variants for the same canonical key get joined with " / " —
-            // tighter visually than commas, signals "these mean the same thing".
-            $items[] = implode(' / ', $picked);
-        }
-
-        return empty($items) ? null : implode(', ', $items);
-    }
-
-    /**
-     * Pick a localised variant of a keyword for inline use in a single example.
-     * Falls back to English, then to the canonical key itself if nothing matches.
-     */
-    private function localisedKeyword(string $canonicalKey, string $lang): string
-    {
-        $variants = $this->searchDateParser->listKeywords()[$canonicalKey] ?? [];
-        if (empty($variants)) {
-            return $canonicalKey;
-        }
-
-        $filter = $this->resolveLanguagesToShow($lang);
-        $picked = $this->pickVariantsForLanguages($variants, $filter);
-
-        return $picked[0] ?? $variants[0];
-    }
-
-    /**
-     * One short keyword used in getToolSchema content description.
-     * Prefers "yesterday"-style for brevity.
-     */
-    private function pickSampleKeyword(string $lang): string
-    {
-        return $this->localisedKeyword('yesterday', $lang);
-    }
-
-    /**
-     * Decide which languages to expose given a journal_language setting.
-     *
-     * - Specific language ('en', 'ru', ...): only that language.
-     * - 'auto' / 'multilingual' / unknown: all loaded languages.
-     *
-     * @return string[]|null Array of language codes to allow, or null = no filter.
-     */
-    private function resolveLanguagesToShow(string $lang): ?array
-    {
-        if ($lang === 'auto' || $lang === 'multilingual') {
-            return null;
-        }
-        if (!isset($this->supportedLanguages[$lang])) {
-            return null;
-        }
-        return [$lang];
-    }
-
-    /**
-     * Filter the variants list of one keyword down to entries whose lowercased
-     * form matches one of the allowed languages.
-     *
-     * Since the parser flattens variants without language tags (by design,
-     * to enable cross-language lookup), we re-derive language by re-reading
-     * the same JSON file would be wasteful. Instead we use a simple heuristic:
-     * Cyrillic-only strings are Russian, Latin-only strings are English, etc.
-     * For languages we don't have a heuristic for, we accept all variants.
-     *
-     * This is good enough for the en/ru baseline; when more languages land,
-     * extend the heuristics or refactor the parser to keep per-language tags.
-     *
-     * @param string[] $variants
-     * @param string[]|null $allowedLanguages null = no filter
-     * @return string[]
-     */
-    private function pickVariantsForLanguages(array $variants, ?array $allowedLanguages): array
-    {
-        if ($allowedLanguages === null) {
-            return $variants;
-        }
-
-        return array_values(array_filter($variants, function (string $v) use ($allowedLanguages) {
-            $detected = $this->guessLanguage($v);
-            // If we can't guess, allow it through — better to show extra
-            // than to hide a keyword the user might need.
-            if ($detected === null) {
-                return true;
-            }
-            return in_array($detected, $allowedLanguages, true);
-        }));
-    }
-
-    /**
-     * Cheap language guess by script. Good enough for the en/ru baseline.
-     */
-    private function guessLanguage(string $text): ?string
-    {
-        if (preg_match('/[\x{0400}-\x{04FF}]/u', $text)) {
-            return 'ru';
-        }
-        if (preg_match('/^[a-zA-Z0-9 \-\']+$/', $text)) {
-            return 'en';
-        }
-        return null;
     }
 
     // -------------------------------------------------------------------------

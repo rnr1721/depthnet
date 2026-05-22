@@ -34,9 +34,9 @@ class RagContextEnricher implements RagContextEnricherInterface
 
     /**
      * Separators tried in order when splitting a multi-query response from the
-     * RAG preset model. First match wins.
+     * RAG preset model. First match wins. Separator cannot be | since that is used in the formatted prompt.
      */
-    private const QUERY_SEPARATORS = ['|', ';', '//', "\n"];
+    private const QUERY_SEPARATORS = [';', '//', "\n"];
 
     public function __construct(
         protected PresetServiceInterface             $presetService,

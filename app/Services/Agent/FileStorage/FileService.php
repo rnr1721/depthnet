@@ -5,6 +5,7 @@ namespace App\Services\Agent\FileStorage;
 use App\Contracts\Agent\FileStorage\FileServiceInterface;
 use App\Contracts\Agent\FileStorage\FileStorageFactoryInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Jobs\File\GenerateChunkEmbedding;
 use App\Models\AiPreset;
 use App\Models\File;
 use App\Models\FileChunk;
@@ -34,6 +35,7 @@ class FileService implements FileServiceInterface
         protected EmbeddingService $embeddingService,
         protected File $fileModel,
         protected FileChunk $fileChunkModel,
+        protected AiPreset $presetModel,
         protected LoggerInterface $logger,
     ) {
     }
@@ -225,12 +227,10 @@ class FileService implements FileServiceInterface
         $processed = $failed = 0;
 
         foreach ($chunks as $chunk) {
-            $vector = $this->embeddingService->embed($chunk->content, $preset);
-
-            if ($vector !== null) {
-                $chunk->update(['embedding' => $vector, 'embedding_dim' => count($vector)]);
+            try {
+                $this->generateChunkEmbedding($chunk->id, $preset->id);
                 $processed++;
-            } else {
+            } catch (\Throwable) {
                 $failed++;
             }
         }
@@ -254,6 +254,53 @@ class FileService implements FileServiceInterface
         return $storage->absolutePath($file);
     }
 
+    /**
+     * Generate and persist an embedding vector for a single file chunk.
+     * Safe to call multiple times — skips if embedding already exists.
+     *
+     * Called from GenerateChunkEmbedding job (async) and backfillEmbeddings (sync).
+     */
+    public function generateChunkEmbedding(int $chunkId, int $presetId): void
+    {
+        $chunk = $this->fileChunkModel->find($chunkId);
+
+        if (!$chunk || !empty($chunk->embedding)) {
+            return; // already processed or deleted
+        }
+
+        $preset = $this->presetModel->find($presetId);
+
+        if (!$preset) {
+            $this->logger->warning('FileService: preset not found for chunk embedding', [
+                'chunk_id'   => $chunkId,
+                'preset_id'  => $presetId,
+            ]);
+            return;
+        }
+
+        if (!$this->embeddingService->isAvailable($preset)) {
+            return; // capability removed after job was queued
+        }
+
+        $vector = $this->embeddingService->embed($chunk->content, $preset);
+
+        if ($vector !== null) {
+            $chunk->update([
+                'embedding'     => $vector,
+                'embedding_dim' => count($vector),
+            ]);
+
+            $this->logger->debug('FileService: chunk embedded', [
+                'chunk_id' => $chunk->id,
+                'dim'      => count($vector),
+            ]);
+        } else {
+            $this->logger->warning('FileService: chunk embedding failed', [
+                'chunk_id' => $chunk->id,
+            ]);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Private
     // -------------------------------------------------------------------------
@@ -275,27 +322,19 @@ class FileService implements FileServiceInterface
             $vector   = $this->tfIdfService->vectorize($text);
             $keywords = $this->extractKeywords($vector);
 
-            $embedding    = null;
-            $embeddingDim = null;
-
-            if ($embeddingAvailable) {
-                $vec = $this->embeddingService->embed($text, $preset);
-                if ($vec !== null) {
-                    $embedding    = $vec;
-                    $embeddingDim = count($vec);
-                }
-                usleep(200000);
-            }
-
-            $this->fileChunkModel->create([
+            $chunk = $this->fileChunkModel->create([
                 'file_id'       => $file->id,
                 'chunk_index'   => $index,
                 'content'       => $text,
                 'tfidf_vector'  => $vector,
-                'embedding'     => $embedding,
-                'embedding_dim' => $embeddingDim,
+                'embedding'     => null,
+                'embedding_dim' => null,
                 'keywords'      => $keywords,
             ]);
+
+            if ($embeddingAvailable) {
+                dispatch(new GenerateChunkEmbedding($chunk->id, $preset->id));
+            }
         }
     }
 

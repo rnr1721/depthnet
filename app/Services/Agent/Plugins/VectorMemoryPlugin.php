@@ -16,6 +16,8 @@ use Psr\Log\LoggerInterface;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasDateKeywordsTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 
 /**
@@ -41,6 +43,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
+    use PluginHasDateKeywordsTrait;
 
     /**
      * Methods that are NOT domain names — they have dedicated handlers.
@@ -48,30 +52,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     private const KNOWN_METHODS = ['search', 'recent', 'show', 'delete', 'clear', 'domains', 'purge'];
 
-    /**
-     * Localised semantic-fragment used inside date-search examples.
-     * Only the SEMANTIC half varies — date keywords themselves come from
-     * the parser's vocabulary via localisedKeyword().
-     */
-    private const EXAMPLE_SEMANTIC = [
-        'en' => 'optimization',
-        'ru' => 'оптимизация',
-        'de' => 'Optimierung',
-        'fr' => 'optimisation',
-        'es' => 'optimización',
-    ];
-
     protected VectorMemoryServiceInterface $vectorMemoryService;
-
-    protected array $languages = [
-        'auto' => 'Auto-detect language',
-        'en' => 'English',
-        'ru' => 'Russian',
-        'de' => 'German',
-        'fr' => 'French',
-        'es' => 'Spanish',
-        'multilingual' => 'Mixed languages'
-    ];
 
     public function __construct(
         protected LoggerInterface $logger,
@@ -113,7 +94,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         $lang = $config['language_mode'] ?? 'auto';
         $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
-        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $langName = $forceLanguage ? ($this->supportedLanguages[$lang] ?? strtoupper($lang)) : null;
         $defaultDomain = $this->resolveDefaultDomain($config);
 
         $allowClear = $config['allow_agent_clear']        ?? false;
@@ -123,7 +104,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
         $yesterday  = $this->localisedKeyword('yesterday', $lang);
         $lastWeek   = $this->localisedKeyword('last_week', $lang);
         $thisMonth  = $this->localisedKeyword('this_month', $lang);
-        $exQuery    = self::EXAMPLE_SEMANTIC[$lang] ?? 'optimization';
+        $exQuery    = $this->exampleSemantic($lang);
 
         $instructions = [
             "Store in default domain '{$defaultDomain}': [vectormemory]Successfully optimized database queries using indexes[/vectormemory]",
@@ -187,7 +168,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
         $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat top-K';
 
         $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
-        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $langName = $forceLanguage ? ($this->supportedLanguages[$lang] ?? strtoupper($lang)) : null;
         $langInstruction = $forceLanguage ? " ALL memories MUST be stored in {$langName}. " : '';
 
         $defaultDomain = $this->resolveDefaultDomain($config);
@@ -326,6 +307,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'value'       => VectorMemory::DEFAULT_DOMAIN,
                 'required'    => false,
             ],
+            'cross_domain_bridges' => [
+                'type'        => 'checkbox',
+                'label'       => 'Cross-Domain Bridges',
+                'description' => 'Allow associative search to follow semantic bridges into other domains. Top results from the target domain act as anchors — if strong semantic connections to other domains exist, those are included as supplementary results.',
+                'value'       => false,
+                'required'    => false,
+            ],
             'allow_agent_clear' => [
                 'type'        => 'checkbox',
                 'label'       => 'Allow agent to clear ALL memories',
@@ -414,7 +402,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'type' => 'select',
                 'label' => 'Language Processing',
                 'description' => 'How to handle different languages',
-                'options' => $this->languages,
+                'options' => $this->supportedLanguages,
                 'value' => 'auto',
                 'required' => false
             ],
@@ -507,6 +495,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'memory_mode'              => VectorMemoryFactoryInterface::MODE_FLAT,
             'memory_engine'            => VectorMemoryFactoryInterface::ENGINE_TFIDF,
             'default_domain'           => VectorMemory::DEFAULT_DOMAIN,
+            'cross_domain_bridges' => false,
             'allow_agent_clear'        => false,
             'allow_agent_purge_domain' => true,
             'max_entries' => 1000,
@@ -617,7 +606,11 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $result = $this->vectorMemoryService->searchVectorMemories($context->preset, $query, $context->config);
+            $result = $this->vectorMemoryService->searchVectorMemories(
+                $context->preset,
+                $query,
+                $context->config
+            );
 
             if (!$result['success']) {
                 return $result['message'];
@@ -662,7 +655,11 @@ class VectorMemoryPlugin implements CommandPluginInterface
                     $output .= "• [ID:{$id}, domain:{$domain}, {$date}] {$content}\n";
                 } else {
                     $similarity = round(($searchResult['similarity'] ?? 0) * 100, 1);
-                    $output .= "• [ID:{$id}, domain:{$domain}, {$similarity}% match, {$date}] {$content}\n";
+                    $source = $searchResult['source'] ?? '';
+                    $bridgeNote = ($source === 'cross_domain_bridge')
+                        ? " (bridge from another domain)"
+                        : '';
+                    $output .= "• [ID:{$id}, domain:{$domain}, {$similarity}% match{$bridgeNote}, {$date}] {$content}\n";
                 }
             }
 
@@ -1138,105 +1135,4 @@ class VectorMemoryPlugin implements CommandPluginInterface
         return ['clear', 'domains'];
     }
 
-    // -------------------------------------------------------------------------
-    // Localisation helpers (mirror JournalPlugin)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Pick a localised variant of a keyword for inline use in an example.
-     * Falls back to English variant, then to the canonical key.
-     */
-    private function localisedKeyword(string $canonicalKey, string $lang): string
-    {
-        $variants = $this->searchDateParser->listKeywords()[$canonicalKey] ?? [];
-        if (empty($variants)) {
-            return $canonicalKey;
-        }
-
-        $filter = $this->resolveLanguagesToShow($lang);
-        $picked = $this->pickVariantsForLanguages($variants, $filter);
-
-        return $picked[0] ?? $variants[0];
-    }
-
-    /**
-     * Build the "Date keywords available" line listing every variant recognised
-     * for the configured language. Returns null when the parser vocabulary
-     * is empty so the caller can omit the label entirely.
-     */
-    private function buildKeywordListLine(string $lang): ?string
-    {
-        $keywords = $this->searchDateParser->listKeywords();
-        if (empty($keywords)) {
-            return null;
-        }
-
-        $filter = $this->resolveLanguagesToShow($lang);
-        $items = [];
-
-        foreach ($keywords as $variants) {
-            $picked = $this->pickVariantsForLanguages($variants, $filter);
-            if (empty($picked)) {
-                continue;
-            }
-            $items[] = implode(' / ', $picked);
-        }
-
-        return empty($items) ? null : implode(', ', $items);
-    }
-
-    /**
-     * Decide which languages to expose given a language_mode setting.
-     *
-     *  - Specific language ('en', 'ru', ...): only that language.
-     *  - 'auto' / 'multilingual' / unknown: all loaded languages.
-     */
-    private function resolveLanguagesToShow(string $lang): ?array
-    {
-        if ($lang === 'auto' || $lang === 'multilingual') {
-            return null;
-        }
-        if (!isset($this->languages[$lang])) {
-            return null;
-        }
-        return [$lang];
-    }
-
-    /**
-     * Filter the variants list by language via a cheap script-based heuristic.
-     * Cyrillic-only → ru, Latin-only → en. Unknown scripts pass through, since
-     * hiding a keyword the user might need is worse than showing an extra one.
-     *
-     * @param string[] $variants
-     * @param string[]|null $allowedLanguages null = no filter
-     * @return string[]
-     */
-    private function pickVariantsForLanguages(array $variants, ?array $allowedLanguages): array
-    {
-        if ($allowedLanguages === null) {
-            return $variants;
-        }
-
-        return array_values(array_filter($variants, function (string $v) use ($allowedLanguages) {
-            $detected = $this->guessLanguage($v);
-            if ($detected === null) {
-                return true;
-            }
-            return in_array($detected, $allowedLanguages, true);
-        }));
-    }
-
-    /**
-     * Cheap language guess by script. Good enough for the en/ru baseline.
-     */
-    private function guessLanguage(string $text): ?string
-    {
-        if (preg_match('/[\x{0400}-\x{04FF}]/u', $text)) {
-            return 'ru';
-        }
-        if (preg_match('/^[a-zA-Z0-9 \-\']+$/', $text)) {
-            return 'en';
-        }
-        return null;
-    }
 }

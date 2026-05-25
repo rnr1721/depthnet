@@ -50,6 +50,18 @@ Enable the **Journal** plugin in your preset settings.
 | `[journal search]yesterday \| errors[/journal]` | Semantic search filtered to yesterday |
 | `[journal search]2024-03-15 \| database[/journal]` | Filtered to a specific date |
 | `[journal search]2024-03-10:2024-03-15 \| database[/journal]` | Filtered to a date range |
+| `[journal search]2024-03 \| feature X[/journal]` | Filtered to a specific calendar month |
+| `[journal search]2024 \| reflections[/journal]` | Filtered to a specific calendar year |
+| `[journal search]last week \| architecture[/journal]` | Previous calendar week |
+| `[journal search]last month[/journal]` | All entries from the previous calendar month |
+| `[journal search]вчера \| ошибки[/journal]` | Localised keywords work too — same vocabulary the agent sees in its instructions |
+
+Accepted date expressions:
+
+- **ISO formats**: `YYYY-MM-DD`, `YYYY-MM-DD:YYYY-MM-DD`, `YYYY-MM`, `YYYY`
+- **Keywords**: `today`, `yesterday`, `this week`, `last week`, `this month`, `last month`, `this year`, `last year` — and their localised variants (Russian: `сегодня`, `вчера`, `прошлая неделя`, etc.)
+
+The full keyword vocabulary lives in `data/search/keywords.json` and is shared with Vector Memory — adding a new language to one search system gives it to both. No PHP changes required to extend.
 
 **Managing:**
 
@@ -75,7 +87,7 @@ Combined with [Vector Memory](vector-memory.md), the journal enables a full memo
 | | Journal | Vector Memory | Memory (notepad) |
 |---|---|---|---|
 | **What it stores** | Events and experiences | Knowledge and facts | Always-visible anchors |
-| **Structure** | Typed, timestamped entries | Flat semantic entries | Flat numbered list |
-| **Search** | Semantic + date filter | Semantic similarity | Keyword only |
-| **Chronological** | ✓ | ✗ | ✗ |
+| **Structure** | Typed, timestamped entries | Flat semantic entries, organised into domains | Flat numbered list |
+| **Search** | Semantic + temporal filter | Semantic + domain + temporal filters | Keyword only |
+| **Chronological** | ✓ | ✓ (via temporal filter) | ✗ |
 | **Always in context** | ✗ (retrieved on demand) | ✗ (retrieved on demand) | ✓ |

@@ -87,7 +87,7 @@ DepthNet enables autonomous AI agents through:
 - **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, image, audio and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
-- **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single `[[rag_context]]` block. Sources per config: vector memory (flat or associative), journal, skills, persons, ontology. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
+- **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single `[[rag_context]]` block. Sources per config: vector memory (flat or associative), journal, skills, persons, ontology. Queries formulated by the RAG model can carry `time:` and `domain:` prefixes — temporal scoping and domain selection become part of the query formulation, not a separate config axis. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
 - **Inner Voice**: Multi-voice pipeline — attach one or more voice presets to any agent, each running independently and contributing a labeled block to [[inner_voice]]. Works in both single and loop modes. A separate cycle prompt preset can be configured for loop mode as an anti-loop mechanism — its output goes into the input pool rather than the system prompt.[→](docs/memory/inner-voice.md)
@@ -140,9 +140,9 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Shell** | Run shell commands directly on the host as the PHP process user. Use only for trusted operational tasks — prefer Sandbox for code execution. | [→](docs/plugins/shell.md) |
 | **Memory** (`memory`) | Persistent flat notepad injected into every cycle via `[[notepad_content]]`. Best for identity anchors, rules, and always-visible facts. Supports export/import. | [→](docs/plugins/memory.md) |
 | **Workspace** (`workspace`) | Persistent key-value scratchpad for structured working state — plans, drafts, intermediate results. Accessible via `[[workspace]]`. | [→](docs/plugins/workspace.md) |
-| **Vector Memory** (`vectormemory`) | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Supports defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
+| **Vector Memory** (`vectormemory`) | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Organised into agent-managed domains. Supports temporal filtering, cross-domain bridges, defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
 | **Document Manager** (`documents`) | File storage and semantic search for agents. Upload PDFs, spreadsheets, code and text — files are chunked and indexed automatically. Two storage modes: Laravel storage (read-only reference) or sandbox (full agent access). Integrates with RAG pipeline as a `files` source. | [→](docs/plugins/documents.md) |
-| **Journal** (`journal`) | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and date-filtered search. | [→](docs/plugins/journal.md) |
+| **Journal** (`journal`) | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and temporal search — ISO dates, calendar months/years, ranges, and multilingual relative keywords (`yesterday` / `вчера` / `last week`). | [→](docs/plugins/journal.md) |
 | **Skill** (`skill`) | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
 | **Person** (`person`) | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
 | **Goal** (`goal`) | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
@@ -155,7 +155,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Ontology** (`ontology`) | World-model graph — temporal property graph of entities and relationships. Stores durable facts about people, places, concepts and how they connect over time. Integrates with RAG pipeline as an `ontology` source. | [→](docs/plugins/ontology.md) [→](docs/memory/ontology.md) |
 | **Being** (`being`) | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
 | **Rhythm** (`rhythm`) | Temporal context snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset/sunrise. Injected via `[[rhythm]]`. Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
-| **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
+| **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Queries support the same `time:` and `domain:` filters as vector memory search, allowing the agent to retrieve memories from a specific window or domain on demand. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
 | **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, request additional steps. | [→](docs/plugins/agent.md) |
 | **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
 | **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
@@ -211,8 +211,14 @@ The AI communicates through special command tags that trigger plugin execution. 
 
 # Semantic memory with intelligent search  
 [vectormemory]Successfully optimized database queries using proper indexing techniques[/vectormemory]
+[vectormemory work]Eugeny prefers concise responses[/vectormemory]  # Store in a specific domain
 [vectormemory search]database performance optimization[/vectormemory] # Finds related memories by meaning
+[vectormemory search]domain:work | optimization[/vectormemory]  # Search within a specific domain
+[vectormemory search]time:yesterday | optimization[/vectormemory]  # Search within a time window
+[vectormemory search]time:last week | domain:work | architecture[/vectormemory]  # Time + domain combined
+[vectormemory search]time:2026-03[/vectormemory]  # Chronological listing for the window
 [vectormemory recent]5[/vectormemory]  # Show 5 most recent memories
+[vectormemory domains][/vectormemory]  # List all domains with record counts
 [vectormemory clear][/vectormemory]
 
 # Memory integration: When enabled, vector memories automatically add reference links 
@@ -239,6 +245,9 @@ The AI communicates through special command tags that trigger plugin execution. 
 [journal recent]10[/journal]
 [journal search]memory optimization[/journal]
 [journal search]yesterday | errors[/journal]
+[journal search]2024-03 | feature X[/journal]              # Month-level search
+[journal search]last week | architecture[/journal]         # Previous calendar week
+[journal search]2024-03-10:2024-03-15 | database[/journal] # Date range
 
 # Self-authorship
 [being]The will that chooses presence over habit[/being]
@@ -274,8 +283,10 @@ The AI communicates through special command tags that trigger plugin execution. 
 # Temporal context
 [rhythm show][/rhythm]
 
-# RAG query control
+# RAG query control — queries support time: and domain: prefixes
 [rag query]Technical breakthroughs in AI self-regulation[/rag]
+[rag query]time:last week | architecture decisions[/rag]
+[rag query]domain:work | optimization patterns[/rag]
 [rag show][/rag]
 [rag clear][/rag]
 

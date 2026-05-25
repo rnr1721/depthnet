@@ -24,8 +24,47 @@ When the agent searches, it can:
 - Search across **all** domains (the default — useful when it doesn't know where a memory lives).
 - Filter to **specific** domains (e.g. "search only within `work`").
 - Search across **several** named domains at once.
+- Combine the domain filter with a [time filter](#temporal-search) in any order.
 
 In the admin UI, the live list of domains with record counts is shown in the action bar, and you can filter the view to a single domain at any time.
+
+## Temporal search
+
+Vector memory entries are timestamped, and search can be bounded to a time window. The window can be a single date, a range, an ISO month or year, or a relative keyword like `yesterday` or `last week`. Time expressions are recognised in multiple languages — the same keyword vocabulary used by Journal.
+
+The filter is added via a `time:` prefix at the start of the query, separated from the semantic part by `|`:
+
+| Query | Meaning |
+|---|---|
+| `[vectormemory search]time:yesterday \| optimization[/vectormemory]` | Optimization-related memories from yesterday |
+| `[vectormemory search]time:last week \| architecture[/vectormemory]` | Architecture-related memories from the previous calendar week |
+| `[vectormemory search]time:2026-03 \| database[/vectormemory]` | Anything about databases stored in March 2026 |
+| `[vectormemory search]time:2025[/vectormemory]` | All memories stored throughout 2025 (chronological listing) |
+| `[vectormemory search]time:2026-03-10:2026-03-15 \| feature X[/vectormemory]` | Feature X discussions in that specific window |
+
+Accepted date expressions:
+
+- **ISO formats**: `YYYY-MM-DD`, `YYYY-MM-DD:YYYY-MM-DD`, `YYYY-MM`, `YYYY`
+- **Keywords**: `today`, `yesterday`, `this week`, `last week`, `this month`, `last month`, `this year`, `last year` — and their localised variants (Russian: `сегодня`, `вчера`, `прошлая неделя`, etc.)
+
+The full keyword vocabulary lives in `data/search/keywords.json` and is easy to extend with additional languages — no PHP changes required.
+
+**Temporal-only listing.** When the query is empty but a time filter is set, the search returns memories in chronological order (newest first), without semantic ranking. Useful for "what did I think about this week" style questions:
+
+```
+[vectormemory search]time:this week[/vectormemory]
+```
+
+**Composing filters.** `time:` and `domain:` can both be present in any order:
+
+```
+[vectormemory search]time:last week | domain:work | optimization[/vectormemory]
+[vectormemory search]domain:work | time:last week | optimization[/vectormemory]
+```
+
+Both forms produce the same result.
+
+**Behaviour in associative mode.** When a time filter is set, the associative chain operates entirely within the time window — the starting set is pre-filtered, and subsequent hops stay inside it. This gives "associations within a period" semantics, parallel to how the domain filter scopes the chain.
 
 ## Setup
 
@@ -42,6 +81,7 @@ Enable the **Vector Memory** plugin in your preset settings and configure:
 | **Similarity threshold** | Minimum similarity score (0.0–1.0) for a result to be returned. Lower values return more results; higher values return only close matches. Default: `0.1`. |
 | **Search results limit** | Maximum number of results returned per search query (1–20). Default: `5`. |
 | **Boost recent memories** | Give higher relevance to more recently stored memories. |
+| **Cross-domain bridges** (associative + embedding only) | When enabled, after the in-domain associative result is built, the top anchors are also compared against memories from *other* domains. Strong semantic links bring back up to two extra results marked as bridges — useful when knowledge in `work` connects to something stored in `architecture`, but you didn't ask there. Off by default. |
 | **Language mode** | Auto-detect, or force a specific language for all entries. If forced, the agent receives an instruction to write memories in that language. |
 | **Integrate with Memory Plugin** | When enabled, a reference link is also added to the regular notepad (Memory plugin) each time something is stored in vector memory — so the agent can notice it exists even without searching. |
 
@@ -57,7 +97,7 @@ Designed for agents that build deep interconnected knowledge over time. The sear
 
 Memories in associative mode also accumulate access statistics. Frequently retrieved memories gain a small importance boost over time (similar to long-term potentiation), while memories that haven't been accessed in a long time gradually become lower priority. When the memory limit is reached, the *weakest* memories are removed first — not necessarily the oldest ones.
 
-When the agent applies a domain filter, the associative chain stays inside the requested domains for the entire walk — giving "associations within a context" semantics.
+When the agent applies a domain filter, the associative chain stays inside the requested domains for the entire walk — giving "associations within a context" semantics. With **Cross-domain bridges** enabled (associative + embedding), the top in-domain results also become anchors for a sideways look: strong semantic links into other domains can surface up to two extra results marked as bridges, without taking slots away from the main answer.
 
 ## Commands
 
@@ -77,6 +117,9 @@ Any method name that is not one of the known commands below (`search`, `recent`,
 | `[vectormemory search]query[/vectormemory]` | Search across all domains |
 | `[vectormemory search]domain:work | query[/vectormemory]` | Search only within the `work` domain |
 | `[vectormemory search]domain:work,relationships | query[/vectormemory]` | Search across multiple specific domains |
+| `[vectormemory search]time:yesterday | query[/vectormemory]` | Search within a time window (see [Temporal search](#temporal-search)) |
+| `[vectormemory search]time:last week | domain:work | query[/vectormemory]` | Time + domain filter combined |
+| `[vectormemory search]time:2026-03[/vectormemory]` | Chronological listing for the window, no semantic query |
 | `[vectormemory recent]5[/vectormemory]` | Show the N most recent memories |
 | `[vectormemory show]42[/vectormemory]` | Show full content of memory by ID |
 | `[vectormemory domains][/vectormemory]` | List all domains with their record counts |
@@ -118,6 +161,8 @@ If **Integrate with Memory Plugin** is enabled, every new vector memory also lea
 As an agent runs over days and weeks, vector memory accumulates many fine-grained entries. Defragmentation compresses them: entries from the same calendar day are grouped and sent to the model, which distils them into a smaller set of consolidated memories. The originals are replaced by the distilled versions, preserving the original date.
 
 This keeps the memory base compact and reduces noise from redundant or overly granular entries without losing the substance of what was stored.
+
+**Scope.** Defragmentation operates only on the **default domain** (`global` by default). Other domains are agent-managed namespaces — cold accumulators that the agent curates explicitly — and are never touched. The default domain is the hot, distillable layer where unstructured kristallisations land and need periodic compression.
 
 **Enable defragmentation** per preset in its settings (`defrag_enabled`). You can also set how many entries to keep per day after compression (`defrag_keep_per_day`) and provide a custom prompt for the distillation step if you want to control how the model summarises.
 

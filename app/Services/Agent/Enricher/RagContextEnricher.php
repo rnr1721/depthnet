@@ -171,15 +171,25 @@ class RagContextEnricher implements RagContextEnricherInterface
             );
 
         } catch (\Throwable $e) {
+            // Any failure during enrichment is surfaced to the user as a
+            // system message from the RAG preset itself. This makes operational
+            // issues (provider rate limits, network problems, misconfigured
+            // sources) immediately visible without digging through logs.
             if ($ragPreset) {
-                $this->createMessage($e->getMessage(), $ragPreset->getId(), 'system');
+                $errorMessage = sprintf(
+                    "[RAG ERROR — %s]\n%s",
+                    $ragPreset->getName(),
+                    $e->getMessage(),
+                );
+                $this->createMessage($errorMessage, $ragPreset->getId(), 'system');
             }
             $this->logger->error('RagContextEnricher::enrichWithConfig error: ' . $e->getMessage(), [
                 'main_preset_id' => $preset->getId(),
+                'rag_preset_id'  => $ragPreset?->getId(),
                 'config_id'      => $config->id ?? null,
                 'trace'          => $e->getTraceAsString(),
             ]);
-            return $this->emptyResponse($preset);
+            return $this->emptyResponse($preset, $ragPreset);
         }
     }
 
@@ -783,19 +793,30 @@ class RagContextEnricher implements RagContextEnricherInterface
             $response = $engine->generate($dto);
 
             if ($response->isError()) {
-                $this->logger->warning('RAG: query formulation failed', [
-                    'rag_preset' => $ragPreset->getName(),
-                    'error'      => $response->getResponse(),
-                ]);
-                return null;
+                // LLM call failed (rate limit, network, auth, etc.) — surface this
+                // to the user via system message rather than silently swallowing.
+                // The outer catch in enrichWithConfig() will write it.
+                throw new \RuntimeException(
+                    'Query formulation failed: ' . $response->getResponse()
+                );
             }
 
             $raw     = trim(strip_tags($response->getResponse()));
             $queries = $this->sanitizeQueries($this->splitQueryResponse($raw));
 
+            // Empty queries after sanitization is treated as a soft miss
+            // (model returned nothing useful), not as an error — return null
+            // so the caller skips this config quietly.
             return !empty($queries) ? $queries : null;
 
+        } catch (\RuntimeException $e) {
+            // Genuine errors (LLM failure) propagate up so they can become
+            // visible system messages. Don't swallow them here.
+            throw $e;
         } catch (\Throwable $e) {
+            // Unexpected internal errors are logged but not surfaced as user
+            // messages (they're our bugs, not provider issues). Treat as
+            // soft miss so the pipeline continues.
             $this->logger->error('RagContextEnricher::formulateQueries error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);

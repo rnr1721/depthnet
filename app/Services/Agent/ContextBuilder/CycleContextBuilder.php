@@ -4,6 +4,9 @@ namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
+use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
+use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
@@ -15,24 +18,26 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 /**
  * Cycle context builder - adds cycle instructions for continuous thinking.
  *
- * RAG pipeline:
+ * RAG pipeline (unified):
  *   Iterates over all PresetRagConfigs ordered by sort_order.
  *   Each config runs enrichWithConfig() on the shared RagContextEnricher,
- *   passing $seenIds by reference so results are deduplicated across configs.
- *   All responses are concatenated and registered as [[rag_context]].
+ *   which now returns a structured RagDataInterface payload alongside its
+ *   text response.
+ *   All payloads are merged by RagAggregator (cross-config dedup + ranking),
+ *   then rendered as a single block by RagContentFormatter, registered as
+ *   [[rag_context]].
+ *
+ *   Each individual config still emits its own system message (the text
+ *   response on the EnricherResponse) — so per-config visibility is preserved.
  *
  * Inner voice pipeline:
- *   Iterates over all enabled PresetInnerVoiceConfigs ordered by sort_order.
- *   Each config runs enrich() on InnerVoiceEnricher independently.
- *   All non-null responses are concatenated and registered as [[inner_voice]].
+ *   Unchanged — iterates over enabled PresetInnerVoiceConfigs ordered by
+ *   sort_order. All non-null responses are concatenated and registered as
+ *   [[inner_voice]].
  *
  * Cycle prompt (anti-loop):
  *   A single CyclePromptEnricher call using cycle_prompt_preset_id.
  *   Its output goes into the input pool — not into [[inner_voice]].
- *   This is the anti-loop mechanism, separate from inner voices.
- *
- *   Persons enrichment is now a source option inside each RAG config
- *   ('persons' in sources[]) rather than a separate step.
  */
 class CycleContextBuilder implements ContextBuilderInterface
 {
@@ -45,6 +50,8 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected InputPoolServiceInterface        $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
         protected AuthServiceInterface             $authService,
+        protected RagAggregatorServiceInterface    $ragAggregator,
+        protected RagContentFormatterInterface     $ragFormatter,
     ) {
     }
 
@@ -79,22 +86,27 @@ class CycleContextBuilder implements ContextBuilderInterface
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
         $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
 
-        $seenIds  = [];
-        $ragParts = [];
+        $seenIds      = [];
+        $ragPayloads  = [];
 
         foreach ($ragConfigs as $config) {
             $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds);
 
-            if ($ragBlock->getResponse() !== null) {
-                $ragParts[] = $ragBlock->getResponse();
+            $payload = $ragBlock->getResponseData();
+            if ($payload instanceof RagDataInterface && !$payload->isEmpty()) {
+                $ragPayloads[] = $payload;
             }
         }
+
+        // Aggregate all payloads into a unified result, then format as one block
+        $aggregated = $this->ragAggregator->merge($ragPayloads);
+        $ragText    = $this->ragFormatter->formatAggregated($aggregated);
 
         $this->shortcodeManager->registerShortcodeForPreset(
             $sourcePreset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this thinking cycle',
-            fn () => implode("\n\n", $ragParts)
+            fn () => $ragText
         );
 
         // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────

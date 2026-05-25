@@ -30,6 +30,9 @@ use App\Contracts\Agent\Enricher\CyclePromptEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
+use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSectionRendererRegistryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Heart\HeartServiceInterface;
@@ -114,6 +117,20 @@ use App\Services\Agent\Enricher\CyclePromptEnricher;
 use App\Services\Agent\Enricher\EnricherFactory;
 use App\Services\Agent\Enricher\InnerVoiceEnricher;
 use App\Services\Agent\Enricher\PersonContextEnricher;
+use App\Services\Agent\Enricher\Rag\RagAggregatorService;
+use App\Services\Agent\Enricher\Rag\RagContentFormatter;
+use App\Services\Agent\Enricher\Rag\RagSectionRendererRegistry;
+use App\Services\Agent\Enricher\Rag\Renderers\FilesSectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\JournalSectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryAdditionalRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryAssociativeRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryKeywordFallbackRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryKeywordRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemorySemanticAssociativeRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemorySemanticRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\OntologySectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\PersonsSectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\SkillsSectionRenderer;
 use App\Services\Agent\Enricher\Services\PresetInnerVoiceConfigService;
 use App\Services\Agent\Enricher\Services\PresetRagConfigService;
 use App\Services\Agent\EnvironmentInfoService;
@@ -217,7 +234,7 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(CommandResultPoolInterface::class, CommandResultPoolService::class);
 
-        $this->app->singleton(SearchDateParserInterface::class,SearchDateParser::class);
+        $this->app->singleton(SearchDateParserInterface::class, SearchDateParser::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
         $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
@@ -231,6 +248,33 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
         $this->app->bind(CyclePromptEnricherInterface::class, CyclePromptEnricher::class);
         $this->app->bind(PresetInnerVoiceConfigServiceInterface::class, PresetInnerVoiceConfigService::class);
+
+        $this->app->singleton(RagSectionRendererRegistryInterface::class, function ($app) {
+            return new RagSectionRendererRegistry([
+                new MemorySemanticAssociativeRenderer(),
+                new MemorySemanticRenderer(),
+                new MemoryAssociativeRenderer(),
+                new MemoryKeywordRenderer(),
+                new MemoryKeywordFallbackRenderer(),
+                new MemoryAdditionalRenderer(),
+                new SkillsSectionRenderer(),
+                new JournalSectionRenderer(),
+                new OntologySectionRenderer(),
+                new FilesSectionRenderer(),
+                new PersonsSectionRenderer(),
+            ]);
+        });
+
+        $this->app->singleton(
+            RagContentFormatterInterface::class,
+            RagContentFormatter::class,
+        );
+
+        $this->app->singleton(
+            RagAggregatorServiceInterface::class,
+            RagAggregatorService::class,
+        );
+
 
         $this->app->bind(PresetRagConfigServiceInterface::class, PresetRagConfigService::class);
         $this->app->bind(PersonContextEnricherInterface::class, PersonContextEnricher::class);

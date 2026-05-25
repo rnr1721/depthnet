@@ -4,6 +4,9 @@ namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
+use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
+use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
@@ -14,20 +17,17 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 /**
  * Single context builder - simple message processing without cycles.
  *
- * RAG pipeline:
+ * RAG pipeline (unified):
  *   Iterates over all PresetRagConfigs ordered by sort_order.
- *   Each config runs enrichWithConfig() on the shared RagContextEnricher,
- *   passing $seenIds by reference so results are deduplicated across configs.
- *   All responses are concatenated and registered as [[rag_context]].
+ *   Each config produces a RagDataInterface payload via enrichWithConfig().
+ *   All payloads are merged by RagAggregator and rendered as one
+ *   [[rag_context]] block by RagContentFormatter.
+ *
+ *   Individual per-config system messages are still emitted by the
+ *   enricher (visible in UI for debugging/observability).
  *
  * Inner voice pipeline:
- *   Iterates over all enabled PresetInnerVoiceConfigs ordered by sort_order.
- *   Each config runs enrich() on InnerVoiceEnricher independently.
- *   All non-null responses are concatenated and registered as [[inner_voice]].
- *   Each block is labeled with config->label or voicePreset->getName().
- *
- *   Persons enrichment is now a source option inside each RAG config
- *   ('persons' in sources[]) rather than a separate step.
+ *   Unchanged.
  */
 class SingleContextBuilder implements ContextBuilderInterface
 {
@@ -39,6 +39,8 @@ class SingleContextBuilder implements ContextBuilderInterface
         protected EnricherFactoryInterface         $enricherFactory,
         protected InputPoolServiceInterface        $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
+        protected RagAggregatorServiceInterface    $ragAggregator,
+        protected RagContentFormatterInterface     $ragFormatter,
     ) {
     }
 
@@ -73,28 +75,32 @@ class SingleContextBuilder implements ContextBuilderInterface
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
         $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
 
-        $seenIds  = [];
-        $ragParts = [];
+        $seenIds     = [];
+        $ragPayloads = [];
 
         foreach ($ragConfigs as $config) {
             $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds);
 
-            if ($ragBlock->getResponse() !== null) {
-                $ragParts[] = $ragBlock->getResponse();
+            $payload = $ragBlock->getResponseData();
+            if ($payload instanceof RagDataInterface && !$payload->isEmpty()) {
+                $ragPayloads[] = $payload;
             }
         }
+
+        $aggregated = $this->ragAggregator->merge($ragPayloads);
+        $ragText    = $this->ragFormatter->formatAggregated($aggregated);
 
         $this->shortcodeManager->registerShortcodeForPreset(
             $sourcePreset->getId(),
             'rag_context',
             'RAG: relevant memories retrieved before this request',
-            fn () => implode("\n\n", $ragParts)
+            fn () => $ragText
         );
 
         // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
-        $voiceEnricher  = $this->enricherFactory->makeInnerVoiceEnricher();
-        $voiceConfigs   = $this->enricherFactory->getOrderedVoiceConfigs($sourcePreset);
-        $voiceParts     = [];
+        $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();
+        $voiceConfigs  = $this->enricherFactory->getOrderedVoiceConfigs($sourcePreset);
+        $voiceParts    = [];
 
         foreach ($voiceConfigs as $voiceConfig) {
             $block = $voiceEnricher->enrich($sourcePreset, $context, $voiceConfig);

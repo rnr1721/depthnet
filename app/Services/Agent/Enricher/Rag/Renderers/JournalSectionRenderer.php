@@ -1,0 +1,89 @@
+<?php
+
+namespace App\Services\Agent\Enricher\Rag\Renderers;
+
+use App\Contracts\Agent\Enricher\Rag\RagItemInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSectionInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSectionType;
+
+/**
+ * Renders journal entries with anchor/neighbour distinction.
+ *
+ * Journal items must already include both anchors and any neighbour
+ * entries (fetched by RagContextEnricher) sorted by recorded_at.
+ * The renderer doesn't query — it just formats.
+ *
+ * Journal item metadata:
+ *   - 'entry'     : JournalEntry model (must expose id, recorded_at, type,
+ *                                       summary, outcome, optional details)
+ *   - 'is_anchor' : bool  — distinguishes ★ anchors from [ctx] neighbours
+ *
+ * Output mixes anchors (with ★, type, outcome) and ctx-rows in chronological order.
+ */
+final class JournalSectionRenderer extends AbstractSectionRenderer
+{
+    public function supports(): string
+    {
+        return RagSectionType::Journal->value;
+    }
+
+    public function defaultLabel(): string
+    {
+        return '[RELEVANT JOURNAL ENTRIES]';
+    }
+
+    public function render(RagSectionInterface $section): array
+    {
+        $options          = $section->getRenderOptions();
+        $maxContentLimit  = (int) $this->option($options, 'max_content_limit', self::DEFAULT_CONTENT_LIMIT);
+        $showRelativeDate = (bool) $this->option($options, 'show_relative_date', false);
+
+        // Items are expected to be pre-sorted chronologically by the enricher,
+        // but we sort defensively in case aggregation reorders them.
+        $items = $section->getItems();
+        usort($items, fn (RagItemInterface $a, RagItemInterface $b) =>
+            ($a->getMetadata()['entry']->recorded_at ?? null)
+            <=>
+            ($b->getMetadata()['entry']->recorded_at ?? null)
+        );
+
+        $lines = [];
+
+        foreach ($items as $item) {
+            $meta     = $item->getMetadata();
+            $entry    = $meta['entry'] ?? null;
+            $isAnchor = (bool) ($meta['is_anchor'] ?? false);
+
+            if ($entry === null) {
+                continue;
+            }
+
+            $date = $entry->recorded_at->format('Y-m-d H:i');
+            if ($showRelativeDate) {
+                $date .= ' (' . $this->formatRelativeDate($entry->recorded_at) . ')';
+            }
+
+            if ($isAnchor) {
+                $outcome = !empty($entry->outcome) ? " [{$entry->outcome}]" : '';
+                $lines[] = sprintf(
+                    '★ #{%d} [%s] [%s]%s %s',
+                    $entry->id,
+                    $date,
+                    $entry->type,
+                    $outcome,
+                    mb_substr($entry->summary, 0, $maxContentLimit),
+                );
+            } else {
+                $lines[] = sprintf(
+                    '  [ctx] #{%d} [%s] [%s] %s',
+                    $entry->id,
+                    $date,
+                    $entry->type,
+                    mb_substr($entry->summary, 0, $maxContentLimit),
+                );
+            }
+        }
+
+        return $lines;
+    }
+}

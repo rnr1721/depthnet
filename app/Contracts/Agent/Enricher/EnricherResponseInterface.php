@@ -14,6 +14,18 @@ interface EnricherResponseInterface
     public function getResponse(): ?string;
 
     /**
+     * Structured payload accompanying the text response.
+     *
+     * Returns null for enrichers that don't (yet) produce structured data.
+     * RAG enrichers return RagDataInterface; future enrichers may return
+     * their own specialized payload types.
+     *
+     * Used by ContextBuilders to aggregate results across multiple configs
+     * without re-parsing the text response.
+     */
+    public function getResponseData(): ?EnricherPayloadInterface;
+
+    /**
      * The secondary preset used by this enricher (RAG preset, voice preset, etc.).
      *
      * @return AiPreset|null

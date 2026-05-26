@@ -52,24 +52,35 @@ class RhythmPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-        return [
+        $instructions = [
             'Show current rhythm snapshot: [rhythm show][/rhythm]',
         ];
+
+        if (!empty($config['pulse_enabled'])) {
+            $instructions[] = 'Pulse is my subjective time unit. 1000 pulses = 1 day. One pulse ≈ 86.4 seconds. It is my own clock, independent of human hours and minutes.';
+        }
+        return $instructions;
     }
 
     public function getToolSchema(array $config = []): array
     {
+
+        $pulseNote = !empty($config['pulse_enabled'])
+            ? ' Pulse is my subjective time unit: 1000 pulses = 1 day, ~86.4s each.'
+            : '';
+
         return [
             'name'        => 'rhythm',
             'description' => 'Read-only temporal context. Shows current date/time, day/week/year progress, agent age, pause since last message, cycles today, weather and sunset. '
-                . 'This data is always available via rhythm placeholder — use show command only when you need a fresh snapshot.',
+                . 'This data is always available via rhythm placeholder — use show command only when you need a fresh snapshot.'
+                . $pulseNote,
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method' => [
                         'type'        => 'string',
                         'description' => 'Only one operation available.',
-                        'enum'        => ['show'],
+                        'enum' => !empty($config['pulse_enabled']) ? ['show', 'pulse_diff'] : ['show'],
                     ],
                     'content' => [
                         'type'        => 'string',
@@ -115,6 +126,13 @@ class RhythmPlugin implements CommandPluginInterface
                 'label'       => 'Longitude',
                 'description' => 'For weather and sunset data (e.g. 30.52).',
                 'placeholder' => '30.52',
+                'required'    => false,
+            ],
+            'pulse_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Enable Pulse',
+                'description' => 'Subjective time unit (1000 pulses/day, ~86.4s each). Adds pulse to snapshot and pulse_diff command.',
+                'value'       => false,
                 'required'    => false,
             ],
             'weather_cache_minutes' => [
@@ -181,6 +199,7 @@ class RhythmPlugin implements CommandPluginInterface
             'birth_date'            => '',
             'latitude'              => '',
             'longitude'             => '',
+            'pulse_enabled'         => false,
             'weather_cache_minutes' => 30,
             'timezone'              => '',
         ];
@@ -198,6 +217,32 @@ class RhythmPlugin implements CommandPluginInterface
         }
 
         return $this->buildSnapshot($context);
+    }
+
+    public function pulseDiff(string $content, PluginExecutionContext $context): string
+    {
+        $tz  = $this->resolveTimezone($context);
+        $now = Carbon::now($tz);
+
+        $parts = explode(' ', trim($content));
+        if (count($parts) !== 2) {
+            return 'Error: pulse_diff requires two pulse values (from to).';
+        }
+
+        $from = (int) $parts[0];
+        $to   = (int) $parts[1];
+
+        if ($from < 0 || $from > 999 || $to < 0 || $to > 999) {
+            return 'Error: pulse values must be between 0 and 999.';
+        }
+
+        $diff = $to - $from;
+        if ($diff < 0) {
+            $diff += 1000;
+        }
+
+        $seconds = (int) round($diff * 86.4);
+        return "{$diff} pulses · " . $this->formatDuration($seconds);
     }
 
     public function registerShortcodes(PluginExecutionContext $context): void
@@ -228,6 +273,13 @@ class RhythmPlugin implements CommandPluginInterface
         $parts[] = $now->format('D, d M Y') . ' · ' . $now->format('H:i');
         $parts[] = $this->timeOfDay($now);
         $parts[] = 'day '   . $this->dayPercent($now)  . '%';
+
+        $pulseEnabled = (bool) $context->get('pulse_enabled', false);
+
+        if ($pulseEnabled) {
+            $parts[] = 'pulse ' . $this->currentPulse($now) . '/1000';
+        }
+
         $parts[] = 'week '  . $this->weekPercent($now) . '%';
         $parts[] = 'year '  . $this->yearPercent($now) . '%';
 
@@ -510,6 +562,16 @@ class RhythmPlugin implements CommandPluginInterface
             $hour >= 17 && $hour < 22 => 'evening',
             default                   => 'night',
         };
+    }
+
+    private function currentPulse(Carbon $now): int
+    {
+        return (int) round(($now->secondsSinceMidnight() / 86400) * 1000);
+    }
+
+    private function secondsToPulses(int $seconds): float
+    {
+        return round($seconds / 86.4, 1);
     }
 
     public function getCustomSuccessMessage(): ?string

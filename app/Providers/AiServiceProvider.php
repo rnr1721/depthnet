@@ -65,6 +65,7 @@ use App\Contracts\Agent\PresetPluginDataServiceInterface;
 use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetRagConfigServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
@@ -201,6 +202,7 @@ use App\Services\Agent\Providers\DeepSeekModel;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
+use App\Services\Agent\PulseService;
 use App\Services\Agent\Search\SearchDateParser;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
@@ -228,6 +230,8 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+
+        $this->app->singleton(PulseServiceInterface::class, PulseService::class);
 
         $this->app->bind(McpClientInterface::class, McpClient::class);
         $this->app->bind(McpServerRepositoryInterface::class, McpServerRepository::class);

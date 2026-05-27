@@ -19,6 +19,7 @@ class CreatePresetRequest extends FormRequest
             'name' => ['required', 'string', 'max:255', 'unique:ai_presets,name'],
             'input_mode' => ['required', 'in:single,pool'],
             'pool_relative_dates' => 'boolean',
+            'pulse_dates' => 'boolean',
             'preset_code' => ['nullable', 'string', 'max:50', 'unique:ai_presets,preset_code'],
             'description' => ['nullable', 'string', 'max:1000'],
             'engine_name' => ['required', 'string', 'max:100'],

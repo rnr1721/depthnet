@@ -21,6 +21,7 @@ class PresetResource extends JsonResource
             'engine_name' => $this->engine_name,
             'input_mode' => $this->input_mode,
             'pool_relative_dates' => $this->pool_relative_dates,
+            'pulse_dates' => $this->pulse_dates,
             'preset_code' => $this->preset_code,
             'plugins_disabled' => $this->plugins_disabled,
             'engine_config' => $this->engine_config,

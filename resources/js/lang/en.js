@@ -518,6 +518,8 @@ export default {
   p_modal_spawn_info: "Spawn info",
   p_modal_spawn_parent: "Parent preset",
   p_modal_spawn_lifecycle_hint: "This preset is managed by its parent agent. You can edit engine settings and system prompt, but it may be reset or deleted by the agent at any time.",
+  p_modal_pool_relative_dates: "Relative dates for known sources (1d aho etc)",
+  p_modal_pulse_dates: "Pulse dates (subjective agent time)",
   p_prompts_add: 'Add Prompt',
   p_prompts_active: 'Active',
   p_prompts_code_placeholder: 'Mode code (e.g. default, critic, focus)',

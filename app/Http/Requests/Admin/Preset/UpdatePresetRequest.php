@@ -21,6 +21,7 @@ class UpdatePresetRequest extends FormRequest
             'name' => ['string', 'max:255', "unique:ai_presets,name,{$presetId}"],
             'input_mode' => ['required', 'in:single,pool'],
             'pool_relative_dates' => 'boolean',
+            'pulse_dates' => 'boolean',
             'preset_code' => ['nullable', 'string', 'max:50', "unique:ai_presets,preset_code,{$presetId}"],
             'plugins_disabled' => ['nullable','string','max:255'],
             'description' => ['nullable', 'string', 'max:1000'],

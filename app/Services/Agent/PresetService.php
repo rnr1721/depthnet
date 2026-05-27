@@ -50,6 +50,7 @@ class PresetService implements PresetServiceInterface
                 'engine_name' => $data['engine_name'],
                 'input_mode' => $data['input_mode'] ?? 'single',
                 'pool_relative_dates' => $data['pool_relative_dates'] ?? false,
+                'pulse_dates' => $data['pulse_dates'] ?? false,
                 'preset_code' => $data['preset_code'] ?? null,
                 'plugins_disabled' => $data['plugins_disabled'] ?? '',
                 'engine_config' => $data['engine_config'] ?? [],
@@ -130,6 +131,7 @@ class PresetService implements PresetServiceInterface
                 'engine_name' => $data['engine_name'] ?? $preset->engine_name,
                 'input_mode' => array_key_exists('input_mode', $data) ? $data['input_mode'] : $preset->input_mode,
                 'pool_relative_dates' => array_key_exists('pool_relative_dates', $data) ? $data['pool_relative_dates'] : $preset->pool_relative_dates,
+                'pulse_dates' => array_key_exists('pulse_dates', $data) ? $data['pulse_dates'] : $preset->pulse_dates,
                 'preset_code' => array_key_exists('preset_code', $data) ? $data['preset_code'] : $preset->preset_code,
                 'plugins_disabled' => array_key_exists('plugins_disabled', $data) ? $data['plugins_disabled'] : $preset->plugins_disabled,
                 'engine_config' => $data['engine_config'] ?? $preset->engine_config,
@@ -306,6 +308,7 @@ class PresetService implements PresetServiceInterface
                 // Input
                 'input_mode'          => $originalPreset->input_mode,
                 'pool_relative_dates' => $originalPreset->pool_relative_dates,
+                'pulse_dates'        => $originalPreset->pulse_dates,
                 // Behaviour
                 'agent_result_mode'  => $originalPreset->agent_result_mode,
                 'max_context_limit'  => $originalPreset->max_context_limit,
@@ -761,6 +764,7 @@ class PresetService implements PresetServiceInterface
             'engine_name' => 'required|string|max:100',
             'input_mode' => ['required', 'in:single,pool'],
             'pool_relative_dates' => 'boolean',
+            'pulse_dates' => 'boolean',
             'preset_code' => 'nullable|string|max:50',
             'plugins_disabled' => 'nullable|string|max:255',
             'engine_config' => 'array',

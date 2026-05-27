@@ -189,6 +189,7 @@ const form = ref({
     prompts: props.preset?.prompts ?? [],
     input_mode: props.preset?.input_mode || 'pool',
     pool_relative_dates: props.preset?.pool_relative_dates ?? false,
+    pulse_dates: props.preset?.pulse_dates ?? false,
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
     pre_run_commands: props.preset?.pre_run_commands || '',

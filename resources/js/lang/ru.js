@@ -518,6 +518,8 @@ export default {
   p_modal_spawn_info: "Информация о спавне",
   p_modal_spawn_parent: "Родительский пресет",
   p_modal_spawn_lifecycle_hint: "Этим пресетом управляет родительский агент. Вы можете редактировать настройки движка и системный промпт, но агент может сбросить или удалить его в любой момент.",
+  p_modal_pool_relative_dates: "Относительные даты для известных источников (1d aho и т.д.) в режиме pool",
+  p_modal_pulse_dates: "Pulse даты (субъективное время агента)",
   p_prompts_add: 'Добавить промпт',
   p_prompts_active: 'Активный',
   p_prompts_code_placeholder: 'Код режима (например: default, critic, focus)',

@@ -22,6 +22,7 @@ class AiPreset extends Model
         'active_prompt_id',
         'input_mode',
         'pool_relative_dates',
+        'pulse_dates',
         'preset_code',
         'preset_code_next',
         'pre_run_commands',
@@ -57,6 +58,7 @@ class AiPreset extends Model
         'parent_preset_id'         => 'integer',
         'is_spawned'               => 'boolean',
         'pool_relative_dates'      => 'boolean',
+        'pulse_dates'              => 'boolean',
         'engine_config'            => 'array',
         'metadata'                 => 'array',
         'loop_interval'            => 'integer',
@@ -83,6 +85,7 @@ class AiPreset extends Model
         'parent_preset_id'         => null,
         'input_mode'               => 'pool',
         'pool_relative_dates'      => false,
+        'pulse_dates'              => false,
         'is_active'                => true,
         'is_default'               => false,
         'agent_result_mode'        => 'tool_calls',
@@ -362,6 +365,11 @@ class AiPreset extends Model
     public function getPoolRelativeDates(): bool
     {
         return $this->pool_relative_dates;
+    }
+
+    public function getPulseDates(): bool
+    {
+        return $this->pulse_dates;
     }
 
     public function getPluginsDisabled(): string

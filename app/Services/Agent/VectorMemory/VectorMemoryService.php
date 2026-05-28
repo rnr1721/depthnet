@@ -3,6 +3,7 @@
 namespace App\Services\Agent\VectorMemory;
 
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
 use App\Models\AiPreset;
@@ -59,6 +60,7 @@ class VectorMemoryService implements VectorMemoryServiceInterface
         protected VectorMemoryExporter      $exporter,
         protected VectorMemory              $vectorMemoryModel,
         protected SearchDateParserInterface $searchDateParser,
+        protected PulseServiceInterface     $pulseService,
     ) {
     }
 
@@ -104,8 +106,76 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             $dbQuery->limit($query->limit);
         }
 
-        return $dbQuery->get();
+        $memories = $dbQuery->get();
+
+        // Pulse filter is applied AFTER the DB fetch because pulse position
+        // is derived from created_at (not a stored column). For typical preset
+        // sizes (≤1000 records) this is fine; denormalising into a
+        // pulse_position column with an index is the obvious next step if
+        // this ever becomes a hot path.
+        if ($query->hasPulseFilter()) {
+            $memories = $memories->filter(
+                fn (VectorMemory $m) => $this->matchesPulseRange(
+                    $m->created_at,
+                    $query->pulseFrom,
+                    $query->pulseTo,
+                )
+            )->values();
+        }
+
+        return $memories;
     }
+
+    /**
+     * Whether a moment's pulse position falls within the given range.
+     *
+     * Range semantics:
+     *   - Both bounds set, from ≤ to → linear range [from..to]
+     *   - Both bounds set, from > to → CIRCULAR range [from..999] ∪ [0..to]
+     *     (the "across midnight" case — e.g. 800..200 for night-owl hours)
+     *   - Only from set                → [from..999]
+     *   - Only to set                  → [0..to]
+     *   - Neither (caller bug)         → true (no filter)
+     */
+    protected function matchesPulseRange(
+        ?CarbonInterface $moment,
+        ?int $pulseFrom,
+        ?int $pulseTo,
+    ): bool {
+        if ($moment === null) {
+            // Defensive: if a record somehow has no created_at, don't drop it
+            // on pulse grounds — return true. The caller is responsible for
+            // deciding whether such records should be filtered out elsewhere.
+            return true;
+        }
+
+        if ($pulseFrom === null && $pulseTo === null) {
+            return true;
+        }
+
+        $pulse = $this->pulseService->currentPulse(
+            $moment instanceof \Carbon\Carbon
+                ? $moment
+                : \Carbon\Carbon::instance($moment)
+        );
+
+        if ($pulseFrom !== null && $pulseTo === null) {
+            return $pulse >= $pulseFrom;
+        }
+
+        if ($pulseFrom === null && $pulseTo !== null) {
+            return $pulse <= $pulseTo;
+        }
+
+        // Both set
+        if ($pulseFrom <= $pulseTo) {
+            return $pulse >= $pulseFrom && $pulse <= $pulseTo;
+        }
+
+        // Circular: from > to means "wraps midnight"
+        return $pulse >= $pulseFrom || $pulse <= $pulseTo;
+    }
+
 
     /**
      * @inheritDoc
@@ -282,7 +352,8 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             $domains = [];
             $from = $to = null;
             $cleanQuery = $query;
-            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
+
+            [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
 
             $hasTimeFilter = ($from !== null || $to !== null);
 
@@ -294,10 +365,13 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             }
 
             $memQuery = new VectorMemoryQuery(
-                domains: $domains,
-                from:    $from,
-                to:      $to,
+                domains:   $domains,
+                from:      $from,
+                to:        $to,
+                pulseFrom: $pulseFrom,
+                pulseTo:   $pulseTo,
             );
+
             $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
@@ -368,8 +442,13 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     /**
      * Build a friendly "nothing found" message based on which filters were active.
      */
-    protected function describeEmptyResult(array $domains, ?CarbonInterface $from, ?CarbonInterface $to): string
-    {
+    protected function describeEmptyResult(
+        array $domains,
+        ?CarbonInterface $from,
+        ?CarbonInterface $to,
+        ?int $pulseFrom = null,
+        ?int $pulseTo = null,
+    ): string {
         $parts = [];
         if (!empty($domains)) {
             $parts[] = 'in [' . implode(', ', $domains) . ']';
@@ -383,10 +462,28 @@ class VectorMemoryService implements VectorMemoryServiceInterface
         } elseif ($to !== null) {
             $parts[] = 'until ' . $to->toDateString();
         }
+        if ($pulseFrom !== null || $pulseTo !== null) {
+            $parts[] = $this->describePulseRange($pulseFrom, $pulseTo);
+        }
 
         return empty($parts)
             ? 'No memories found.'
             : 'No memories found ' . implode(' ', $parts) . '.';
+    }
+
+    /**
+     * Compose a short pulse-range description for empty-result messages.
+     */
+    private function describePulseRange(?int $pulseFrom, ?int $pulseTo): string
+    {
+        if ($pulseFrom !== null && $pulseTo !== null) {
+            $note = ($pulseFrom > $pulseTo) ? ' (across midnight)' : '';
+            return "in pulse range {$pulseFrom}-{$pulseTo}{$note}";
+        }
+        if ($pulseFrom !== null) {
+            return "from pulse {$pulseFrom}";
+        }
+        return "up to pulse {$pulseTo}";
     }
 
     /**
@@ -904,40 +1001,40 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     }
 
     /**
-     * Iteratively strip domain: and time: prefixes from the query, in
-     * whatever order they appear inline. Config-level filters (RAG-style)
+     * Iteratively strip domain:, time:, and pulse: prefixes from the query,
+     * in whatever order they appear inline. Config-level filters (RAG-style)
      * are applied via the resolvers in their initial call.
      *
-     * Returns [array $domains, ?CarbonInterface $from, ?CarbonInterface $to, string $cleanQuery].
+     * Returns [array $domains, ?CarbonInterface $from, ?CarbonInterface $to,
+     *          ?int $pulseFrom, ?int $pulseTo, string $cleanQuery].
      *
      * Algorithm:
      *   1. Call each resolver once WITH config — this captures any
      *      RAG-pinned filters AND, if the first inline prefix matches,
      *      strips it too.
      *   2. Loop calling each resolver WITHOUT config (empty array) until
-     *      neither strips anything more. This handles the case where the
-     *      user wrote prefixes in either order.
+     *      none strips anything more. This handles the case where the
+     *      user wrote prefixes in any order.
      *
      * The loop is capped at a few iterations as a safety net.
      */
     protected function peelSearchPrefixes(string $query, array $config): array
     {
-        // First pass — with config. Either captures RAG-pinned filters or
-        // strips the first inline prefix, whichever applies.
-        [$domains, $cleanQuery]       = $this->resolveSearchDomains($query, $config);
-        [$from, $to, $cleanQuery]     = $this->resolveSearchTime($cleanQuery, $config);
+        // First pass — with config. Captures RAG-pinned filters and strips
+        // whichever inline prefix appears first.
+        [$domains, $cleanQuery]               = $this->resolveSearchDomains($query, $config);
+        [$from, $to, $cleanQuery]             = $this->resolveSearchTime($cleanQuery, $config);
+        [$pulseFrom, $pulseTo, $cleanQuery]   = $this->resolveSearchPulse($cleanQuery, $config);
 
-        // Loop with empty config to peel any remaining inline prefix that
-        // was second in line. Bounded to avoid pathological infinite loops
-        // if a future regex regresses.
+        // Loop with empty config to peel any remaining inline prefix.
         $emptyConfig = [];
-        for ($i = 0; $i < 4; $i++) {
+        for ($i = 0; $i < 5; $i++) {
             $progressed = false;
 
             if (empty($domains)) {
                 [$d, $afterD] = $this->resolveSearchDomains($cleanQuery, $emptyConfig);
                 if (!empty($d)) {
-                    $domains = $d;
+                    $domains    = $d;
                     $cleanQuery = $afterD;
                     $progressed = true;
                 }
@@ -946,9 +1043,19 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             if ($from === null && $to === null) {
                 [$f, $t, $afterT] = $this->resolveSearchTime($cleanQuery, $emptyConfig);
                 if ($f !== null || $t !== null) {
-                    $from = $f;
-                    $to = $t;
+                    $from       = $f;
+                    $to         = $t;
                     $cleanQuery = $afterT;
+                    $progressed = true;
+                }
+            }
+
+            if ($pulseFrom === null && $pulseTo === null) {
+                [$pf, $pt, $afterP] = $this->resolveSearchPulse($cleanQuery, $emptyConfig);
+                if ($pf !== null || $pt !== null) {
+                    $pulseFrom  = $pf;
+                    $pulseTo    = $pt;
+                    $cleanQuery = $afterP;
                     $progressed = true;
                 }
             }
@@ -958,8 +1065,9 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             }
         }
 
-        return [$domains, $from, $to, trim($cleanQuery)];
+        return [$domains, $from, $to, $pulseFrom, $pulseTo, trim($cleanQuery)];
     }
+
 
     // -------------------------------------------------------------------------
     // Existing helpers — unchanged
@@ -1083,4 +1191,104 @@ class VectorMemoryService implements VectorMemoryServiceInterface
             return null;
         }
     }
+
+    /**
+     * Resolve pulse filter for a search call.
+     * Returns [?int $pulseFrom, ?int $pulseTo, string $cleanQuery].
+     *
+     * Syntax:
+     *   - "pulse:N-M | rest"  → linear or circular range, depending on N vs M
+     *   - "pulse:-M | rest"   → upper bound only (early-day filter)
+     *   - "pulse:N- | rest"   → lower bound only (late-day filter)
+     *   - "pulse:N | rest"    → single-point queries are rejected (too narrow
+     *                            to be useful — one pulse ≈ 86 seconds)
+     *
+     * Bounds are clamped to [0..999]. Invalid syntax silently leaves the
+     * pulse: prefix in the query for downstream semantic matching, mirroring
+     * the resolveSearchTime() failure mode.
+     *
+     * Priority:
+     *   1. $config['pulse_from'] / $config['pulse_to'] — RAG-config style
+     *   2. Inline "pulse:..." prefix
+     *   3. No filter
+     */
+    protected function resolveSearchPulse(string $query, array $config): array
+    {
+        // Config takes precedence
+        $configFrom = $config['pulse_from'] ?? null;
+        $configTo   = $config['pulse_to']   ?? null;
+        if ($configFrom !== null || $configTo !== null) {
+            return [
+                is_numeric($configFrom) ? $this->clampPulse((int) $configFrom) : null,
+                is_numeric($configTo) ? $this->clampPulse((int) $configTo) : null,
+                $query,
+            ];
+        }
+
+        // Inline "pulse:<expr> | rest" — `rest` may be empty
+        if (preg_match('/^pulse\s*:\s*([^|]+)\|(.*)$/iu', $query, $m)) {
+            $expr = trim($m[1]);
+            $parsed = $this->parsePulseExpression($expr);
+            if ($parsed !== null) {
+                return [$parsed[0], $parsed[1], trim($m[2])];
+            }
+            return [null, null, $query];
+        }
+
+        // "pulse:<expr>" without pipe — useful for pure pulse-only filtering
+        if (preg_match('/^pulse\s*:\s*(.+)$/iu', $query, $m)) {
+            $expr = trim($m[1]);
+            $parsed = $this->parsePulseExpression($expr);
+            if ($parsed !== null) {
+                return [$parsed[0], $parsed[1], ''];
+            }
+            return [null, null, $query];
+        }
+
+        return [null, null, $query];
+    }
+
+    /**
+     * Parse a pulse range expression: "N-M", "-M", "N-".
+     * Single numbers ("N") are intentionally rejected — one pulse is ~86s wide,
+     * a point query against it almost never matches anything useful.
+     *
+     * Returns [from, to] or null on parse failure.
+     *
+     * @return array{0: ?int, 1: ?int}|null
+     */
+    private function parsePulseExpression(string $expr): ?array
+    {
+        // "N-M" — both bounds
+        if (preg_match('/^(\d{1,3})\s*-\s*(\d{1,3})$/', $expr, $m)) {
+            return [
+                $this->clampPulse((int) $m[1]),
+                $this->clampPulse((int) $m[2]),
+            ];
+        }
+
+        // "-M" — upper bound only
+        if (preg_match('/^-\s*(\d{1,3})$/', $expr, $m)) {
+            return [null, $this->clampPulse((int) $m[1])];
+        }
+
+        // "N-" — lower bound only
+        if (preg_match('/^(\d{1,3})\s*-$/', $expr, $m)) {
+            return [$this->clampPulse((int) $m[1]), null];
+        }
+
+        // Lone number, no dash → reject
+        return null;
+    }
+
+    /**
+     * Clamp a pulse value into the canonical [0..999] range.
+     */
+    private function clampPulse(int $value): int
+    {
+        return max(0, min(999, $value));
+    }
+
+
+
 }

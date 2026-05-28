@@ -3,6 +3,7 @@
 namespace App\Services\Agent\VectorMemory;
 
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
@@ -25,9 +26,9 @@ use Psr\Log\LoggerInterface;
  * The preset passed to each method is also used to resolve the embedding
  * provider config from preset_capability_configs.
  *
- * Domain support (inherited from base):
- *   - storeVectorMemory: $config['domain'] is honoured by parent before embedding is attached
- *   - searchVectorMemories: domain filter is resolved before query embedding, so the
+ * Domain / time / pulse support (inherited from base):
+ *   - storeVectorMemory: $config['domain'] honoured by parent before embedding is attached
+ *   - searchVectorMemories: all three filters resolved before query embedding, so the
  *     cosine comparisons only run over the filtered subset — saves CPU on irrelevant records
  */
 class EmbeddingVectorMemoryService extends VectorMemoryService
@@ -39,9 +40,18 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
         VectorMemoryExporter $exporter,
         VectorMemory $vectorMemoryModel,
         SearchDateParserInterface $searchDateParser,
+        PulseServiceInterface $pulseService,
         protected EmbeddingService $embeddingService,
     ) {
-        parent::__construct($logger, $tfIdfService, $importer, $exporter, $vectorMemoryModel, $searchDateParser);
+        parent::__construct(
+            $logger,
+            $tfIdfService,
+            $importer,
+            $exporter,
+            $vectorMemoryModel,
+            $searchDateParser,
+            $pulseService,
+        );
     }
 
     /**
@@ -71,10 +81,11 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
      * Semantic search using cosine similarity over dense embedding vectors.
      *
      * Algorithm:
-     *  1. Peel inline prefixes ("domain:", "time:", or bare keyword) plus any
-     *     RAG-config filters into [$domains, $from, $to, $cleanQuery].
+     *  1. Peel inline prefixes ("domain:", "time:", "pulse:", or bare keyword)
+     *     plus any RAG-config filters into
+     *     [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery].
      *  2. Load the candidate set scoped to those filters.
-     *  3. If $cleanQuery is empty but a time filter is set, return chronological
+     *  3. If $cleanQuery is empty but a filter is set, return chronological
      *     listing (temporal mode) — no embedding work needed.
      *  4. Otherwise: embed $cleanQuery via EmbeddingService; cosine over
      *     records that have an embedding; TF-IDF supplement for those that
@@ -90,11 +101,14 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
+            [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery]
+                = $this->peelSearchPrefixes($query, $config);
 
-            $hasTimeFilter = ($from !== null || $to !== null);
+            $hasTimeFilter  = ($from !== null || $to !== null);
+            $hasPulseFilter = ($pulseFrom !== null || $pulseTo !== null);
+            $hasAnyFilter   = $hasTimeFilter || $hasPulseFilter || !empty($domains);
 
-            if (empty($cleanQuery) && !$hasTimeFilter) {
+            if (empty($cleanQuery) && !$hasAnyFilter) {
                 return [
                     'success' => false,
                     'message' => 'Error: Search query cannot be empty after parsing prefixes.'
@@ -102,21 +116,25 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
             }
 
             $memQuery = new VectorMemoryQuery(
-                domains: $domains,
-                from:    $from,
-                to:      $to,
+                domains:   $domains,
+                from:      $from,
+                to:        $to,
+                pulseFrom: $pulseFrom,
+                pulseTo:   $pulseTo,
             );
             $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
                 return [
-                    'success'  => true,
-                    'message'  => $this->describeEmptyResult($domains, $from, $to),
-                    'results'  => [],
-                    'domains'  => $domains,
-                    'from'     => $from,
-                    'to'       => $to,
-                    'temporal' => empty($cleanQuery),
+                    'success'   => true,
+                    'message'   => $this->describeEmptyResult($domains, $from, $to, $pulseFrom, $pulseTo),
+                    'results'   => [],
+                    'domains'   => $domains,
+                    'from'      => $from,
+                    'to'        => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
+                    'temporal'  => empty($cleanQuery),
                 ];
             }
 
@@ -134,12 +152,14 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
 
                 return [
                     'success'        => true,
-                    'message'        => 'Found ' . count($results) . ' memories in time window.',
+                    'message'        => 'Found ' . count($results) . ' memories in filter window.',
                     'results'        => $results,
                     'total_searched' => $memories->count(),
                     'domains'        => $domains,
                     'from'           => $from,
                     'to'             => $to,
+                    'pulseFrom'      => $pulseFrom,
+                    'pulseTo'        => $pulseTo,
                     'temporal'       => true,
                     'embedding_used' => false,
                 ];
@@ -159,9 +179,11 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 // already-peeled clean query and inject resolved filters into config
                 // so the parent doesn't re-parse them.
                 $fallbackConfig = array_merge($config, [
-                    'domains' => $domains,
-                    'from'    => $from,
-                    'to'      => $to,
+                    'domains'    => $domains,
+                    'from'       => $from,
+                    'to'         => $to,
+                    'pulse_from' => $pulseFrom,
+                    'pulse_to'   => $pulseTo,
                 ]);
                 return parent::searchVectorMemories($preset, $cleanQuery, $fallbackConfig);
             }
@@ -226,6 +248,8 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 'domains'        => $domains,
                 'from'           => $from,
                 'to'             => $to,
+                'pulseFrom'      => $pulseFrom,
+                'pulseTo'        => $pulseTo,
                 'temporal'       => false,
             ];
 

@@ -27,6 +27,7 @@ use App\Services\Agent\Enricher\Rag\RagData;
 use App\Services\Agent\Enricher\Rag\RagItem;
 use App\Services\Agent\Enricher\Rag\RagSection;
 use App\Services\Agent\Plugins\RagQueryPlugin;
+use App\Services\Agent\Plugins\RhythmPlugin;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -644,10 +645,19 @@ class RagContextEnricher implements RagContextEnricherInterface
      */
     private function buildRenderOptions(PresetRagConfig $config): array
     {
+
+        $targetPreset = $config->preset;
+
         return [
             'max_content_limit'      => $config->getRagContentLimit(),
             'show_relative_date'     => $config->getRagRelativeDates(),
             'journal_context_window' => $config->getRagJournalContextWindow(),
+            // Pulse coordinates — only emitted when the target preset opts in.
+            // Renderers that don't use these (skills, ontology, files, persons)
+            // silently ignore them.
+            'show_pulse_date'        => (bool) $targetPreset->getPulseDates(),
+            'agent_birth_date'       => $this->resolveBirthDate($targetPreset),
+
         ];
     }
 
@@ -929,4 +939,29 @@ class RagContextEnricher implements RagContextEnricherInterface
 
         return implode(' ', $parts);
     }
+
+    /**
+     * Resolve the agent's birth date for pulse arithmetic.
+     *
+     * Birth date is owned by the RhythmPlugin config (it's already configured
+     * there for the temporal snapshot) — we read it through PluginMetadataService
+     * rather than introducing a new column or duplicate setting.
+     *
+     * Returns an empty string when not configured. PulseService treats an
+     * empty birth date as "no biographical anchor" and falls back to the
+     * cyclic pulse only.
+     */
+    private function resolveBirthDate(\App\Models\AiPreset $preset): string
+    {
+        $value = $this->pluginMetadataService->get(
+            $preset,
+            RhythmPlugin::PLUGIN_NAME,
+            'birth_date',
+            ''
+        );
+
+        return is_string($value) ? $value : '';
+    }
+
+
 }

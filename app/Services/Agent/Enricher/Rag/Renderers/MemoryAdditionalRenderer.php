@@ -3,6 +3,7 @@
 namespace App\Services\Agent\Enricher\Rag\Renderers;
 
 use App\Contracts\Agent\Enricher\Rag\RagSectionType;
+use App\Contracts\Agent\PulseServiceInterface;
 
 /**
  * Renders flat memory results from supplementary queries.
@@ -13,12 +14,13 @@ use App\Contracts\Agent\Enricher\Rag\RagSectionType;
  */
 final class MemoryAdditionalRenderer extends AbstractMemoryRenderer
 {
-    public function __construct()
+    public function __construct(PulseServiceInterface $pulse)
     {
         parent::__construct(
             sectionType:       RagSectionType::MemoryAdditional->value,
             label:             '[ADDITIONAL MEMORY]',
             useCompositeScore: false,
+            pulse:             $pulse,
         );
     }
 }

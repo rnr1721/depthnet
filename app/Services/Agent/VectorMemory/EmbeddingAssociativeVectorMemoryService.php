@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\Cache;
  * because hops follow semantic similarity rather than keyword overlap.
  *
  * Algorithm:
- *  1. Resolve domain filter (config wins; otherwise parse inline prefix)
- *  2. Load memories restricted to those domains (or all if none specified)
+ *  1. Resolve domain/time/pulse filters (config wins; otherwise parse inline prefixes)
+ *  2. Load memories restricted to those filters
  *  3. Embed the cleaned query via EmbeddingService
  *  4. Find top-K candidates by cosine similarity (initial retrieval)
  *  5. Build a local similarity graph over the loaded embeddings
@@ -29,11 +29,12 @@ use Illuminate\Support\Facades\Cache;
  * has no embedding capability configured, and further to TF-IDF when
  * embeddings are fully unavailable.
  *
- * Domain support (inherited from base):
- *   Filtering by domain happens BEFORE graph construction. For a domain
- *   with 200 records the graph is O(200²)=40k pair comparisons instead
- *   of O(1000²)=1M — domains become both a semantic filter and a perf win.
- *   The chain stays scoped to whatever domains the caller asked for.
+ * Filter scoping:
+ *   Filtering by domain/time/pulse happens BEFORE graph construction.
+ *   For a 200-record subset the graph is O(200²)=40k pair comparisons
+ *   instead of O(1000²)=1M — filters become both a semantic narrowing
+ *   and a performance win. The chain stays scoped to whatever the caller
+ *   asked for.
  */
 class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryService
 {
@@ -189,11 +190,14 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
+            [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery]
+                = $this->peelSearchPrefixes($query, $config);
 
-            $hasTimeFilter = ($from !== null || $to !== null);
+            $hasTimeFilter  = ($from !== null || $to !== null);
+            $hasPulseFilter = ($pulseFrom !== null || $pulseTo !== null);
+            $hasAnyFilter   = $hasTimeFilter || $hasPulseFilter || !empty($domains);
 
-            if (empty($cleanQuery) && !$hasTimeFilter) {
+            if (empty($cleanQuery) && !$hasAnyFilter) {
                 return [
                     'success' => false,
                     'message' => 'Error: Search query cannot be empty after parsing prefixes.'
@@ -201,21 +205,25 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
             }
 
             $memQuery = new VectorMemoryQuery(
-                domains: $domains,
-                from:    $from,
-                to:      $to,
+                domains:   $domains,
+                from:      $from,
+                to:        $to,
+                pulseFrom: $pulseFrom,
+                pulseTo:   $pulseTo,
             );
             $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
                 return [
-                    'success'  => true,
-                    'message'  => $this->describeEmptyResult($domains, $from, $to),
-                    'results'  => [],
-                    'domains'  => $domains,
-                    'from'     => $from,
-                    'to'       => $to,
-                    'temporal' => empty($cleanQuery),
+                    'success'   => true,
+                    'message'   => $this->describeEmptyResult($domains, $from, $to, $pulseFrom, $pulseTo),
+                    'results'   => [],
+                    'domains'   => $domains,
+                    'from'      => $from,
+                    'to'        => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
+                    'temporal'  => empty($cleanQuery),
                 ];
             }
 
@@ -236,12 +244,14 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
 
                 return [
                     'success'        => true,
-                    'message'        => 'Found ' . count($results) . ' memories in time window.',
+                    'message'        => 'Found ' . count($results) . ' memories in filter window.',
                     'results'        => $results,
                     'total_searched' => $memories->count(),
                     'domains'        => $domains,
                     'from'           => $from,
                     'to'             => $to,
+                    'pulseFrom'      => $pulseFrom,
+                    'pulseTo'        => $pulseTo,
                     'temporal'       => true,
                     'embedding_used' => false,
                 ];
@@ -255,9 +265,11 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
             $queryEmbedding = $this->embeddingService->embed($cleanQuery, $preset);
 
             $fallbackConfig = array_merge($config, [
-                'domains' => $domains,
-                'from'    => $from,
-                'to'      => $to,
+                'domains'    => $domains,
+                'from'       => $from,
+                'to'         => $to,
+                'pulse_from' => $pulseFrom,
+                'pulse_to'   => $pulseTo,
             ]);
 
             if ($queryEmbedding === null) {
@@ -303,7 +315,17 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
             $seedIndices = array_slice($seedIndices, 0, $searchLimit);
 
             // ── Step 3: build (or retrieve from cache) local graph ───────────
-            $adj = $this->getOrBuildGraph($withEmbedding, $preset, $domains, $from, $to);
+            // Cache key includes pulse filter so different circadian windows
+            // get different graphs (they have different node sets).
+            $adj = $this->getOrBuildGraph(
+                $withEmbedding,
+                $preset,
+                $domains,
+                $from,
+                $to,
+                $pulseFrom,
+                $pulseTo
+            );
 
             // ── Step 4: graph walk ───────────────────────────────────────────
             $visited  = [];
@@ -476,6 +498,8 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 'domains'            => $domains,
                 'from'               => $from,
                 'to'                 => $to,
+                'pulseFrom'          => $pulseFrom,
+                'pulseTo'            => $pulseTo,
                 'temporal'           => false,
             ]);
 
@@ -499,14 +523,16 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
      * Build the local similarity graph or retrieve it from cache.
      *
      * Cache key is deterministic: same preset + same set of record IDs +
-     * same domain/time filters → same graph. Adding/removing a record or
-     * changing filters produces a different key → fresh build.
+     * same domain/time/pulse filters → same graph. Adding/removing a record
+     * or changing filters produces a different key → fresh build.
      *
      * @param  \Illuminate\Support\Collection  $memories
      * @param  AiPreset                        $preset
      * @param  string[]                        $domains
      * @param  Carbon|null                     $from
      * @param  Carbon|null                     $to
+     * @param  int|null                        $pulseFrom
+     * @param  int|null                        $pulseTo
      * @return array<int, array<int, array{index: int, weight: float}>>
      */
     private function getOrBuildGraph(
@@ -515,8 +541,10 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
         array                           $domains,
         ?Carbon                         $from,
         ?Carbon                         $to,
+        ?int                            $pulseFrom = null,
+        ?int                            $pulseTo = null,
     ): array {
-        $cacheKey = $this->graphCacheKey($preset, $memories, $domains, $from, $to);
+        $cacheKey = $this->graphCacheKey($preset, $memories, $domains, $from, $to, $pulseFrom, $pulseTo);
 
         $cached = Cache::get($cacheKey);
 
@@ -554,7 +582,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
     /**
      * Build a deterministic cache key for the graph.
      *
-     * Format: vm_graph:{presetId}:v{version}:{domainHash}:{timeHash}:{idsHash}
+     * Format: vm_graph:{presetId}:v{version}:{domainHash}:{timeHash}:{pulseHash}:{idsHash}
      *
      * Version is a monotonically increasing integer stored in a separate
      * cache key. Incrementing it (via invalidateGraphCache) effectively
@@ -562,11 +590,13 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
      * cache tags.
      */
     private function graphCacheKey(
-        AiPreset                    $preset,
+        AiPreset                       $preset,
         \Illuminate\Support\Collection $memories,
-        array                       $domains,
-        ?Carbon                     $from,
-        ?Carbon                     $to,
+        array                          $domains,
+        ?Carbon                        $from,
+        ?Carbon                        $to,
+        ?int                           $pulseFrom,
+        ?int                           $pulseTo,
     ): string {
         $version = Cache::get(self::GRAPH_CACHE_PREFIX . "_version:{$preset->id}", 0);
 
@@ -582,7 +612,10 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
         $timeHash = ($from?->toDateString() ?? 'any') . '_' . ($to?->toDateString() ?? 'any');
         $timeHash = md5($timeHash);
 
-        return self::GRAPH_CACHE_PREFIX . ":{$preset->id}:v{$version}:{$domainHash}:{$timeHash}:{$idsHash}";
+        // Pulse range — small but distinct part of the key
+        $pulseHash = md5(($pulseFrom ?? 'any') . '_' . ($pulseTo ?? 'any'));
+
+        return self::GRAPH_CACHE_PREFIX . ":{$preset->id}:v{$version}:{$domainHash}:{$timeHash}:{$pulseHash}:{$idsHash}";
     }
 
     /**
@@ -786,7 +819,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
      * falls through to TF-IDF if embedding is unavailable.
      *
      * The caller must pass the already-cleaned query — parent will not re-parse
-     * the inline "domain:..." prefix (domains travel via $config['domains']).
+     * inline prefixes (filters travel via $config keys).
      */
     private function fallbackSearch(AiPreset $preset, string $query, array $config): array
     {

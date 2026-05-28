@@ -254,15 +254,20 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(PresetInnerVoiceConfigServiceInterface::class, PresetInnerVoiceConfigService::class);
 
         $this->app->singleton(RagSectionRendererRegistryInterface::class, function ($app) {
+            $pulse = $app->make(\App\Contracts\Agent\PulseServiceInterface::class);
             return new RagSectionRendererRegistry([
-                new MemorySemanticAssociativeRenderer(),
-                new MemorySemanticRenderer(),
-                new MemoryAssociativeRenderer(),
-                new MemoryKeywordRenderer(),
-                new MemoryKeywordFallbackRenderer(),
-                new MemoryAdditionalRenderer(),
+                // Memory renderers — temporally anchored via $memory->getCreatedAt()
+                new MemorySemanticAssociativeRenderer($pulse),
+                new MemorySemanticRenderer($pulse),
+                new MemoryAssociativeRenderer($pulse),
+                new MemoryKeywordRenderer($pulse),
+                new MemoryKeywordFallbackRenderer($pulse),
+                new MemoryAdditionalRenderer($pulse),
+                // Journal — temporally anchored via $entry->recorded_at
+                new JournalSectionRenderer($pulse),
+                // Non-temporal renderers — pulse label is meaningless here, so
+                // these keep their original constructors with no extra deps.
                 new SkillsSectionRenderer(),
-                new JournalSectionRenderer(),
                 new OntologySectionRenderer(),
                 new FilesSectionRenderer(),
                 new PersonsSectionRenderer(),

@@ -32,6 +32,11 @@ use Psr\Log\LoggerInterface;
  *
  * If no [rag query] command was issued, RAG falls back to automatic query
  * formulation as usual — full backward compatibility.
+ *
+ * The query string passed to [rag query] may include the same inline filters
+ * understood by VectorMemory search: "domain:", "time:", and "pulse:". The
+ * RAG enricher routes the queries to the same engine, so the filters apply
+ * uniformly.
  */
 class RagQueryPlugin implements CommandPluginInterface
 {
@@ -81,6 +86,8 @@ class RagQueryPlugin implements CommandPluginInterface
         $lastWeek  = $this->localisedKeyword('last_week', $lang);
         $exQuery   = $this->exampleSemantic($lang);
 
+        $pulseEnabled = !empty($config['pulse_search_enabled']);
+
         $instructions = [
             "Add a simple RAG query: [rag query]{$exQuery}[/rag]",
             "Add a time-bounded RAG query: [rag query]time:{$yesterday} | {$exQuery}[/rag]",
@@ -88,9 +95,16 @@ class RagQueryPlugin implements CommandPluginInterface
             "Search by year: [rag query]time:2025 | {$exQuery}[/rag]",
             "Add a domain-bounded RAG query: [rag query]domain:work | {$exQuery}[/rag]",
             "Combine time + domain: [rag query]time:{$lastWeek} | domain:work | {$exQuery}[/rag]",
-            'Show current pending RAG queries: [rag show][/rag]',
-            'Clear all pending RAG queries: [rag clear][/rag]',
         ];
+
+        if ($pulseEnabled) {
+            $instructions[] = "Add a circadian RAG query (part-of-day filter): [rag query]pulse:0-300 | {$exQuery}[/rag]";
+            $instructions[] = "Night-owl pattern, range across midnight: [rag query]pulse:800-200 | {$exQuery}[/rag]";
+            $instructions[] = "Combine all three filter types: [rag query]time:{$lastWeek} | domain:work | pulse:400-700 | {$exQuery}[/rag]";
+        }
+
+        $instructions[] = 'Show current pending RAG queries: [rag show][/rag]';
+        $instructions[] = 'Clear all pending RAG queries: [rag clear][/rag]';
 
         // Date keywords reference, drawn from the parser's live vocabulary —
         // helps the agent discover what time:<expr> understands instead of guessing.
@@ -98,6 +112,13 @@ class RagQueryPlugin implements CommandPluginInterface
         if ($keywordList !== null) {
             $instructions[] = 'Date keywords available for time:<...>: ' . $keywordList;
             $instructions[] = 'Date ISO formats also accepted: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY';
+        }
+
+        // Pulse orientation note — anchors numeric values to felt time-of-day,
+        // so the model has reference points instead of guessing the scale.
+        // Only shown when pulse search is enabled for this plugin.
+        if ($pulseEnabled) {
+            $instructions[] = 'Pulse range — circadian position in the day (0..999, where 0 is midnight, 250 ≈ morning, 500 ≈ noon, 750 ≈ evening). Range syntax: pulse:N-M. Open-ended: pulse:N- or pulse:-M. When N > M the range wraps midnight (e.g. pulse:800-200 = late evening through early morning).';
         }
 
         $warning = $this->buildLanguageWarning($config, 'rag_language', 'RAG queries');
@@ -112,9 +133,31 @@ class RagQueryPlugin implements CommandPluginInterface
     {
         $langInstruction = $this->buildLanguageInstruction($config, 'rag_language');
         $lang            = $config['rag_language'] ?? 'auto';
+        $pulseEnabled    = !empty($config['pulse_search_enabled']);
 
         $sampleKeyword  = $this->localisedKeyword('yesterday', $lang);
         $sampleSemantic = $this->exampleSemantic($lang);
+
+        $filterClause = 'Optional inline filters (any order, separated by "|"): '
+            . '"domain:work,relationships | ..." filters by domain, '
+            . '"time:<expr> | ..." filters by absolute time';
+
+        if ($pulseEnabled) {
+            $filterClause .= ', "pulse:N-M | ..." filters by circadian position in the day '
+                . '(0..999, wraps midnight when N > M)';
+        }
+
+        $filterClause .= '. Time expr accepts keywords (today, yesterday, this/last week/month/year — and localised forms) '
+            . 'and ISO formats (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY). ';
+
+        if ($pulseEnabled) {
+            $filterClause .= "Example: \"time:{$sampleKeyword} | {$sampleSemantic}\" or "
+                . "\"pulse:0-300 | {$sampleSemantic}\" or combined: "
+                . "\"time:{$sampleKeyword} | pulse:400-700 | {$sampleSemantic}\".";
+        } else {
+            $filterClause .= "Example: \"time:{$sampleKeyword} | {$sampleSemantic}\" or "
+                . "\"domain:work | {$sampleSemantic}\".";
+        }
 
         return [
             'name'        => 'rag',
@@ -134,12 +177,7 @@ class RagQueryPlugin implements CommandPluginInterface
                         'description' => implode(' ', array_filter([
                             'query: the search query text.',
                             $langInstruction ? 'Must be written in the configured language.' : '',
-                            'Optional inline filters (any order, separated by "|"): '
-                                . '"domain:work,relationships | ..." filters by domain, '
-                                . '"time:<expr> | ..." filters by time. '
-                                . 'Time expr accepts keywords (today, yesterday, this/last week/month/year — and localised forms) '
-                                . 'and ISO formats (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY). '
-                                . "Example: \"time:{$sampleKeyword} | {$sampleSemantic}\" or \"domain:work | {$sampleSemantic}\".",
+                            $filterClause,
                             'show/clear: leave empty.',
                         ])),
                     ],
@@ -268,6 +306,16 @@ class RagQueryPlugin implements CommandPluginInterface
                 'RAG Query Language',
                 'Force language for RAG queries. Model will be instructed accordingly. Should match the language of your memory data.'
             ),
+            'pulse_search_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Enable pulse (circadian) search',
+                'description' => 'Adds pulse:N-M filter syntax to RAG query instructions — lets the agent '
+                    . 'query memories by position in the day (subjective time). Only useful if the agent '
+                    . 'operates with pulse/subjective time. Pairs with the preset\'s "pulse_dates" setting. '
+                    . 'Off by default.',
+                'value'       => false,
+                'required'    => false,
+            ],
         ];
     }
 
@@ -290,7 +338,10 @@ class RagQueryPlugin implements CommandPluginInterface
     public function getDefaultConfig(): array
     {
         return array_merge(
-            ['enabled' => false],
+            [
+                'enabled'              => false,
+                'pulse_search_enabled' => false,
+            ],
             $this->getDefaultLanguageConfig('rag_language')
         );
     }

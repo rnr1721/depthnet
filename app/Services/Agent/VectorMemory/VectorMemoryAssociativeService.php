@@ -24,6 +24,12 @@ use Carbon\Carbon;
  *
  *   This gives a useful semantic effect: "associations within a context"
  *   — the chain is free to follow meaning, but bounded by the domain.
+ *
+ * Pulse support (inherited from base):
+ *   pulse:N-M restricts the chain starting set to memories created within
+ *   the given circadian range. Hops then walk only inside that subset.
+ *   The chain effectively becomes "associations within a part of the day"
+ *   — useful for surfacing patterns specific to certain hours.
  */
 class VectorMemoryAssociativeService extends VectorMemoryService
 {
@@ -53,12 +59,12 @@ class VectorMemoryAssociativeService extends VectorMemoryService
      * Search with associative chain traversal and composite scoring.
      *
      * Steps:
-     * 1. Peel inline prefixes ("domain:", "time:", or bare keyword) plus any
-     *    RAG-config filters into [$domains, $from, $to, $cleanQuery].
-     * 2. Load memories restricted to those domains AND that time window.
-     *    The window pins down the STARTING set for the chain — subsequent
+     * 1. Peel inline prefixes ("domain:", "time:", "pulse:") plus any
+     *    RAG-config filters into [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery].
+     * 2. Load memories restricted to those domains, time window, AND pulse range.
+     *    The filter set pins down the STARTING set for the chain — subsequent
      *    associative hops walk only within these memories.
-     * 3. If $cleanQuery is empty but a time filter is set, return chronological
+     * 3. If $cleanQuery is empty but at least one filter is set, return chronological
      *    listing (temporal mode) — no chain walk, no semantic ranking.
      * 4. Otherwise: TF-IDF search seeded by $cleanQuery; top hit seeds the
      *    next hop; repeat for chain_depth steps with composite scoring.
@@ -77,11 +83,14 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 ];
             }
 
-            [$domains, $from, $to, $cleanQuery] = $this->peelSearchPrefixes($query, $config);
+            [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery]
+                = $this->peelSearchPrefixes($query, $config);
 
-            $hasTimeFilter = ($from !== null || $to !== null);
+            $hasTimeFilter  = ($from !== null || $to !== null);
+            $hasPulseFilter = ($pulseFrom !== null || $pulseTo !== null);
+            $hasAnyFilter   = $hasTimeFilter || $hasPulseFilter || !empty($domains);
 
-            if (empty($cleanQuery) && !$hasTimeFilter) {
+            if (empty($cleanQuery) && !$hasAnyFilter) {
                 return [
                     'success' => false,
                     'message' => 'Error: Search query cannot be empty after parsing prefixes.'
@@ -89,26 +98,30 @@ class VectorMemoryAssociativeService extends VectorMemoryService
             }
 
             $memQuery = new VectorMemoryQuery(
-                domains: $domains,
-                from:    $from,
-                to:      $to,
+                domains:   $domains,
+                from:      $from,
+                to:        $to,
+                pulseFrom: $pulseFrom,
+                pulseTo:   $pulseTo,
             );
             $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
                 return [
                     'success'  => true,
-                    'message'  => $this->describeEmptyResult($domains, $from, $to),
+                    'message'  => $this->describeEmptyResult($domains, $from, $to, $pulseFrom, $pulseTo),
                     'results'  => [],
                     'domains'  => $domains,
                     'from'     => $from,
                     'to'       => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
                     'temporal' => empty($cleanQuery),
                 ];
             }
 
-            // Temporal mode: chronological listing inside the time window.
-            // No chain walk — the question "what was I thinking on Monday"
+            // Temporal mode: chronological listing inside the filter window.
+            // No chain walk — the question "what was I thinking on Monday morning"
             // is best answered straight, not via associations.
             if (empty($cleanQuery)) {
                 $limit  = $config['search_limit'] ?? 5;
@@ -128,12 +141,14 @@ class VectorMemoryAssociativeService extends VectorMemoryService
 
                 return [
                     'success'        => true,
-                    'message'        => 'Found ' . count($results) . ' memories in time window.',
+                    'message'        => 'Found ' . count($results) . ' memories in filter window.',
                     'results'        => $results,
                     'total_searched' => $memories->count(),
                     'domains'        => $domains,
                     'from'           => $from,
                     'to'             => $to,
+                    'pulseFrom'      => $pulseFrom,
+                    'pulseTo'        => $pulseTo,
                     'temporal'       => true,
                 ];
             }
@@ -202,13 +217,15 @@ class VectorMemoryAssociativeService extends VectorMemoryService
 
             if (empty($chainResults)) {
                 return [
-                    'success'  => true,
-                    'message'  => 'No similar memories found.',
-                    'results'  => [],
-                    'domains'  => $domains,
-                    'from'     => $from,
-                    'to'       => $to,
-                    'temporal' => false,
+                    'success'   => true,
+                    'message'   => 'No similar memories found.',
+                    'results'   => [],
+                    'domains'   => $domains,
+                    'from'      => $from,
+                    'to'        => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
+                    'temporal'  => false,
                 ];
             }
 
@@ -223,16 +240,18 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 collect($finalResults)->pluck('memory')->all()
             );
 
-            $windowNote = $hasTimeFilter ? ' within time window' : '';
+            $filterNote = $hasAnyFilter ? ' within filter window' : '';
             return [
                 'success'        => true,
-                'message'        => "Found " . count($finalResults) . " memories via associative search{$windowNote} (chain depth: {$chainDepth}).",
+                'message'        => "Found " . count($finalResults) . " memories via associative search{$filterNote} (chain depth: {$chainDepth}).",
                 'results'        => $finalResults,
                 'total_searched' => $memories->count(),
                 'chain_steps'    => $step,
                 'domains'        => $domains,
                 'from'           => $from,
                 'to'             => $to,
+                'pulseFrom'      => $pulseFrom,
+                'pulseTo'        => $pulseTo,
                 'temporal'       => false,
             ];
 

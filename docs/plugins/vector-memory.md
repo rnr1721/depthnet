@@ -66,6 +66,34 @@ Both forms produce the same result.
 
 **Behaviour in associative mode.** When a time filter is set, the associative chain operates entirely within the time window — the starting set is pre-filtered, and subsequent hops stay inside it. This gives "associations within a period" semantics, parallel to how the domain filter scopes the chain.
 
+## Pulse (circadian) search
+
+When **Enable pulse (circadian) search** is on, vector memory accepts a `pulse:` prefix that filters records by their position within the day — independent of the calendar date. Pulse is a subjective time unit: 1000 pulses span one day (0 = midnight, ~250 = morning, ~500 = noon, ~750 = evening).
+
+This is a search axis that `time:` cannot express. Where `time:` answers "*when* (which dates)", pulse answers "*what part of the day*", across the entire history. It lets an agent surface, say, everything it crystallised in the early hours regardless of which day it was.
+
+| Command | Description |
+|---|---|
+| `[vectormemory search]pulse:0-300 \| morning thoughts[/vectormemory]` | Memories from the morning part of the day matching the query |
+| `[vectormemory search]pulse:800-200 \| reflections[/vectormemory]` | Late-evening through early-morning (range **wraps midnight**) |
+| `[vectormemory search]pulse:0-300[/vectormemory]` | Chronological listing of all morning-pulse memories |
+| `[vectormemory search]time:last week \| domain:work \| pulse:400-700 \| optimization[/vectormemory]` | All three filters combined, any order |
+
+Pulse range syntax:
+
+- `pulse:N-M` — range from N to M (each 0–999)
+- `pulse:N-` — open upper bound (N and later in the day)
+- `pulse:-M` — open lower bound (up to M)
+- When **N > M**, the range **wraps across midnight** — e.g. `pulse:800-200` covers late evening (800–999) plus early morning (0–200)
+
+The `time:`, `domain:`, and `pulse:` filters are independent and combine in any order. An empty query with only filters returns a chronological listing within the filtered set.
+
+Pulse pairs with the preset's `pulse_dates` setting: when `pulse_dates` is enabled, results retrieved through the RAG pipeline carry a `[day N pulse M]` coordinate alongside the date, so the agent sees both *when* a memory formed and *where in its own day* it sat.
+
+> **Performance note:** pulse position is derived from `created_at`, not stored as a column, so the pulse filter is applied in-memory after the database fetch. For typical preset sizes (≤1000 records) this is negligible. If a preset grows very large and uses pulse-only queries heavily, denormalising a `pulse_position` column with an index is the natural optimisation.
+
+---
+
 ## Setup
 
 Enable the **Vector Memory** plugin in your preset settings and configure:
@@ -84,6 +112,7 @@ Enable the **Vector Memory** plugin in your preset settings and configure:
 | **Cross-domain bridges** (associative + embedding only) | When enabled, after the in-domain associative result is built, the top anchors are also compared against memories from *other* domains. Strong semantic links bring back up to two extra results marked as bridges — useful when knowledge in `work` connects to something stored in `architecture`, but you didn't ask there. Off by default. |
 | **Language mode** | Auto-detect, or force a specific language for all entries. If forced, the agent receives an instruction to write memories in that language. |
 | **Integrate with Memory Plugin** | When enabled, a reference link is also added to the regular notepad (Memory plugin) each time something is stored in vector memory — so the agent can notice it exists even without searching. |
+| **Enable pulse (circadian) search** | Adds the `pulse:N-M` filter to search instructions, letting the agent query memories by position in the day (subjective time). Off by default. Only useful for agents that operate with pulse — pairs with the preset's `pulse_dates` setting. |
 
 ## Search modes in detail
 

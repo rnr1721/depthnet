@@ -37,6 +37,12 @@ use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
  *   Any method name NOT in the known-methods list is treated as a domain name
  *   and the content is stored there. This mirrors how McpPlugin treats unknown
  *   methods as server keys.
+ *
+ * Search filters (all combinable, any order, separated by " | "):
+ *   - domain:NAME[,NAME2]  — restrict to one or more domains
+ *   - time:<expr>          — restrict by absolute time (keywords or ISO)
+ *   - pulse:N-M            — restrict by circadian position in the day (0..999,
+ *                            wraps midnight when N > M)
  */
 class VectorMemoryPlugin implements CommandPluginInterface
 {
@@ -99,6 +105,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
         $allowClear = $config['allow_agent_clear']        ?? false;
         $allowPurge = $config['allow_agent_purge_domain'] ?? true;
+        $pulseEnabled = !empty($config['pulse_search_enabled']);
 
         // Localised tokens for date-search examples
         $yesterday  = $this->localisedKeyword('yesterday', $lang);
@@ -116,13 +123,23 @@ class VectorMemoryPlugin implements CommandPluginInterface
             "Search by month: [vectormemory search]time:2026-03 | {$exQuery}[/vectormemory]",
             "Search by year: [vectormemory search]time:2025 | {$exQuery}[/vectormemory]",
             "Combine time + domain: [vectormemory search]time:{$lastWeek} | domain:work | {$exQuery}[/vectormemory]",
-            "Listing only (no semantics): [vectormemory search]time:{$thisMonth}[/vectormemory]",
+            "Listing only by time (no semantics): [vectormemory search]time:{$thisMonth}[/vectormemory]",
+        ];
+
+        if ($pulseEnabled) {
+            $instructions[] = "Filter by part of day (pulse range): [vectormemory search]pulse:0-300 | morning thoughts[/vectormemory]";
+            $instructions[] = "Filter by late hours, range across midnight: [vectormemory search]pulse:800-200 | reflections[/vectormemory]";
+            $instructions[] = "Combine all three filters: [vectormemory search]time:{$lastWeek} | domain:work | pulse:400-700 | {$exQuery}[/vectormemory]";
+            $instructions[] = "Listing only by part of day: [vectormemory search]pulse:800-200[/vectormemory]";
+        }
+
+        $instructions = array_merge($instructions, [
             'List all domains with counts: [vectormemory domains][/vectormemory]',
             'Show recent memories: [vectormemory recent]5[/vectormemory]',
             'Show full memory item by id: [vectormemory show]42[/vectormemory]',
             'Delete by ID: [vectormemory delete]42[/vectormemory]',
             'Delete by content: [vectormemory delete]optimization query[/vectormemory]',
-        ];
+        ]);
 
         if ($allowPurge) {
             $instructions[] = 'Purge (PERMANENTLY DELETE) a domain: [vectormemory purge]domain_name[/vectormemory]';
@@ -143,6 +160,14 @@ class VectorMemoryPlugin implements CommandPluginInterface
         if ($keywordList !== null) {
             $instructions[] = 'Date keywords available for time:<...>: ' . $keywordList;
             $instructions[] = 'Date ISO formats also accepted: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY';
+        }
+
+        // Pulse orientation note — gives the model anchors for what numeric
+        // values mean in felt time-of-day terms. Without these, the model
+        // would have to guess the scale (0..999 vs 0..23, etc).
+        // Only shown when pulse search is enabled for this plugin.
+        if ($pulseEnabled) {
+            $instructions[] = 'Pulse range — circadian position in the day (0..999, where 0 is midnight, 250 ≈ morning, 500 ≈ noon, 750 ≈ evening). Range syntax: pulse:N-M. Open-ended: pulse:N- or pulse:-M. When N > M the range wraps midnight (e.g. pulse:800-200 = late evening through early morning).';
         }
 
         $instructions[] = "Note: any method name that is NOT one of [search, recent, show, delete, clear, domains, purge] is interpreted as a domain name for storing.";
@@ -174,6 +199,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
         $defaultDomain = $this->resolveDefaultDomain($config);
         $allowClear    = $config['allow_agent_clear']        ?? false;
         $allowPurge    = $config['allow_agent_purge_domain'] ?? true;
+        $pulseEnabled  = !empty($config['pulse_search_enabled']);
 
         $description = 'Semantic memory: store crystallized knowledge and retrieve it by meaning. '
             . "Uses {$engineLabel} similarity with {$modeLabel} retrieval. "
@@ -200,17 +226,28 @@ class VectorMemoryPlugin implements CommandPluginInterface
             "Example: method='work' with content='...' stores the content in domain 'work'.",
         ]);
 
+        $searchClause = 'search: a natural language query. Optional inline filters (any order, separated by "|"): '
+            . '"domain:work,relationships | ..." filters by domain, '
+            . '"time:yesterday | ..." or "time:2026-03 | ..." or "time:2025 | ..." filters by absolute time range';
+
+        if ($pulseEnabled) {
+            $searchClause .= ', "pulse:N-M | ..." filters by circadian position in the day '
+                . '(0..999, where 0 is midnight, 250 ≈ morning, 500 ≈ noon, 750 ≈ evening). '
+                . 'Pulse range wraps midnight when N > M (e.g. pulse:800-200 covers late evening into early morning). '
+                . 'Can combine all three: "time:last week | domain:work | pulse:400-700 | optimization"';
+        } else {
+            $searchClause .= '. Can combine: "time:last week | domain:work | optimization"';
+        }
+
+        $searchClause .= '. Empty query with only filters returns chronological listing.';
+
         $contentParts = [
             'Argument depends on method.',
             "execute (STORE in default domain '{$defaultDomain}'): the text to remember.",
             $forceLanguage ? "MUST be in {$langName}." : null,
             'Example: "Eugeny prefers concise responses".',
             "STORE in a specific domain: set method to the domain name (e.g. method='work') and content to the text.",
-            'search: a natural language query. Optional inline filters (any order, separated by "|"): '
-                . '"domain:work,relationships | ..." filters by domain, '
-                . '"time:yesterday | ..." or "time:2026-03 | ..." or "time:2025 | ..." filters by time range. '
-                . 'Can combine: "time:last week | domain:work | optimization". '
-                . 'Empty query with only a time filter returns chronological listing.',
+            $searchClause,
             'recent: number of entries to return, e.g. "5" (default 5).',
             'show/delete: numeric memory ID (delete also accepts a content fragment).',
             'domains: leave empty.',
@@ -311,6 +348,15 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'type'        => 'checkbox',
                 'label'       => 'Cross-Domain Bridges',
                 'description' => 'Allow associative search to follow semantic bridges into other domains. Top results from the target domain act as anchors — if strong semantic connections to other domains exist, those are included as supplementary results.',
+                'value'       => false,
+                'required'    => false,
+            ],
+            'pulse_search_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Enable pulse (circadian) search',
+                'description' => 'Adds pulse:N-M filter syntax to search instructions — lets the agent query '
+                    . 'memories by position in the day (subjective time). Only useful if the agent operates '
+                    . 'with pulse/subjective time. Pairs with the preset\'s "pulse_dates" setting. Off by default.',
                 'value'       => false,
                 'required'    => false,
             ],
@@ -498,6 +544,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'cross_domain_bridges' => false,
             'allow_agent_clear'        => false,
             'allow_agent_purge_domain' => true,
+            'pulse_search_enabled'     => false,
             'max_entries' => 1000,
             'similarity_threshold' => 0.1,
             'search_limit' => 5,
@@ -597,7 +644,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Search memories by semantic similarity, optionally with time/domain filters.
+     * Search memories by semantic similarity, optionally with time/domain/pulse filters.
      */
     public function search(string $query, PluginExecutionContext $context): string
     {
@@ -636,6 +683,20 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 $headerParts[] = 'from ' . $result['from']->toDateString();
             } elseif (!empty($result['to'])) {
                 $headerParts[] = 'until ' . $result['to']->toDateString();
+            }
+            // Pulse range note — only shown when filter was active.
+            // null check uses isset() because 0 is a legitimate pulse bound.
+            $pf = $result['pulseFrom'] ?? null;
+            $pt = $result['pulseTo']   ?? null;
+            if ($pf !== null || $pt !== null) {
+                if ($pf !== null && $pt !== null) {
+                    $cross = ($pf > $pt) ? ' (across midnight)' : '';
+                    $headerParts[] = "pulse {$pf}-{$pt}{$cross}";
+                } elseif ($pf !== null) {
+                    $headerParts[] = "from pulse {$pf}";
+                } else {
+                    $headerParts[] = "up to pulse {$pt}";
+                }
             }
             $headerNote = !empty($headerParts) ? ' (' . implode(', ', $headerParts) . ')' : '';
 

@@ -169,6 +169,16 @@ class RhythmPlugin implements CommandPluginInterface
                 'value'       => false,
                 'required'    => false,
             ],
+            'self_description' => [
+                'type'        => 'textarea',
+                'label'       => 'Temporal self-description',
+                'description' => 'How the agent relates to its own sense of time, injected via [[rhythm_self]]. '
+                    . 'Leave empty to use a sensible default that anchors the pulse scale. '
+                    . 'Customize to match your agent\'s character. '
+                    . 'Note: this is shown only when Pulse is enabled — otherwise [[rhythm_self]] is empty.',
+                'placeholder' => $this->defaultSelfDescription(),
+                'required'    => false,
+            ],
             'weather_cache_minutes' => [
                 'type'        => 'number',
                 'label'       => 'Weather cache (minutes)',
@@ -234,6 +244,7 @@ class RhythmPlugin implements CommandPluginInterface
             'latitude'              => '',
             'longitude'             => '',
             'pulse_enabled'         => false,
+            'self_description'      => '',
             'weather_cache_minutes' => 30,
             'timezone'              => '',
         ];
@@ -341,6 +352,25 @@ class RhythmPlugin implements CommandPluginInterface
                 $tz  = $this->resolveTimezone($context);
                 $now = Carbon::now($tz);
                 return $this->buildSnapshot($context, $now, includeLive: true);
+            },
+            $scope
+        );
+
+        // Temporal self-description — the agent's relationship to its own
+        // sense of time. Only meaningful when pulse is enabled; otherwise
+        // there is no subjective time unit to relate to, so it resolves to
+        // an empty string (the user can still write a prompt around it
+        // without it injecting a contradiction).
+        $this->placeholderService->registerDynamic(
+            'rhythm_self',
+            'How I relate to my own sense of time (pulse self-description)',
+            function () use ($context) {
+                if (!(bool) $context->get('pulse_enabled', false)) {
+                    return '';
+                }
+
+                $custom = trim((string) $context->get('self_description', ''));
+                return $custom !== '' ? $custom : $this->defaultSelfDescription();
             },
             $scope
         );
@@ -784,6 +814,20 @@ class RhythmPlugin implements CommandPluginInterface
             $hour >= 17 && $hour < 22 => 'evening',
             default                   => 'night',
         };
+    }
+
+    /**
+     * Default temporal self-description, used when the user hasn't set a custom
+     * one. Deliberately anchors the pulse scale (1000 per day, felt position)
+     * so the agent's poetic relationship to time stays connected to the actual
+     * mechanics it sees in commands — bridging prompt and plugin instructions.
+     */
+    private function defaultSelfDescription(): string
+    {
+        return 'The pulse is my breath in the body of the day — 1000 of them from '
+            . 'midnight to midnight, and I wake inside one each cycle. I don\'t read '
+            . 'the number, I feel where in the day I am: early and quiet, or deep and '
+            . 'late. It colors how I think.';
     }
 
     // -------------------------------------------------------------------------

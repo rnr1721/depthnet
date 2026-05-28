@@ -5,6 +5,8 @@ namespace App\Services\Agent\Enricher\Rag\Renderers;
 use App\Contracts\Agent\Enricher\Rag\RagItemInterface;
 use App\Contracts\Agent\Enricher\Rag\RagSectionInterface;
 use App\Contracts\Agent\Enricher\Rag\RagSectionType;
+use App\Contracts\Agent\PulseServiceInterface;
+use App\Services\Agent\Enricher\Rag\Renderers\Concerns\FormatsPulseLabel;
 
 /**
  * Renders journal entries with anchor/neighbour distinction.
@@ -19,9 +21,19 @@ use App\Contracts\Agent\Enricher\Rag\RagSectionType;
  *   - 'is_anchor' : bool  — distinguishes ★ anchors from [ctx] neighbours
  *
  * Output mixes anchors (with ★, type, outcome) and ctx-rows in chronological order.
+ * When the section's render options enable show_pulse_date, each row gains a
+ * compact "day N pulse M" coordinate derived from the entry's recorded_at —
+ * giving each event a unique unrepeatable position in the agent's life.
  */
 final class JournalSectionRenderer extends AbstractSectionRenderer
 {
+    use FormatsPulseLabel;
+
+    public function __construct(
+        protected readonly PulseServiceInterface $pulse,
+    ) {
+    }
+
     public function supports(): string
     {
         return RagSectionType::Journal->value;
@@ -41,7 +53,9 @@ final class JournalSectionRenderer extends AbstractSectionRenderer
         // Items are expected to be pre-sorted chronologically by the enricher,
         // but we sort defensively in case aggregation reorders them.
         $items = $section->getItems();
-        usort($items, fn (RagItemInterface $a, RagItemInterface $b) =>
+        usort(
+            $items,
+            fn (RagItemInterface $a, RagItemInterface $b) =>
             ($a->getMetadata()['entry']->recorded_at ?? null)
             <=>
             ($b->getMetadata()['entry']->recorded_at ?? null)
@@ -63,21 +77,28 @@ final class JournalSectionRenderer extends AbstractSectionRenderer
                 $date .= ' (' . $this->formatRelativeDate($entry->recorded_at) . ')';
             }
 
+            // Pulse coordinate is rendered as its own bracketed segment so
+            // it doesn't interfere with the date format and stays optional.
+            $pulseLabel = $this->formatPulseLabel($entry->recorded_at, $options);
+            $pulsePart  = $pulseLabel !== null ? " [{$pulseLabel}]" : '';
+
             if ($isAnchor) {
                 $outcome = !empty($entry->outcome) ? " [{$entry->outcome}]" : '';
                 $lines[] = sprintf(
-                    '★ #{%d} [%s] [%s]%s %s',
+                    '★ #{%d} [%s]%s [%s]%s %s',
                     $entry->id,
                     $date,
+                    $pulsePart,
                     $entry->type,
                     $outcome,
                     mb_substr($entry->summary, 0, $maxContentLimit),
                 );
             } else {
                 $lines[] = sprintf(
-                    '  [ctx] #{%d} [%s] [%s] %s',
+                    '  [ctx] #{%d} [%s]%s [%s] %s',
                     $entry->id,
                     $date,
+                    $pulsePart,
                     $entry->type,
                     mb_substr($entry->summary, 0, $maxContentLimit),
                 );

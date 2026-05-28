@@ -140,7 +140,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Shell** | Run shell commands directly on the host as the PHP process user. Use only for trusted operational tasks — prefer Sandbox for code execution. | [→](docs/plugins/shell.md) |
 | **Memory** (`memory`) | Persistent flat notepad injected into every cycle via `[[notepad_content]]`. Best for identity anchors, rules, and always-visible facts. Supports export/import. | [→](docs/plugins/memory.md) |
 | **Workspace** (`workspace`) | Persistent key-value scratchpad for structured working state — plans, drafts, intermediate results. Accessible via `[[workspace]]`. | [→](docs/plugins/workspace.md) |
-| **Vector Memory** (`vectormemory`) | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Organised into agent-managed domains. Supports temporal filtering, cross-domain bridges, defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
+| **Vector Memory** (`vectormemory`) | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Organised into agent-managed domains. Supports temporal filtering, circadian (pulse) filtering, cross-domain bridges, defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
 | **Document Manager** (`documents`) | File storage and semantic search for agents. Upload PDFs, spreadsheets, code and text — files are chunked and indexed automatically. Two storage modes: Laravel storage (read-only reference) or sandbox (full agent access). Integrates with RAG pipeline as a `files` source. | [→](docs/plugins/documents.md) |
 | **Journal** (`journal`) | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and temporal search — ISO dates, calendar months/years, ranges, and multilingual relative keywords (`yesterday` / `вчера` / `last week`). | [→](docs/plugins/journal.md) |
 | **Skill** (`skill`) | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
@@ -154,8 +154,8 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Heart** (`heart`) | Attention and connection engine. Tracks named connections, emotional signals, dominant focus, and gravity. State visible via `[[heart_state]]`. Not an emotion simulator — a measurable attention system. | [→](docs/plugins/heart.md) |
 | **Ontology** (`ontology`) | World-model graph — temporal property graph of entities and relationships. Stores durable facts about people, places, concepts and how they connect over time. Integrates with RAG pipeline as an `ontology` source. | [→](docs/plugins/ontology.md) [→](docs/memory/ontology.md) |
 | **Being** (`being`) | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
-| **Rhythm** (`rhythm`) | The agent's own clock — temporal sense injected via `[[rhythm]]`. Snapshot covers date/time, day-of-life and pulse position (subjective time unit, optional), cycle rhythm, day/week/year progress, weather, sunset/sunrise. Commands for past snapshots (`at`), intervals (`diff`), and elapsed time (`since`) — sharing the date vocabulary with journal and memory search. Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
-| **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Queries support the same `time:` and `domain:` filters as vector memory search, allowing the agent to retrieve memories from a specific window or domain on demand. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
+| **Rhythm** (`rhythm`) | The agent's own clock — temporal sense injected via [[rhythm]], plus an optional [[rhythm_self]] self-description of how the agent relates to its own time. Snapshot covers date/time, day-of-life and pulse position (subjective time unit, optional), cycle rhythm, day/week/year progress, weather, sunset/sunrise. Commands for past snapshots (at), intervals (diff), and elapsed time (since). Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
+| **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Queries support time:, domain: and (optionally) pulse: circadian filters, allowing the agent to retrieve memories from a specific window, domain, or part of day on demand. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
 | **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, request additional steps. | [→](docs/plugins/agent.md) |
 | **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
 | **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
@@ -217,6 +217,7 @@ The AI communicates through special command tags that trigger plugin execution. 
 [vectormemory search]time:yesterday | optimization[/vectormemory]  # Search within a time window
 [vectormemory search]time:last week | domain:work | architecture[/vectormemory]  # Time + domain combined
 [vectormemory search]time:2026-03[/vectormemory]  # Chronological listing for the window
+[vectormemory search]pulse:0-300 | morning thoughts[/vectormemory]
 [vectormemory recent]5[/vectormemory]  # Show 5 most recent memories
 [vectormemory domains][/vectormemory]  # List all domains with record counts
 [vectormemory clear][/vectormemory]
@@ -282,11 +283,16 @@ The AI communicates through special command tags that trigger plugin execution. 
 
 # Temporal context
 [rhythm show][/rhythm]
+[rhythm show][/rhythm]
+[rhythm at]yesterday[/rhythm]
+[rhythm diff]yesterday | today[/rhythm]
+[rhythm since]2026-03-15[/rhythm]
 
 # RAG query control — queries support time: and domain: prefixes
 [rag query]Technical breakthroughs in AI self-regulation[/rag]
 [rag query]time:last week | architecture decisions[/rag]
 [rag query]domain:work | optimization patterns[/rag]
+[rag query]pulse:800-200 | late reflections[/rag]
 [rag show][/rag]
 [rag clear][/rag]
 
@@ -763,6 +769,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
   - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
+  - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
   - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.
   - `[[active_spawns]]` - List of active spawned instruments created by this agent. Injected when Spawn plugin is enabled.

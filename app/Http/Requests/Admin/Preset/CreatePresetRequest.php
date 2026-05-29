@@ -30,6 +30,7 @@ class CreatePresetRequest extends FormRequest
             'agent_result_mode' => ['required','string'],
             'preset_code_next' => ['nullable', 'string', 'max:50'],
             'pre_run_commands' => ['nullable', 'string'],
+            'turn_trigger' => ['nullable', 'string'],
             'defrag_enabled'      => 'boolean',
             'defrag_prompt'       => 'nullable|string',
             'defrag_keep_per_day' => 'nullable|integer|min:1|max:20',

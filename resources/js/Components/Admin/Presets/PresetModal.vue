@@ -193,6 +193,7 @@ const form = ref({
     preset_code: props.preset?.preset_code || '',
     preset_code_next: props.preset?.preset_code_next || '',
     pre_run_commands: props.preset?.pre_run_commands || '',
+    turn_trigger: props.preset?.turn_trigger || 'none',
     default_call_message: props.preset?.default_call_message || '',
     before_execution_wait: props.preset?.before_execution_wait || 5,
     plugins_disabled: props.preset?.plugins_disabled || '',

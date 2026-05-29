@@ -26,6 +26,7 @@ class AiPreset extends Model
         'preset_code',
         'preset_code_next',
         'pre_run_commands',
+        'turn_trigger',
         'defrag_enabled',
         'defrag_prompt',
         'defrag_keep_per_day',
@@ -99,6 +100,7 @@ class AiPreset extends Model
         'cp_context_limit'         => 5,
         'voice_mp_commands'        => '',
         'pre_run_commands'         => '',
+        'turn_trigger'             => 'none',
         'rhasspy_enabled'          => false,
         'rhasspy_incoming_enabled' => false,
     ];
@@ -568,6 +570,11 @@ class AiPreset extends Model
     public function getPreRunCommands(): string
     {
         return $this->pre_run_commands ?? '';
+    }
+
+    public function getTurnTrigger(): string
+    {
+        return $this->turn_trigger ?? 'none';
     }
 
     public function getErrorBehavior(): string

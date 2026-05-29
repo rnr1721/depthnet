@@ -93,6 +93,42 @@
                 <span class="text-sm font-medium">{{ t('p_modal_pulse_dates') }}</span>
             </label>
 
+            <!-- Turn Trigger -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_turn_trigger') }}
+                </label>
+                <select :value="modelValue.turn_trigger" @input="updateField('turn_trigger', $event.target.value)"
+                    :class="inputClass">
+                    <option value="none">{{ t('p_modal_turn_trigger_none') }}</option>
+                    <option value="no_speak">{{ t('p_modal_turn_trigger_no_speak') }}</option>
+                </select>
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_turn_trigger_desc') }}
+                </p>
+                <div v-if="errors.turn_trigger" class="text-red-500 text-xs mt-1">
+                    {{ errors.turn_trigger }}
+                </div>
+            </div>
+
+            <!-- Input Mode -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_input_mode') }}
+                </label>
+                <select :value="modelValue.input_mode" @input="updateField('input_mode', $event.target.value)"
+                    :class="inputClass">
+                    <option value="pool">{{ t('p_modal_input_mode_pool') }}</option>
+                    <option value="single">{{ t('p_modal_input_mode_single') }}</option>
+                </select>
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_input_mode_desc') }}
+                </p>
+                <div v-if="errors.input_mode" class="text-red-500 text-xs mt-1">
+                    {{ errors.input_mode }}
+                </div>
+            </div>
+
             <!-- Disabled Plugins -->
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">

@@ -30,6 +30,7 @@ class PresetResource extends JsonResource
             'agent_result_mode' => $this->agent_result_mode,
             'preset_code_next' => $this->preset_code_next,
             'pre_run_commands' => $this->pre_run_commands,
+            'turn_trigger' => $this->turn_trigger,
             'defrag_enabled'      => $this->defrag_enabled,
             'defrag_prompt'       => $this->defrag_prompt,
             'defrag_keep_per_day' => $this->defrag_keep_per_day,

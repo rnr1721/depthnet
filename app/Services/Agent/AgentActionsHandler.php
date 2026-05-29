@@ -17,6 +17,7 @@ use App\Models\Message;
 use App\Services\Agent\DTO\ActionsResponseDTO;
 use App\Services\Agent\DTO\AgentResponseDTO;
 use App\Services\Agent\Traits\ExtractsAgentVoice;
+use App\Services\Chat\ChatStatusService;
 use Psr\Log\LoggerInterface;
 use Illuminate\Contracts\Cache\Repository as Cache;
 
@@ -56,6 +57,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected InputPoolServiceInterface $inputPoolService,
         protected AgentMessageServiceInterface $agentMessageService,
         protected PresetServiceInterface $presetService,
+        protected ChatStatusService $chatStatusService,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -95,7 +97,11 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
 
         $result = $this->processSuccessfulResponse($response, $preset, $mainPreset);
 
-        if ($result['actionsResult']->hasTurn()) {
+        $actionsResult = $result['actionsResult'];
+
+        $turn = $this->determineTurnNeed($preset, $actionsResult);
+
+        if ($turn) {
             if ($this->inputPoolService->isEnabled($preset)) {
                 $this->inputPoolService->add($preset->getId(), 'system', 'Continue.');
             } else {
@@ -112,11 +118,25 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
 
         $this->inputPoolService->clear($preset->getId());
 
-        if ($result['actionsResult']->hasTurn()) {
+        if ($turn) {
             $this->agentJobFactory->make()->start($preset->getId(), singleMode: true);
         }
 
         return new AgentResponseDTO($result['message'], $result['actionsResult'], false);
+    }
+
+    private function determineTurnNeed(AiPreset $preset, AiActionsResponseInterface $actionsResult): bool
+    {
+        if ($this->chatStatusService->getPresetStatus($preset->getId())) {
+            return false;
+        }
+        if ($preset->getTurnTrigger() === 'no_speak' && empty($actionsResult->getSystemMessage())) {
+            return true;
+        }
+        if ($actionsResult->hasTurn()) {
+            return true;
+        }
+        return false;
     }
 
     /**

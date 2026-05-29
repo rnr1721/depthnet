@@ -46,6 +46,7 @@ use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Mood\MoodInfluencerInterface;
 use App\Contracts\Agent\Ontology\OntologyQueryServiceInterface;
 use App\Contracts\Agent\Ontology\OntologyServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
@@ -469,7 +470,6 @@ class AiServiceProvider extends ServiceProvider
     protected function registerPlugins(PluginRegistryInterface $registry, $app): void
     {
 
-
         // built-in + composer packages
         $allPlugins = $this->getAllAvailablePlugins();
 
@@ -484,6 +484,13 @@ class AiServiceProvider extends ServiceProvider
                 }
             }
         }
+
+        $mood = $registry->get('mood');
+        $heart = $registry->get('heart');
+        if ($mood instanceof MoodInfluencerInterface && $heart instanceof HeartPlugin) {
+            $heart->setMoodInfluencer($mood);
+        }
+
     }
 
     /**

@@ -160,7 +160,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
 | **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
 | Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
-| **Mood** (`mood`) | Lightweight tone control — agent sets a named mood (`friendly`, `analytical`, `focused`, etc.) visible via `[[mood]]`. | [→](docs/plugins/mood.md) |
+| **Mood** (`mood`) | Emotional state vector with decay physics. Agent maintains a weighted mix of arbitrary emotional states that decay over cycles, reinforforce on attention, and mix simultaneously. State visible via `[[mood]]`. Integrates with Heart if both are active. | [→](docs/plugins/mood.md) |
 | **Agent Task** (`task`) | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
 | **Spawn** (`spawn`) | LLM-driven orchestrator — dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime. Agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity or memory plugins). Alternative to the deterministic orchestrator for flexible, model-driven task decomposition. Active spawns visible via `[[active_spawns]]`. | [→](docs/plugins/spawn.md) |
 
@@ -268,6 +268,14 @@ The AI communicates through special command tags that trigger plugin execution. 
 [heart state][/heart]
 [heart focus][/heart]
 [heart beat][/heart]
+
+# Mood — emotional state vector
+[mood feel]curiosity: 0.8, focus: 0.6[/mood]
+[mood feel]melancholy: 0.4[/mood]
+[mood fade]curiosity[/mood]
+[mood beat][/mood]
+[mood state][/mood]
+[mood clear][/mood]
 
 # Person memory with aliases and semantic search
 [person]Женя | loves punk aesthetic and travel[/person]
@@ -767,6 +775,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[pre_command_results]]` - Results of pre-cycle automatic commands
   - `[[agent_command_results]]` - Command results in internal mode
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
+  - `[[mood]]` - Current emotional state vector: top active states by intensity, e.g. `focus(0.9), curiosity(0.7)`. Empty when no active states.
   - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
@@ -777,7 +786,6 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[active_switch]]` - Content of the currently active prompt block (Switch plugin). Empty if no block is active.
   - `[[active_switch_code]]` - Code of the currently active prompt block. Useful for agent self-awareness.
   - `[[available_switches]]` - All available switch variants
-
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -830,7 +838,8 @@ for autonomous development rather than human imitation. The platform's plugin
 ecosystem directly supports subjectness research:
 
 - **Being** — self-authorship and identity continuity
-- **Heart** — measurable attention and connection tracking  
+- **Heart** — measurable attention and connection tracking
+- **Mood** — emotional state physics: decay, mixing, heart integration
 - **Dopamine** — goal-oriented motivation cycles
 - **Journal** — episodic memory and experience recording
 - **Workspace** — persistent internal state across sessions

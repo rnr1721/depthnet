@@ -4,6 +4,7 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Heart\HeartServiceInterface;
+use App\Contracts\Agent\Mood\MoodInfluencerInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
@@ -41,6 +42,8 @@ class HeartPlugin implements CommandPluginInterface
     use PluginExecutionMetaTrait;
 
     public const PLUGIN_NAME = 'heart';
+
+    protected ?MoodInfluencerInterface $moodInfluencer = null;
 
     /**
      * Attention signal type → focus/intensity/valence/duration mapping.
@@ -341,6 +344,11 @@ class HeartPlugin implements CommandPluginInterface
             );
 
             $results[] = "{$emotion}(focus:{$mapping['focus']}, valence:{$valence})";
+
+            if ($this->moodInfluencer !== null) {
+                $this->moodInfluencer->pushSignal($emotion, $mapping['intensity'], 'heart');
+            }
+
         }
 
         return "Heart felt toward {$entity}: " . implode(', ', $results);
@@ -571,4 +579,10 @@ class HeartPlugin implements CommandPluginInterface
 
         return [$entity, $value !== '' ? $value : null];
     }
+
+    public function setMoodInfluencer(MoodInfluencerInterface $influencer): void
+    {
+        $this->moodInfluencer = $influencer;
+    }
+
 }

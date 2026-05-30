@@ -68,10 +68,15 @@ export function useVoice(options = {}) {
     let recognition = null;
     let wantRunning = false;     // do we WANT recognition alive? (survives auto-stop)
     let restarting = false;      // guard against double restart from onend
+    // Mic can be paused for multiple overlapping reasons (TTS speaking AND waiting
+    // for the agent's reply). We resume only when ALL reasons are cleared.
+    const pauseReasons = new Set(); // 'tts' | 'busy'
     let dictationSource = 'manual'; // how dictation started: 'wake' | 'manual'
 
     // Echo guard: suppress wake word matching while TTS speaks (+ a short tail).
-    const ECHO_TAIL_MS = options.echoTailMs ?? 800;
+    // 1200ms tail is safer for back-and-forth voice dialogue where room acoustics
+    // and speaker lag let the agent's trailing audio reach the mic.
+    const ECHO_TAIL_MS = options.echoTailMs ?? 1200;
     let suppressWakeUntil = 0;
 
     // Silence-based finalization (used in continuous/desktop mode).
@@ -81,6 +86,7 @@ export function useVoice(options = {}) {
 
     // Config
     let wakeWords = [];
+    let wakeSkeletons = [];   // consonant skeletons for fuzzy vowel-tolerant matching
     let onWakeCallback = null;
     let onPhraseCallback = null;
     const sttLang = options.sttLang
@@ -115,18 +121,49 @@ export function useVoice(options = {}) {
             .trim();
     }
 
+    /** Consonant skeleton: drop vowels and transliterate to one alphabet, so
+     *  "флэш" / "флеш" / "флаш" / "flash" all collapse to the same key. Used as a
+     *  fuzzy fallback when exact/translit matching misses on vowel differences. */
+    function skeleton(s) {
+        // transliterate latin→cyrillic first so both scripts share an alphabet,
+        // then drop all vowels (latin + cyrillic).
+        const cyr = translitLatToCyr(normalize(s));
+        return cyr.replace(/[аеёиоуыэюяaeiouy]/gi, '');
+    }
+
+    /**
+     * Accepts a single wake word, a comma/pipe-separated string, or an array.
+     * Each entry becomes match variants (exact + latin→cyrillic translit).
+     */
     function buildWakeVariants(word) {
-        const base = normalize(word);
-        if (!base) return [];
-        const variants = new Set([base]);
-        if (/[a-z]/.test(base)) variants.add(translitLatToCyr(base));
+        const raw = Array.isArray(word)
+            ? word
+            : String(word || '').split(/[,|]/);
+        const variants = new Set();
+        const skeletons = new Set();
+        for (const part of raw) {
+            const base = normalize(part);
+            if (!base) continue;
+            variants.add(base);
+            if (/[a-z]/.test(base)) variants.add(translitLatToCyr(base));
+            const sk = skeleton(part);
+            if (sk.length >= 3) skeletons.add(sk); // skip very short skeletons (false positives)
+        }
+        wakeSkeletons = [...skeletons];
         return [...variants].filter(Boolean);
     }
 
     function matchesWakeWord(transcript) {
         const norm = normalize(transcript);
         const normTranslit = translitLatToCyr(norm);
-        return wakeWords.some(w => norm.includes(w) || normTranslit.includes(w));
+        // 1. exact / transliterated substring match
+        if (wakeWords.some(w => norm.includes(w) || normTranslit.includes(w))) return true;
+        // 2. fuzzy consonant-skeleton match (handles flash/флэш/флеш vowel drift)
+        if (wakeSkeletons.length) {
+            const heardSkeleton = skeleton(transcript);
+            return wakeSkeletons.some(sk => heardSkeleton.includes(sk));
+        }
+        return false;
     }
 
     function isWakeSuppressed() {
@@ -153,11 +190,15 @@ export function useVoice(options = {}) {
         };
 
         r.onend = () => {
+            // While paused for TTS, do not restart — the mic must stay closed so
+            // the agent's spoken reply can't enter results[]. resumeRecognition()
+            // brings it back when speech finishes.
+            if (isMicPaused()) return;
             if (USE_CONTINUOUS && wantRunning && !restarting) {
                 // Desktop: browser auto-stopped a continuous session — restart it.
                 restarting = true;
                 setTimeout(() => {
-                    if (wantRunning && recognition) {
+                    if (wantRunning && !isMicPaused() && recognition) {
                         try { recognition.start(); } catch (err) { restarting = false; }
                     }
                 }, 200);
@@ -173,9 +214,17 @@ export function useVoice(options = {}) {
     }
 
     function handleResult(event) {
+        // GLOBAL echo guard: while TTS is speaking (+ tail), ignore ALL input —
+        // both wake matching and dictation. The agent's own voice must never be
+        // transcribed into the user's message. This is the key fix for self-pickup.
+        if (isWakeSuppressed()) {
+            // Drop any interim that leaked in just before suppression kicked in.
+            if (machineState === STATE.DICTATING) interimText.value = '';
+            return;
+        }
+
         // WAKE: only check for the wake word (desktop only — mobile never enters WAKE).
         if (machineState === STATE.WAKE) {
-            if (isWakeSuppressed()) return;
             for (let i = 0; i < event.results.length; i++) {
                 const res = event.results[i];
                 for (let j = 0; j < res.length; j++) {
@@ -187,22 +236,91 @@ export function useVoice(options = {}) {
 
         if (machineState !== STATE.DICTATING) return;
 
-        // DICTATING: rebuild the WHOLE transcript from the current result set.
-        // event.results is the full session state, NOT a delta — so we assign,
-        // never accumulate. This is what kills the "Я Я хочу Я хочу" duplication.
+        // DICTATING: rebuild the whole transcript from results[] (assign, don't
+        // accumulate — that fixes the interim "Я Я хочу" duplication).
         let finalText = '';
         let interim = '';
         for (let i = 0; i < event.results.length; i++) {
             const res = event.results[i];
-            if (res.isFinal) finalText += res[0].transcript;
+            if (!res || !res[0]) continue;
+            if (res.isFinal) finalText += res[0].transcript + ' ';
             else interim += res[0].transcript;
         }
 
-        dictationBuffer = finalText.replace(/\s+/g, ' ').trim();
-        interimText.value = interim.replace(/\s+/g, ' ').trim();
+        let combined = (finalText + interim).replace(/\s+/g, ' ').trim();
+
+        // Strip the wake word (and anything before/including it) that leaked into
+        // results[] during the WAKE→DICTATING handoff. This kills the phrase-level
+        // "Флэш ... Флэш ..." duplication where the pre-roll got re-included.
+        combined = stripWakePrefix(combined);
+
+        dictationBuffer = combined;
+        interimText.value = ''; // combined already holds interim; avoid double-count
 
         // Desktop uses a silence timer to end a phrase; mobile relies on onend.
         if (USE_CONTINUOUS) armSilenceTimer();
+    }
+
+    /**
+     * Remove the wake word and EVERYTHING before it from a dictated transcript.
+     * In WAKE mode the recognizer keeps accumulating whatever was said before the
+     * wake word into results[]; once dictation starts we rebuild from the whole
+     * array, so chatter that preceded "флэш" leaks in. We find the LAST wake-word
+     * token and keep only what comes after it.
+     *
+     * "болтаю о своём флэш открой файл"  → "открой файл"
+     * "флэш флэш привет"                 → "привет"
+     * "флэш"                             → ""  (wake word only, nothing to send)
+     */
+    function isWakeToken(token) {
+        const n = normalize(token);
+        if (!n) return false; // empty/punctuation — not a wake token, just skippable
+        const nt = translitLatToCyr(n);
+        if (wakeWords.some(w => n === w || nt === w || n.includes(w) || nt.includes(w))) return true;
+        if (wakeSkeletons.length) {
+            const sk = skeleton(token);
+            if (sk.length >= 3 && wakeSkeletons.some(s => sk === s)) return true;
+        }
+        return false;
+    }
+
+    function stripWakePrefix(text) {
+        if (!wakeWords.length || !text) return text;
+        const words = text.split(/\s+/).filter(Boolean);
+        // find the LAST token that is a wake word
+        let lastWakeIdx = -1;
+        for (let i = 0; i < words.length; i++) {
+            if (isWakeToken(words[i])) lastWakeIdx = i;
+        }
+        if (lastWakeIdx === -1) {
+            // No wake word in the text (manual dictation, or wake matched fuzzily on
+            // a multi-word boundary). Leave it alone but still dedupe.
+            return dedupeRepeatedPrefix(text);
+        }
+        // keep everything AFTER the last wake token
+        const tail = words.slice(lastWakeIdx + 1).join(' ').trim();
+        return dedupeRepeatedPrefix(tail);
+    }
+
+    /**
+     * Collapse the specific "said it, mic didn't show, said it again" duplication:
+     * if the transcript is two near-identical halves, keep one. We compare the
+     * normalized first half against the second; if they match, drop the first.
+     */
+    function dedupeRepeatedPrefix(text) {
+        const words = text.split(/\s+/).filter(Boolean);
+        const n = words.length;
+        if (n < 4) return text; // too short to be a meaningful duplicate
+        // try splitting into two equal halves
+        if (n % 2 === 0) {
+            const half = n / 2;
+            const first = words.slice(0, half).join(' ').toLowerCase();
+            const second = words.slice(half).join(' ').toLowerCase();
+            if (normalize(first) === normalize(second)) {
+                return words.slice(half).join(' ').trim();
+            }
+        }
+        return text;
     }
 
     function onWakeWordHit() {
@@ -287,6 +405,46 @@ export function useVoice(options = {}) {
         }
     }
 
+    /**
+     * Hard-pause the microphone for a named reason ('tts' while the agent speaks,
+     * 'busy' while a request is in flight). Physically stops recognition so neither
+     * the agent's voice nor a premature new phrase can enter results[].
+     */
+    function pauseRecognition(reason = 'tts') {
+        if (!hasSTT) return;
+        if (!USE_CONTINUOUS) return; // only meaningful on desktop's open mic
+        pauseReasons.add(reason);
+        if (machineState === STATE.IDLE) return; // nothing running to pause
+        clearSilenceTimer();
+        if (recognition) {
+            try { recognition.stop(); } catch (e) { /* ignore */ }
+        }
+    }
+
+    /**
+     * Clear a pause reason. The mic only actually resumes once ALL reasons are
+     * gone — so TTS finishing won't reopen the mic if we're still awaiting a reply.
+     * Returns the mic to WAKE listening (desktop). Mobile never auto-resumes.
+     */
+    function resumeRecognition(reason = 'tts') {
+        if (!hasSTT) return;
+        pauseReasons.delete(reason);
+        if (pauseReasons.size > 0) return; // still paused for another reason
+        restarting = false;
+        // Clear anything buffered around the pause.
+        dictationBuffer = '';
+        interimText.value = '';
+        if (USE_CONTINUOUS && wakeWords.length) {
+            machineState = STATE.WAKE;
+            syncFlags();
+            ensureRunning();
+        } else {
+            stopAll();
+        }
+    }
+
+    function isMicPaused() { return pauseReasons.size > 0; }
+
     // ─── Public STT API ───────────────────────────────────────────────────────
 
     function startWakeWord(word, onWake) {
@@ -327,6 +485,17 @@ export function useVoice(options = {}) {
     }
 
     function onPhrase(cb) { onPhraseCallback = cb; }
+
+    /**
+     * Host signals whether a request is in flight. While busy, the mic is paused
+     * so the user can't fire off 2-3 messages by voice before the reply arrives.
+     * Pass isProcessing from the chat component. Combines with the TTS pause via
+     * the reason set — the mic reopens only when both are clear.
+     */
+    function setBusy(busy) {
+        if (busy) pauseRecognition('busy');
+        else resumeRecognition('busy');
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  TTS — carried over from useSpeech (this part worked fine)
@@ -412,6 +581,9 @@ export function useVoice(options = {}) {
 
     function enqueueSpeak(text, messageId = null) {
         if (!hasTTS || !text.trim()) return;
+        // Close the mic before any audio plays, so the agent's voice can't be
+        // recognized. Resumed once the whole queue drains (see resume below).
+        pauseRecognition();
         speakQueue.push({ text, messageId });
         processQueue();
     }
@@ -432,6 +604,15 @@ export function useVoice(options = {}) {
                 if (messageId) lastSpokenMessageId.value = messageId;
                 // One more tail in case this was the last item in the queue.
                 suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                // If nothing else is queued, the agent is done talking — reopen the
+                // mic after a short tail so trailing speaker audio can fully decay.
+                if (speakQueue.length === 0) {
+                    setTimeout(() => {
+                        if (speakQueue.length === 0 && !isSpeaking.value) {
+                            resumeRecognition();
+                        }
+                    }, ECHO_TAIL_MS);
+                }
                 processQueue();
                 return;
             }
@@ -443,19 +624,30 @@ export function useVoice(options = {}) {
             if (v) u.voice = v;
             u.onstart = () => {
                 isSpeaking.value = true;
-                // Suppress wake matching while we speak (refreshed per sentence).
+                // Hold a wide suppression window for the whole utterance.
                 suppressWakeUntil = Date.now() + 60000;
             };
             u.onend = () => {
-                // Keep suppressing for a short tail so trailing audio can't self-trigger.
-                suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                // Only relax to the short tail when there is genuinely nothing
+                // left to speak — neither more sentences here nor queued items.
+                // Otherwise keep the window wide so the gap between sentences
+                // can't let the agent's own voice leak into recognition.
+                const moreSentences = (i + 1) < sentences.length;
+                const moreQueued = speakQueue.length > 0;
+                if (!moreSentences && !moreQueued) {
+                    suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                }
                 i++; next();
             };
             u.onerror = (e) => {
                 if (e.error !== 'interrupted' && e.error !== 'canceled') {
                     console.warn('SpeechSynthesis error:', e.error);
                 }
-                suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                const moreSentences = (i + 1) < sentences.length;
+                const moreQueued = speakQueue.length > 0;
+                if (!moreSentences && !moreQueued) {
+                    suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                }
                 i++; next();
             };
             setTimeout(() => window.speechSynthesis.speak(u), 50);
@@ -488,19 +680,22 @@ export function useVoice(options = {}) {
         }
     }
 
-    function stopSpeaking() {
+    function stopSpeaking(resumeMic = false) {
         speakQueue.length = 0;
         isProcessingQueue = false;
         isSpeaking.value = false;
         currentlySpeakingId.value = null;
         suppressWakeUntil = 0; // user stopped TTS — re-enable wake immediately
         if (hasTTS) window.speechSynthesis.cancel();
+        // Reopen the mic immediately when the stop is user-initiated (not when we
+        // stop just to start a new utterance — that path re-pauses right away).
+        if (resumeMic) resumeRecognition();
     }
 
     function toggleTTS() {
         ttsEnabled.value = !ttsEnabled.value;
         localStorage.setItem('depthnet_tts_enabled', ttsEnabled.value ? 'true' : 'false');
-        if (!ttsEnabled.value) stopSpeaking();
+        if (!ttsEnabled.value) stopSpeaking(true);
     }
 
     // ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -527,6 +722,6 @@ export function useVoice(options = {}) {
         // STT
         isListening, isWakeWordListening, wakeWordDetected,
         interimText, recognizedText, sttError,
-        startWakeWord, stopWakeWord, toggleMic, stopAll, onPhrase,
+        startWakeWord, stopWakeWord, toggleMic, stopAll, onPhrase, setBusy,
     };
 }

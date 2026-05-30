@@ -57,7 +57,7 @@ Choose your preferred installation method:
 - **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
-- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - Browser setup for voice input and text-to-speech
+- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - hands-free voice dialogue, wake word, browser setup
 - **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration
 
 - **[Reverse proxy](docs/installation/reverse-proxy.md)** - instruction for production environments
@@ -596,6 +596,7 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - **Responsive Design**: Works seamlessly on desktop and mobile
 - **Thinking Visibility**: Toggle between seeing all thoughts vs. responses only
 - **Dark/Light Themes**: Customizable appearance with user preferences
+- **Voice Interface**: Built-in TTS/STT via the browser's Web Speech API — no keys or external services. Hands-free spoken dialogue on desktop (wake word = preset name), push-to-talk on mobile. [→](docs/ui/text-to-speech.md)
 
 **Important**: This platform is designed for controlled research environments. Production deployment requires appropriate security hardening based on your specific risk assessment.
 

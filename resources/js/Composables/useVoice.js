@@ -33,8 +33,25 @@ export function useVoice(options = {}) {
         ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  STT — single recognition + state machine
+    //  STT — platform-adaptive recognition
+    //
+    //  Desktop: continuous wake-word listener + hands-free dictation.
+    //  Mobile:  push-to-talk only. One phrase per tap (continuous=false),
+    //           text goes to the input field, user sends manually.
+    //           No always-on wake word (it's the source of the mic "beeping"
+    //           and the duplicated-interim bug on mobile Chrome).
     // ═══════════════════════════════════════════════════════════════════════════
+
+    function isMobileDevice() {
+        if (typeof navigator === 'undefined') return false;
+        const ua = navigator.userAgent || '';
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+            || (typeof window !== 'undefined' && window.innerWidth < 1024);
+    }
+
+    const IS_MOBILE = isMobileDevice();
+    // Continuous sessions are only reliable on desktop.
+    const USE_CONTINUOUS = !IS_MOBILE;
 
     const STATE = { IDLE: 'idle', WAKE: 'wake', DICTATING: 'dictating' };
 
@@ -49,30 +66,29 @@ export function useVoice(options = {}) {
     // Internal machine state — not reactive, single source of truth
     let machineState = STATE.IDLE;
     let recognition = null;
-    let wantRunning = false;     // do we WANT recognition alive? (survives browser auto-stop)
+    let wantRunning = false;     // do we WANT recognition alive? (survives auto-stop)
     let restarting = false;      // guard against double restart from onend
     let dictationSource = 'manual'; // how dictation started: 'wake' | 'manual'
 
-    // Echo guard: suppress wake word matching while TTS speaks (+ a short tail),
-    // so the agent's spoken reply can't trigger its own wake word.
+    // Echo guard: suppress wake word matching while TTS speaks (+ a short tail).
     const ECHO_TAIL_MS = options.echoTailMs ?? 800;
-    let suppressWakeUntil = 0;   // timestamp; wake matching ignored until then
+    let suppressWakeUntil = 0;
 
-    // Configuration
-    let wakeWords = [];          // normalized wake word variants
-    let onWakeCallback = null;   // fired when wake word detected
-    let onPhraseCallback = null; // fired with final dictated text
-    const sttLang = options.sttLang || (typeof document !== 'undefined' ? document.documentElement.lang : '') || 'ru-RU';
-
-    // Silence-based finalization (our own timer — more predictable than isFinal)
+    // Silence-based finalization (used in continuous/desktop mode).
     const SILENCE_MS = options.silenceMs ?? 1500;
     let silenceTimer = null;
     let dictationBuffer = '';
 
-    // ─── Wake word normalization (handles cyrillic ↔ latin mismatch) ──────────
+    // Config
+    let wakeWords = [];
+    let onWakeCallback = null;
+    let onPhraseCallback = null;
+    const sttLang = options.sttLang
+        || (typeof document !== 'undefined' ? document.documentElement.lang : '')
+        || 'ru-RU';
 
-    // Minimal latin→cyrillic transliteration for matching purposes only.
-    // Goal: make "adaliya" match a russian STT result of "адалия".
+    // ─── Wake word normalization (cyrillic ↔ latin) ───────────────────────────
+
     const LAT_TO_CYR = [
         ['shch', 'щ'], ['sch', 'щ'], ['yo', 'ё'], ['zh', 'ж'], ['kh', 'х'],
         ['ts', 'ц'], ['ch', 'ч'], ['sh', 'ш'], ['yu', 'ю'], ['ya', 'я'],
@@ -85,44 +101,34 @@ export function useVoice(options = {}) {
 
     function translitLatToCyr(s) {
         let out = s;
-        for (const [lat, cyr] of LAT_TO_CYR) {
-            out = out.split(lat).join(cyr);
-        }
+        for (const [lat, cyr] of LAT_TO_CYR) out = out.split(lat).join(cyr);
         return out;
     }
 
-    /** Normalize a string for fuzzy matching: lowercase, strip diacritics & punctuation. */
     function normalize(s) {
         return (s || '')
             .toLowerCase()
             .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '') // strip combining diacritics
-            .replace(/[^a-zа-яё0-9 ]/gi, ' ') // keep letters/digits/space only
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zа-яё0-9 ]/gi, ' ')
             .replace(/\s+/g, ' ')
             .trim();
     }
 
-    /**
-     * Build all match variants for a wake word so STT in any language can hit it.
-     * e.g. "Adaliya" → ["adaliya", "адалия"]
-     */
     function buildWakeVariants(word) {
         const base = normalize(word);
         if (!base) return [];
         const variants = new Set([base]);
-        // If the word looks latin, also add a cyrillic transliteration
         if (/[a-z]/.test(base)) variants.add(translitLatToCyr(base));
         return [...variants].filter(Boolean);
     }
 
-    /** Does a (normalized) transcript contain any wake word variant? */
     function matchesWakeWord(transcript) {
         const norm = normalize(transcript);
-        const normTranslit = translitLatToCyr(norm); // also translit the heard text
+        const normTranslit = translitLatToCyr(norm);
         return wakeWords.some(w => norm.includes(w) || normTranslit.includes(w));
     }
 
-    /** Is wake word matching currently suppressed (TTS speaking or echo tail)? */
     function isWakeSuppressed() {
         return Date.now() < suppressWakeUntil;
     }
@@ -132,36 +138,32 @@ export function useVoice(options = {}) {
     function buildRecognition() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         const r = new SR();
-        r.continuous = true;       // ONE long session, we manage phrasing ourselves
+        r.continuous = USE_CONTINUOUS;   // desktop: long session; mobile: one phrase
         r.interimResults = true;
-        r.maxAlternatives = 3;     // more alternatives = better wake word hit rate
+        r.maxAlternatives = 3;
         r.lang = sttLang;
 
-        r.onstart = () => {
-            restarting = false;
-            syncFlags();
-        };
-
+        r.onstart = () => { restarting = false; syncFlags(); };
         r.onresult = handleResult;
 
         r.onerror = (e) => {
-            // no-speech / aborted are normal in a long session — ignore
             if (e.error === 'no-speech' || e.error === 'aborted') return;
             sttError.value = e.error;
             console.warn('[useVoice] recognition error:', e.error);
         };
 
         r.onend = () => {
-            // Browser ended the session (timeout/silence). If we still want it
-            // running, restart transparently — same logical state.
-            if (wantRunning && !restarting) {
+            if (USE_CONTINUOUS && wantRunning && !restarting) {
+                // Desktop: browser auto-stopped a continuous session — restart it.
                 restarting = true;
                 setTimeout(() => {
                     if (wantRunning && recognition) {
-                        try { recognition.start(); }
-                        catch (err) { restarting = false; }
+                        try { recognition.start(); } catch (err) { restarting = false; }
                     }
                 }, 200);
+            } else if (!USE_CONTINUOUS && machineState === STATE.DICTATING) {
+                // Mobile: a single-phrase session ended → finalize whatever we got.
+                finalizeDictation();
             } else if (!wantRunning) {
                 syncFlags();
             }
@@ -171,42 +173,40 @@ export function useVoice(options = {}) {
     }
 
     function handleResult(event) {
-        // Collect the latest interim + final text across results
-        let interim = '';
-        let finalChunk = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-            const res = event.results[i];
-            // For wake word matching, scan ALL alternatives, not just [0]
-            if (machineState === STATE.WAKE) {
-                // Echo guard: ignore everything while TTS is speaking (+ tail).
-                // Prevents the agent's own spoken reply from tripping the wake word.
-                if (isWakeSuppressed()) continue;
+        // WAKE: only check for the wake word (desktop only — mobile never enters WAKE).
+        if (machineState === STATE.WAKE) {
+            if (isWakeSuppressed()) return;
+            for (let i = 0; i < event.results.length; i++) {
+                const res = event.results[i];
                 for (let j = 0; j < res.length; j++) {
-                    if (matchesWakeWord(res[j].transcript)) {
-                        onWakeWordHit();
-                        return;
-                    }
+                    if (matchesWakeWord(res[j].transcript)) { onWakeWordHit(); return; }
                 }
-                continue; // in WAKE we don't buffer text
             }
-            // DICTATING: accumulate
-            if (res.isFinal) finalChunk += res[0].transcript;
+            return;
+        }
+
+        if (machineState !== STATE.DICTATING) return;
+
+        // DICTATING: rebuild the WHOLE transcript from the current result set.
+        // event.results is the full session state, NOT a delta — so we assign,
+        // never accumulate. This is what kills the "Я Я хочу Я хочу" duplication.
+        let finalText = '';
+        let interim = '';
+        for (let i = 0; i < event.results.length; i++) {
+            const res = event.results[i];
+            if (res.isFinal) finalText += res[0].transcript;
             else interim += res[0].transcript;
         }
 
-        if (machineState === STATE.DICTATING) {
-            if (finalChunk) {
-                dictationBuffer += (dictationBuffer ? ' ' : '') + finalChunk.trim();
-            }
-            interimText.value = interim;
-            // Any speech activity resets the silence timer
-            armSilenceTimer();
-        }
+        dictationBuffer = finalText.replace(/\s+/g, ' ').trim();
+        interimText.value = interim.replace(/\s+/g, ' ').trim();
+
+        // Desktop uses a silence timer to end a phrase; mobile relies on onend.
+        if (USE_CONTINUOUS) armSilenceTimer();
     }
 
     function onWakeWordHit() {
         wakeWordDetected.value = true;
-        // brief visual flash, then switch to dictation WITHOUT restarting recognition
         setTimeout(() => {
             wakeWordDetected.value = false;
             enterDictating('wake');
@@ -214,7 +214,7 @@ export function useVoice(options = {}) {
         }, 350);
     }
 
-    // ─── Silence-based finalization ─────────────────────────────────────────────
+    // ─── Silence finalization (desktop) ─────────────────────────────────────────
 
     function armSilenceTimer() {
         clearSilenceTimer();
@@ -225,28 +225,35 @@ export function useVoice(options = {}) {
         if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
     }
 
+    let finalizing = false; // guard: onend + silence timer must not double-fire
+
     function finalizeDictation() {
+        if (finalizing) return;
+        finalizing = true;
         clearSilenceTimer();
-        const text = (dictationBuffer + ' ' + interimText.value).trim();
+
+        const text = (dictationBuffer + ' ' + interimText.value).replace(/\s+/g, ' ').trim();
         const source = dictationSource;
         dictationBuffer = '';
         interimText.value = '';
         recognizedText.value = text;
 
-        // hand the phrase back, along with how dictation was started ('wake' | 'manual')
         if (text) onPhraseCallback?.(text, source);
 
-        // return to WAKE if we have a wake word, else stop entirely
-        if (wakeWords.length) {
+        // Desktop with a wake word returns to listening; otherwise stop.
+        if (USE_CONTINUOUS && wakeWords.length) {
             enterWake();
         } else {
             stopAll();
         }
+        finalizing = false;
     }
 
     // ─── State transitions ──────────────────────────────────────────────────────
 
     function enterWake() {
+        // Mobile never runs an always-on wake listener.
+        if (!USE_CONTINUOUS) { stopAll(); return; }
         machineState = STATE.WAKE;
         syncFlags();
         ensureRunning();
@@ -258,10 +265,10 @@ export function useVoice(options = {}) {
         dictationBuffer = '';
         interimText.value = '';
         recognizedText.value = '';
+        finalizing = false;
         syncFlags();
         ensureRunning();
-        // start a silence timer immediately so "wake word + no speech" still resolves
-        armSilenceTimer();
+        if (USE_CONTINUOUS) armSilenceTimer();
     }
 
     function syncFlags() {
@@ -272,38 +279,32 @@ export function useVoice(options = {}) {
     function ensureRunning() {
         if (!hasSTT) return;
         wantRunning = true;
-        if (!recognition) recognition = buildRecognition();
+        // Mobile: rebuild a fresh recognizer per phrase — cleaner than reusing.
+        if (!recognition || !USE_CONTINUOUS) recognition = buildRecognition();
         try { recognition.start(); }
         catch (e) {
-            // start() throws if already started — that's fine, it's already alive
-            if (e.name !== 'InvalidStateError') {
-                console.warn('[useVoice] start failed:', e);
-            }
+            if (e.name !== 'InvalidStateError') console.warn('[useVoice] start failed:', e);
         }
     }
 
     // ─── Public STT API ───────────────────────────────────────────────────────
 
-    /** Configure & start the background wake word listener. */
     function startWakeWord(word, onWake) {
         if (!hasSTT) return;
+        // Mobile: no always-on wake word. Push-to-talk button is the entry point.
+        if (!USE_CONTINUOUS) return;
         wakeWords = buildWakeVariants(word);
         onWakeCallback = onWake || null;
         if (!wakeWords.length) return;
         enterWake();
     }
 
-    /** Stop the wake word listener (and any active recognition). */
     function stopWakeWord() {
         wakeWords = [];
         onWakeCallback = null;
         if (machineState === STATE.WAKE) stopAll();
     }
 
-    /**
-     * Manual mic button. Toggles dictation directly.
-     * If already dictating → finalize now. Else → start dictating (skips wake word).
-     */
     function toggleMic() {
         if (!hasSTT) return;
         if (machineState === STATE.DICTATING) {
@@ -313,7 +314,6 @@ export function useVoice(options = {}) {
         }
     }
 
-    /** Hard stop everything. */
     function stopAll() {
         wantRunning = false;
         clearSilenceTimer();
@@ -326,7 +326,6 @@ export function useVoice(options = {}) {
         }
     }
 
-    /** Set the phrase handler (called once from the host component). */
     function onPhrase(cb) { onPhraseCallback = cb; }
 
     // ═══════════════════════════════════════════════════════════════════════════

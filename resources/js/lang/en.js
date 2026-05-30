@@ -139,6 +139,7 @@ export default {
   chat_file: "File",
   chat_tts_on: "TTS on",
   chat_tts_off: "TTS off",
+  chat_wake_word_standby: 'Waiting for wake word',
   settings_user_can_run_commands: "User can run model commands",
   settings_user_can_run_commands_desc: "If enabled, admin users will be able to run commands in the chat.",
   settings_header: "System Configuration and AI Settings",

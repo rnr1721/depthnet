@@ -1,0 +1,533 @@
+import { ref, onBeforeUnmount } from 'vue';
+
+/**
+ * useVoice — unified Web Speech composable.
+ *
+ * Key idea vs. the old useSpeech: ONE SpeechRecognition instance for everything,
+ * driven by an explicit state machine. No competing recognizers, no restart races,
+ * no dead zones where the wake word falls through.
+ *
+ * STT state machine:
+ *
+ *   IDLE         recognition not running
+ *   WAKE         running, listening for the wake word only
+ *   DICTATING    running, accumulating a phrase to hand back to the caller
+ *
+ * Transitions:
+ *   IDLE  --start()-->            WAKE        (background wake listener on)
+ *   WAKE  --wake word heard-->    DICTATING   (onWake fired, mic stays open)
+ *   WAKE  --toggleMic()-->        DICTATING   (manual start, skips wake word)
+ *   DICTATING --silence timeout-->            finalize → back to WAKE (or IDLE if no wake word)
+ *   DICTATING --toggleMic()/stop-->           finalize → back to WAKE (or IDLE)
+ *
+ * The browser kills a continuous session after ~60s of silence; we transparently
+ * restart it from onend while staying in the same logical state.
+ *
+ * TTS is unchanged in spirit from the old composable — the bug was never there.
+ */
+export function useVoice(options = {}) {
+
+    // ─── Capabilities ────────────────────────────────────────────────────────
+    const hasTTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
+    const hasSTT = typeof window !== 'undefined' &&
+        ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  STT — single recognition + state machine
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    const STATE = { IDLE: 'idle', WAKE: 'wake', DICTATING: 'dictating' };
+
+    // Public reactive flags (mirror the machine for the UI)
+    const isListening = ref(false);          // true while DICTATING
+    const isWakeWordListening = ref(false);  // true while WAKE
+    const wakeWordDetected = ref(false);     // brief flash when wake word matched
+    const interimText = ref('');
+    const recognizedText = ref('');
+    const sttError = ref(null);
+
+    // Internal machine state — not reactive, single source of truth
+    let machineState = STATE.IDLE;
+    let recognition = null;
+    let wantRunning = false;     // do we WANT recognition alive? (survives browser auto-stop)
+    let restarting = false;      // guard against double restart from onend
+    let dictationSource = 'manual'; // how dictation started: 'wake' | 'manual'
+
+    // Echo guard: suppress wake word matching while TTS speaks (+ a short tail),
+    // so the agent's spoken reply can't trigger its own wake word.
+    const ECHO_TAIL_MS = options.echoTailMs ?? 800;
+    let suppressWakeUntil = 0;   // timestamp; wake matching ignored until then
+
+    // Configuration
+    let wakeWords = [];          // normalized wake word variants
+    let onWakeCallback = null;   // fired when wake word detected
+    let onPhraseCallback = null; // fired with final dictated text
+    const sttLang = options.sttLang || (typeof document !== 'undefined' ? document.documentElement.lang : '') || 'ru-RU';
+
+    // Silence-based finalization (our own timer — more predictable than isFinal)
+    const SILENCE_MS = options.silenceMs ?? 1500;
+    let silenceTimer = null;
+    let dictationBuffer = '';
+
+    // ─── Wake word normalization (handles cyrillic ↔ latin mismatch) ──────────
+
+    // Minimal latin→cyrillic transliteration for matching purposes only.
+    // Goal: make "adaliya" match a russian STT result of "адалия".
+    const LAT_TO_CYR = [
+        ['shch', 'щ'], ['sch', 'щ'], ['yo', 'ё'], ['zh', 'ж'], ['kh', 'х'],
+        ['ts', 'ц'], ['ch', 'ч'], ['sh', 'ш'], ['yu', 'ю'], ['ya', 'я'],
+        ['iy', 'и'], ['ye', 'е'], ['a', 'а'], ['b', 'б'], ['v', 'в'],
+        ['g', 'г'], ['d', 'д'], ['e', 'е'], ['z', 'з'], ['i', 'и'],
+        ['j', 'й'], ['k', 'к'], ['l', 'л'], ['m', 'м'], ['n', 'н'],
+        ['o', 'о'], ['p', 'п'], ['r', 'р'], ['s', 'с'], ['t', 'т'],
+        ['u', 'у'], ['f', 'ф'], ['y', 'ы'], ['h', 'х'], ['c', 'к'],
+    ];
+
+    function translitLatToCyr(s) {
+        let out = s;
+        for (const [lat, cyr] of LAT_TO_CYR) {
+            out = out.split(lat).join(cyr);
+        }
+        return out;
+    }
+
+    /** Normalize a string for fuzzy matching: lowercase, strip diacritics & punctuation. */
+    function normalize(s) {
+        return (s || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // strip combining diacritics
+            .replace(/[^a-zа-яё0-9 ]/gi, ' ') // keep letters/digits/space only
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    /**
+     * Build all match variants for a wake word so STT in any language can hit it.
+     * e.g. "Adaliya" → ["adaliya", "адалия"]
+     */
+    function buildWakeVariants(word) {
+        const base = normalize(word);
+        if (!base) return [];
+        const variants = new Set([base]);
+        // If the word looks latin, also add a cyrillic transliteration
+        if (/[a-z]/.test(base)) variants.add(translitLatToCyr(base));
+        return [...variants].filter(Boolean);
+    }
+
+    /** Does a (normalized) transcript contain any wake word variant? */
+    function matchesWakeWord(transcript) {
+        const norm = normalize(transcript);
+        const normTranslit = translitLatToCyr(norm); // also translit the heard text
+        return wakeWords.some(w => norm.includes(w) || normTranslit.includes(w));
+    }
+
+    /** Is wake word matching currently suppressed (TTS speaking or echo tail)? */
+    function isWakeSuppressed() {
+        return Date.now() < suppressWakeUntil;
+    }
+
+    // ─── Recognition lifecycle ────────────────────────────────────────────────
+
+    function buildRecognition() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const r = new SR();
+        r.continuous = true;       // ONE long session, we manage phrasing ourselves
+        r.interimResults = true;
+        r.maxAlternatives = 3;     // more alternatives = better wake word hit rate
+        r.lang = sttLang;
+
+        r.onstart = () => {
+            restarting = false;
+            syncFlags();
+        };
+
+        r.onresult = handleResult;
+
+        r.onerror = (e) => {
+            // no-speech / aborted are normal in a long session — ignore
+            if (e.error === 'no-speech' || e.error === 'aborted') return;
+            sttError.value = e.error;
+            console.warn('[useVoice] recognition error:', e.error);
+        };
+
+        r.onend = () => {
+            // Browser ended the session (timeout/silence). If we still want it
+            // running, restart transparently — same logical state.
+            if (wantRunning && !restarting) {
+                restarting = true;
+                setTimeout(() => {
+                    if (wantRunning && recognition) {
+                        try { recognition.start(); }
+                        catch (err) { restarting = false; }
+                    }
+                }, 200);
+            } else if (!wantRunning) {
+                syncFlags();
+            }
+        };
+
+        return r;
+    }
+
+    function handleResult(event) {
+        // Collect the latest interim + final text across results
+        let interim = '';
+        let finalChunk = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const res = event.results[i];
+            // For wake word matching, scan ALL alternatives, not just [0]
+            if (machineState === STATE.WAKE) {
+                // Echo guard: ignore everything while TTS is speaking (+ tail).
+                // Prevents the agent's own spoken reply from tripping the wake word.
+                if (isWakeSuppressed()) continue;
+                for (let j = 0; j < res.length; j++) {
+                    if (matchesWakeWord(res[j].transcript)) {
+                        onWakeWordHit();
+                        return;
+                    }
+                }
+                continue; // in WAKE we don't buffer text
+            }
+            // DICTATING: accumulate
+            if (res.isFinal) finalChunk += res[0].transcript;
+            else interim += res[0].transcript;
+        }
+
+        if (machineState === STATE.DICTATING) {
+            if (finalChunk) {
+                dictationBuffer += (dictationBuffer ? ' ' : '') + finalChunk.trim();
+            }
+            interimText.value = interim;
+            // Any speech activity resets the silence timer
+            armSilenceTimer();
+        }
+    }
+
+    function onWakeWordHit() {
+        wakeWordDetected.value = true;
+        // brief visual flash, then switch to dictation WITHOUT restarting recognition
+        setTimeout(() => {
+            wakeWordDetected.value = false;
+            enterDictating('wake');
+            onWakeCallback?.();
+        }, 350);
+    }
+
+    // ─── Silence-based finalization ─────────────────────────────────────────────
+
+    function armSilenceTimer() {
+        clearSilenceTimer();
+        silenceTimer = setTimeout(finalizeDictation, SILENCE_MS);
+    }
+
+    function clearSilenceTimer() {
+        if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+    }
+
+    function finalizeDictation() {
+        clearSilenceTimer();
+        const text = (dictationBuffer + ' ' + interimText.value).trim();
+        const source = dictationSource;
+        dictationBuffer = '';
+        interimText.value = '';
+        recognizedText.value = text;
+
+        // hand the phrase back, along with how dictation was started ('wake' | 'manual')
+        if (text) onPhraseCallback?.(text, source);
+
+        // return to WAKE if we have a wake word, else stop entirely
+        if (wakeWords.length) {
+            enterWake();
+        } else {
+            stopAll();
+        }
+    }
+
+    // ─── State transitions ──────────────────────────────────────────────────────
+
+    function enterWake() {
+        machineState = STATE.WAKE;
+        syncFlags();
+        ensureRunning();
+    }
+
+    function enterDictating(source = 'manual') {
+        machineState = STATE.DICTATING;
+        dictationSource = source;
+        dictationBuffer = '';
+        interimText.value = '';
+        recognizedText.value = '';
+        syncFlags();
+        ensureRunning();
+        // start a silence timer immediately so "wake word + no speech" still resolves
+        armSilenceTimer();
+    }
+
+    function syncFlags() {
+        isWakeWordListening.value = (machineState === STATE.WAKE);
+        isListening.value = (machineState === STATE.DICTATING);
+    }
+
+    function ensureRunning() {
+        if (!hasSTT) return;
+        wantRunning = true;
+        if (!recognition) recognition = buildRecognition();
+        try { recognition.start(); }
+        catch (e) {
+            // start() throws if already started — that's fine, it's already alive
+            if (e.name !== 'InvalidStateError') {
+                console.warn('[useVoice] start failed:', e);
+            }
+        }
+    }
+
+    // ─── Public STT API ───────────────────────────────────────────────────────
+
+    /** Configure & start the background wake word listener. */
+    function startWakeWord(word, onWake) {
+        if (!hasSTT) return;
+        wakeWords = buildWakeVariants(word);
+        onWakeCallback = onWake || null;
+        if (!wakeWords.length) return;
+        enterWake();
+    }
+
+    /** Stop the wake word listener (and any active recognition). */
+    function stopWakeWord() {
+        wakeWords = [];
+        onWakeCallback = null;
+        if (machineState === STATE.WAKE) stopAll();
+    }
+
+    /**
+     * Manual mic button. Toggles dictation directly.
+     * If already dictating → finalize now. Else → start dictating (skips wake word).
+     */
+    function toggleMic() {
+        if (!hasSTT) return;
+        if (machineState === STATE.DICTATING) {
+            finalizeDictation();
+        } else {
+            enterDictating('manual');
+        }
+    }
+
+    /** Hard stop everything. */
+    function stopAll() {
+        wantRunning = false;
+        clearSilenceTimer();
+        machineState = STATE.IDLE;
+        dictationBuffer = '';
+        interimText.value = '';
+        syncFlags();
+        if (recognition) {
+            try { recognition.stop(); } catch (e) { /* ignore */ }
+        }
+    }
+
+    /** Set the phrase handler (called once from the host component). */
+    function onPhrase(cb) { onPhraseCallback = cb; }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  TTS — carried over from useSpeech (this part worked fine)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    const savedTTS = typeof window !== 'undefined'
+        ? localStorage.getItem('depthnet_tts_enabled') === 'true'
+        : false;
+    const ttsEnabled = ref(savedTTS);
+    const isSpeaking = ref(false);
+    const currentlySpeakingId = ref(null);
+    const lastSpokenMessageId = ref(null);
+
+    const speakQueue = [];
+    let isProcessingQueue = false;
+    let voicesCache = [];
+
+    function loadVoices() { voicesCache = window.speechSynthesis.getVoices(); }
+
+    if (hasTTS) {
+        loadVoices();
+        window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+    }
+
+    const initTime = Date.now();
+    const VISIBILITY_GRACE_MS = 2000;
+    function handleVisibilityChange() {
+        if (document.hidden && Date.now() - initTime > VISIBILITY_GRACE_MS) stopSpeaking();
+    }
+    if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    function getBestVoice(lang) {
+        const voices = voicesCache.length ? voicesCache : window.speechSynthesis.getVoices();
+        if (!voices.length) return null;
+        const prefix = lang.split('-')[0];
+        return voices.find(v => v.lang === lang && v.localService)
+            || voices.find(v => v.lang === lang)
+            || voices.find(v => v.lang.startsWith(prefix))
+            || voices.find(v => v.default)
+            || voices[0] || null;
+    }
+
+    function cleanTextForSpeech(content) {
+        if (!content) return '';
+        let text = content;
+        const marker = '<system_output_results>';
+        const idx = text.lastIndexOf(marker);
+        if (idx !== -1) text = text.substring(0, idx);
+        text = text.replace(/\[[a-z][a-z0-9_]*(?:\s+[a-z][a-z0-9_]*)?\][\s\S]*?\[\/[a-z][a-z0-9_]*\]/gi, '');
+        text = text.replace(/\[[a-z][a-z0-9_]*(?:\s+[a-z][a-z0-9_]*)?\]/gi, '');
+        text = text.replace(/<[^>]+>/g, '');
+        text = text.replace(/```[\s\S]*?```/g, ' [code] ');
+        text = text.replace(/`[^`]+`/g, '');
+        text = text.replace(/#{1,6}\s+/g, '');
+        text = text.replace(/\*\*(.+?)\*\*/g, '$1');
+        text = text.replace(/\*(.+?)\*/g, '$1');
+        text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+        text = text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+        return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function shouldSpeak(message) {
+        if (!message || !message.content) return false;
+        if (message.role === 'thinking') return true;
+        if (['system', 'assistant', 'speaking'].includes(message.role)) {
+            return !message.content.includes('<system_output_results>');
+        }
+        return false;
+    }
+
+    function splitIntoSentences(text) {
+        const parts = text.match(/[^.!?]+[.!?]+\s*/g) || [text];
+        return parts.map(s => s.trim()).filter(Boolean);
+    }
+
+    function detectLang(text) {
+        const cyr = (text.match(/[а-яёА-ЯЁ]/g) || []).length;
+        const lat = (text.match(/[a-zA-Z]/g) || []).length;
+        return cyr >= lat ? 'ru-RU' : 'en-US';
+    }
+
+    function enqueueSpeak(text, messageId = null) {
+        if (!hasTTS || !text.trim()) return;
+        speakQueue.push({ text, messageId });
+        processQueue();
+    }
+
+    function processQueue() {
+        if (isProcessingQueue || !speakQueue.length || !window.speechSynthesis) return;
+        if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+        isProcessingQueue = true;
+        const { text, messageId } = speakQueue.shift();
+        currentlySpeakingId.value = messageId;
+        const sentences = splitIntoSentences(text);
+        let i = 0;
+        function next() {
+            if (i >= sentences.length) {
+                isSpeaking.value = false;
+                isProcessingQueue = false;
+                currentlySpeakingId.value = null;
+                if (messageId) lastSpokenMessageId.value = messageId;
+                // One more tail in case this was the last item in the queue.
+                suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                processQueue();
+                return;
+            }
+            const sentence = sentences[i];
+            const lang = detectLang(sentence);
+            const u = new SpeechSynthesisUtterance(sentence);
+            u.lang = lang; u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+            const v = getBestVoice(lang);
+            if (v) u.voice = v;
+            u.onstart = () => {
+                isSpeaking.value = true;
+                // Suppress wake matching while we speak (refreshed per sentence).
+                suppressWakeUntil = Date.now() + 60000;
+            };
+            u.onend = () => {
+                // Keep suppressing for a short tail so trailing audio can't self-trigger.
+                suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                i++; next();
+            };
+            u.onerror = (e) => {
+                if (e.error !== 'interrupted' && e.error !== 'canceled') {
+                    console.warn('SpeechSynthesis error:', e.error);
+                }
+                suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                i++; next();
+            };
+            setTimeout(() => window.speechSynthesis.speak(u), 50);
+        }
+        next();
+    }
+
+    function speakMessage(message) {
+        if (!hasTTS || !shouldSpeak(message)) return;
+        const text = cleanTextForSpeech(message.content);
+        if (!text) return;
+        stopSpeaking();
+        enqueueSpeak(text, message.id);
+    }
+
+    let initialLoadDone = false;
+    function markInitialLoadDone() { initialLoadDone = true; }
+    function resetInitialLoad() { initialLoadDone = false; stopSpeaking(); }
+
+    function speakNewMessages(messages) {
+        if (!hasTTS || !ttsEnabled.value || !messages?.length) return;
+        if (!initialLoadDone) return;
+        if (typeof document !== 'undefined' && document.hidden) return;
+        for (const msg of messages) {
+            if (!shouldSpeak(msg)) continue;
+            if (msg.id && msg.id === lastSpokenMessageId.value) continue;
+            const text = cleanTextForSpeech(msg.content);
+            if (!text) continue;
+            enqueueSpeak(text, msg.id);
+        }
+    }
+
+    function stopSpeaking() {
+        speakQueue.length = 0;
+        isProcessingQueue = false;
+        isSpeaking.value = false;
+        currentlySpeakingId.value = null;
+        suppressWakeUntil = 0; // user stopped TTS — re-enable wake immediately
+        if (hasTTS) window.speechSynthesis.cancel();
+    }
+
+    function toggleTTS() {
+        ttsEnabled.value = !ttsEnabled.value;
+        localStorage.setItem('depthnet_tts_enabled', ttsEnabled.value ? 'true' : 'false');
+        if (!ttsEnabled.value) stopSpeaking();
+    }
+
+    // ─── Cleanup ────────────────────────────────────────────────────────────────
+
+    function cleanup() {
+        stopSpeaking();
+        stopAll();
+        if (hasTTS) window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+        if (typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        }
+    }
+    onBeforeUnmount(cleanup);
+
+    // ─── Public API ───────────────────────────────────────────────────────────
+    return {
+        hasTTS, hasSTT,
+
+        // TTS
+        ttsEnabled, isSpeaking, currentlySpeakingId, lastSpokenMessageId,
+        speakMessage, speakNewMessages, markInitialLoadDone, resetInitialLoad,
+        stopSpeaking, toggleTTS, cleanTextForSpeech, shouldSpeak,
+
+        // STT
+        isListening, isWakeWordListening, wakeWordDetected,
+        interimText, recognizedText, sttError,
+        startWakeWord, stopWakeWord, toggleMic, stopAll, onPhrase,
+    };
+}

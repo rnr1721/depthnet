@@ -139,6 +139,7 @@ export default {
   chat_file: "Файл",
   chat_tts_on: "TTS on",
   chat_tts_off: "TTS off",
+  chat_wake_word_standby: 'Жду обращения',
   settings_user_can_run_commands: "Пользователь может выполнять команды как модель",
   settings_user_can_run_commands_desc: "При включении администраторы смогут выполнять команды в чате аналогично модели.",
   settings_header: "Конфигурация системы и настройки ИИ",

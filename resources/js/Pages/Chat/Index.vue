@@ -67,7 +67,8 @@
       <!-- Message input -->
       <MessageInput ref="messageInputComponent" :disabled="form.processing" :isProcessing="isProcessing"
         :isDark="isDark" :hasSTT="hasSTT" :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS"
-        :ttsEnabled="ttsEnabled" @send="sendMessage" @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
+        :ttsEnabled="ttsEnabled" :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
+        :wakeWord="currentPreset?.name || ''" @send="sendMessage" @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
     </div>
 
     <!-- Tabs panel (desktop) -->
@@ -112,7 +113,7 @@ import ClearHistoryModal from '@/Components/Chat/ClearHistoryModal.vue';
 
 import { useTheme } from '@/Composables/useTheme';
 import { useChat } from '@/Composables/useChat';
-import { useSpeech } from '@/Composables/useSpeech';
+import { useVoice } from '@/Composables/useVoice';
 import { usePresets } from '@/Composables/usePresets';
 import { useSelectedPreset } from '@/Composables/useSelectedPreset';
 
@@ -124,22 +125,13 @@ const appLocale = page.props.locale;
 const sttLang = localeMap[appLocale] || 'en-US';
 
 const {
-  hasTTS,
-  hasSTT,
-  ttsEnabled,
-  isSpeaking,
-  currentlySpeakingId,
-  lastSpokenMessageId,
-  resetInitialLoad,
-  markInitialLoadDone,
-  isListening,
-  interimText,
-  speakMessage,
-  speakNewMessages,
-  stopSpeaking,
-  toggleTTS,
-  toggleListening,
-} = useSpeech({ sttLang });
+  hasTTS, hasSTT, ttsEnabled, isSpeaking, currentlySpeakingId, lastSpokenMessageId,
+  resetInitialLoad, markInitialLoadDone, speakMessage, speakNewMessages,
+  stopSpeaking, toggleTTS,
+  // STT — новый API
+  isListening, isWakeWordListening, wakeWordDetected, interimText,
+  startWakeWord, stopWakeWord, toggleMic, onPhrase,
+} = useVoice({ sttLang });
 
 const props = defineProps({
   messages: Array,
@@ -241,12 +233,28 @@ const {
   currentPlaceholders,
 } = usePresets(props, isAdmin);
 
-async function handleToggleMic() {
-  const text = await toggleListening();
-  if (text && messageInputComponent.value) {
-    messageInputComponent.value.insertRecognizedText(text);
-  }
+function handleToggleMic() {
+  toggleMic();
 }
+
+onPhrase((text, source) => {
+  if (source === 'wake') {
+    sendMessage(text);                                       // hands-free send now
+  } else {
+    messageInputComponent.value?.insertRecognizedText(text); // by button
+  }
+});
+
+const wakeWord = computed(() =>
+  currentPreset.value?.name?.toLowerCase() || ''
+);
+
+watch(wakeWord, (name) => {
+  stopWakeWord();
+  if (name && hasSTT) startWakeWord(name, () => {
+    messageInputComponent.value?.focusInput();
+  });
+}, { immediate: true });
 
 function handleSpeakMessage(message) {
   if (currentlySpeakingId.value === message.id) {

@@ -27,7 +27,7 @@ class CreatePresetRequest extends FormRequest
             'engine_name' => ['required', 'string', 'max:100'],
             'plugins_disabled' => ['nullable','string','max:255'],
             'engine_config' => ['required', 'array'],
-            'loop_interval' => ['required','integer','min:4','max:30'],
+            'loop_interval' => ['required','integer','min:1','max:3600'],
             'max_context_limit' => ['required','integer','min:0','max:50'],
             'agent_result_mode' => ['required','string'],
             'preset_code_next' => ['nullable', 'string', 'max:50'],

@@ -779,7 +779,7 @@ class PresetService implements PresetServiceInterface
             'preset_code' => 'nullable|string|max:50',
             'plugins_disabled' => 'nullable|string|max:255',
             'engine_config' => 'array',
-            'loop_interval' => 'nullable|integer|min:4|max:30',
+            'loop_interval' => 'nullable|integer|min:1|max:3600',
             'max_context_limit' => 'nullable|integer|min:0|max:50',
             'agent_result_mode' => 'nullable|string',
             'preset_code_next' => 'nullable|string',

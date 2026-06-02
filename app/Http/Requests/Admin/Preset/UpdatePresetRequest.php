@@ -29,7 +29,7 @@ class UpdatePresetRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:1000'],
             'engine_name' => ['string', 'max:100'],
             'engine_config' => ['array'],
-            'loop_interval' => ['required','integer','min:4','max:30'],
+            'loop_interval' => ['required','integer','min:1','max:3600'],
             'max_context_limit' => ['required','integer','min:0','max:50'],
             'agent_result_mode' => ['required','string'],
             'preset_code_next' => ['nullable', 'string', 'max:50'],

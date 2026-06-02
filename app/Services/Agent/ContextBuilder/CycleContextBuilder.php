@@ -14,6 +14,7 @@ use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
+use App\Services\Agent\ContextBuilder\Traits\ContextRagTrait;
 
 /**
  * Cycle context builder - adds cycle instructions for continuous thinking.
@@ -42,6 +43,7 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 class CycleContextBuilder implements ContextBuilderInterface
 {
     use ContentCleaningTrait;
+    use ContextRagTrait;
 
     public function __construct(
         protected Message                          $messageModel,
@@ -68,7 +70,7 @@ class CycleContextBuilder implements ContextBuilderInterface
             $maxContextLimit = $preset->getMaxContextLimit();
         }
 
-        $sourcePreset = $sourcePreset ?? $preset;
+        $sourcePreset = $sourcePreset ?? $this->resolveSourceRagPreset($preset);
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())
@@ -102,12 +104,16 @@ class CycleContextBuilder implements ContextBuilderInterface
         $aggregated = $this->ragAggregator->merge($ragPayloads);
         $ragText    = $this->ragFormatter->formatAggregated($aggregated);
 
-        $this->shortcodeManager->registerShortcodeForPreset(
-            $sourcePreset->getId(),
-            'rag_context',
-            'RAG: relevant memories retrieved before this thinking cycle',
-            fn () => $ragText
-        );
+        $targetIds = array_unique([$sourcePreset->getId(), $preset->getId()]);
+
+        foreach ($targetIds as $id) {
+            $this->shortcodeManager->registerShortcodeForPreset(
+                $id,
+                'rag_context',
+                'RAG: relevant memories retrieved before this thinking cycle',
+                fn () => $ragText
+            );
+        }
 
         // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
         $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();
@@ -124,12 +130,14 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         if (!empty($voiceParts)) {
             $voiceText = implode("\n\n", $voiceParts);
-            $this->shortcodeManager->registerShortcodeForPreset(
-                $sourcePreset->getId(),
-                'inner_voice',
-                'Inner voice: perspectives injected before this thinking cycle',
-                fn () => $voiceText
-            );
+            foreach ($targetIds as $id) {
+                $this->shortcodeManager->registerShortcodeForPreset(
+                    $id,
+                    'inner_voice',
+                    'Inner voice: perspectives injected before this thinking cycle',
+                    fn () => $voiceText
+                );
+            }
         }
 
         // ── Known sources — [[known_sources]] ─────────────────────────────────

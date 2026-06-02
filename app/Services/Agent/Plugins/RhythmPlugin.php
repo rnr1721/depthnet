@@ -858,4 +858,10 @@ class RhythmPlugin implements CommandPluginInterface
     {
         return ['show'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

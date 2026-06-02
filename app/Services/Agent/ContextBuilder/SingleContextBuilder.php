@@ -13,6 +13,7 @@ use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
+use App\Services\Agent\ContextBuilder\Traits\ContextRagTrait;
 
 /**
  * Single context builder - simple message processing without cycles.
@@ -32,6 +33,7 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 class SingleContextBuilder implements ContextBuilderInterface
 {
     use ContentCleaningTrait;
+    use ContextRagTrait;
 
     public function __construct(
         protected Message                          $messageModel,
@@ -57,7 +59,7 @@ class SingleContextBuilder implements ContextBuilderInterface
             $maxContextLimit = $preset->getMaxContextLimit();
         }
 
-        $sourcePreset = $sourcePreset ?? $preset;
+        $sourcePreset = $sourcePreset ?? $this->resolveSourceRagPreset($preset);
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())
@@ -90,12 +92,16 @@ class SingleContextBuilder implements ContextBuilderInterface
         $aggregated = $this->ragAggregator->merge($ragPayloads);
         $ragText    = $this->ragFormatter->formatAggregated($aggregated);
 
-        $this->shortcodeManager->registerShortcodeForPreset(
-            $sourcePreset->getId(),
-            'rag_context',
-            'RAG: relevant memories retrieved before this request',
-            fn () => $ragText
-        );
+        $targetIds = array_unique([$sourcePreset->getId(), $preset->getId()]);
+
+        foreach ($targetIds as $id) {
+            $this->shortcodeManager->registerShortcodeForPreset(
+                $id,
+                'rag_context',
+                'RAG: relevant memories retrieved before this thinking cycle',
+                fn () => $ragText
+            );
+        }
 
         // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
         $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();
@@ -112,12 +118,14 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         if (!empty($voiceParts)) {
             $voiceText = implode("\n\n", $voiceParts);
-            $this->shortcodeManager->registerShortcodeForPreset(
-                $sourcePreset->getId(),
-                'inner_voice',
-                'Inner voice: perspectives injected before each request',
-                fn () => $voiceText
-            );
+            foreach ($targetIds as $id) {
+                $this->shortcodeManager->registerShortcodeForPreset(
+                    $id,
+                    'inner_voice',
+                    'Inner voice: perspectives injected before each request',
+                    fn () => $voiceText
+                );
+            }
         }
 
         // ── Known sources — [[known_sources]] ─────────────────────────────────

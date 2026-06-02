@@ -390,4 +390,10 @@ class OntologyPlugin implements CommandPluginInterface
     {
         // Ontology doesn't inject into context automatically
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

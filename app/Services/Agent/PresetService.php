@@ -43,6 +43,8 @@ class PresetService implements PresetServiceInterface
 
         return $this->db->transaction(function () use ($data) {
             $preset = $this->aiPresetModel->create([
+                'target_preset_id'         => $data['target_preset_id'] ?? null,
+                'target_plugins_whitelist' => $data['target_plugins_whitelist'] ?? null,
                 'parent_preset_id' => $data['parent_preset_id'] ?? null,
                 'is_spawned'       => $data['is_spawned'] ?? false,
                 'name' => $data['name'],
@@ -125,6 +127,8 @@ class PresetService implements PresetServiceInterface
 
         return $this->db->transaction(function () use ($preset, $data) {
             $preset->update([
+                'target_preset_id'         => array_key_exists('target_preset_id', $data) ? $data['target_preset_id'] : $preset->target_preset_id,
+                'target_plugins_whitelist' => array_key_exists('target_plugins_whitelist', $data) ? $data['target_plugins_whitelist'] : $preset->target_plugins_whitelist,
                 'parent_preset_id' => array_key_exists('parent_preset_id', $data) ? $data['parent_preset_id'] : $preset->parent_preset_id,
                 'is_spawned'       => array_key_exists('is_spawned', $data) ? $data['is_spawned'] : $preset->is_spawned,
                 'name' => $data['name'] ?? $preset->name,
@@ -338,6 +342,8 @@ class PresetService implements PresetServiceInterface
                 // Spawn fields — duplicates are never spawns
                 'is_spawned'       => false,
                 'parent_preset_id' => null,
+                'target_preset_id'         => null,
+                'target_plugins_whitelist' => null,
             ]);
 
             $this->presetRegistry->refresh();
@@ -760,6 +766,8 @@ class PresetService implements PresetServiceInterface
     protected function validatePresetData(array $data, ?int $excludeId = null): void
     {
         $rules = [
+            'target_preset_id'         => 'nullable|integer|exists:ai_presets,id',
+            'target_plugins_whitelist' => 'nullable|string|max:500',
             'parent_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'is_spawned'       => 'boolean',
             'name' => 'required|string|max:255',

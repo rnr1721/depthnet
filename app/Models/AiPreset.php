@@ -14,6 +14,8 @@ class AiPreset extends Model
     protected $table = "ai_presets";
 
     protected $fillable = [
+        'target_preset_id',
+        'target_plugins_whitelist',
         'parent_preset_id',
         'is_spawned',
         'name',
@@ -56,6 +58,7 @@ class AiPreset extends Model
 
 
     protected $casts = [
+        'target_preset_id'         => 'integer',
         'parent_preset_id'         => 'integer',
         'is_spawned'               => 'boolean',
         'pool_relative_dates'      => 'boolean',
@@ -82,6 +85,8 @@ class AiPreset extends Model
 
 
     protected $attributes = [
+        'target_preset_id'         => null,
+        'target_plugins_whitelist' => null,
         'is_spawned'               => false,
         'parent_preset_id'         => null,
         'input_mode'               => 'pool',
@@ -104,6 +109,52 @@ class AiPreset extends Model
         'rhasspy_enabled'          => false,
         'rhasspy_incoming_enabled' => false,
     ];
+
+    /**
+     * The preset whose plugin context this preset operates in.
+     * When set, plugin commands execute against the target preset's
+     * data space (memory, journal, etc.) instead of own.
+     */
+    public function targetPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'target_preset_id');
+    }
+
+    /**
+     * ID of the target preset for cross-preset execution.
+     * Null means operate in own context (default behaviour).
+     */
+    public function getTargetPresetId(): ?int
+    {
+        return $this->target_preset_id;
+    }
+
+    /**
+     * Raw whitelist string, e.g. "memory,journal,vector_memory".
+     * Null means no cross-preset execution is configured.
+     */
+    public function getTargetPluginsWhitelist(): ?string
+    {
+        return $this->target_plugins_whitelist;
+    }
+
+    /**
+     * Parsed whitelist as array.
+     * Returns empty array when null — no plugins whitelisted.
+     */
+    public function getTargetPluginsWhitelistArray(): array
+    {
+        if (empty($this->target_plugins_whitelist)) {
+            return [];
+        }
+
+        return array_values(
+            array_filter(
+                array_map('trim', explode(',', $this->target_plugins_whitelist))
+            )
+        );
+    }
+
 
     /**
      * Parent preset that spawned this one.

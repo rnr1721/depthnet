@@ -307,6 +307,16 @@ If `[[rag_context]]` is absent from the system prompt, RAG still runs but result
 
 ---
 
+## Cross-preset RAG
+By default, RAG retrieves from the same preset's memory space. When a preset has a target preset configured, the RAG pipeline automatically uses the target preset's data instead — the same sources, the same configs, but scoped to the target's memories.
+This enables scenarios like:
+
+- A lightweight reflection preset running in a loop that reads and writes to a full agent's memory space — the main agent stays dormant until needed
+- A memory optimizer or defragmenter preset that operates on another preset's vector memory without having its own
+- Multi-agent observation — one preset monitoring another's episodic journal and memory without interfering with its reasoning cycle
+
+Configuration is done in the preset's Agent Settings — select a target preset and whitelist the plugins allowed to write to its space. RAG always reads from the target automatically when configured; no separate whitelist needed for reads.
+
 ## Tips
 
 **Start with one config.** Add a second only when you have a clear reason — journal retrieval that needs separate tuning, or persons that are drowning in vector memory results.

@@ -111,24 +111,6 @@
                 </div>
             </div>
 
-            <!-- Input Mode -->
-            <div>
-                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                    {{ t('p_modal_input_mode') }}
-                </label>
-                <select :value="modelValue.input_mode" @input="updateField('input_mode', $event.target.value)"
-                    :class="inputClass">
-                    <option value="pool">{{ t('p_modal_input_mode_pool') }}</option>
-                    <option value="single">{{ t('p_modal_input_mode_single') }}</option>
-                </select>
-                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_input_mode_desc') }}
-                </p>
-                <div v-if="errors.input_mode" class="text-red-500 text-xs mt-1">
-                    {{ errors.input_mode }}
-                </div>
-            </div>
-
             <!-- Disabled Plugins -->
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
@@ -151,7 +133,7 @@
                     </p>
                     <div class="flex flex-wrap gap-1">
                         <button v-for="plugin in availablePlugins" :key="plugin.name" type="button"
-                            @click="togglePlugin(plugin.name)" :class="[
+                            @click="toggleDisabledPlugin(plugin.name)" :class="[
                                 'inline-flex items-center px-2 py-1 text-xs rounded-md transition-colors',
                                 isPluginDisabled(plugin.name)
                                     ? (isDark ? 'bg-red-900 text-red-200 hover:bg-red-800' : 'bg-red-100 text-red-800 hover:bg-red-200')
@@ -173,9 +155,9 @@
                         {{ t('p_modal_click_to_toggle_plugins') }}
                     </p>
                 </div>
-
             </div>
 
+            <!-- Pre-run Commands -->
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_pre_run_commands') }}
@@ -189,6 +171,100 @@
                 <div v-if="errors.pre_run_commands" class="text-red-500 text-xs mt-1">
                     {{ errors.pre_run_commands }}
                 </div>
+            </div>
+
+            <!-- ────────────────────────────────────────────────────────── -->
+            <!-- Cross-preset execution                                     -->
+            <!-- ────────────────────────────────────────────────────────── -->
+            <div :class="[
+                'rounded-xl border p-4 space-y-4',
+                isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'
+            ]">
+                <div>
+                    <h5 :class="['text-sm font-semibold mb-0.5', isDark ? 'text-white' : 'text-gray-900']">
+                        {{ t('p_modal_cross_preset_title') }}
+                    </h5>
+                    <p :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        {{ t('p_modal_cross_preset_desc') }}
+                    </p>
+                </div>
+
+                <!-- Target preset selector -->
+                <div>
+                    <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                        {{ t('p_modal_target_preset') }}
+                    </label>
+                    <select :value="modelValue.target_preset_id"
+                        @input="updateField('target_preset_id', $event.target.value ? parseInt($event.target.value) : null)"
+                        :class="inputClass">
+                        <option :value="null">— {{ t('p_modal_target_preset_none') }} —</option>
+                        <option v-for="p in availableTargetPresets" :key="p.id" :value="p.id">
+                            {{ p.name }}
+                            <template v-if="p.preset_code"> ({{ p.preset_code }})</template>
+                        </option>
+                    </select>
+                    <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        {{ t('p_modal_target_preset_desc') }}
+                    </p>
+                    <div v-if="errors.target_preset_id" class="text-red-500 text-xs mt-1">
+                        {{ errors.target_preset_id }}
+                    </div>
+                </div>
+
+                <!-- Whitelist — only shown when target is selected -->
+                <Transition enter-active-class="transition-all duration-200 ease-out"
+                    enter-from-class="opacity-0 -translate-y-1" enter-to-class="opacity-100 translate-y-0"
+                    leave-active-class="transition-all duration-150 ease-in"
+                    leave-from-class="opacity-100 translate-y-0" leave-to-class="opacity-0 -translate-y-1">
+                    <div v-if="modelValue.target_preset_id" class="space-y-3">
+                        <div>
+                            <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                                {{ t('p_modal_target_plugins_whitelist') }}
+                            </label>
+                            <input :value="modelValue.target_plugins_whitelist"
+                                @input="updateField('target_plugins_whitelist', $event.target.value || null)"
+                                type="text" :class="inputClass"
+                                :placeholder="t('p_modal_target_plugins_whitelist_ph')" />
+                            <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                                {{ t('p_modal_target_plugins_whitelist_desc') }}
+                            </p>
+                            <div v-if="errors.target_plugins_whitelist" class="text-red-500 text-xs mt-1">
+                                {{ errors.target_plugins_whitelist }}
+                            </div>
+                        </div>
+
+                        <!-- Whitelist plugin badges — only cross-preset capable plugins -->
+                        <div v-if="crossPresetPlugins.length > 0">
+                            <p :class="['text-xs font-medium mb-1', isDark ? 'text-gray-300' : 'text-gray-700']">
+                                {{ t('p_modal_cross_preset_capable_plugins') }}:
+                            </p>
+                            <div class="flex flex-wrap gap-1">
+                                <button v-for="plugin in crossPresetPlugins" :key="plugin.name" type="button"
+                                    @click="toggleWhitelistPlugin(plugin.name)" :class="[
+                                        'inline-flex items-center px-2 py-1 text-xs rounded-md transition-colors',
+                                        isPluginWhitelisted(plugin.name)
+                                            ? (isDark ? 'bg-indigo-900 text-indigo-200 hover:bg-indigo-800' : 'bg-indigo-100 text-indigo-800 hover:bg-indigo-200')
+                                            : (isDark ? 'bg-gray-600 text-gray-400 hover:bg-gray-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200')
+                                    ]" :title="plugin.description">
+                                    <svg v-if="isPluginWhitelisted(plugin.name)" class="w-3 h-3 mr-1" fill="none"
+                                        stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <svg v-else class="w-3 h-3 mr-1" fill="none" stroke="currentColor"
+                                        viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    {{ plugin.name }}
+                                </button>
+                            </div>
+                            <p :class="['text-xs mt-1', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                {{ t('p_modal_cross_preset_click_to_toggle') }}
+                            </p>
+                        </div>
+                    </div>
+                </Transition>
             </div>
 
         </div>
@@ -226,19 +302,46 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
+// ── Styles ─────────────────────────────────────────────────────────────────
+
 const inputClass = computed(() => [
     'w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-indigo-500 transition-all px-4 py-3',
     props.isDark ? 'bg-gray-600 text-white ring-gray-500 placeholder-gray-400' : 'bg-white text-gray-900 ring-gray-300 placeholder-gray-500'
 ]);
+
+// ── Computed ───────────────────────────────────────────────────────────────
+
+/**
+ * Presets available as cross-preset targets — everyone except self.
+ * modelValue.id is null on create, so the filter is safe either way.
+ */
+const availableTargetPresets = computed(() =>
+    props.availablePresets.filter(p => p.id !== props.modelValue.id)
+);
+
+/**
+ * Plugins that support cross-preset execution (allow_cross_preset === true).
+ * Backend passes this flag per plugin in availablePlugins.
+ * Falls back gracefully if the flag is absent (older API).
+ */
+const crossPresetPlugins = computed(() =>
+    props.availablePlugins.filter(p => p.allow_cross_preset === true)
+);
 
 const disabledPluginsList = computed(() => {
     const disabled = props.modelValue.plugins_disabled || '';
     return disabled.split(',').map(p => p.trim()).filter(p => p.length > 0);
 });
 
+const whitelistedPluginsList = computed(() => {
+    const whitelist = props.modelValue.target_plugins_whitelist || '';
+    return whitelist.split(',').map(p => p.trim()).filter(p => p.length > 0);
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 const updateField = (field, value) => {
-    const updated = { ...props.modelValue, [field]: value };
-    emit('update:modelValue', updated);
+    emit('update:modelValue', { ...props.modelValue, [field]: value });
 };
 
 const parseNumber = (value) => {
@@ -246,23 +349,25 @@ const parseNumber = (value) => {
     return isNaN(num) ? 0 : num;
 };
 
-const isPluginDisabled = (pluginName) => {
-    return disabledPluginsList.value.includes(pluginName);
+// plugins_disabled toggle
+const isPluginDisabled = (pluginName) => disabledPluginsList.value.includes(pluginName);
+
+const toggleDisabledPlugin = (pluginName) => {
+    const list = [...disabledPluginsList.value];
+    const idx = list.indexOf(pluginName);
+    if (idx === -1) list.push(pluginName);
+    else list.splice(idx, 1);
+    updateField('plugins_disabled', list.join(', '));
 };
 
-const togglePlugin = (pluginName) => {
-    const currentList = disabledPluginsList.value;
-    let newList;
+// target_plugins_whitelist toggle
+const isPluginWhitelisted = (pluginName) => whitelistedPluginsList.value.includes(pluginName);
 
-    if (isPluginDisabled(pluginName)) {
-        // Remove from disabled list (enable plugin)
-        newList = currentList.filter(p => p !== pluginName);
-    } else {
-        // Add to disabled list (disable plugin)
-        newList = [...currentList, pluginName];
-    }
-
-    const newValue = newList.join(', ');
-    updateField('plugins_disabled', newValue);
+const toggleWhitelistPlugin = (pluginName) => {
+    const list = [...whitelistedPluginsList.value];
+    const idx = list.indexOf(pluginName);
+    if (idx === -1) list.push(pluginName);
+    else list.splice(idx, 1);
+    updateField('target_plugins_whitelist', list.length > 0 ? list.join(', ') : null);
 };
 </script>

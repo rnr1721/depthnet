@@ -494,4 +494,10 @@ class BeingPlugin implements CommandPluginInterface
     {
         return ['show', 'history', 'clear'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

@@ -539,7 +539,10 @@ class VectorMemoryService implements VectorMemoryServiceInterface
     {
         try {
             $limit    = max(1, min($limit, 20));
-            $memories = $this->getVectorMemories($preset, $limit);
+            $memories = $this->getVectorMemories(
+                $preset,
+                (new VectorMemoryQuery())->withLimit($limit)
+            );
 
             return [
                 'success'  => true,

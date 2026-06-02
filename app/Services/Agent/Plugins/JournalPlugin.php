@@ -387,4 +387,10 @@ class JournalPlugin implements CommandPluginInterface
     {
         // Journal doesn't inject into context automatically —
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

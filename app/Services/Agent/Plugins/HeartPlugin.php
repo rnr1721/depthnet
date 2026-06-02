@@ -585,4 +585,9 @@ class HeartPlugin implements CommandPluginInterface
         $this->moodInfluencer = $influencer;
     }
 
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

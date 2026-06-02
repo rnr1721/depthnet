@@ -458,4 +458,10 @@ class DopaminePlugin implements CommandPluginInterface
     {
         return ['reward', 'penalty', 'show'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

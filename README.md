@@ -491,6 +491,7 @@ DepthNet provides a **decentralized asynchronous messaging system** via the Spea
 - **No ping-pong**: Reply-to is fire-and-forget — one request, one response, done
 - **Atomic locking**: Cache-based locks with TTL prevent duplicate execution and auto-recover from crashes
 - **Independent testing**: Debug each preset separately while maintaining workflow integrity
+- **Cross-Preset Execution**: A preset can operate in another preset's data space — reading via RAG and writing via whitelisted plugins (memory, journal, vector memory etc). Enables continuous existence patterns, memory optimizers, and multi-agent observation without full agent activation.
 
 **Benefits:**
 - **Modular workflows**: Break complex tasks into specialized components

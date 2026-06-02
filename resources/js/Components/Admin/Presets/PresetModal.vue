@@ -183,6 +183,8 @@ const notification = ref({ message: '', type: 'success' });
 // Form data
 const form = ref({
     id: props.preset?.id || null,
+    target_preset_id: props.preset?.target_preset_id ?? null,
+    target_plugins_whitelist: props.preset?.target_plugins_whitelist ?? null,
     name: props.preset?.name || '',
     description: props.preset?.description || '',
     engine_name: props.preset?.engine_name || '',

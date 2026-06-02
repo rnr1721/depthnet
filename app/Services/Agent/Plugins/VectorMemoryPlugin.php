@@ -1196,4 +1196,9 @@ class VectorMemoryPlugin implements CommandPluginInterface
         return ['clear', 'domains'];
     }
 
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

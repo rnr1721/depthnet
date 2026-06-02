@@ -14,6 +14,8 @@ class PresetResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'target_preset_id'         => $this->target_preset_id,
+            'target_plugins_whitelist' => $this->target_plugins_whitelist,
             'is_spawned'       => $this->is_spawned,
             'parent_preset_id' => $this->parent_preset_id,
             'name' => $this->name,

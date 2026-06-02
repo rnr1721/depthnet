@@ -83,7 +83,10 @@ class CommandExecutor implements CommandExecutorInterface
                 );
             }
 
-            $context = $this->contextBuilder->build($plugin, $preset);
+            // Resolve effective preset: own or target (cross-preset execution)
+            $effectivePreset = $this->resolveEffectivePreset($command, $preset, $plugin);
+
+            $context = $this->contextBuilder->build($plugin, $effectivePreset);
 
             // Check if plugin is enabled
             if (!$context->enabled) {
@@ -125,7 +128,7 @@ class CommandExecutor implements CommandExecutorInterface
             $this->logger->error("Command execution error", [
                 'plugin' => $command->plugin,
                 'method' => $command->method,
-                'content' => substr($command->content, 0, 100), // Log first 100 chars of content
+                'content' => substr($command->content, 0, 100),
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -137,6 +140,47 @@ class CommandExecutor implements CommandExecutorInterface
                 "Error executing {$command->plugin}::{$command->method}: " . $e->getMessage()
             );
         }
+    }
+
+    /**
+     * Resolves the effective preset for a command execution.
+     *
+     * Cross-preset execution is active when ALL three conditions are met:
+     *   1. The initiator preset has a target_preset_id set
+     *   2. The plugin supports cross-preset execution (allowsCrossPresetExecution() === true)
+     *   3. The plugin is in the initiator's target_plugins_whitelist
+     *
+     * If the target preset has been deleted (nullOnDelete FK), falls back to own preset silently.
+     * The agent will notice cross-preset is not working via unexpected data behaviour —
+     * no extra noise needed here.
+     */
+    protected function resolveEffectivePreset(ParsedCommand $command, AiPreset $preset, $plugin): AiPreset
+    {
+        $targetPresetId = $preset->getTargetPresetId();
+
+        // No target configured — own context
+        if (!$targetPresetId) {
+            return $preset;
+        }
+
+        // Plugin does not support cross-preset execution
+        if (!$plugin->allowsCrossPresetExecution()) {
+            return $preset;
+        }
+
+        // Plugin not in initiator's whitelist
+        $whitelist = $preset->getTargetPluginsWhitelistArray();
+        if (!in_array($command->plugin, $whitelist, true)) {
+            return $preset;
+        }
+
+        // Resolve target preset; fall back to self if deleted
+        $targetPreset = AiPreset::find($targetPresetId);
+        if (!$targetPreset) {
+            return $preset;
+        }
+
+        return $targetPreset;
     }
 
     /**
@@ -229,5 +273,4 @@ class CommandExecutor implements CommandExecutorInterface
         }
         return $base;
     }
-
 }

@@ -446,4 +446,10 @@ class DocumentManagerPlugin implements CommandPluginInterface
 
         return $truncated . '...';
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

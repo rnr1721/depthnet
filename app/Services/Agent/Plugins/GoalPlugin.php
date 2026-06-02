@@ -399,4 +399,9 @@ class GoalPlugin implements CommandPluginInterface
         return (int) $content;
     }
 
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

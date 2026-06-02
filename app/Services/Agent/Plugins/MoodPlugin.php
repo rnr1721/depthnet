@@ -712,4 +712,10 @@ class MoodPlugin implements CommandPluginInterface, MoodInfluencerInterface
         $current = (int) $this->pluginMetadataService->get($context->preset, self::PLUGIN_NAME, 'total_cycles', 0);
         $this->pluginMetadataService->set($context->preset, self::PLUGIN_NAME, 'total_cycles', $current + 1);
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

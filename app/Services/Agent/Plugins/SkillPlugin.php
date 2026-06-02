@@ -422,4 +422,10 @@ class SkillPlugin implements CommandPluginInterface
 
         return [$skill, $item];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

@@ -367,4 +367,10 @@ class PersonPlugin implements CommandPluginInterface
     {
         return ['list'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

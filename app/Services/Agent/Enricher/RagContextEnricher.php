@@ -744,17 +744,26 @@ class RagContextEnricher implements RagContextEnricherInterface
         array    $context,
         bool     $isPrimary,
     ): ?array {
+
+        // For agent-provided queries, look at the effectivePreset -
+        // if the mainPreset is running in a different space,
+        // queries can be deferred by that preset.
+        // (cross-preset execution case, for rag query command/tool initiated by guest preset)
+        $querySourcePreset = $mainPreset->getTargetPresetId()
+            ? (AiPreset::find($mainPreset->getTargetPresetId()) ?? $mainPreset)
+            : $mainPreset;
+
         // Agent-provided queries only apply to the primary config
         if ($isPrimary) {
             $pendingRaw = $this->pluginMetadataService->get(
-                $mainPreset,
+                $querySourcePreset,
                 RagQueryPlugin::PLUGIN_NAME,
                 RagQueryPlugin::META_KEY,
             );
 
             if (!empty($pendingRaw)) {
                 $this->pluginMetadataService->remove(
-                    $mainPreset,
+                    $querySourcePreset,
                     RagQueryPlugin::PLUGIN_NAME,
                     RagQueryPlugin::META_KEY,
                 );

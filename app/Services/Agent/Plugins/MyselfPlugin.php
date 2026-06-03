@@ -11,7 +11,8 @@ use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 
 /**
  * MyselfPlugin — inner voice channel for autonomous agents.
- *
+ * WARNING: dont recommend uning in tool calls mode. Some LLM may have hallucinations.
+ * 
  * A deliberate no-op: the agent writes anything into this command —
  * reasoning, doubts, questions, observations — and the content stays
  * in the conversation context, visible in the next cycle.

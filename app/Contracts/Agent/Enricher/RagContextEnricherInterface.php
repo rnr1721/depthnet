@@ -27,17 +27,23 @@ interface RagContextEnricherInterface extends EnricherInterface
     /**
      * Run RAG enrichment for a specific config slot.
      *
-     * @param AiPreset        $preset   Main preset being enriched
-     * @param array           $context  Current conversation messages
-     * @param PresetRagConfig $config   Config that drives this pass
-     * @param array<string,true> $seenIds  Already-retrieved record keys (namespaced)
-     *                                    mutated by reference so callers accumulate state
+     * @param AiPreset           $preset           Preset whose data space is searched
+     *                                             (source of RAG configs, memory, journal etc.)
+     * @param array              $context          Current conversation messages
+     * @param PresetRagConfig    $config           Config that drives this pass
+     * @param array<string,true> $seenIds          Already-retrieved record keys (namespaced)
+     *                                             mutated by reference so callers accumulate state
+     * @param AiPreset|null      $initiatorPreset  Preset that initiated this thinking cycle.
+     *                                             When set, agent-provided RAG queries are read
+     *                                             from this preset's metadata instead of $preset.
+     *                                             Null means $preset is also the initiator.
      * @return EnricherResponseInterface
      */
     public function enrichWithConfig(
         AiPreset $preset,
         array $context,
         PresetRagConfig $config,
-        array &$seenIds = []
+        array &$seenIds = [],
+        ?AiPreset $initiatorPreset = null,
     ): EnricherResponseInterface;
 }

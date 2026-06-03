@@ -107,7 +107,8 @@ class RagContextEnricher implements RagContextEnricherInterface
         AiPreset $preset,
         array $context,
         PresetRagConfig $config,
-        array &$seenIds = []
+        array &$seenIds = [],
+        ?AiPreset $initiatorPreset = null,
     ): EnricherResponseInterface {
         $ragPreset = null;
 
@@ -125,7 +126,12 @@ class RagContextEnricher implements RagContextEnricherInterface
             }
 
             // Agent-provided queries only apply to the primary config
-            $queries = $this->formulateQueries($ragPreset, $preset, $context, $config->is_primary);
+            $queries = $this->formulateQueries(
+                $ragPreset,
+                $initiatorPreset ?? $preset,
+                $context,
+                $config->is_primary
+            );
 
             if (empty($queries)) {
                 $this->debugLog('empty queries, skipping search');
@@ -745,25 +751,17 @@ class RagContextEnricher implements RagContextEnricherInterface
         bool     $isPrimary,
     ): ?array {
 
-        // For agent-provided queries, look at the effectivePreset -
-        // if the mainPreset is running in a different space,
-        // queries can be deferred by that preset.
-        // (cross-preset execution case, for rag query command/tool initiated by guest preset)
-        $querySourcePreset = $mainPreset->getTargetPresetId()
-            ? (AiPreset::find($mainPreset->getTargetPresetId()) ?? $mainPreset)
-            : $mainPreset;
-
         // Agent-provided queries only apply to the primary config
         if ($isPrimary) {
             $pendingRaw = $this->pluginMetadataService->get(
-                $querySourcePreset,
+                $mainPreset,
                 RagQueryPlugin::PLUGIN_NAME,
                 RagQueryPlugin::META_KEY,
             );
 
             if (!empty($pendingRaw)) {
                 $this->pluginMetadataService->remove(
-                    $querySourcePreset,
+                    $mainPreset,
                     RagQueryPlugin::PLUGIN_NAME,
                     RagQueryPlugin::META_KEY,
                 );

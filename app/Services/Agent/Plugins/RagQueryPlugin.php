@@ -411,8 +411,4 @@ class RagQueryPlugin implements CommandPluginInterface
         return preg_replace('/\s+/', ' ', $trimmed);
     }
 
-    public function allowsCrossPresetExecution(): bool
-    {
-        return true;
-    }
 }

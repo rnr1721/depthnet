@@ -92,7 +92,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         $ragPayloads  = [];
 
         foreach ($ragConfigs as $config) {
-            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds);
+            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds, $preset);
 
             $payload = $ragBlock->getResponseData();
             if ($payload instanceof RagDataInterface && !$payload->isEmpty()) {

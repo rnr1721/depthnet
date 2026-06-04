@@ -263,4 +263,18 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
             $this->scopeResolver->preset($presetId)
         );
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function copyPresetShortcodes(int $fromPresetId, int $toPresetId): void
+    {
+        if ($fromPresetId === $toPresetId) {
+            return;
+        }
+        $this->placeholderService->copyScope(
+            $this->scopeResolver->preset($fromPresetId),
+            $this->scopeResolver->preset($toPresetId),
+        );
+    }
 }

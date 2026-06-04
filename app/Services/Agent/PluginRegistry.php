@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PluginExecutionContextBuilderInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
@@ -30,7 +31,8 @@ class PluginRegistry implements PluginRegistryInterface
     public function __construct(
         // needed to build per-preset context for the
         // registerShortcodes() hook. Stateless service, safe to inject.
-        protected PluginExecutionContextBuilderInterface $contextBuilder
+        protected PluginExecutionContextBuilderInterface $contextBuilder,
+        protected ShortcodeManagerServiceInterface $shortcodeManager,
     ) {
     }
 
@@ -120,7 +122,13 @@ class PluginRegistry implements PluginRegistryInterface
             }
 
             $plugin->{self::REGISTER_SHORTCODES_METHOD}($context);
+
         }
+        $this->shortcodeManager->copyPresetShortcodes(
+            $sourcePreset->getId(),
+            $preset->getId(),
+        );
+
     }
 
     /**

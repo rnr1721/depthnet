@@ -101,4 +101,14 @@ interface ShortcodeManagerServiceInterface
      * @return void
      */
     public function clearPresetShortcodes(int $presetId): void;
+
+    /**
+     * Copy all shortcodes from one preset scope to another.
+     * Does not affect global shortcodes.
+     *
+     * @param int $fromPresetId
+     * @param int $toPresetId
+     * @return void
+    */
+    public function copyPresetShortcodes(int $fromPresetId, int $toPresetId): void;
 }

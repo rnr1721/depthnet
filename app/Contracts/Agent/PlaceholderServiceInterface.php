@@ -128,4 +128,14 @@ interface PlaceholderServiceInterface
      * @return string Processed content
      */
     public function processContentWithDynamic(string $content, array $scopes = ['global']): string;
+
+    /**
+     * Copy all placeholders from one scope to another.
+     * Existing entries in the target scope are NOT overwritten.
+     *
+     * @param string $from
+     * @param string $to
+     * @return self
+     */
+    public function copyScope(string $from, string $to): self;
 }

@@ -246,6 +246,24 @@ class PlaceholderService implements PlaceholderServiceInterface
     }
 
     /**
+     * @inheritDoc
+     */
+    public function copyScope(string $from, string $to): self
+    {
+        if (!isset($this->scopes[$from])) {
+            return $this;
+        }
+
+        foreach ($this->scopes[$from] as $key => $entry) {
+            if (!isset($this->scopes[$to][$key])) {
+                $this->scopes[$to][$key] = $entry;
+            }
+        }
+
+        return $this;
+    }
+
+    /**
      * Merge placeholders from the given scopes in order.
      * Later scopes override earlier ones for the same key.
      *

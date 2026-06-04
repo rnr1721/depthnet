@@ -14,7 +14,7 @@ use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
-use App\Services\Agent\ContextBuilder\Traits\ContextRagTrait;
+use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
 /**
  * Cycle context builder - adds cycle instructions for continuous thinking.
@@ -43,7 +43,7 @@ use App\Services\Agent\ContextBuilder\Traits\ContextRagTrait;
 class CycleContextBuilder implements ContextBuilderInterface
 {
     use ContentCleaningTrait;
-    use ContextRagTrait;
+    use ResolvesSourcePresetTrait;
 
     public function __construct(
         protected Message                          $messageModel,
@@ -70,7 +70,7 @@ class CycleContextBuilder implements ContextBuilderInterface
             $maxContextLimit = $preset->getMaxContextLimit();
         }
 
-        $sourcePreset = $sourcePreset ?? $this->resolveSourceRagPreset($preset);
+        $sourcePreset = $sourcePreset ?? $this->resolveSourcePreset($preset);
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())

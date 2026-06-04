@@ -13,7 +13,7 @@ use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
-use App\Services\Agent\ContextBuilder\Traits\ContextRagTrait;
+use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
 /**
  * Single context builder - simple message processing without cycles.
@@ -33,7 +33,7 @@ use App\Services\Agent\ContextBuilder\Traits\ContextRagTrait;
 class SingleContextBuilder implements ContextBuilderInterface
 {
     use ContentCleaningTrait;
-    use ContextRagTrait;
+    use ResolvesSourcePresetTrait;
 
     public function __construct(
         protected Message                          $messageModel,
@@ -59,7 +59,7 @@ class SingleContextBuilder implements ContextBuilderInterface
             $maxContextLimit = $preset->getMaxContextLimit();
         }
 
-        $sourcePreset = $sourcePreset ?? $this->resolveSourceRagPreset($preset);
+        $sourcePreset = $sourcePreset ?? $this->resolveSourcePreset($preset);
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())

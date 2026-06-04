@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Services\Agent\ContextBuilder\Traits;
+namespace App\Services\Agent\Traits;
 
 use App\Models\AiPreset;
 
-trait ContextRagTrait
+trait ResolvesSourcePresetTrait
 {
-    private function resolveSourceRagPreset(AiPreset $preset): AiPreset
+    private function resolveSourcePreset(AiPreset $preset): AiPreset
     {
         $targetId = $preset->getTargetPresetId();
         if (!$targetId) {

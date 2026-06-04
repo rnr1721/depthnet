@@ -6,9 +6,12 @@ use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PluginExecutionContextBuilderInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Models\AiPreset;
+use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
 class PluginRegistry implements PluginRegistryInterface
 {
+    use ResolvesSourcePresetTrait;
+
     /**
      * renamed from PLUGIN_READY_METHOD. The hook is now opt-in
      * and used purely for placeholder/shortcode registration scoped to a
@@ -101,12 +104,14 @@ class PluginRegistry implements PluginRegistryInterface
     {
         $this->setDisabledForNow($preset->getPluginsDisabled());
 
+        $sourcePreset = $this->resolveSourcePreset($preset);
+
         foreach ($this->allRegistered() as $plugin) {
             if (!method_exists($plugin, self::REGISTER_SHORTCODES_METHOD)) {
                 continue;
             }
 
-            $context = $this->contextBuilder->build($plugin, $preset);
+            $context = $this->contextBuilder->build($plugin, $sourcePreset);
 
             // Skip disabled plugins — no point in registering their
             // shortcodes if they can't be invoked anyway.

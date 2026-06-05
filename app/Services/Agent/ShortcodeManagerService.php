@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Models\AiPreset;
@@ -15,7 +16,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected ShortcodeScopeResolverServiceInterface $scopeResolver,
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
-        protected EnvironmentInfoServiceInterface $environmentInfoService
+        protected EnvironmentInfoServiceInterface $environmentInfoService,
+        protected PulseServiceInterface $pulseService,
     ) {
     }
 
@@ -24,7 +26,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
      */
     public function setDefaultShortcodes(AiPreset $preset): void
     {
-        $this->setDateTime();
+        $this->setDateTime($preset->getPulseDates());
         if ($preset->getAgentResultMode() !== 'tool_calls') {
             $this->setCommandBuilderInstructions($preset);
             $this->setPreCommandResults();
@@ -40,10 +42,18 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     /**
      * Register current date and time shortcode
      *
+     * @param bool $pulseDates Whether to use pulse-based dates (agent "time" that can be manipulated) or real current date and time.
      * @return void
      */
-    private function setDateTime(): void
+    private function setDateTime(bool $pulseDates): void
     {
+        $this->placeholderService->registerDynamic('current_pulse', 'Current pulse in the day (0-1000)', function () use ($pulseDates) {
+            if (!$pulseDates) {
+                return '';
+            }
+            return 'pulse ' . $this->pulseService->currentPulse() . '/' . PulseServiceInterface::PULSES_PER_DAY;
+        });
+
         $this->placeholderService->registerDynamic('current_datetime', 'Current date and time', function () {
             return date('Y-m-d H:i:s');
         });

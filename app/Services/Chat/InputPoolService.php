@@ -2,6 +2,7 @@
 
 namespace App\Services\Chat;
 
+use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
@@ -40,6 +41,7 @@ class InputPoolService implements InputPoolServiceInterface
         protected OptionsServiceInterface $optionsService,
         protected InputPoolItem $poolItemModel,
         protected PresetKnownSource $knownSourceModel,
+        protected PulseServiceInterface $pulseService,
         protected Message $messageModel,
     ) {
     }
@@ -239,23 +241,30 @@ class InputPoolService implements InputPoolServiceInterface
     private function buildJson(Collection $items, AiPreset $preset): string
     {
         $reference = null;
-
-        if ($preset->getPoolRelativeDates()) {
+        if ($preset->getPoolRelativeDates() || $preset->getPulseDates()) {
             $lastMessage = $this->messageModel->forPreset($preset->getId())
                 ->whereIn('role', ['thinking', 'command'])
                 ->latest()
                 ->value('created_at');
-
             $reference = $lastMessage ? \Carbon\Carbon::parse($lastMessage) : now();
         }
 
-        $sources = $items->map(function ($item) use ($reference) {
+        $sources = $items->map(function ($item) use ($reference, $preset) {
             $entry = [
                 'source'    => $item->source_name,
                 'content'   => $item->content,
-                'timestamp' => $item->created_at->toIso8601String(),
-                'ago'       => $reference ? $item->created_at->diffForHumans($reference, true) : null,
+                'timestamp' => $item->created_at->toIso8601String()
             ];
+
+            if ($preset->getPoolRelativeDates() && $reference) {
+                $entry['ago'] = $item->created_at->diffForHumans($reference, true);
+            }
+
+            if ($preset->getPulseDates() && $reference) {
+                $seconds = (int) \Carbon\Carbon::parse($item->created_at)->diffInSeconds($reference);
+                $entry['pulses_ago'] = $this->pulseService->secondsToPulses($seconds);
+            }
+
             return $entry;
         })->values()->all();
 

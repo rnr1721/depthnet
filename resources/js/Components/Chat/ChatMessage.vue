@@ -162,6 +162,9 @@
           <span v-if="src.ago" :title="t('chat_pool_ago_hint')" class="cursor-help">
             ({{ src.ago }})
           </span>
+          <span v-if="src.pulses_ago !== undefined" class="text-xs opacity-50 ml-1" :title="src.pulses_ago + ' pulses'">
+            ⏱
+          </span>
         </div>
       </div>
 

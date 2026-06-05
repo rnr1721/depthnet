@@ -16,6 +16,17 @@ Then enable the **MCP** plugin in the preset's plugin settings.
 | **Connection whitelist** | If set, the agent can only connect to domains listed here (one per line). Leave empty to allow any domain when agent-connect is enabled. |
 | **Tools cache TTL (minutes)** | How long to cache the tools list fetched from each server (1–1440). Default: `60`. |
 
+## Transport
+
+DepthNet supports both MCP transport protocols. The transport is selected per-server when adding it in the **MCP Servers** tab.
+
+| Transport | When to use |
+|---|---|
+| **Streamable HTTP** (default) | MCP spec 2025-03-26. The modern transport used by most current servers — a single endpoint with request/response over POST. |
+| **Legacy SSE** | MCP spec 2024-11-05. Older servers that expose an `/sse` endpoint: the client opens a persistent stream, posts requests to a message endpoint discovered from that stream, and reads responses back through it. |
+
+Leave it on **Streamable HTTP** unless the server only speaks legacy SSE — a good hint is a connection URL ending in `/sse`. When a legacy server later upgrades to Streamable HTTP, just switch the transport in the UI; nothing else changes.
+
 ## Commands
 
 **Discovering servers and tools:**
@@ -71,3 +82,4 @@ The agent can use `[mcp list]` to orient itself at the start of a task, then cal
 - Tool lists are cached per server to avoid redundant network calls. Use `[mcp tools]server_key` to force a refresh and update the cache.
 - Server health status is tracked automatically — a failed tool call marks the server as unhealthy until it succeeds again.
 - Servers added by the agent via `[mcp connect]` are flagged as agent-added, which makes them easy to identify and review in the UI.
+- Legacy SSE servers are stateless per call in DepthNet — each tool call opens a short-lived stream with a fresh session. This is slightly less efficient than Streamable HTTP (an extra handshake per call) but requires no persistent connection, which suits the per-cycle execution model. Imperceptible on a local network.

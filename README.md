@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
-![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
+![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP%20%2B%20SSE%20HTTP-blue?style=flat-square)
 
 **Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.7
 
@@ -146,7 +146,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Skill** (`skill`) | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
 | **Person** (`person`) | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
 | **Goal** (`goal`) | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
-| **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
+| **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26) and legacy SSE (2024-11-05). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
 | **Telegram** (`telegram`) | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
 | **Code** (`code`) | Structured sandbox filesystem access with LSP code intelligence. Navigate, read, search, edit (replace/patch/batch), plus symbols, references, hover, definition, diagnostics. Requires sandbox. | [→](docs/plugins/code.md) |
 | **Browser** (`browser`) | Persistent Playwright browser with session memory surviving across thinking cycles. Open pages, click, type, read structured snapshots. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |

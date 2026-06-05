@@ -37,6 +37,13 @@ class McpClient implements McpClientInterface
     private array $sessions = [];
 
     /**
+     * Cache of resolved POST endpoints for legacy SSE transport.
+     * Legacy SSE servers send the message endpoint URL in the first SSE event.
+     * Format: server_key => absolute URL
+     */
+    private array $sseEndpoints = [];
+
+    /**
      * Incremental request ID counter for JSON-RPC.
      */
     private int $requestId = 0;
@@ -136,6 +143,19 @@ class McpClient implements McpClientInterface
             return;
         }
 
+        // Legacy SSE servers (phone-mcp, older implementations) are stateless —
+        // they don't implement the initialize handshake from the Streamable HTTP spec.
+        // Each JSON-RPC call goes directly to the message endpoint discovered via SSE.
+        if ($server->getTransport() === 'sse') {
+            $this->sessions[$key] = [
+                'protocolVersion'    => '2024-11-05',
+                'serverCapabilities' => [],
+                'serverInfo'         => ['name' => 'legacy-sse'],
+                'sessionId'          => null,
+            ];
+            return;
+        }
+
         $initParams = [
             'protocolVersion' => self::SUPPORTED_PROTOCOL_VERSIONS[0],
             'capabilities'    => (object) [],
@@ -178,6 +198,7 @@ class McpClient implements McpClientInterface
     public function resetSession(McpServer $server): void
     {
         unset($this->sessions[$server->getKey()]);
+        unset($this->sseEndpoints[$server->getKey()]);
     }
 
     // -------------------------------------------------------------------------
@@ -213,6 +234,13 @@ class McpClient implements McpClientInterface
         ];
 
         $headers = $this->buildHeaders($server);
+
+        // Legacy SSE returns an already-parsed JSON-RPC array (response arrives
+        // asynchronously on the stream). Streamable HTTP returns a Response to parse.
+        if ($server->getTransport() === 'sse') {
+            return $this->sendLegacySse($server, $payload, $headers, $timeout);
+        }
+
         $response = $this->sendWithRetry($server, $payload, $headers, $timeout);
 
         return $this->parseResponse($response, $id, $server);
@@ -223,6 +251,12 @@ class McpClient implements McpClientInterface
      */
     protected function sendNotification(McpServer $server, string $method, array|object $params = []): void
     {
+        // Legacy SSE is stateless per-call in our implementation — there's no
+        // persistent session to notify. Skip notifications entirely for it.
+        if ($server->getTransport() === 'sse') {
+            return;
+        }
+
         $payload = [
             'jsonrpc' => self::JSONRPC_VERSION,
             'method'  => $method,
@@ -248,7 +282,266 @@ class McpClient implements McpClientInterface
     }
 
     /**
-     * Send HTTP request with retry logic for transient failures.
+     * Legacy SSE transport (MCP 2024-11-05, servers like phone-mcp).
+     *
+     * This is an asynchronous bidirectional protocol:
+     *   1. GET /sse        — open a persistent stream; first event is `endpoint`
+     *   2. POST {endpoint} — send the JSON-RPC payload; server replies 202 Accepted
+     *   3. GET /sse stream — the actual JSON-RPC response arrives back on the open stream
+     *
+     * The GET stream and the POST must overlap in time, so we drive the stream
+     * with curl_multi (non-blocking) and fire the POST as a normal request once
+     * the endpoint is known. We keep reading the stream until a `message` event
+     * carrying our request id appears, then tear everything down.
+     *
+     * Each rpcCall opens a fresh short-lived stream (new sessionId) — stateless
+     * by design, since PHP can't hold a connection open between agent requests.
+     *
+     * @see https://modelcontextprotocol.io/specification/2024-11-05/basic/transports#server-sent-events-sse
+     */
+    protected function sendLegacySse(
+        McpServer $server,
+        array $payload,
+        array $headers,
+        int $timeout,
+    ): array {
+        $key = $server->getKey();
+
+        $buffer       = '';
+        $endpoint     = null;
+        $posted       = false;
+        $result       = null;
+        $requestId    = $payload['id'] ?? null;
+        $deadline     = microtime(true) + $timeout;
+
+        $curlHeaders = ['Accept: text/event-stream'];
+        foreach (array_merge($headers, $server->getHeaders()) as $name => $value) {
+            // skip Content-Type on the GET stream
+            if (strcasecmp($name, 'Content-Type') === 0) {
+                continue;
+            }
+            $curlHeaders[] = "{$name}: {$value}";
+        }
+
+        // GET /sse — non-blocking stream driven by curl_multi
+        $stream = curl_init($server->getUrl());
+        curl_setopt_array($stream, [
+            CURLOPT_HTTPHEADER     => $curlHeaders,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT        => $timeout,
+            CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$buffer, &$endpoint, &$result, $requestId, $server) {
+                $buffer .= $chunk;
+
+                // Discover endpoint once
+                if ($endpoint === null) {
+                    $found = $this->extractSseEndpoint($buffer, $server->getUrl());
+                    if ($found !== null) {
+                        $endpoint = $found;
+                    }
+                }
+
+                // Look for the JSON-RPC response for our request id
+                $found = $this->extractSseMessage($buffer, $requestId);
+                if ($found !== null) {
+                    $result = $found;
+                    return 0; // abort — we have our answer
+                }
+
+                return strlen($chunk);
+            },
+        ]);
+
+        $mh = curl_multi_init();
+        curl_multi_add_handle($mh, $stream);
+
+        $active = null;
+        do {
+            curl_multi_exec($mh, $active);
+
+            // Once we know the endpoint and haven't posted yet — send the payload
+            if ($endpoint !== null && !$posted) {
+                $this->sseEndpoints[$key] = $endpoint;
+                $this->logger->debug("MCP legacy SSE endpoint discovered for [{$key}]", [
+                    'endpoint' => $endpoint,
+                ]);
+
+                $postResponse = $this->http
+                    ->withHeaders(array_merge($headers, ['Content-Type' => 'application/json']))
+                    ->timeout($timeout)
+                    ->post($endpoint, $payload);
+
+                // Server accepts with 202; the real answer comes via the stream
+                if ($postResponse->status() >= 400) {
+                    curl_multi_remove_handle($mh, $stream);
+                    throw new \RuntimeException(
+                        "MCP legacy SSE [{$key}] POST HTTP {$postResponse->status()}: {$postResponse->body()}"
+                    );
+                }
+
+                $posted = true;
+            }
+
+            // Got the answer (WRITEFUNCTION returned 0) — stop
+            if ($result !== null) {
+                break;
+            }
+
+            // Timeout guard
+            if (microtime(true) > $deadline) {
+                curl_multi_remove_handle($mh, $stream);
+                throw new \RuntimeException(
+                    "MCP legacy SSE [{$key}] timed out after {$timeout}s waiting for response"
+                );
+            }
+
+            if ($active) {
+                curl_multi_select($mh, 0.5);
+            }
+        } while ($active || $result === null);
+
+        $errno = curl_multi_errno($mh);
+        $streamErrno = curl_errno($stream);
+        curl_multi_remove_handle($mh, $stream);
+
+        if ($result === null) {
+            // errno 23 = we aborted via WRITEFUNCTION (expected); anything else is real
+            if ($streamErrno !== 0 && $streamErrno !== 23) {
+                throw new \RuntimeException(
+                    "MCP legacy SSE [{$key}] stream error {$streamErrno}: " . curl_strerror($streamErrno)
+                );
+            }
+            throw new \RuntimeException(
+                "MCP legacy SSE [{$key}] stream closed without a matching response"
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * Scan an SSE buffer for a `message` event carrying the JSON-RPC response
+     * that matches the given request id. Returns the decoded array or null if
+     * not yet present in the buffer.
+     *
+     * Legacy SSE servers deliver responses as:
+     *   event: message
+     *   data: {"jsonrpc":"2.0","id":1,"result":{...}}
+     */
+    protected function extractSseMessage(string $buffer, ?int $requestId): ?array
+    {
+        $buffer = str_replace(["\r\n", "\r"], "\n", $buffer);
+        $events = preg_split('/\n{2,}/', $buffer);
+
+        foreach ($events as $event) {
+            $eventType = null;
+            $dataLines = [];
+
+            foreach (explode("\n", $event) as $line) {
+                if ($line === '' || str_starts_with($line, ':')) {
+                    continue;
+                }
+
+                $colonPos = strpos($line, ':');
+                if ($colonPos === false) {
+                    continue;
+                }
+
+                $field = substr($line, 0, $colonPos);
+                $value = ltrim(substr($line, $colonPos + 1), ' ');
+
+                match ($field) {
+                    'event' => $eventType = $value,
+                    'data'  => $dataLines[] = $value,
+                    default => null,
+                };
+            }
+
+            // Skip the endpoint event and anything without data
+            if ($eventType === 'endpoint' || empty($dataLines)) {
+                continue;
+            }
+
+            $json = json_decode(implode("\n", $dataLines), true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                continue;
+            }
+
+            // Match by request id; accept id-less responses that carry result/error
+            if (
+                (isset($json['id']) && $json['id'] === $requestId)
+                || (!isset($json['id']) && (isset($json['result']) || isset($json['error'])))
+            ) {
+                return $json;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract the POST endpoint URL from the SSE stream's `endpoint` event.
+     *
+     * Legacy SSE servers send an initial event like:
+     *   event: endpoint
+     *   data: /message?sessionId=abc123
+     *
+     * The data may be an absolute URL or a path relative to the SSE base URL.
+     */
+    protected function extractSseEndpoint(string $body, string $sseUrl): ?string
+    {
+        $body = str_replace(["\r\n", "\r"], "\n", $body);
+        $events = preg_split('/\n{2,}/', $body);
+
+        foreach ($events as $event) {
+            $eventType = null;
+            $dataLines = [];
+
+            foreach (explode("\n", $event) as $line) {
+                if ($line === '' || str_starts_with($line, ':')) {
+                    continue;
+                }
+
+                $colonPos = strpos($line, ':');
+                if ($colonPos === false) {
+                    continue;
+                }
+
+                $field = substr($line, 0, $colonPos);
+                $value = ltrim(substr($line, $colonPos + 1), ' ');
+
+                match ($field) {
+                    'event' => $eventType = $value,
+                    'data'  => $dataLines[] = $value,
+                    default => null,
+                };
+            }
+
+            if ($eventType !== 'endpoint' || empty($dataLines)) {
+                continue;
+            }
+
+            $endpointData = trim(implode('', $dataLines));
+
+            // Absolute URL — use as-is
+            if (str_starts_with($endpointData, 'http://') || str_starts_with($endpointData, 'https://')) {
+                return $endpointData;
+            }
+
+            // Relative path — resolve against SSE base URL (scheme + host + port)
+            $parsed = parse_url($sseUrl);
+            $base = ($parsed['scheme'] ?? 'http') . '://' . ($parsed['host'] ?? '');
+            if (isset($parsed['port'])) {
+                $base .= ':' . $parsed['port'];
+            }
+
+            return $base . '/' . ltrim($endpointData, '/');
+        }
+
+        return null;
+    }
+
+    /**
+     * Send HTTP request with retry logic for transient failures (Streamable HTTP transport).
      */
     protected function sendWithRetry(
         McpServer $server,
@@ -350,7 +643,10 @@ class McpClient implements McpClientInterface
 
         $contentType = $response->header('Content-Type') ?? '';
 
-        if (str_contains($contentType, 'text/event-stream')) {
+        // Legacy SSE servers always respond with SSE stream on the message endpoint,
+        // but some (phone-mcp) don't set Content-Type: text/event-stream correctly.
+        // Force SSE parsing for the whole transport rather than relying on the header.
+        if ($server->getTransport() === 'sse' || str_contains($contentType, 'text/event-stream')) {
             return $this->parseSseBody($response->body(), $requestId);
         }
 

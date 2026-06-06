@@ -105,7 +105,7 @@ class AiPreset extends Model
         'cp_context_limit'         => 5,
         'voice_mp_commands'        => '',
         'pre_run_commands'         => '',
-        'turn_trigger'             => 'none',
+        'turn_trigger'             => 'no_speak',
         'rhasspy_enabled'          => false,
         'rhasspy_incoming_enabled' => false,
     ];

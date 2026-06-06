@@ -103,9 +103,9 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
 
         if ($turn) {
             if ($this->inputPoolService->isEnabled($preset)) {
-                $this->inputPoolService->add($preset->getId(), 'system', 'Continue.');
+                $this->inputPoolService->add($preset->getId(), 'system', 'Continue');
             } else {
-                $this->createUserMessage('Continue.', $preset->getId());
+                $this->createUserMessage('Continue', $preset->getId());
             }
         }
 
@@ -441,7 +441,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                 // or from the tool_call input. extractAgentVoice() is only a fallback
                 // for tag mode when no explicit message was provided.
                 $message    = $handoff['handoff_message']
-                    ?? $this->extractAgentVoice($response->getResponse());
+                    ?? trim((string) $actionsResult->getSystemMessage());
                 $setReplyTo = !$replyToPresetId;
                 $this->agentMessageService->deliver($preset, $targetPreset, $message, true, $setReplyTo);
             } else {
@@ -458,27 +458,20 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         if ($replyToPresetId) {
             $replyToPreset = $this->presetService->findById($replyToPresetId);
             if ($replyToPreset) {
-                // In tool_calls mode the raw response is a JSON string with tool_calls —
-                // not readable text. Use formatted command results instead so the
-                // receiving agent gets meaningful content rather than raw JSON.
-                // If there's nothing meaningful to send, skip delivery entirely.
-                if ($preset->getAgentResultMode() === 'tool_calls') {
-                    $messageText = trim($actionsResult->getSystemMessage());
-                } else {
-                    $messageText = $this->extractAgentVoice($response->getResponse());
-                }
+                $messageText = trim((string) $actionsResult->getSystemMessage());
 
                 if (!empty($messageText)) {
                     $this->agentMessageService->deliver($preset, $replyToPreset, $messageText, false, false);
+                    $this->agentMessageService->clearReplyTo($preset->getId());
                 } else {
-                    $this->logger->debug('AgentActionsHandler: skipping auto reply-to — no meaningful content', [
-                        'preset_id'     => $preset->getId(),
-                        'reply_to'      => $replyToPresetId,
-                        'result_mode'   => $preset->getAgentResultMode(),
+                    $this->logger->debug('AgentActionsHandler: reply-to pending — agent still thinking', [
+                        'preset_id' => $preset->getId(),
+                        'reply_to'  => $replyToPresetId,
                     ]);
                 }
+            } else {
+                $this->agentMessageService->clearReplyTo($preset->getId());
             }
-            $this->agentMessageService->clearReplyTo($preset->getId());
         }
     }
 

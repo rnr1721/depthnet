@@ -186,7 +186,7 @@ class CyclePromptEnricher implements CyclePromptEnricherInterface
             if ($voicePreset->getAgentResultMode() === 'tool_calls') {
                 $this->messageModel->create([
                     'role'               => 'system',
-                    'content'            => "⚠️ Cycle prompt [{$voicePreset->getName()}] is configured as tool_calls but runs in a flat synthetic context — tools cannot be executed. Switch agent_result_mode to 'separate' or 'internal' for this voice preset.",
+                    'content'            => "⚠️ Cycle prompt [{$voicePreset->getName()}] is configured as tool_calls but runs in a flat synthetic context — tools cannot be executed. Switch agent_result_mode to 'internal' for this voice preset.",
                     'from_user_id'       => null,
                     'preset_id'          => $mainPreset->getId(),
                     'is_visible_to_user' => true,

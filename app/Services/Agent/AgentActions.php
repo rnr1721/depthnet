@@ -73,8 +73,6 @@ class AgentActions implements AgentActionsInterface
         ?AiPreset $mainPreset = null,
         bool $isUser = false
     ): AiActionsResponseInterface {
-        $responseString = $this->cleanupResponse($responseString, $preset);
-
         if ($preset->getAgentResultMode() === 'tool_calls') {
             return $this->runToolCallActions($responseString, $preset, $mainPreset, $isUser);
         }
@@ -228,25 +226,6 @@ class AgentActions implements AgentActionsInterface
             false,
             false
         );
-    }
-
-    /**
-     * Remove fake system command result blocks the model may have hallucinated.
-     * Only applies in 'separate' result mode.
-     *
-     * @param  string   $response
-     * @param  AiPreset $preset
-     * @return string
-     */
-    private function cleanupResponse(string $response, AiPreset $preset): string
-    {
-        if ($preset->getAgentResultMode() === 'separate') {
-            $response = preg_replace('/<system_output_results>.*?```\s*$/s', '', $response);
-            $response = preg_replace('/```system_command_results.*?```/s', '', $response);
-            $response = preg_replace('/🤖\s*Command\s*Results:\s*/i', '', $response);
-        }
-
-        return trim($response);
     }
 
     /**

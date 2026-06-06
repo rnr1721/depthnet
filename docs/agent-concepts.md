@@ -105,8 +105,6 @@ There are three ways the model can invoke plugins:
 
 **Internal** (default) — command results are injected into the system prompt of the *next* cycle via `[[agent_command_results]]`, keeping them out of the conversation history. Recommended for autonomous agents — results don't pollute the context that the model might confuse with its own prior output.
 
-**Separate** — response and results are stored as distinct messages. Results appear in the chat, making the execution trace visible.
-
 **Tool calls** — the model uses the provider's native function-calling mechanism. Plugin schemas are sent as a `tools` array with the API request; the model responds with structured tool invocations rather than tag syntax. More reliable for tool-oriented workflows. Not recommended for subjective agents — tag mode preserves the natural flow of thought in the model's output.
 
 ---

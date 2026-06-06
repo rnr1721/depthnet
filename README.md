@@ -125,8 +125,6 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 
 - **`internal`** — Results are pushed to CommandResultPool and injected into the next cycle's system prompt via `[[agent_command_results]]`. Recommended for autonomous agents — keeps results out of the conversation context where models can confuse them with their own previous output. The results may depend directly on the number of model parameters.
 
-- **`separate`** — Response and command results are stored as separate messages. Results are visible in chat. Useful when you want the conversation history to clearly show what was executed.
-
   Supported providers for `tool_calls` mode: DeepSeek (V3.2+), Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint). For LocalModel — opt-in via `supports_tool_calls: true` in preset config, depends on the specific model and server.
 
 ## Advanced Plugin System
@@ -183,7 +181,7 @@ All command plugins implements CommandPluginInterface. Orchestrator is PluginReg
 
 ### Command Syntax Examples
 
-The AI communicates through special command tags that trigger plugin execution. This is the default tag-based syntax used in `internal` and `separate` result modes. In `tool_calls` mode, the model invokes the same plugins natively through the provider API — no tag syntax needed.
+The AI communicates through special command tags that trigger plugin execution. This is the default tag-based syntax used in `internal` result mode. In `tool_calls` mode, the model invokes the same plugins natively through the provider API — no tag syntax needed.
 
 ```
 # Code execution
@@ -371,7 +369,7 @@ The AI communicates through special command tags that trigger plugin execution. 
 
 Two pipelines depending on the preset's `agent_result_mode`:
 
-**Tag pipeline** (`internal` / `separate`):
+**Tag pipeline** (`internal`):
 1. **CommandValidator** scans AI response for unclosed tags and syntax errors
 2. **CommandParser** extracts valid commands and prepares execution data
 3. **CommandExecutor** routes commands to appropriate plugins
@@ -757,7 +755,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
 - Requires provider support: DeepSeek V3.2+, Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint)
 - For LocalModel: opt-in via `supports_tool_calls: true` in preset config — depends on specific model and server (Ollama supports it from llama3.1+, mistral-nemo, qwen2.5+)
 - Not recommended for subjective/identity agents — tag mode preserves the natural flow of thought within model output; tool_calls creates a more mechanical separation between reasoning and action
-"Voice presets configured as tool_calls receive a synthetic flat context without a tools array — tools cannot execute. The model responds with plain text; a visible system notice is written to the main preset's history. Switch to separate or internal for voice presets."
+"Voice presets configured as tool_calls receive a synthetic flat context without a tools array — tools cannot execute. The model responds with plain text; a visible system notice is written to the main preset's history. Switch to internal for voice presets."
 
 **System Prompt Critical Factors:**
 - Agent behavior heavily dependent on system prompt quality and precision

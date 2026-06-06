@@ -1869,7 +1869,7 @@ return [
             ],
             'loop_interval' => 15,
             'max_context_limit' => 8,
-            'agent_result_mode' => 'separate',
+            'agent_result_mode' => 'internal',
             'engine_config' => [
                 'processing_delay' => 1,
                 'scenario_mode' => 'random',

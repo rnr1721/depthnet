@@ -169,7 +169,12 @@
       </div>
 
       <!-- Regular message content -->
-      <div v-else class="message-content leading-relaxed" v-html="formattedContent"></div>
+      <div v-else-if="!contentDuplicatedInSystem" class="message-content leading-relaxed" v-html="formattedContent">
+      </div>
+
+      <div v-else :class="['text-xs italic opacity-50', isDark ? 'text-gray-500' : 'text-gray-400']">
+        {{ t('chat_response_shown_below') || 'Response shown below' }}
+      </div>
 
       <!-- Commands -->
       <div v-for="command in extractedCommands" :key="command.id" :class="[
@@ -335,6 +340,10 @@ const copiedSystemPrompt = ref(false);
 
 const hasSystemPrompt = computed(() =>
   ['assistant', 'thinking', 'command'].includes(props.message.role)
+);
+
+const contentDuplicatedInSystem = computed(() =>
+  props.message.metadata?.content_duplicated_in_system === true
 );
 
 async function openSystemPrompt() {

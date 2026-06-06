@@ -524,7 +524,7 @@ class AiPreset extends Model
 
     /**
      * Get agent result mode for this preset
-     * If the results  are returned as separate messages or as a single response
+     * tool_calls or internal
      *
      * @return string
      */

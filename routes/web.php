@@ -249,6 +249,8 @@ Route::middleware('auth')->group(function () {
             Route::put('/{presetId}/{capability}', [PresetCapabilityController::class, 'update'])->name('update');
             // Test the current config
             Route::post('/{presetId}/{capability}/test', [PresetCapabilityController::class, 'test'])->name('test');
+            // List available models for capabilities that support it (e.g. LLMs)
+            Route::get('/{presetId}/{capability}/models', [PresetCapabilityController::class, 'models'])->name('models');
         });
 
         // Skills Management routes

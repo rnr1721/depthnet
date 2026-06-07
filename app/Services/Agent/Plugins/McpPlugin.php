@@ -2,9 +2,12 @@
 
 namespace App\Services\Agent\Plugins;
 
+use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Mcp\McpClientInterface;
 use App\Contracts\Agent\Mcp\McpServerRepositoryInterface;
+use App\Contracts\Chat\InputPoolServiceInterface;
+use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
@@ -25,6 +28,8 @@ class McpPlugin implements CommandPluginInterface
     public function __construct(
         protected McpClientInterface $mcpClient,
         protected McpServerRepositoryInterface $serverRepository,
+        protected VisionServiceInterface $visionService,
+        protected InputPoolServiceInterface $inputPool,
         protected LoggerInterface $logger
     ) {
     }
@@ -317,6 +322,13 @@ class McpPlugin implements CommandPluginInterface
                 'value'       => 60,
                 'required'    => false,
             ],
+            'pool_source_name' => [
+                'type'        => 'text',
+                'label'       => 'Pool Source Name',
+                'description' => 'The name of the source to which recognized media should be sent.',
+                'placeholder' => 'e.g., Vision Input',
+                'required'    => false,
+            ],
         ];
     }
 
@@ -332,6 +344,7 @@ class McpPlugin implements CommandPluginInterface
             'allow_agent_connect' => false,
             'connect_whitelist'   => '',
             'tools_cache_ttl'     => 60,
+            'pool_source_name'   => '',
         ];
     }
 
@@ -376,9 +389,10 @@ class McpPlugin implements CommandPluginInterface
         [$toolName, $arguments] = $this->parseToolCall(trim($content));
 
         try {
-            $result = $this->mcpClient->callTool($server, $toolName, $arguments);
+            $blocks = $this->mcpClient->callToolRaw($server, $toolName, $arguments);
             $this->serverRepository->updateHealth($server, 'ok');
-            return $result;
+
+            return $this->renderBlocks($blocks, $server, $toolName, $context);
         } catch (\Throwable $e) {
             $this->serverRepository->updateHealth($server, 'error', $e->getMessage());
             $this->logger->error("McpPlugin: tool call failed", [
@@ -437,5 +451,93 @@ class McpPlugin implements CommandPluginInterface
         }
 
         return false;
+    }
+
+    /**
+     * Render MCP content blocks to a text result, resolving image blocks via vision.
+     *
+     * text     → kept as-is
+     * image    → VisionService::describe() → description text
+     *            ├─ send_to_pool ON + pool ON → pushed to InputPoolService,
+     *            │                              inline result gets a short notice
+     *            └─ else                       → description inlined in the result
+     * resource → text if present, else JSON
+     * other    → JSON fallback
+     *
+     * When vision is unavailable/failed, falls back to the old stub note so the
+     * agent at least knows an image arrived.
+     */
+    private function renderBlocks(
+        array $blocks,
+        \App\Models\McpServer $server,
+        string $toolName,
+        PluginExecutionContext $context,
+    ): string {
+        $parts       = [];
+        $sentToPool  = false;
+        $sendToPool  = $this->visionService->shouldSendToPool($context->preset)
+            && $this->inputPool->isEnabled($context->preset);
+
+        foreach ($blocks as $block) {
+            $type = $block['type'] ?? '';
+
+            switch ($type) {
+                case 'text':
+                    $parts[] = $block['text'] ?? '';
+                    break;
+
+                case 'image':
+                    $base64 = $block['data'] ?? '';
+                    $mime   = $block['mimeType'] ?? 'image/jpeg';
+
+                    if ($base64 === '') {
+                        $parts[] = '[image: empty]';
+                        break;
+                    }
+
+                    $image = new ImageData(
+                        base64:      $base64,
+                        mimeType:    $mime,
+                        sourceLabel: "mcp:{$server->getKey()}:{$toolName}",
+                    );
+
+                    // No explicit question — sensor stream gets a general description.
+                    $description = $this->visionService->describe($image, null, $context->preset);
+
+                    if ($description === null) {
+                        // Vision off or failed — keep the old behaviour, but informative.
+                        $parts[] = "[image received, vision unavailable — {$mime}]";
+                        break;
+                    }
+
+                    if ($sendToPool) {
+                        $sourceName = empty($context->get('pool_source_name')) ? "mcp_{$server->getKey()}" : $context->get('pool_source_name');
+                        $this->inputPool->add(
+                            $context->preset->getId(),
+                            $sourceName,
+                            $description,
+                        );
+                        $sentToPool = true;
+                        // Inline notice so the tool-result path isn't silent.
+                        $parts[] = "[📷 image perceived via {$toolName} — routed to input pool]";
+                    } else {
+                        $parts[] = "[image: {$mime}]\n{$description}";
+                    }
+                    break;
+
+                case 'resource':
+                    $parts[] = $block['resource']['text']
+                        ?? json_encode($block['resource'] ?? [], JSON_UNESCAPED_UNICODE);
+                    break;
+
+                default:
+                    $parts[] = json_encode($block, JSON_UNESCAPED_UNICODE);
+                    break;
+            }
+        }
+
+        $result = implode("\n", array_filter($parts));
+
+        return $result !== '' ? $result : '(empty tool result)';
     }
 }

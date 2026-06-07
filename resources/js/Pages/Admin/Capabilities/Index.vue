@@ -112,7 +112,7 @@
 
                 <div v-else class="space-y-6">
                     <CapabilityCard v-for="cap in capabilitiesList" :key="cap.capability" :capability="cap"
-                        :is-dark="isDark" @save="handleSave" @test="handleTest" />
+                        :preset-id="currentPreset?.id" :is-dark="isDark" @save="handleSave" @test="handleTest" />
 
                     <div v-if="capabilitiesList.length === 0" :class="[
                         'text-center py-16 rounded-xl border',

@@ -13,6 +13,7 @@ use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\Code\LspServiceInterface;
@@ -92,6 +93,10 @@ use App\Services\Agent\AgentMessageService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
+use App\Services\Agent\Capabilities\Vision\Drivers\ClaudeVisionProvider;
+use App\Services\Agent\Capabilities\Vision\Drivers\NovitaVisionProvider;
+use App\Services\Agent\Capabilities\Vision\VisionRegistry;
+use App\Services\Agent\Capabilities\Vision\VisionService;
 use App\Services\Agent\Cleanup\PresetCleanupFactory;
 use App\Services\Agent\Cleanup\PresetCleanupService;
 use App\Services\Agent\Code\Adapters\Go\GoAdapter;
@@ -319,6 +324,31 @@ class AiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(EmbeddingServiceInterface::class, EmbeddingService::class);
+
+        $this->app->singleton(VisionRegistry::class, function ($app) {
+            $registry = new VisionRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            $registry->register(
+                new NovitaVisionProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            $registry->register(
+                new ClaudeVisionProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            return $registry;
+        });
+
+        $this->app->singleton(VisionServiceInterface::class, VisionService::class);
 
         // VectorMemoryFactory
         $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {

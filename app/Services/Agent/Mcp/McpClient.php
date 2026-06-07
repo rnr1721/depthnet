@@ -201,6 +201,27 @@ class McpClient implements McpClientInterface
         unset($this->sseEndpoints[$server->getKey()]);
     }
 
+    public function callToolRaw(McpServer $server, string $toolName, array $arguments): array
+    {
+        $this->ensureInitialized($server);
+
+        $response = $this->rpcCall($server, 'tools/call', [
+            'name'      => $toolName,
+            'arguments' => (object) $arguments,
+        ]);
+
+        if (isset($response['error'])) {
+            throw new \RuntimeException(
+                "MCP tool error [{$toolName}]: "
+                . ($response['error']['message'] ?? 'Unknown error')
+                . (isset($response['error']['code']) ? " (code: {$response['error']['code']})" : '')
+            );
+        }
+
+        // Return raw content blocks; do NOT run extractContent (which would drop base64).
+        return $response['result']['content'] ?? [];
+    }
+
     // -------------------------------------------------------------------------
     //  JSON-RPC Transport
     // -------------------------------------------------------------------------

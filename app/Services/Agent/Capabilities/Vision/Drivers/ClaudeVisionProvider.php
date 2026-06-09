@@ -34,7 +34,7 @@ class ClaudeVisionProvider implements VisionProviderInterface
 {
     use ProvidesNormalizationFields;
 
-    private const DEFAULT_PROMPT  = 'Опиши, что изображено на этом снимке, подробно и по существу.';
+    private const DEFAULT_PROMPT  = 'Describe what is shown in this picture in detail and to the point.';
     private const ANTHROPIC_VERSION = '2023-06-01';
 
     /** Anthropic accepts these media types for image blocks. */

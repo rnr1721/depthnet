@@ -39,7 +39,7 @@ class NovitaVisionProvider implements VisionProviderInterface, ListsModelsInterf
 {
     use ProvidesNormalizationFields;
 
-    private const DEFAULT_PROMPT = 'Опиши, что изображено на этом снимке, подробно и по существу.';
+    private const DEFAULT_PROMPT = 'Describe what is shown in this picture in detail and to the point.';
 
     private string $apiKey;
     private string $baseUrl;

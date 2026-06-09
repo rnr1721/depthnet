@@ -157,24 +157,19 @@ const selectedPresetId = ref(props.current_preset?.id ?? null);
 const capabilitiesList = computed(() => Object.values(capabilities.value));
 
 // ── Preset switch ─────────────────────────────────────────────────────────────
-const changePreset = async () => {
+const changePreset = () => {
     if (!selectedPresetId.value) return;
 
-    loading.value = true;
-    errorMessage.value = null;
-
-    try {
-        const response = await axios.get(route('admin.capabilities.show', { presetId: selectedPresetId.value }));
-
-        if (response.data.success) {
-            capabilities.value = response.data.capabilities;
-            currentPreset.value = response.data.current_preset;
+    router.get(route('admin.capabilities.index'), { preset_id: selectedPresetId.value }, {
+        preserveState: false,
+        preserveScroll: true,
+        onSuccess: () => {
+            errorMessage.value = null;
+        },
+        onError: () => {
+            errorMessage.value = 'Failed to load preset capabilities.';
         }
-    } catch (e) {
-        errorMessage.value = 'Failed to load preset capabilities.';
-    } finally {
-        loading.value = false;
-    }
+    });
 };
 
 // ── Save ──────────────────────────────────────────────────────────────────────
@@ -189,13 +184,11 @@ const handleSave = async ({ capability, driver, config, isActive }) => {
         );
 
         if (response.data.success) {
-            // Refresh the capability entry from server to get updated masked config
-            const refreshed = await axios.get(
-                route('admin.capabilities.show', { presetId: currentPreset.value.id })
-            );
-            if (refreshed.data.success) {
-                capabilities.value = refreshed.data.capabilities;
-            }
+            // Перезагружаем страницу через Inertia чтобы получить свежие пропсы
+            router.reload({
+                preserveState: true,
+                preserveScroll: true,
+            });
         }
 
         return response.data;

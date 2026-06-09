@@ -4,6 +4,8 @@ namespace App\Services\Agent\Capabilities\Vision\Drivers;
 
 use App\Contracts\Agent\Capabilities\VisionProviderInterface;
 use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
+use App\Services\Agent\Capabilities\Vision\DTO\VisionResult;
+use App\Services\Agent\Capabilities\Vision\Traits\ProvidesNormalizationFields;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Psr\Log\LoggerInterface;
 
@@ -30,6 +32,8 @@ use Psr\Log\LoggerInterface;
  */
 class ClaudeVisionProvider implements VisionProviderInterface
 {
+    use ProvidesNormalizationFields;
+
     private const DEFAULT_PROMPT  = 'Опиши, что изображено на этом снимке, подробно и по существу.';
     private const ANTHROPIC_VERSION = '2023-06-01';
 
@@ -71,7 +75,7 @@ class ClaudeVisionProvider implements VisionProviderInterface
 
     public function getConfigFields(): array
     {
-        return [
+        return array_merge([
             'api_key' => [
                 'type'        => 'password',
                 'label'       => 'API Key',
@@ -121,18 +125,18 @@ class ClaudeVisionProvider implements VisionProviderInterface
                     . 'of appearing as a plain tool result.',
                 'required'    => false,
             ],
-        ];
+        ], $this->normalizationFields());
     }
 
     public function getDefaultConfig(): array
     {
-        return [
+        return array_merge([
             'base_url'   => 'https://api.anthropic.com/v1/messages',
             'model'      => 'claude-sonnet-4-6',
             'max_tokens' => 1024,
             'prompt'     => self::DEFAULT_PROMPT,
             'send_to_pool' => false,
-        ];
+        ], $this->normalizationDefaults());
     }
 
     public function validateConfig(array $config): array
@@ -152,17 +156,15 @@ class ClaudeVisionProvider implements VisionProviderInterface
 
     // ── VisionProviderInterface ──────────────────────────────────────────────
 
-    public function describe(ImageData $image, ?string $query = null): ?string
+    public function describeResult(ImageData $image, ?string $query = null): VisionResult
     {
         if (empty($this->apiKey)) {
-            $this->logger->warning('ClaudeVisionProvider: api_key is empty.');
-            return null;
+            return VisionResult::fail('Claude: API key is not set.');
         }
 
         $prompt    = ($query !== null && trim($query) !== '') ? trim($query) : $this->defaultPrompt;
         $mediaType = in_array($image->getMimeType(), self::ALLOWED_MIMES, true)
-            ? $image->getMimeType()
-            : 'image/jpeg';
+            ? $image->getMimeType() : 'image/jpeg';
 
         try {
             $response = $this->http
@@ -175,34 +177,26 @@ class ClaudeVisionProvider implements VisionProviderInterface
                 ->post($this->baseUrl, [
                     'model'      => $this->model,
                     'max_tokens' => $this->maxTokens,
-                    'messages'   => [
-                        [
-                            'role'    => 'user',
-                            'content' => [
-                                [
-                                    'type'   => 'image',
-                                    'source' => [
-                                        'type'       => 'base64',
-                                        'media_type' => $mediaType,
-                                        'data'       => $image->getBase64(),
-                                    ],
-                                ],
-                                ['type' => 'text', 'text' => $prompt],
-                            ],
+                    'messages'   => [[
+                        'role'    => 'user',
+                        'content' => [
+                            ['type' => 'image', 'source' => [
+                                'type' => 'base64', 'media_type' => $mediaType, 'data' => $image->getBase64(),
+                            ]],
+                            ['type' => 'text', 'text' => $prompt],
                         ],
-                    ],
+                    ]],
                 ]);
 
             if ($response->failed()) {
-                $this->logger->error('ClaudeVisionProvider: API error.', [
-                    'status' => $response->status(),
-                    'body'   => mb_substr($response->body(), 0, 500),
-                    'model'  => $this->model,
-                ]);
-                return null;
+                return VisionResult::fail($this->explainHttp(
+                    'Claude',
+                    $response->status(),
+                    $response->body(),
+                    $this->model
+                ));
             }
 
-            // Anthropic returns content[] of typed blocks; collect text blocks.
             $blocks = $response->json('content', []);
             $text   = '';
             foreach ($blocks as $block) {
@@ -211,13 +205,14 @@ class ClaudeVisionProvider implements VisionProviderInterface
                 }
             }
 
-            return trim($text) !== '' ? trim($text) : null;
+            if (trim($text) === '') {
+                return VisionResult::fail('Claude: empty description returned.');
+            }
+
+            return VisionResult::ok(trim($text));
 
         } catch (\Throwable $e) {
-            $this->logger->error('ClaudeVisionProvider: request failed: ' . $e->getMessage(), [
-                'model' => $this->model,
-            ]);
-            return null;
+            return VisionResult::fail('Claude: request failed — ' . $e->getMessage());
         }
     }
 }

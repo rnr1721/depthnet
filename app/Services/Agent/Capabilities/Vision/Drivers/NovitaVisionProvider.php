@@ -5,6 +5,8 @@ namespace App\Services\Agent\Capabilities\Vision\Drivers;
 use App\Contracts\Agent\Capabilities\ListsModelsInterface;
 use App\Contracts\Agent\Capabilities\VisionProviderInterface;
 use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
+use App\Services\Agent\Capabilities\Vision\DTO\VisionResult;
+use App\Services\Agent\Capabilities\Vision\Traits\ProvidesNormalizationFields;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Psr\Log\LoggerInterface;
 
@@ -35,6 +37,8 @@ use Psr\Log\LoggerInterface;
  */
 class NovitaVisionProvider implements VisionProviderInterface, ListsModelsInterface
 {
+    use ProvidesNormalizationFields;
+
     private const DEFAULT_PROMPT = 'Опиши, что изображено на этом снимке, подробно и по существу.';
 
     private string $apiKey;
@@ -70,7 +74,7 @@ class NovitaVisionProvider implements VisionProviderInterface, ListsModelsInterf
 
     public function getConfigFields(): array
     {
-        return [
+        return array_merge([
             'api_key' => [
                 'type'        => 'password',
                 'label'       => 'API Key',
@@ -108,16 +112,16 @@ class NovitaVisionProvider implements VisionProviderInterface, ListsModelsInterf
                     . 'of appearing as a plain tool result.',
                 'required'    => false,
             ],
-        ];
+        ], $this->normalizationFields());
     }
 
     public function getDefaultConfig(): array
     {
-        return [
+        return array_merge([
             'base_url' => 'https://api.novita.ai/v3/openai',
             'prompt'   => self::DEFAULT_PROMPT,
             'send_to_pool' => false,
-        ];
+        ], $this->normalizationDefaults());
     }
 
     public function validateConfig(array $config): array
@@ -141,16 +145,13 @@ class NovitaVisionProvider implements VisionProviderInterface, ListsModelsInterf
 
     // ── VisionProviderInterface ──────────────────────────────────────────────
 
-    public function describe(ImageData $image, ?string $query = null): ?string
+    public function describeResult(ImageData $image, ?string $query = null): VisionResult
     {
         if (empty($this->apiKey)) {
-            $this->logger->warning('NovitaVisionProvider: api_key is empty.');
-            return null;
+            return VisionResult::fail('Novita: API key is not set.');
         }
-
         if (empty($this->model)) {
-            $this->logger->warning('NovitaVisionProvider: model id is empty.');
-            return null;
+            return VisionResult::fail('Novita: VLM model id is not set.');
         }
 
         $prompt = ($query !== null && trim($query) !== '') ? trim($query) : $this->defaultPrompt;
@@ -159,41 +160,37 @@ class NovitaVisionProvider implements VisionProviderInterface, ListsModelsInterf
             $response = $this->http
                 ->withToken($this->apiKey)
                 ->timeout(60)
-                ->post("{$this->baseUrl}/v1/chat/completions", [
+                ->post("{$this->baseUrl}/chat/completions", [
                     'model'    => $this->model,
                     'stream'   => false,
-                    'messages' => [
-                        [
-                            'role'    => 'user',
-                            'content' => [
-                                ['type' => 'text', 'text' => $prompt],
-                                [
-                                    'type'      => 'image_url',
-                                    'image_url' => ['url' => $image->toDataUri()],
-                                ],
-                            ],
+                    'messages' => [[
+                        'role'    => 'user',
+                        'content' => [
+                            ['type' => 'text', 'text' => $prompt],
+                            ['type' => 'image_url', 'image_url' => ['url' => $image->toDataUri()]],
                         ],
-                    ],
+                    ]],
                 ]);
 
             if ($response->failed()) {
-                $this->logger->error('NovitaVisionProvider: API error.', [
-                    'status' => $response->status(),
-                    'body'   => mb_substr($response->body(), 0, 500),
-                    'model'  => $this->model,
-                ]);
-                return null;
+                return VisionResult::fail($this->explainHttp(
+                    'Novita',
+                    $response->status(),
+                    $response->body(),
+                    $this->model
+                ));
             }
 
             $content = $response->json('choices.0.message.content');
 
-            return is_string($content) && trim($content) !== '' ? trim($content) : null;
+            if (!is_string($content) || trim($content) === '') {
+                return VisionResult::fail('Novita: model returned an empty description (check that the model is a VLM).');
+            }
+
+            return VisionResult::ok(trim($content));
 
         } catch (\Throwable $e) {
-            $this->logger->error('NovitaVisionProvider: request failed: ' . $e->getMessage(), [
-                'model' => $this->model,
-            ]);
-            return null;
+            return VisionResult::fail('Novita: request failed — ' . $e->getMessage());
         }
     }
 

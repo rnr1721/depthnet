@@ -13,6 +13,7 @@ use App\Services\Agent\FileStorage\FileService;
 use App\Services\Agent\FileStorage\FileStorageFactory;
 use App\Services\Agent\FileStorage\LaravelFileStorageService;
 use App\Services\Agent\FileStorage\Processors\FallbackFileProcessor;
+use App\Services\Agent\FileStorage\Processors\ImageFileProcessor;
 use App\Services\Agent\FileStorage\Processors\PdfFileProcessor;
 use App\Services\Agent\FileStorage\Processors\PlainTextFileProcessor;
 use App\Services\Agent\FileStorage\Processors\SpreadsheetFileProcessor;
@@ -57,9 +58,10 @@ class FileStorageServiceProvider extends ServiceProvider
             $logger   = $app->make(LoggerInterface::class);
 
             $registry->register(new PlainTextFileProcessor($logger));
-            $registry->register(new PdfFileProcessor($logger));          // когда добавишь smalot/pdfparser
-            $registry->register(new SpreadsheetFileProcessor($logger));  // когда добавишь PhpSpreadsheet
-            $registry->register(new FallbackFileProcessor($logger));        // всегда последним
+            $registry->register(new PdfFileProcessor($logger));
+            $registry->register(new SpreadsheetFileProcessor($logger));
+            $registry->register($app->make(ImageFileProcessor::class));
+            $registry->register(new FallbackFileProcessor($logger));
 
             return $registry;
         });

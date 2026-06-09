@@ -151,34 +151,72 @@ class ChatController extends Controller
         $content = $request->validated()['content'];
 
         $files = $request->file('files', []);
+
+        $annotation = '';
+        $attachmentResult = ['file_ids' => [], 'files' => []];
+        $photoResult = ['photos' => []];
+
         if (!empty($files)) {
             $preset = $this->presetService->findById($presetId)
                 ?? $this->presetService->getDefaultPreset();
 
-            $attachmentResult = $chatFileAttachmentService->process($files, $preset);
+            $attachMode = $request->input('attach_mode', 'documents'); // 'chat' | 'documents'
 
-            if ($attachmentResult['annotation']) {
-                $content .= $attachmentResult['annotation'];
+            // Split uploads: images vs the rest.
+            $images   = [];
+            $nonImages = [];
+            foreach ($files as $upload) {
+                if ($upload instanceof \Illuminate\Http\UploadedFile
+                    && str_starts_with($upload->getMimeType() ?? '', 'image/')) {
+                    $images[] = $upload;
+                } else {
+                    $nonImages[] = $upload;
+                }
+            }
+
+            if ($attachMode === 'chat') {
+                // Images → described in-chat (not stored).
+                $photoResult = $chatFileAttachmentService->describeForChat($images, $preset);
+                if ($photoResult['annotation']) {
+                    $content .= $photoResult['annotation'];
+                }
+                // Non-images still go to documents.
+                if (!empty($nonImages)) {
+                    $attachmentResult = $chatFileAttachmentService->process($nonImages, $preset);
+                    if ($attachmentResult['annotation']) {
+                        $content .= $attachmentResult['annotation'];
+                    }
+                }
+            } else {
+                // Everything → documents (current behaviour).
+                $attachmentResult = $chatFileAttachmentService->process($files, $preset);
+                if ($attachmentResult['annotation']) {
+                    $content .= $attachmentResult['annotation'];
+                }
             }
         }
 
-        // In cycle mode the pool accumulates; dispatch=true flushes it immediately
         $presetActive = $chatStatusService->getPresetStatus($presetId);
         $dispatch = !$presetActive;
 
+        // NOTE: pass the augmented $content (with annotations), not the raw validated one.
         $message = $this->chatService->sendUserMessage(
             $user,
             $presetId,
-            $request->validated()['content'],
+            $content,                       // was $request->validated()['content']
             $dispatch
         );
 
+        // Metadata: stored doc attachments + in-chat photos flag
+        $meta = $message->metadata ?? [];
         if (!empty($attachmentResult['file_ids'])) {
-            $message->update([
-                'metadata' => array_merge($message->metadata ?? [], [
-                    'attachments' => $attachmentResult['files'], // [{id, original_name, human_size, mime_type}]
-                ]),
-            ]);
+            $meta['attachments'] = $attachmentResult['files'];
+        }
+        if (!empty($photoResult['photos'])) {
+            $meta['photos'] = $photoResult['photos']; // [{original_name, described, error?}]
+        }
+        if ($meta !== ($message->metadata ?? [])) {
+            $message->update(['metadata' => $meta]);
         }
 
         return back();

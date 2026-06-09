@@ -11,6 +11,7 @@ use App\Http\Requests\Admin\Capabilities\UpdateCapabilityRequest;
 use App\Models\AiPreset;
 use App\Models\PresetCapabilityConfig;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
+use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
 use App\Services\Agent\Capabilities\Vision\VisionRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,15 +40,17 @@ class PresetCapabilityController extends Controller
     /**
      * Show the capabilities configuration page for a preset.
      */
-    public function index(Request $request, ?int $presetId = null): Response
+    public function index(Request $request): Response
     {
+        $presetId = $request->query('preset_id');
+
         try {
             $preset           = $this->resolvePreset($presetId);
             $availablePresets = $this->presetRegistry->getActivePresets();
 
             return Inertia::render('Admin/Capabilities/Index', [
-                'capabilities'     => $this->buildCapabilitiesPayload($preset),
-                'current_preset'   => $this->presetToArray($preset),
+                'capabilities'      => $this->buildCapabilitiesPayload($preset),
+                'current_preset'    => $this->presetToArray($preset),
                 'available_presets' => $availablePresets->map(fn ($p) => $this->presetToArray($p))->toArray(),
             ]);
 
@@ -58,10 +61,10 @@ class PresetCapabilityController extends Controller
             ]);
 
             return Inertia::render('Admin/Capabilities/Index', [
-                'capabilities'     => [],
-                'current_preset'   => null,
+                'capabilities'      => [],
+                'current_preset'    => null,
                 'available_presets' => [],
-                'error'            => 'Failed to load capabilities: ' . $e->getMessage(),
+                'error'             => 'Failed to load capabilities: ' . $e->getMessage(),
             ]);
         }
     }
@@ -91,7 +94,6 @@ class PresetCapabilityController extends Controller
                 ], 422);
             }
 
-            // Validate config using the provider's own rules
             $provider = $registry->all()[$validated['driver']];
             $errors   = $provider->validateConfig($validated['config'] ?? []);
 
@@ -103,8 +105,6 @@ class PresetCapabilityController extends Controller
                 ], 422);
             }
 
-            // Merge with existing config so a masked api_key ('••••••••')
-            // doesn't overwrite the real stored value
             $existing      = PresetCapabilityConfig::forPreset($preset->id)
                 ->forCapability($capability)
                 ->first();
@@ -224,8 +224,8 @@ class PresetCapabilityController extends Controller
             };
 
             return response()->json(array_merge($result, [
-                'latency_ms' => round((microtime(true) - $start) * 1000, 1),
-                'preset_id'  => $preset->id,
+                'latency_ms'  => round((microtime(true) - $start) * 1000, 1),
+                'preset_id'   => $preset->id,
                 'preset_name' => $preset->getName(),
             ]));
 
@@ -239,28 +239,6 @@ class PresetCapabilityController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Test failed: ' . $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Reload the capabilities payload for a preset (used after preset switch).
-     */
-    public function show(int $presetId): JsonResponse
-    {
-        try {
-            $preset = $this->resolvePreset($presetId);
-
-            return response()->json([
-                'success'      => true,
-                'capabilities' => $this->buildCapabilitiesPayload($preset),
-                'current_preset' => $this->presetToArray($preset),
-            ]);
-
-        } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to load preset capabilities: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -297,7 +275,6 @@ class PresetCapabilityController extends Controller
                 registry:      $this->visionRegistry,
                 currentConfig: $existing->get('vision'),
             ),
-            // Add image, audio, etc. here when ready.
         ];
     }
 
@@ -349,7 +326,6 @@ class PresetCapabilityController extends Controller
 
         foreach ($fields as $key => $field) {
             if (($field['type'] ?? '') === 'password') {
-                // If the incoming value is the mask — keep the stored real value
                 if (($incoming[$key] ?? '') === '••••••••' && !empty($existing[$key])) {
                     $merged[$key] = $existing[$key];
                 }
@@ -364,8 +340,8 @@ class PresetCapabilityController extends Controller
      */
     private function maskSensitiveConfig(array $config, array $driverMeta): array
     {
-        $fields  = $driverMeta['config_fields'] ?? [];
-        $masked  = $config;
+        $fields = $driverMeta['config_fields'] ?? [];
+        $masked = $config;
 
         foreach ($fields as $key => $field) {
             if (($field['type'] ?? '') === 'password' && !empty($config[$key])) {
@@ -453,10 +429,9 @@ class PresetCapabilityController extends Controller
             ];
         }
 
-        // 1x1 red PNG — enough to confirm the pipeline reaches the model.
         $pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-        $image = new \App\Services\Agent\Capabilities\Vision\DTO\ImageData(
+        $image = new ImageData(
             base64:      $pngBase64,
             mimeType:    'image/png',
             sourceLabel: 'capability-test',
@@ -464,7 +439,7 @@ class PresetCapabilityController extends Controller
 
         $description = $this->visionService->describe(
             $image,
-            'Назови одним словом основной цвет этого изображения.',
+            'Name the main color of this image in one word.',
             $preset
         );
 
@@ -481,5 +456,4 @@ class PresetCapabilityController extends Controller
             'description' => mb_substr($description, 0, 200),
         ];
     }
-
 }

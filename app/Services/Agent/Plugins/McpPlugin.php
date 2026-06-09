@@ -501,14 +501,15 @@ class McpPlugin implements CommandPluginInterface
                         sourceLabel: "mcp:{$server->getKey()}:{$toolName}",
                     );
 
-                    // No explicit question — sensor stream gets a general description.
-                    $description = $this->visionService->describe($image, null, $context->preset);
+                    $result = $this->visionService->describeResult($image, null, $context->preset);
 
-                    if ($description === null) {
-                        // Vision off or failed — keep the old behaviour, but informative.
-                        $parts[] = "[image received, vision unavailable — {$mime}]";
+                    if (!$result->success) {
+                        // Reason is human-readable — agent sees what went wrong, not silence.
+                        $parts[] = "[image received — vision failed: {$result->error}]";
                         break;
                     }
+
+                    $description = $result->text;
 
                     if ($sendToPool) {
                         $sourceName = empty($context->get('pool_source_name')) ? "mcp_{$server->getKey()}" : $context->get('pool_source_name');
@@ -517,8 +518,6 @@ class McpPlugin implements CommandPluginInterface
                             $sourceName,
                             $description,
                         );
-                        $sentToPool = true;
-                        // Inline notice so the tool-result path isn't silent.
                         $parts[] = "[📷 image perceived via {$toolName} — routed to input pool]";
                     } else {
                         $parts[] = "[image: {$mime}]\n{$description}";

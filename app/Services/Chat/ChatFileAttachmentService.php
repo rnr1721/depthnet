@@ -2,8 +2,10 @@
 
 namespace App\Services\Chat;
 
+use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Chat\ChatFileAttachmentServiceInterface;
 use App\Models\AiPreset;
+use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
 use App\Services\Agent\FileStorage\FileService;
 use Illuminate\Http\UploadedFile;
 use Psr\Log\LoggerInterface;
@@ -24,6 +26,7 @@ class ChatFileAttachmentService implements ChatFileAttachmentServiceInterface
 {
     public function __construct(
         protected FileService   $fileService,
+        protected VisionServiceInterface $visionService,
         protected LoggerInterface $logger,
     ) {
     }
@@ -94,6 +97,92 @@ class ChatFileAttachmentService implements ChatFileAttachmentServiceInterface
             'annotation' => $annotation,
             'file_ids'   => $fileIds,
             'files'      => $files,
+        ];
+    }
+
+    /**
+     * Describe images for the "show in chat" path — runs vision WITHOUT storing
+     * the files (no documents, no chunks, no embedding). Returns an annotation
+     * block of ```photo``` markers to append to the message content, plus light
+     * metadata for the frontend.
+     *
+     * Used when attach_mode = 'chat'. Non-image files should NOT be passed here —
+     * the controller routes them to process() instead.
+     *
+     * @param  UploadedFile[]  $imageUploads
+     * @return array{annotation: string|null, photos: array}
+     */
+    public function describeForChat(array $imageUploads, AiPreset $preset): array
+    {
+        if (empty($imageUploads)) {
+            return ['annotation' => null, 'photos' => []];
+        }
+
+        if (!$this->visionService->isAvailable($preset)) {
+            // No vision — tell the user plainly instead of silently dropping the image.
+            $names = implode(', ', array_map(
+                fn ($u) => $u instanceof UploadedFile ? $u->getClientOriginalName() : 'image',
+                $imageUploads
+            ));
+            return [
+                'annotation' => "\n\n```photo\n[Vision is not configured for this preset — "
+                    . "attached image(s) could not be described: {$names}]\n```",
+                'photos' => [],
+            ];
+        }
+
+        $blocks = [];
+        $photos = [];
+
+        foreach ($imageUploads as $upload) {
+            if (!($upload instanceof UploadedFile) || !$upload->isValid()) {
+                continue;
+            }
+
+            $name = $upload->getClientOriginalName();
+
+            try {
+                $bytes = @file_get_contents($upload->getRealPath());
+                if ($bytes === false || $bytes === '') {
+                    $blocks[] = "```photo\n[{$name}: could not read image]\n```";
+                    continue;
+                }
+
+                $image = ImageData::fromBinary(
+                    bytes:       $bytes,
+                    mimeType:    $upload->getMimeType() ?: 'image/jpeg',
+                    sourceLabel: "chat:{$name}",
+                );
+
+                $result = $this->visionService->describeResult($image, null, $preset);
+
+                if ($result->success) {
+                    // Marker block — frontend cuts it out and renders a chip;
+                    // the model reads the description as plain text.
+                    $blocks[] = "```photo\n[{$name}]\n{$result->text}\n```";
+                    $photos[] = ['original_name' => $name, 'described' => true];
+                } else {
+                    $blocks[] = "```photo\n[{$name}: vision failed — {$result->error}]\n```";
+                    $photos[] = ['original_name' => $name, 'described' => false, 'error' => $result->error];
+                }
+
+            } catch (\Throwable $e) {
+                $this->logger->warning('ChatFileAttachmentService: describeForChat failed', [
+                    'preset_id' => $preset->id,
+                    'filename'  => $name,
+                    'error'     => $e->getMessage(),
+                ]);
+                $blocks[] = "```photo\n[{$name}: error — {$e->getMessage()}]\n```";
+            }
+        }
+
+        if (empty($blocks)) {
+            return ['annotation' => null, 'photos' => []];
+        }
+
+        return [
+            'annotation' => "\n\n" . implode("\n", $blocks),
+            'photos'     => $photos,
         ];
     }
 

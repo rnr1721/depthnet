@@ -300,7 +300,7 @@ function handleTogglePresetActive(presetId, value) {
 // Message sending — must include preset_id
 // -------------------------------------------------------------------------
 
-function sendMessage(content, files = []) {
+function sendMessage(content, files = [], attachMode = 'documents') {
   if (!content.trim() || form.processing || isProcessing.value) return;
 
   isProcessing.value = true;
@@ -315,6 +315,7 @@ function sendMessage(content, files = []) {
   form.transform(data => ({
     ...data,
     preset_id: selectedPresetId.value,
+    attach_mode: attachMode,
   })).post(route('chat.message'), {
     preserveScroll: true,
     forceFormData: true,

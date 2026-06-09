@@ -4,28 +4,27 @@ namespace App\Contracts\Agent\Capabilities;
 
 use App\Models\AiPreset;
 use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
+use App\Services\Agent\Capabilities\Vision\DTO\VisionResult;
 
 /**
  * High-level vision service.
  *
- * Single entry point for "describe this image" across the app.
- * Resolves the configured provider for a preset via VisionRegistry and
- * delegates the actual API call. Returns null on any failure so callers
- * can degrade gracefully (e.g. MCP media falling back to a stub note).
+ * describeResult() — structured (success/text/error), lets callers surface why
+ *                    vision failed.
+ * describe()       — legacy ?string facade over describeResult().
  *
- * No cache: images are effectively unique and the resulting description is
- * persisted by the agent (or pushed to the input pool) anyway, so caching the
- * raw base64→text mapping buys nothing.
+ * Normalization is applied internally before the provider call. Returns failure
+ * reasons rather than silent nulls where callers ask for them.
  */
 interface VisionServiceInterface
 {
     /**
-     * Describe an image using the preset's active vision provider.
-     *
-     * @param  ImageData    $image
-     * @param  string|null  $query   Optional guiding question.
-     * @param  AiPreset     $preset
-     * @return string|null           Description text, or null if unavailable/failed.
+     * Structured describe — carries a human-readable reason on failure.
+     */
+    public function describeResult(ImageData $image, ?string $query, AiPreset $preset): VisionResult;
+
+    /**
+     * Legacy facade: description text, or null on any failure.
      */
     public function describe(ImageData $image, ?string $query, AiPreset $preset): ?string;
 
@@ -35,12 +34,7 @@ interface VisionServiceInterface
     public function isAvailable(AiPreset $preset): bool;
 
     /**
-     * Whether recognized media should be pushed into the input pool
-     * (vs. returned inline as a tool result). Reads the 'send_to_pool'
-     * flag from the preset's active vision capability config.
-     *
-     * Lets callers (e.g. McpPlugin) decide routing without touching
-     * capability storage directly.
+     * Whether recognized media should be routed into the input pool.
      */
     public function shouldSendToPool(AiPreset $preset): bool;
 }

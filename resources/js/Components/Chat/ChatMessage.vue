@@ -675,6 +675,10 @@ const formattedContent = computed(() => {
 
   let content = props.message.content;
 
+  // Photo chips collected here — declared at function scope so the
+  // post-parse replacement below can see them regardless of the role branch.
+  const photoBlocks = [];
+
   // Remove tool_calls JSON block using depth counter
   const tcStart = content.indexOf('{"tool_calls"');
   if (tcStart !== -1) {
@@ -690,6 +694,7 @@ const formattedContent = computed(() => {
       content = content.substring(0, tcStart) + content.substring(end);
     }
   }
+
   const commandResultsMarker = '<system_output_results>';
   let userContent = content;
 
@@ -701,6 +706,14 @@ const formattedContent = computed(() => {
   if (props.message.role === 'system') {
     userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   } else {
+
+    // Extract ```photo ... ``` blocks → render as chips, keep description for
+    // the model but hide the raw marker from the bubble.
+    userContent = userContent.replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
+      photoBlocks.push(inner.trim());
+      return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
+    });
+
     userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
     userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
     userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -727,7 +740,21 @@ const formattedContent = computed(() => {
     </span>`
     );
   }
-  const userHtml = marked.parse(userContent, { breaks: true, gfm: true });
+
+  let userHtml = marked.parse(userContent, { breaks: true, gfm: true });
+
+  // Replace photo placeholders with chips (after markdown parse, before sanitize).
+  photoBlocks.forEach((desc, i) => {
+    const safeDesc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const chip = `<details class="photo-chip my-1">
+    <summary class="${props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
+      <span>📷</span><span>${t('chat_photo_shown') || 'Photo shown'}</span>
+    </summary>
+    <div class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-sm mt-1 pl-2 border-l-2 ${props.isDark ? 'border-teal-800' : 'border-teal-200'}">${safeDesc}</div>
+  </details>`;
+    userHtml = userHtml.replace(`___PHOTO_CHIP_${i}___`, chip);
+  });
+
   return DOMPurify.sanitize(userHtml);
 });
 

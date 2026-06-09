@@ -105,7 +105,7 @@
                 {{ t('hypervisor') }}
               </Link>
               <Link :href="route('admin.settings')" :class="linkClass">{{ t('chat_settings') }}</Link>
-              <Link :href="route('admin.capabilities.index')" :class="linkClass">{{ t('capabilities') }}</Link>
+              <Link :href="capabilitiesLink" :class="linkClass">{{ t('capabilities') }}</Link>
             </div>
           </div>
         </template>

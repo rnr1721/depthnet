@@ -157,7 +157,7 @@
           <div class="text-xs text-indigo-200 opacity-75 mb-1">
             {{ src.source }}
           </div>
-          <div class="text-sm leading-relaxed whitespace-pre-wrap">{{ src.content }}</div>
+          <div class="text-sm leading-relaxed message-content" v-html="poolSourceHtml(src.content)"></div>
           {{ formatSourceTime(src.timestamp) }}
           <span v-if="src.ago" :title="t('chat_pool_ago_hint')" class="cursor-help">
             ({{ src.ago }})
@@ -804,6 +804,42 @@ function getPluginIcon(pluginName, method = null) {
 
   // Return the icon from the mapping or a default one
   return pluginIcons[baseName] || '🛠️';
+}
+
+/**
+ * Render text that may contain ```photo``` markers into safe HTML with photo
+ * chips. Shared by the regular message path and pool sources so both render
+ * the chip instead of the raw marker.
+ */
+function renderPhotoChips(rawText) {
+  if (!rawText) return '';
+
+  const photoBlocks = [];
+  let text = String(rawText).replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
+    photoBlocks.push(inner.trim());
+    return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
+  });
+
+  // Escape, then markdown — same order as the main path.
+  let html = marked.parse(text, { breaks: true, gfm: true });
+
+  photoBlocks.forEach((desc, i) => {
+    const safeDesc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const chip = `<details class="photo-chip my-1">
+      <summary class="${props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
+        <span>📷</span><span>${t('chat_photo_shown') || 'Photo shown'}</span>
+      </summary>
+      <div class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-sm mt-1 pl-2 border-l-2 ${props.isDark ? 'border-teal-800' : 'border-teal-200'}">${safeDesc}</div>
+    </details>`;
+    html = html.replace(`___PHOTO_CHIP_${i}___`, chip);
+  });
+
+  return DOMPurify.sanitize(html);
+}
+
+/** Per-source rendered HTML for pool messages (cached per render). */
+function poolSourceHtml(content) {
+  return renderPhotoChips(content);
 }
 </script>
 

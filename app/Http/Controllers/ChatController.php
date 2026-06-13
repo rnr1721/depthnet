@@ -152,7 +152,6 @@ class ChatController extends Controller
 
         $files = $request->file('files', []);
 
-        $annotation = '';
         $attachmentResult = ['file_ids' => [], 'files' => []];
         $photoResult = ['photos' => []];
 
@@ -160,35 +159,14 @@ class ChatController extends Controller
             $preset = $this->presetService->findById($presetId)
                 ?? $this->presetService->getDefaultPreset();
 
-            $attachMode = $request->input('attach_mode', 'documents'); // 'chat' | 'documents'
-
-            // Split uploads: images vs the rest.
-            $images   = [];
-            $nonImages = [];
-            foreach ($files as $upload) {
-                if ($upload instanceof \Illuminate\Http\UploadedFile
-                    && str_starts_with($upload->getMimeType() ?? '', 'image/')) {
-                    $images[] = $upload;
-                } else {
-                    $nonImages[] = $upload;
-                }
-            }
+            $attachMode = $request->input('attach_mode', 'documents');
 
             if ($attachMode === 'chat') {
-                // Images → described in-chat (not stored).
-                $photoResult = $chatFileAttachmentService->describeForChat($images, $preset);
+                $photoResult = $chatFileAttachmentService->describeForChat($files, $preset);
                 if ($photoResult['annotation']) {
                     $content .= $photoResult['annotation'];
                 }
-                // Non-images still go to documents.
-                if (!empty($nonImages)) {
-                    $attachmentResult = $chatFileAttachmentService->process($nonImages, $preset);
-                    if ($attachmentResult['annotation']) {
-                        $content .= $attachmentResult['annotation'];
-                    }
-                }
             } else {
-                // Everything → documents (current behaviour).
                 $attachmentResult = $chatFileAttachmentService->process($files, $preset);
                 if ($attachmentResult['annotation']) {
                     $content .= $attachmentResult['annotation'];

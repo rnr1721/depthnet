@@ -53,7 +53,7 @@
     </Transition>
 
     <Transition name="stt-hint">
-      <div v-if="hasImageAttachment" class="mb-2 flex items-center gap-2 flex-wrap">
+      <div v-if="hasAnyAttachment" class="mb-2 flex items-center gap-2 flex-wrap">
         <span :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
           {{ t('chat_image_attach_as') }}
         </span>
@@ -309,9 +309,7 @@ const messageInput = ref(null);
 const attachedFiles = ref([]);
 const fileInput = ref(null);
 
-const hasImageAttachment = computed(() =>
-  attachedFiles.value.some(f => (f.type || '').startsWith('image/'))
-);
+const hasAnyAttachment = computed(() => attachedFiles.value.length > 0);
 
 // 'chat' = show to agent now (described, not stored); 'documents' = embed as file
 const attachMode = ref('chat');
@@ -345,7 +343,7 @@ function autoResize() {
 function handleSubmit() {
   if (!content.value.trim() || props.disabled || props.isProcessing) return;
   // Only meaningful when images present; harmless otherwise.
-  emit('send', content.value, attachedFiles.value, hasImageAttachment.value ? attachMode.value : 'documents');
+  emit('send', content.value, attachedFiles.value, hasAnyAttachment.value ? attachMode.value : 'documents');
   content.value = '';
   attachedFiles.value = [];
   attachMode.value = 'chat'; // reset to default for next message

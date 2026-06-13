@@ -675,9 +675,10 @@ const formattedContent = computed(() => {
 
   let content = props.message.content;
 
-  // Photo chips collected here — declared at function scope so the
-  // post-parse replacement below can see them regardless of the role branch.
+  // Chips collected at function scope so post-parse replacement sees them
+  // regardless of the role branch.
   const photoBlocks = [];
+  const fileBlocks = [];
 
   // Remove tool_calls JSON block using depth counter
   const tcStart = content.indexOf('{"tool_calls"');
@@ -707,11 +708,14 @@ const formattedContent = computed(() => {
     userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   } else {
 
-    // Extract ```photo ... ``` blocks → render as chips, keep description for
-    // the model but hide the raw marker from the bubble.
+    // Extract ```photo``` and ```file``` blocks → placeholders → chips later.
     userContent = userContent.replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
       photoBlocks.push(inner.trim());
       return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
+    });
+    userContent = userContent.replace(/```file\n([\s\S]*?)```/g, (m, inner) => {
+      fileBlocks.push(inner.trim());
+      return `___FILE_CHIP_${fileBlocks.length - 1}___`;
     });
 
     userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
@@ -742,21 +746,11 @@ const formattedContent = computed(() => {
   }
 
   let userHtml = marked.parse(userContent, { breaks: true, gfm: true });
-
-  // Replace photo placeholders with chips (after markdown parse, before sanitize).
-  photoBlocks.forEach((desc, i) => {
-    const safeDesc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const chip = `<details class="photo-chip my-1">
-    <summary class="${props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
-      <span>📷</span><span>${t('chat_photo_shown') || 'Photo shown'}</span>
-    </summary>
-    <div class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-sm mt-1 pl-2 border-l-2 ${props.isDark ? 'border-teal-800' : 'border-teal-200'}">${safeDesc}</div>
-  </details>`;
-    userHtml = userHtml.replace(`___PHOTO_CHIP_${i}___`, chip);
-  });
+  userHtml = injectChips(userHtml, photoBlocks, fileBlocks);
 
   return DOMPurify.sanitize(userHtml);
 });
+
 
 // ─── Methods ──────────────────────────────────────────────────────────────────
 
@@ -807,40 +801,68 @@ function getPluginIcon(pluginName, method = null) {
 }
 
 /**
- * Render text that may contain ```photo``` markers into safe HTML with photo
- * chips. Shared by the regular message path and pool sources so both render
- * the chip instead of the raw marker.
+ * Render text that may contain ```photo``` / ```file``` markers into safe HTML
+ * with chips. Shared by pool sources (and reusable elsewhere).
  */
 function renderPhotoChips(rawText) {
   if (!rawText) return '';
 
   const photoBlocks = [];
-  let text = String(rawText).replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
+  const fileBlocks = [];
+
+  let text = String(rawText);
+
+  text = text.replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
     photoBlocks.push(inner.trim());
     return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
   });
 
-  // Escape, then markdown — same order as the main path.
-  let html = marked.parse(text, { breaks: true, gfm: true });
-
-  photoBlocks.forEach((desc, i) => {
-    const safeDesc = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const chip = `<details class="photo-chip my-1">
-      <summary class="${props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
-        <span>📷</span><span>${t('chat_photo_shown') || 'Photo shown'}</span>
-      </summary>
-      <div class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-sm mt-1 pl-2 border-l-2 ${props.isDark ? 'border-teal-800' : 'border-teal-200'}">${safeDesc}</div>
-    </details>`;
-    html = html.replace(`___PHOTO_CHIP_${i}___`, chip);
+  text = text.replace(/```file\n([\s\S]*?)```/g, (m, inner) => {
+    fileBlocks.push(inner.trim());
+    return `___FILE_CHIP_${fileBlocks.length - 1}___`;
   });
+
+  let html = marked.parse(text, { breaks: true, gfm: true });
+  html = injectChips(html, photoBlocks, fileBlocks);
 
   return DOMPurify.sanitize(html);
 }
 
-/** Per-source rendered HTML for pool messages (cached per render). */
+/** Per-source rendered HTML for pool messages. */
 function poolSourceHtml(content) {
   return renderPhotoChips(content);
 }
+
+/**
+ * Replace ___PHOTO_CHIP_n___ / ___FILE_CHIP_n___ placeholders in an HTML string
+ * with chip markup. Shared by formattedContent and renderPhotoChips.
+ */
+function injectChips(html, photoBlocks, fileBlocks) {
+  photoBlocks.forEach((desc, i) => {
+    const safe = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const chip = `<details class="photo-chip my-1">
+      <summary class="${props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
+        <span>📷</span><span>${t('chat_photo_shown') || 'Photo shown'}</span>
+      </summary>
+      <div class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-sm mt-1 pl-2 border-l-2 ${props.isDark ? 'border-teal-800' : 'border-teal-200'}">${safe}</div>
+    </details>`;
+    html = html.replace(`___PHOTO_CHIP_${i}___`, chip);
+  });
+
+  fileBlocks.forEach((body, i) => {
+    const safe = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const chip = `<details class="file-chip my-1">
+      <summary class="${props.isDark ? 'bg-sky-900 text-sky-200' : 'bg-sky-50 text-sky-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
+        <span>📄</span><span>${t('chat_file_shown') || 'File shown'}</span>
+      </summary>
+      <pre class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-xs mt-1 pl-2 border-l-2 ${props.isDark ? 'border-sky-800' : 'border-sky-200'} whitespace-pre-wrap">${safe}</pre>
+    </details>`;
+    html = html.replace(`___FILE_CHIP_${i}___`, chip);
+  });
+
+  return html;
+}
+
 </script>
 
 <style>

@@ -72,6 +72,16 @@ abstract class AbstractFileProcessor implements FileProcessorInterface
         }
     }
 
+    /** @inheritDoc */
+    public function extractRaw(?File $file, string $absolutePath): array
+    {
+        // extractText() is the existing protected extraction; just expose it.
+        // A synthetic empty File is passed when the caller has none, so processors
+        // that read $file->* (e.g. ImageFileProcessor) still get a usable object —
+        // but note images use the vision path, not this one.
+        return $this->extractText($file ?? new File(), $absolutePath);
+    }
+
     // -------------------------------------------------------------------------
     // Chunking helpers
     // -------------------------------------------------------------------------

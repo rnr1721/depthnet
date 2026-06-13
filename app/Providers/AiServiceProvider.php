@@ -12,6 +12,7 @@ use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
+use App\Contracts\Agent\Browser\BrowserServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
@@ -90,6 +91,7 @@ use App\Services\Agent\AgentActionsHandler;
 use App\Services\Agent\AgentJobService;
 use App\Services\Agent\AgentJobServiceFactory;
 use App\Services\Agent\AgentMessageService;
+use App\Services\Agent\Browser\BrowserService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
@@ -485,6 +487,9 @@ class AiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(LspServiceInterface::class, LspService::class);
+
+        $this->app->bind(BrowserServiceInterface::class, BrowserService::class);
+
     }
 
     /**

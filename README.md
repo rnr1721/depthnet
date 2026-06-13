@@ -149,7 +149,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26) and legacy SSE (2024-11-05). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
 | **Telegram** (`telegram`) | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
 | **Code** (`code`) | Structured sandbox filesystem access with LSP code intelligence. Navigate, read, search, edit (replace/patch/batch), plus symbols, references, hover, definition, diagnostics. Requires sandbox. | [→](docs/plugins/code.md) |
-| **Browser** (`browser`) | Persistent Playwright browser with session memory surviving across thinking cycles. Open pages, click, type, read structured snapshots. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |
+| **Browser** (`browser`) | Persistent Playwright browser with session memory surviving across thinking cycles. Returns numbered page snapshots — the agent acts on elements by number. Auto-snapshots after each action. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |
 | **Dopamine** (`dopamine`) | Self-motivation system. Agent rewards/penalises itself; level visible via `[[dopamine_level]]`. Optional auto-decay. | [→](docs/plugins/dopamine.md) |
 | **Heart** (`heart`) | Attention and connection engine. Tracks named connections, emotional signals, dominant focus, and gravity. State visible via `[[heart_state]]`. Not an emotion simulator — a measurable attention system. | [→](docs/plugins/heart.md) |
 | **Ontology** (`ontology`) | World-model graph — temporal property graph of entities and relationships. Stores durable facts about people, places, concepts and how they connect over time. Integrates with RAG pipeline as an `ontology` source. | [→](docs/plugins/ontology.md) [→](docs/memory/ontology.md) |
@@ -306,10 +306,10 @@ The AI communicates through special command tags that trigger plugin execution. 
 
 # Browser — persistent Playwright browser with session memory
 [browser open]https://example.com[/browser]
-[browser search]best php frameworks 2026[/browser]
 [browser snapshot][/browser]
-[browser click]text=Submit[/browser]
-[browser type]{"selector":"input[name=q]","text":"hello"}[/browser]
+[browser click]3[/browser]
+[browser type]2 | hello[/browser]
+[browser type]2 | mypassword | submit[/browser]
 [browser press]Enter[/browser]
 [browser scroll]500[/browser]
 [browser back][/browser]
@@ -416,18 +416,17 @@ make restart
 📄 Page Title
 🔗 https://example.com
 
-── Content ──
-Main page text, cleaned of nav/footer/scripts...
-
 ── Inputs ──
-  [search] q (Search...)  selector: input[name=q]
+  [1] email (Search...)
 
 ── Buttons ──
-  [Submit]  selector: #submit-btn
+  [2] Submit
 
 ── Links ──
-  About  →  https://example.com/about
-  Docs   →  https://example.com/docs
+  [3] About  →  https://example.com/about
+  [4] Docs   →  https://example.com/docs
+
+── Scroll: 100%, end of page ──
 ```
 
 This gives the model enough to reason, navigate, and interact — without drowning in HTML noise.

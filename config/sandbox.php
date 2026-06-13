@@ -2,8 +2,8 @@
 
 return [
 
-    'enabled' => env('COMPOSE_PROFILES') && 
-                        (str_contains(env('COMPOSE_PROFILES'), 'sandbox') || 
+    'enabled' => env('COMPOSE_PROFILES') &&
+                        (str_contains(env('COMPOSE_PROFILES'), 'sandbox') ||
                          str_contains(env('COMPOSE_PROFILES'), 'full')),
 
     /**
@@ -25,6 +25,8 @@ return [
         'default_type' => env('SANDBOX_DEFAULT_TYPE', 'ubuntu-full'),
         'default_timeout' => (int) env('SANDBOX_DEFAULT_TIMEOUT', 30),
         'templates_dir' => 'sandboxes/templates',
+        'shared_prefix' => env('SANDBOX_SHARED_PREFIX', 'sandbox'),
+        'shared_path'   => env('SANDBOX_SHARED_PATH', '/shared'),
     ],
 
     /**

@@ -4,9 +4,15 @@ namespace App\Services\Agent\Journal;
 
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Models\AiPreset;
 use App\Models\JournalEntry;
+use App\Services\Agent\Plugins\RhythmPlugin;
+use App\Services\Agent\Search\Concerns\ParsesPulseRange;
+use App\Services\Agent\Search\ParsedSearchQuery;
 use Illuminate\Support\Carbon;
 use Psr\Log\LoggerInterface;
 
@@ -20,8 +26,19 @@ use Psr\Log\LoggerInterface;
  *
  * Search modes:
  *   - Semantic only:       "worked on database"
- *   - Date only:           "2024-03-15" / "yesterday" / "last week"
+ *   - Date only:           "2024-03-15" / "yesterday" / "last week" / "сегодня"
  *   - Date + semantic:     "2024-03-15 | worked on database"
+ *   - Pulse + semantic:    "pulse:0-300 | morning reflections"
+ *   - Pulse + date:        "pulse:800-200 | yesterday | ..."  (any order of prefixes)
+ *
+ * Date expression parsing is delegated to SearchDateParserInterface, which
+ * is shared with VectorMemory so both services understand the same DSL
+ * across the same set of languages.
+ *
+ * Pulse filtering (circadian position in the day, 0..999) is peeled off the
+ * query BEFORE date parsing via ParsesPulseRange, then applied in-memory to
+ * the fetched entries (pulse is derived from recorded_at, not a stored
+ * column). The range may wrap midnight (pulse:800-200).
  *
  * Similarity engine:
  *   - If the preset has an embedding capability configured → cosine similarity
@@ -29,6 +46,8 @@ use Psr\Log\LoggerInterface;
  */
 class JournalService implements JournalServiceInterface
 {
+    use ParsesPulseRange;
+
     /**
      * Valid event types.
      */
@@ -40,10 +59,13 @@ class JournalService implements JournalServiceInterface
     public const OUTCOMES = ['success', 'failure', 'pending'];
 
     public function __construct(
-        protected TfIdfServiceInterface    $tfIdfService,
-        protected EmbeddingServiceInterface $embeddingService,
-        protected JournalEntry             $journalModel,
-        protected LoggerInterface          $logger,
+        protected TfIdfServiceInterface          $tfIdfService,
+        protected EmbeddingServiceInterface      $embeddingService,
+        protected JournalEntry                   $journalModel,
+        protected LoggerInterface                $logger,
+        protected SearchDateParserInterface      $searchDateParser,
+        protected PulseServiceInterface          $pulseService,
+        protected PluginMetadataServiceInterface $pluginMetadata,
     ) {
     }
 
@@ -120,7 +142,7 @@ class JournalService implements JournalServiceInterface
                 return ['success' => true, 'message' => 'Journal is empty.'];
             }
 
-            return ['success' => true, 'message' => $this->formatEntries($entries->all(), "Recent {$limit} journal entries")];
+            return ['success' => true, 'message' => $this->formatEntries($entries->all(), "Recent {$limit} journal entries", $preset)];
 
         } catch (\Throwable $e) {
             $this->logger->error('JournalService::recent error: ' . $e->getMessage());
@@ -150,47 +172,52 @@ class JournalService implements JournalServiceInterface
 
     /**
      * Semantic search — finds entries by meaning.
-     * Optionally filtered to a date or date range.
+     * Optionally filtered to a date or date range, and/or a pulse range.
      *
      * Uses embedding cosine similarity when available, falls back to TF-IDF.
      */
     public function search(AiPreset $preset, string $query, int $limit = 10): array
     {
         try {
-            [$dateFilter, $semanticQuery] = $this->parseSearchQuery($query);
+            // Peel pulse prefix first — date parser doesn't understand "pulse:".
+            [$pulseFrom, $pulseTo, $queryAfterPulse] = $this->extractPulseRange($query);
+
+            $parsed = $this->searchDateParser->parse($queryAfterPulse);
 
             $dbQuery = $this->journalModel->forPreset($preset->id);
 
-            if ($dateFilter) {
-                if (isset($dateFilter['from'], $dateFilter['to'])) {
-                    $dbQuery->between($dateFilter['from'], $dateFilter['to']);
-                } elseif (isset($dateFilter['date'])) {
-                    $dbQuery->onDate($dateFilter['date']);
-                }
+            if ($parsed->hasTimeFilter()) {
+                $dbQuery->between($parsed->from, $parsed->to);
             }
 
             $entries = $dbQuery->orderBy('recorded_at', 'desc')->get();
 
+            // Apply pulse filter in-memory (pulse derives from recorded_at).
+            $entries = $this->applyPulseFilter($entries, $pulseFrom, $pulseTo);
+
             if ($entries->isEmpty()) {
-                $dateStr = $dateFilter ? ' for the specified date' : '';
-                return ['success' => true, 'message' => "No journal entries found{$dateStr}."];
+                $dateStr  = $parsed->hasTimeFilter() ? ' for the specified date' : '';
+                $pulseStr = ($pulseFrom !== null || $pulseTo !== null) ? ' in that pulse range' : '';
+                return ['success' => true, 'message' => "No journal entries found{$dateStr}{$pulseStr}."];
             }
 
-            if (!empty($semanticQuery)) {
-                $matched = $this->semanticSearch($entries, $semanticQuery, $limit, $preset);
+            if ($parsed->hasSemanticQuery()) {
+                $matched = $this->semanticSearch($entries, $parsed->query, $limit, $preset);
 
                 if (empty($matched)) {
-                    return ['success' => true, 'message' => "No entries matching \"{$semanticQuery}\" found."];
+                    return ['success' => true, 'message' => "No entries matching \"{$parsed->query}\" found."];
                 }
 
-                $header = "Journal search: \"{$semanticQuery}\"" . ($dateFilter ? ' (date filtered)' : '');
-                return ['success' => true, 'message' => $this->formatEntries($matched, $header)];
+                $header = "Journal search: \"{$parsed->query}\""
+                    . ($parsed->hasTimeFilter() ? ' (date filtered)' : '')
+                    . $this->pulseHeaderNote($pulseFrom, $pulseTo);
+                return ['success' => true, 'message' => $this->formatEntries($matched, $header, $preset)];
             }
 
-            // Date-only: return chronological results
+            // Date/pulse-only: return chronological results
             $limited = $entries->take($limit)->all();
-            $header  = $dateFilter ? 'Journal entries for ' . $this->describeDateFilter($dateFilter) : "Journal entries";
-            return ['success' => true, 'message' => $this->formatEntries($limited, $header)];
+            $header  = $this->buildListingHeader($parsed, $pulseFrom, $pulseTo);
+            return ['success' => true, 'message' => $this->formatEntries($limited, $header, $preset)];
 
         } catch (\Throwable $e) {
             $this->logger->error('JournalService::search error: ' . $e->getMessage());
@@ -206,25 +233,26 @@ class JournalService implements JournalServiceInterface
     public function searchEntries(AiPreset $preset, string $query, int $limit = 3): array
     {
         try {
-            [$dateFilter, $semanticQuery] = $this->parseSearchQuery($query);
+            [$pulseFrom, $pulseTo, $queryAfterPulse] = $this->extractPulseRange($query);
+
+            $parsed = $this->searchDateParser->parse($queryAfterPulse);
+
             $dbQuery = $this->journalModel->forPreset($preset->id);
 
-            if ($dateFilter) {
-                if (isset($dateFilter['from'], $dateFilter['to'])) {
-                    $dbQuery->between($dateFilter['from'], $dateFilter['to']);
-                } elseif (isset($dateFilter['date'])) {
-                    $dbQuery->onDate($dateFilter['date']);
-                }
+            if ($parsed->hasTimeFilter()) {
+                $dbQuery->between($parsed->from, $parsed->to);
             }
 
             $entries = $dbQuery->orderBy('recorded_at', 'desc')->get();
+
+            $entries = $this->applyPulseFilter($entries, $pulseFrom, $pulseTo);
 
             if ($entries->isEmpty()) {
                 return [];
             }
 
-            if (!empty($semanticQuery)) {
-                return $this->semanticSearch($entries, $semanticQuery, $limit, $preset);
+            if ($parsed->hasSemanticQuery()) {
+                return $this->semanticSearch($entries, $parsed->query, $limit, $preset);
             }
 
             return $entries->take($limit)->all();
@@ -321,6 +349,71 @@ class JournalService implements JournalServiceInterface
             $this->logger->error('JournalService::clear error: ' . $e->getMessage());
             return ['success' => false, 'message' => 'Error clearing journal: ' . $e->getMessage()];
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Pulse filtering
+    // -------------------------------------------------------------------------
+
+    /**
+     * Apply the circadian pulse filter to a fetched entry collection.
+     * No-op when neither bound is set. Filtering is in-memory because pulse
+     * position is derived from recorded_at, not stored.
+     *
+     * @param  \Illuminate\Support\Collection  $entries
+     * @return \Illuminate\Support\Collection
+     */
+    private function applyPulseFilter(\Illuminate\Support\Collection $entries, ?int $pulseFrom, ?int $pulseTo): \Illuminate\Support\Collection
+    {
+        if ($pulseFrom === null && $pulseTo === null) {
+            return $entries;
+        }
+
+        return $entries->filter(
+            fn (JournalEntry $e) => $this->momentMatchesPulseRange(
+                $e->recorded_at,
+                $pulseFrom,
+                $pulseTo,
+                $this->pulseService,
+            )
+        )->values();
+    }
+
+    /**
+     * Short " (pulse N-M)" note for search headers, or '' when no pulse filter.
+     */
+    private function pulseHeaderNote(?int $pulseFrom, ?int $pulseTo): string
+    {
+        if ($pulseFrom === null && $pulseTo === null) {
+            return '';
+        }
+
+        if ($pulseFrom !== null && $pulseTo !== null) {
+            $cross = ($pulseFrom > $pulseTo) ? ', across midnight' : '';
+            return " (pulse {$pulseFrom}-{$pulseTo}{$cross})";
+        }
+
+        if ($pulseFrom !== null) {
+            return " (pulse from {$pulseFrom})";
+        }
+
+        return " (pulse up to {$pulseTo})";
+    }
+
+    /**
+     * Build the header line for a date/pulse-only listing (no semantic query).
+     */
+    private function buildListingHeader(ParsedSearchQuery $parsed, ?int $pulseFrom, ?int $pulseTo): string
+    {
+        if ($parsed->hasTimeFilter()) {
+            return 'Journal entries for ' . $parsed->describeTimeFilter() . $this->pulseHeaderNote($pulseFrom, $pulseTo);
+        }
+
+        if ($pulseFrom !== null || $pulseTo !== null) {
+            return 'Journal entries' . $this->pulseHeaderNote($pulseFrom, $pulseTo);
+        }
+
+        return 'Journal entries';
     }
 
     // -------------------------------------------------------------------------
@@ -508,66 +601,32 @@ class JournalService implements JournalServiceInterface
         return compact('type', 'summary', 'details', 'outcome');
     }
 
-    /**
-     * Parse search query into [dateFilter, semanticQuery].
-     */
-    protected function parseSearchQuery(string $query): array
-    {
-        $query = trim($query);
-
-        if (str_contains($query, '|')) {
-            [$datePart, $semanticPart] = array_map('trim', explode('|', $query, 2));
-            $dateFilter = $this->parseDateExpression($datePart);
-            if ($dateFilter !== null) {
-                return [$dateFilter, $semanticPart];
-            }
-        }
-
-        $dateFilter = $this->parseDateExpression($query);
-        if ($dateFilter !== null) {
-            return [$dateFilter, ''];
-        }
-
-        return [null, $query];
-    }
-
-    protected function parseDateExpression(string $expr): ?array
-    {
-        $expr = trim(strtolower($expr));
-
-        if (preg_match('/^(\d{4}-\d{2}-\d{2})\s*:\s*(\d{4}-\d{2}-\d{2})$/', $expr, $m)) {
-            return [
-                'from' => Carbon::parse($m[1])->startOfDay(),
-                'to'   => Carbon::parse($m[2])->endOfDay(),
-            ];
-        }
-
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $expr)) {
-            return ['date' => Carbon::parse($expr)];
-        }
-
-        return match ($expr) {
-            'today'               => ['date' => Carbon::today()],
-            'yesterday'           => ['date' => Carbon::yesterday()],
-            'last week', 'week'   => ['from' => Carbon::now()->subDays(7)->startOfDay(), 'to' => Carbon::now()->endOfDay()],
-            'this week'           => ['from' => Carbon::now()->startOfWeek()->startOfDay(), 'to' => Carbon::now()->endOfDay()],
-            'last month', 'month' => ['from' => Carbon::now()->subDays(30)->startOfDay(), 'to' => Carbon::now()->endOfDay()],
-            default               => null,
-        };
-    }
-
     // -------------------------------------------------------------------------
     // Formatting helpers
     // -------------------------------------------------------------------------
 
-    protected function formatEntries(array $entries, string $header): string
+    /**
+     * Format a list of entries. When the preset has pulse_dates enabled, each
+     * row gains a compact "[day N pulse M]" coordinate derived from recorded_at.
+     */
+    protected function formatEntries(array $entries, string $header, AiPreset $preset): string
     {
+        $showPulse = $preset->getPulseDates();
+        $birthDate = $showPulse ? $this->resolveBirthDate($preset) : '';
+
         $lines = ["[JOURNAL: {$header}]", ''];
 
         foreach ($entries as $entry) {
             $date    = $entry->recorded_at->format('Y-m-d H:i');
             $outcome = $entry->outcome ? " [{$entry->outcome}]" : '';
-            $lines[] = "#{$entry->id} [{$date}] [{$entry->type}]{$outcome} {$entry->summary}";
+
+            $pulsePart = '';
+            if ($showPulse && $entry->recorded_at !== null) {
+                $coord = $this->formatPulseCoordinate($entry->recorded_at, $birthDate, $this->pulseService);
+                $pulsePart = " [{$coord}]";
+            }
+
+            $lines[] = "#{$entry->id} [{$date}]{$pulsePart} [{$entry->type}]{$outcome} {$entry->summary}";
         }
 
         $lines[] = '';
@@ -595,11 +654,20 @@ class JournalService implements JournalServiceInterface
         return implode("\n", $lines);
     }
 
-    protected function describeDateFilter(array $filter): string
+    /**
+     * Resolve the agent's birth date from the RhythmPlugin config (same source
+     * the RAG renderers use), so pulse coordinates are consistent everywhere.
+     * Empty string when not configured — PulseService then omits day-of-life.
+     */
+    private function resolveBirthDate(AiPreset $preset): string
     {
-        if (isset($filter['date'])) {
-            return $filter['date']->toDateString();
-        }
-        return $filter['from']->toDateString() . ' to ' . $filter['to']->toDateString();
+        $value = $this->pluginMetadata->get(
+            $preset,
+            RhythmPlugin::PLUGIN_NAME,
+            'birth_date',
+            ''
+        );
+
+        return is_string($value) ? $value : '';
     }
 }

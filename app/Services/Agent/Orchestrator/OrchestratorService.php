@@ -2,7 +2,7 @@
 
 namespace App\Services\Agent\Orchestrator;
 
-use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\Orchestrator\OrchestratorInterface;
 use App\Models\Agent;
 use App\Models\AgentRole;
@@ -33,7 +33,7 @@ class OrchestratorService implements OrchestratorInterface
 {
     public function __construct(
         protected Message $messageModel,
-        protected AgentJobServiceInterface $agentJobService,
+        protected AgentJobServiceFactoryInterface $agentJobServiceFactory,
         protected AgentTask $agentTaskModel,
         protected LoggerInterface $logger
     ) {
@@ -166,7 +166,7 @@ class OrchestratorService implements OrchestratorInterface
             $this->buildTaskMessage($task)
         );
 
-        $this->agentJobService->start($role->preset_id, singleMode: true);
+        $this->agentJobServiceFactory->make()->start($role->preset_id, singleMode: true);
 
         $this->logger->info('Orchestrator: task dispatched to role', [
             'task_id'     => $task->id,
@@ -188,7 +188,7 @@ class OrchestratorService implements OrchestratorInterface
             $this->buildValidationRequest($task)
         );
 
-        $this->agentJobService->start($role->validator_preset_id, singleMode: true);
+        $this->agentJobServiceFactory->make()->start($role->validator_preset_id, singleMode: true);
 
         $this->logger->info('Orchestrator: task sent to validator', [
             'task_id'      => $task->id,
@@ -251,7 +251,7 @@ class OrchestratorService implements OrchestratorInterface
         }
 
         $this->writeUserMessage($agent->planner_preset_id, implode("\n", $lines));
-        $this->agentJobService->start($agent->planner_preset_id, singleMode: true);
+        $this->agentJobServiceFactory->make()->start($agent->planner_preset_id, singleMode: true);
     }
 
     /**

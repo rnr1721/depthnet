@@ -3,6 +3,8 @@
 namespace App\Services\Agent\VectorMemory;
 
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
@@ -23,6 +25,11 @@ use Psr\Log\LoggerInterface;
  * Register as DRIVER_EMBEDDING in VectorMemoryFactory.
  * The preset passed to each method is also used to resolve the embedding
  * provider config from preset_capability_configs.
+ *
+ * Domain / time / pulse support (inherited from base):
+ *   - storeVectorMemory: $config['domain'] honoured by parent before embedding is attached
+ *   - searchVectorMemories: all three filters resolved before query embedding, so the
+ *     cosine comparisons only run over the filtered subset — saves CPU on irrelevant records
  */
 class EmbeddingVectorMemoryService extends VectorMemoryService
 {
@@ -32,9 +39,19 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
         VectorMemoryImporter $importer,
         VectorMemoryExporter $exporter,
         VectorMemory $vectorMemoryModel,
+        SearchDateParserInterface $searchDateParser,
+        PulseServiceInterface $pulseService,
         protected EmbeddingService $embeddingService,
     ) {
-        parent::__construct($logger, $tfIdfService, $importer, $exporter, $vectorMemoryModel);
+        parent::__construct(
+            $logger,
+            $tfIdfService,
+            $importer,
+            $exporter,
+            $vectorMemoryModel,
+            $searchDateParser,
+            $pulseService,
+        );
     }
 
     /**
@@ -42,6 +59,8 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
      *
      * TF-IDF vector is always computed for backward compatibility and fallback.
      * Embedding is computed synchronously — dispatch a job here if latency matters.
+     *
+     * Domain handling is delegated to parent::storeVectorMemory().
      *
      * {@inheritDoc}
      */
@@ -62,11 +81,15 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
      * Semantic search using cosine similarity over dense embedding vectors.
      *
      * Algorithm:
-     *  1. Embed the query via EmbeddingService (uses preset's capability config)
-     *  2. Fall back to TF-IDF if embedding is unavailable
-     *  3. Compute cosine similarity for records that have an embedding
-     *  4. Supplement with TF-IDF results for records without embedding
-     *  5. Sort combined results by similarity and return top-K
+     *  1. Peel inline prefixes ("domain:", "time:", "pulse:", or bare keyword)
+     *     plus any RAG-config filters into
+     *     [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery].
+     *  2. Load the candidate set scoped to those filters.
+     *  3. If $cleanQuery is empty but a filter is set, return chronological
+     *     listing (temporal mode) — no embedding work needed.
+     *  4. Otherwise: embed $cleanQuery via EmbeddingService; cosine over
+     *     records that have an embedding; TF-IDF supplement for those that
+     *     don't; merge and trim to top-K.
      *
      * {@inheritDoc}
      */
@@ -78,23 +101,91 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            $memories = $this->getVectorMemories($preset);
+            [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery]
+                = $this->peelSearchPrefixes($query, $config);
+
+            $hasTimeFilter  = ($from !== null || $to !== null);
+            $hasPulseFilter = ($pulseFrom !== null || $pulseTo !== null);
+            $hasAnyFilter   = $hasTimeFilter || $hasPulseFilter || !empty($domains);
+
+            if (empty($cleanQuery) && !$hasAnyFilter) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Search query cannot be empty after parsing prefixes.'
+                ];
+            }
+
+            $memQuery = new VectorMemoryQuery(
+                domains:   $domains,
+                from:      $from,
+                to:        $to,
+                pulseFrom: $pulseFrom,
+                pulseTo:   $pulseTo,
+            );
+            $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
-                return ['success' => true, 'message' => 'No memories found.', 'results' => []];
+                return [
+                    'success'   => true,
+                    'message'   => $this->describeEmptyResult($domains, $from, $to, $pulseFrom, $pulseTo),
+                    'results'   => [],
+                    'domains'   => $domains,
+                    'from'      => $from,
+                    'to'        => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
+                    'temporal'  => empty($cleanQuery),
+                ];
+            }
+
+            // Temporal mode: chronological listing, no embedding round-trip.
+            if (empty($cleanQuery)) {
+                $limit  = $config['search_limit'] ?? 5;
+                $sliced = $memories->take($limit);
+
+                $results = $sliced->map(fn (VectorMemory $m) => [
+                    'document'   => $m,
+                    'memory'     => $m,
+                    'similarity' => 1.0,
+                    'source'     => 'temporal',
+                ])->all();
+
+                return [
+                    'success'        => true,
+                    'message'        => 'Found ' . count($results) . ' memories in filter window.',
+                    'results'        => $results,
+                    'total_searched' => $memories->count(),
+                    'domains'        => $domains,
+                    'from'           => $from,
+                    'to'             => $to,
+                    'pulseFrom'      => $pulseFrom,
+                    'pulseTo'        => $pulseTo,
+                    'temporal'       => true,
+                    'embedding_used' => false,
+                ];
             }
 
             $searchLimit = $config['search_limit'] ?? 5;
             $threshold   = $config['similarity_threshold'] ?? 0.2;
 
             // Try embedding search first
-            $queryEmbedding = $this->embeddingService->embed($query, $preset);
+            $queryEmbedding = $this->embeddingService->embed($cleanQuery, $preset);
 
             if ($queryEmbedding === null) {
                 $this->logger->info('EmbeddingVectorMemoryService: falling back to TF-IDF.', [
                     'preset_id' => $preset->id,
                 ]);
-                return parent::searchVectorMemories($preset, $query, $config);
+                // Parent fallback handles its own filter resolution; we pass the
+                // already-peeled clean query and inject resolved filters into config
+                // so the parent doesn't re-parse them.
+                $fallbackConfig = array_merge($config, [
+                    'domains'    => $domains,
+                    'from'       => $from,
+                    'to'         => $to,
+                    'pulse_from' => $pulseFrom,
+                    'pulse_to'   => $pulseTo,
+                ]);
+                return parent::searchVectorMemories($preset, $cleanQuery, $fallbackConfig);
             }
 
             $withEmbedding    = $memories->filter(fn ($m) => !empty($m->embedding));
@@ -128,7 +219,7 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 $remaining = $searchLimit - count($results);
 
                 $tfidfResults = $this->tfIdfService->findSimilar(
-                    $query,
+                    $cleanQuery,
                     $withoutEmbedding,
                     $remaining,
                     $config['similarity_threshold'] ?? 0.1,
@@ -154,6 +245,12 @@ class EmbeddingVectorMemoryService extends VectorMemoryService
                 'results'        => $results,
                 'total_searched' => $memories->count(),
                 'embedding_used' => true,
+                'domains'        => $domains,
+                'from'           => $from,
+                'to'             => $to,
+                'pulseFrom'      => $pulseFrom,
+                'pulseTo'        => $pulseTo,
+                'temporal'       => false,
             ];
 
         } catch (\Throwable $e) {

@@ -146,8 +146,8 @@
                                                 ? 'border-red-400'
                                                 : (isDark ? 'border-gray-600 hover:border-gray-500' : 'border-gray-300 hover:border-gray-400')
                                         ]">
-                                            <input ref="fileInput" type="file" accept=".json,.txt" @change="handleFileSelect"
-                                                class="sr-only" />
+                                            <input ref="fileInput" type="file" accept=".json,.txt"
+                                                @change="handleFileSelect" class="sr-only" />
                                             <div v-if="!selectedFile" class="space-y-2">
                                                 <svg :class="[
                                                     'w-8 h-8 mx-auto',
@@ -188,9 +188,11 @@
                                                         :class="['text-sm font-medium', isDark ? 'text-white' : 'text-gray-900']">
                                                         {{ selectedFile.name }}
                                                     </span>
-                                                    <span :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
-                                                        {{ formatFileSize(selectedFile.size) }} • 
-                                                        {{ selectedFile.name.endsWith('.json') ? t('vm_json_export') : t('vm_text_file') }}
+                                                    <span
+                                                        :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
+                                                        {{ formatFileSize(selectedFile.size) }} •
+                                                        {{ selectedFile.name.endsWith('.json') ? t('vm_json_export') :
+                                                            t('vm_text_file') }}
                                                     </span>
                                                 </div>
                                                 <button type="button" @click="clearFile" :class="[
@@ -262,6 +264,40 @@
                                                 </div>
                                             </div>
                                         </label>
+
+                                        <!-- Target Domain (optional override) -->
+                                        <div class="mt-4 pt-4 border-t"
+                                            :class="isDark ? 'border-gray-600' : 'border-gray-300'">
+                                            <label :class="[
+                                                'block text-sm font-medium mb-2',
+                                                isDark ? 'text-gray-300' : 'text-gray-700'
+                                            ]">
+                                                {{ t('vm_import_target_domain') || 'Target domain (override)' }}
+                                            </label>
+                                            <input v-model="form.target_domain" type="text"
+                                                list="import-domain-suggestions"
+                                                :placeholder="t('vm_import_target_placeholder') || `Leave empty to respect source records (default: ${defaultDomain})`"
+                                                :class="[
+                                                    'w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 transition-all px-4 py-2 text-sm',
+                                                    form.errors.target_domain
+                                                        ? 'ring-red-500 focus:ring-red-500'
+                                                        : 'ring-gray-300 focus:ring-blue-500',
+                                                    isDark
+                                                        ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600'
+                                                        : 'bg-white text-gray-900 placeholder-gray-500 ring-gray-300'
+                                                ]" />
+                                            <datalist id="import-domain-suggestions">
+                                                <option v-for="d in domains" :key="d.name" :value="d.name">
+                                                    {{ d.count }} record(s)
+                                                </option>
+                                            </datalist>
+                                            <div :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-600']">
+                                                {{ t('vm_import_target_help') }}
+                                            </div>
+                                            <div v-if="form.errors.target_domain" class="text-red-500 text-xs mt-1">
+                                                {{ form.errors.target_domain }}
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <!-- Vectorization Info -->
@@ -275,7 +311,8 @@
                                                 isDark ? 'text-purple-400' : 'text-purple-600'
                                             ]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z">
+                                                </path>
                                             </svg>
                                             <div>
                                                 <h4 :class="[
@@ -355,6 +392,8 @@ const { t } = useI18n();
 const props = defineProps({
     modelValue: Boolean,
     preset: Object,
+    domains: { type: Array, default: () => [] },
+    defaultDomain: { type: String, default: 'global' },
 });
 
 const emit = defineEmits(['update:modelValue', 'success']);
@@ -376,6 +415,7 @@ const form = useForm({
     file: null,
     content: '',
     replace_existing: false,
+    target_domain: '',
 });
 
 const canSubmit = computed(() => {
@@ -409,11 +449,11 @@ const toggleBodyScroll = (disable) => {
 const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
-        const isValidType = file.type === 'application/json' || 
-                           file.type === 'text/plain' || 
-                           file.name.endsWith('.json') || 
-                           file.name.endsWith('.txt');
-        
+        const isValidType = file.type === 'application/json' ||
+            file.type === 'text/plain' ||
+            file.name.endsWith('.json') ||
+            file.name.endsWith('.txt');
+
         if (!isValidType) {
             alert(t('vm_please_select_json_txt_file'));
             return;

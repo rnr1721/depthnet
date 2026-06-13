@@ -43,11 +43,16 @@ class PresetService implements PresetServiceInterface
 
         return $this->db->transaction(function () use ($data) {
             $preset = $this->aiPresetModel->create([
+                'target_preset_id'         => $data['target_preset_id'] ?? null,
+                'target_plugins_whitelist' => $data['target_plugins_whitelist'] ?? null,
+                'parent_preset_id' => $data['parent_preset_id'] ?? null,
+                'is_spawned'       => $data['is_spawned'] ?? false,
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
                 'engine_name' => $data['engine_name'],
                 'input_mode' => $data['input_mode'] ?? 'single',
                 'pool_relative_dates' => $data['pool_relative_dates'] ?? false,
+                'pulse_dates' => $data['pulse_dates'] ?? false,
                 'preset_code' => $data['preset_code'] ?? null,
                 'plugins_disabled' => $data['plugins_disabled'] ?? '',
                 'engine_config' => $data['engine_config'] ?? [],
@@ -56,11 +61,10 @@ class PresetService implements PresetServiceInterface
                 'agent_result_mode' => $data['agent_result_mode'] ?? 'tool_calls',
                 'preset_code_next' => $data['preset_code_next'] ?? '',
                 'pre_run_commands' => $data['pre_run_commands'] ?? '',
+                'turn_trigger' => $data['turn_trigger'] ?? 'none',
                 'defrag_enabled'      => $data['defrag_enabled'] ?? false,
                 'defrag_prompt'       => $data['defrag_prompt'] ?? null,
                 'defrag_keep_per_day' => $data['defrag_keep_per_day'] ?? 3,
-                'voice_preset_id' => $data['voice_preset_id'] ?? null,
-                'voice_context_limit' => $data['voice_context_limit'] ?? null,
                 'cycle_prompt_preset_id' => $data['cycle_prompt_preset_id'] ?? null,
                 'cp_context_limit' => $data['cp_context_limit'] ?? null,
                 'voice_mp_commands' => $data['voice_mp_commands'] ?? '',
@@ -123,11 +127,16 @@ class PresetService implements PresetServiceInterface
 
         return $this->db->transaction(function () use ($preset, $data) {
             $preset->update([
+                'target_preset_id'         => array_key_exists('target_preset_id', $data) ? $data['target_preset_id'] : $preset->target_preset_id,
+                'target_plugins_whitelist' => array_key_exists('target_plugins_whitelist', $data) ? $data['target_plugins_whitelist'] : $preset->target_plugins_whitelist,
+                'parent_preset_id' => array_key_exists('parent_preset_id', $data) ? $data['parent_preset_id'] : $preset->parent_preset_id,
+                'is_spawned'       => array_key_exists('is_spawned', $data) ? $data['is_spawned'] : $preset->is_spawned,
                 'name' => $data['name'] ?? $preset->name,
                 'description' => $data['description'] ?? $preset->description,
                 'engine_name' => $data['engine_name'] ?? $preset->engine_name,
                 'input_mode' => array_key_exists('input_mode', $data) ? $data['input_mode'] : $preset->input_mode,
                 'pool_relative_dates' => array_key_exists('pool_relative_dates', $data) ? $data['pool_relative_dates'] : $preset->pool_relative_dates,
+                'pulse_dates' => array_key_exists('pulse_dates', $data) ? $data['pulse_dates'] : $preset->pulse_dates,
                 'preset_code' => array_key_exists('preset_code', $data) ? $data['preset_code'] : $preset->preset_code,
                 'plugins_disabled' => array_key_exists('plugins_disabled', $data) ? $data['plugins_disabled'] : $preset->plugins_disabled,
                 'engine_config' => $data['engine_config'] ?? $preset->engine_config,
@@ -136,11 +145,10 @@ class PresetService implements PresetServiceInterface
                 'agent_result_mode' => $data['agent_result_mode'] ?? $preset->agent_result_mode,
                 'preset_code_next' => array_key_exists('preset_code_next', $data) ? $data['preset_code_next'] : $preset->preset_code_next,
                 'pre_run_commands' => array_key_exists('pre_run_commands', $data) ? $data['pre_run_commands'] : $preset->pre_run_commands,
+                'turn_trigger' => array_key_exists('turn_trigger', $data) ? $data['turn_trigger'] : $preset->turn_trigger,
                 'defrag_enabled'      => array_key_exists('defrag_enabled', $data) ? $data['defrag_enabled'] : $preset->defrag_enabled,
                 'defrag_prompt'       => array_key_exists('defrag_prompt', $data) ? $data['defrag_prompt'] : $preset->defrag_prompt,
                 'defrag_keep_per_day' => array_key_exists('defrag_keep_per_day', $data) ? $data['defrag_keep_per_day'] : $preset->defrag_keep_per_day,
-                'voice_preset_id' => array_key_exists('voice_preset_id', $data) ? $data['voice_preset_id'] : $preset->voice_preset_id,
-                'voice_context_limit' => array_key_exists('voice_context_limit', $data) ? $data['voice_context_limit'] : $preset->voice_context_limit,
                 'cycle_prompt_preset_id' => array_key_exists('cycle_prompt_preset_id', $data) ? $data['cycle_prompt_preset_id'] : $preset->cycle_prompt_preset_id,
                 'cp_context_limit' => array_key_exists('cp_context_limit', $data) ? $data['cp_context_limit'] : $preset->cp_context_limit,
                 'voice_mp_commands' => array_key_exists('voice_mp_commands', $data) ? $data['voice_mp_commands'] : $preset->voice_mp_commands,
@@ -294,27 +302,57 @@ class PresetService implements PresetServiceInterface
             $counter++;
         }
 
-        $newPreset = $this->createPresetWithValidation([
-            'name' => $newName,
-            'description' => $originalPreset->description,
-            'engine_name' => $originalPreset->engine_name,
-            'input_mode' => $originalPreset->input_mode,
-            'agent_result_mode' => $originalPreset->agent_result_mode,
-            'plugins_disabled' => $originalPreset->plugins_disabled,
-            'engine_config' => $originalPreset->engine_config,
-            'is_active' => false, // New copies are inactive by default
-            'is_default' => false, // Duplicated presets are never default
-            'cp_context_limit' => $originalPreset->cp_context_limit,
-            'voice_context_limit' => $originalPreset->voice_context_limit
-        ]);
+        return $this->db->transaction(function () use ($originalPreset, $newName) {
 
-        $this->presetRegistry->refresh();
+            $newPreset = $this->createPreset([
+                // Identity
+                'name'             => $newName,
+                'description'      => $originalPreset->description,
+                // Engine
+                'engine_name'      => $originalPreset->engine_name,
+                'engine_config'    => $originalPreset->engine_config,
+                // Input
+                'input_mode'          => $originalPreset->input_mode,
+                'pool_relative_dates' => $originalPreset->pool_relative_dates,
+                'pulse_dates'        => $originalPreset->pulse_dates,
+                // Behaviour
+                'agent_result_mode'  => $originalPreset->agent_result_mode,
+                'max_context_limit'  => $originalPreset->max_context_limit,
+                'loop_interval'      => $originalPreset->loop_interval,
+                'before_execution_wait' => $originalPreset->before_execution_wait,
+                'error_behavior'     => $originalPreset->error_behavior,
+                'allow_handoff_to'   => $originalPreset->allow_handoff_to,
+                'allow_handoff_from' => $originalPreset->allow_handoff_from,
+                // Plugins
+                'plugins_disabled'   => $originalPreset->plugins_disabled,
+                'cp_context_limit'   => $originalPreset->cp_context_limit,
+                'pre_run_commands'   => $originalPreset->pre_run_commands,
+                'turn_trigger'       => $originalPreset->turn_trigger,
+                'preset_code_next'   => $originalPreset->preset_code_next,
+                'voice_mp_commands'  => $originalPreset->voice_mp_commands,
+                // Defrag
+                'defrag_enabled'      => $originalPreset->defrag_enabled,
+                'defrag_prompt'       => $originalPreset->defrag_prompt,
+                'defrag_keep_per_day' => $originalPreset->defrag_keep_per_day,
+                // Cycle prompt
+                'cycle_prompt_preset_id' => $originalPreset->cycle_prompt_preset_id,
+                // State — duplicates are inactive and never default
+                'is_active'   => false,
+                'is_default'  => false,
+                // Spawn fields — duplicates are never spawns
+                'is_spawned'       => false,
+                'parent_preset_id' => null,
+                'target_preset_id'         => null,
+                'target_plugins_whitelist' => null,
+            ]);
 
-        $this->pluginManagerFactory->get()->initializeConfigsForPreset($newPreset);
+            $this->presetRegistry->refresh();
+            $this->pluginManagerFactory->get()->initializeConfigsForPreset($newPreset);
+            $this->logPresetDuplicated($originalPreset->id, $newPreset->id);
 
-        $this->logPresetDuplicated($id, $newPreset->id);
+            return $newPreset;
+        });
 
-        return $newPreset;
     }
 
     /**
@@ -600,6 +638,19 @@ class PresetService implements PresetServiceInterface
         ->get();
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function getHandoffTargets(AiPreset $excludePreset): Collection
+    {
+        return $this->aiPresetModel
+            ->where('is_active', true)
+            ->where('allow_handoff_to', true)
+            ->where('id', '!=', $excludePreset->getId())
+            ->orderBy('name')
+            ->get();
+    }
+
     // ============================================
     // Helper Methods
     // ============================================
@@ -715,24 +766,28 @@ class PresetService implements PresetServiceInterface
     protected function validatePresetData(array $data, ?int $excludeId = null): void
     {
         $rules = [
+            'target_preset_id'         => 'nullable|integer|exists:ai_presets,id',
+            'target_plugins_whitelist' => 'nullable|string|max:500',
+            'parent_preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'is_spawned'       => 'boolean',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'engine_name' => 'required|string|max:100',
             'input_mode' => ['required', 'in:single,pool'],
             'pool_relative_dates' => 'boolean',
+            'pulse_dates' => 'boolean',
             'preset_code' => 'nullable|string|max:50',
             'plugins_disabled' => 'nullable|string|max:255',
             'engine_config' => 'array',
-            'loop_interval' => 'nullable|integer|min:4|max:30',
+            'loop_interval' => 'nullable|integer|min:1|max:3600',
             'max_context_limit' => 'nullable|integer|min:0|max:50',
             'agent_result_mode' => 'nullable|string',
             'preset_code_next' => 'nullable|string',
             'pre_run_commands' => 'nullable|string',
+            'turn_trigger' => 'nullable|string|in:none,no_speak',
             'defrag_enabled'      => 'boolean',
             'defrag_prompt'       => 'nullable|string',
             'defrag_keep_per_day' => 'nullable|integer|min:1|max:20',
-            'voice_preset_id' => 'nullable|integer|exists:ai_presets,id',
-            'voice_context_limit' => 'required|integer|min:0|max:20',
             'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'cp_context_limit' => 'required|integer|min:4|max:20',
             'voice_mp_commands' => 'nullable|string',

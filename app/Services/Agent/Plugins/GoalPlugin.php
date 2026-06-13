@@ -205,12 +205,20 @@ class GoalPlugin implements CommandPluginInterface
             return "Error: Goal plugin is disabled.";
         }
 
+        $content = $this->normalizeMethodPrefix($content, 'progress');
+
         $parts = explode('|', $content, 2);
+
         if (count($parts) !== 2) {
             return "Error: Invalid format. Use correct syntax";
         }
 
-        $goalNumber = (int) trim($parts[0]);
+        $goalNumber = $this->extractGoalNumber($parts[0]);
+
+        if ($goalNumber === null) {
+            return 'Error: Invalid goal number.';
+        }
+
         $note = trim($parts[1]);
 
         $result = $this->goalService->addProgress($context->preset, $goalNumber, $note);
@@ -226,7 +234,14 @@ class GoalPlugin implements CommandPluginInterface
             return "Error: Goal plugin is disabled.";
         }
 
-        $goalNumber = (int) trim($content);
+        $content = $this->normalizeMethodPrefix($content, 'done');
+
+        $goalNumber = $this->extractGoalNumber($content);
+
+        if ($goalNumber === null) {
+            return 'Error: Invalid goal number.';
+        }
+
         $result = $this->goalService->setStatus($context->preset, $goalNumber, 'done');
         return $result['message'];
     }
@@ -240,7 +255,14 @@ class GoalPlugin implements CommandPluginInterface
             return "Error: Goal plugin is disabled.";
         }
 
-        $goalNumber = (int) trim($content);
+        $content = $this->normalizeMethodPrefix($content, 'pause');
+
+        $goalNumber = $this->extractGoalNumber($content);
+
+        if ($goalNumber === null) {
+            return 'Error: Invalid goal number.';
+        }
+
         $result = $this->goalService->setStatus($context->preset, $goalNumber, 'paused');
         return $result['message'];
     }
@@ -254,7 +276,14 @@ class GoalPlugin implements CommandPluginInterface
             return "Error: Goal plugin is disabled.";
         }
 
-        $goalNumber = (int) trim($content);
+        $content = $this->normalizeMethodPrefix($content, 'resume');
+
+        $goalNumber = $this->extractGoalNumber($content);
+
+        if ($goalNumber === null) {
+            return 'Error: Invalid goal number.';
+        }
+
         $result = $this->goalService->setStatus($context->preset, $goalNumber, 'active');
         return $result['message'];
     }
@@ -268,7 +297,14 @@ class GoalPlugin implements CommandPluginInterface
             return "Error: Goal plugin is disabled.";
         }
 
-        $goalNumber = (int) trim($content);
+        $content = $this->normalizeMethodPrefix($content, 'show');
+
+        $goalNumber = $this->extractGoalNumber($content);
+
+        if ($goalNumber === null) {
+            return 'Error: Invalid goal number.';
+        }
+
         $result = $this->goalService->showGoal($context->preset, $goalNumber);
         return $result['message'];
     }
@@ -319,4 +355,53 @@ class GoalPlugin implements CommandPluginInterface
     {
         return ['list'];
     }
+
+    /**
+     * Normalize content by stripping method prefix if present.
+     * For example, "progress | 1 | note" becomes "1 | note" when expected method is "progress".
+     *
+     * @param string $content
+     * @param string $expectedMethod
+     * @return string
+     */
+    protected function normalizeMethodPrefix(
+        string $content,
+        string $expectedMethod
+    ): string {
+        $content = trim($content);
+
+        if (preg_match('/^([a-z_]+)\s*\|\s*(.*)$/i', $content, $m)) {
+            $possibleMethod = strtolower(trim($m[1]));
+
+            if ($possibleMethod === strtolower($expectedMethod)) {
+                return trim($m[2]);
+            }
+        }
+
+        return $content;
+    }
+
+    /**
+     * Extract goal number from content, ensuring it's a valid integer.
+     * Returns null if not a valid number.
+     *
+     * @param string $content
+     * @return integer|null
+     */
+    protected function extractGoalNumber(string $content): ?int
+    {
+        $content = trim($content);
+
+        if (!preg_match('/^\d+$/', $content)) {
+            return null;
+        }
+
+        return (int) $content;
+    }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

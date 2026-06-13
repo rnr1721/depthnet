@@ -15,6 +15,7 @@ use App\Services\Settings\SettingsService;
 use App\Services\Users\AdminUserService;
 use App\Services\Users\Exporters\CsvUserExporter;
 use App\Services\Users\UserService;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -39,5 +40,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        if ($appUrl = config('app.url')) {
+            URL::useOrigin($appUrl);
+        }
     }
 }

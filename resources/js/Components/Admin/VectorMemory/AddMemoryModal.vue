@@ -62,6 +62,39 @@
                             <!-- Form -->
                             <form @submit.prevent="submit">
                                 <div class="px-6 py-4">
+                                    <!-- Domain selector -->
+                                    <div class="mb-4">
+                                        <label :class="[
+                                            'block text-sm font-medium mb-2',
+                                            isDark ? 'text-gray-300' : 'text-gray-700'
+                                        ]">
+                                            {{ t('vm_domain') || 'Domain' }}
+                                            <span :class="['text-xs ml-2', isDark ? 'text-gray-500' : 'text-gray-500']">
+                                                ({{ t('vm_domain_leave_empty_for_default') || 'leave empty for default'
+                                                }}:
+                                                <code>{{ defaultDomain }}</code>)
+                                            </span>
+                                        </label>
+                                        <input v-model="form.domain" type="text" list="domain-suggestions"
+                                            :placeholder="defaultDomain" :class="[
+                                                'w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 transition-all px-4 py-3 text-sm',
+                                                form.errors.domain
+                                                    ? 'ring-red-500 focus:ring-red-500'
+                                                    : 'ring-gray-300 focus:ring-indigo-500',
+                                                isDark
+                                                    ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600'
+                                                    : 'bg-gray-50 text-gray-900 placeholder-gray-500 ring-gray-300'
+                                            ]" />
+                                        <datalist id="domain-suggestions">
+                                            <option v-for="d in domains" :key="d.name" :value="d.name">
+                                                {{ d.count }} record(s)
+                                            </option>
+                                        </datalist>
+                                        <div v-if="form.errors.domain" class="text-red-500 text-xs mt-1">
+                                            {{ form.errors.domain }}
+                                        </div>
+                                    </div>
+
                                     <div class="mb-4">
                                         <label :class="[
                                             'block text-sm font-medium mb-2',
@@ -104,7 +137,8 @@
                                                 isDark ? 'text-purple-400' : 'text-purple-600'
                                             ]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z">
+                                                </path>
                                             </svg>
                                             <div>
                                                 <h4 :class="[
@@ -184,6 +218,9 @@ const { t } = useI18n();
 const props = defineProps({
     modelValue: Boolean,
     preset: Object,
+    domains: { type: Array, default: () => [] },
+    defaultDomain: { type: String, default: 'global' },
+    preselectedDomain: { type: String, default: '' },
 });
 
 const emit = defineEmits(['update:modelValue', 'success']);
@@ -197,6 +234,7 @@ const show = computed({
 
 const form = useForm({
     preset_id: null,
+    domain: '',
     content: '',
 });
 
@@ -251,6 +289,9 @@ watch(() => show.value, (isVisible) => {
         const savedTheme = localStorage.getItem('chat-theme');
         isDark.value = savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches);
         toggleBodyScroll(true);
+
+        // Init domain field from currently selected filter (if any)
+        form.domain = props.preselectedDomain || '';
 
         // Focus management
         document.addEventListener('keydown', handleEscape);

@@ -404,4 +404,10 @@ class MemoryPlugin implements CommandPluginInterface
     {
         return ['clear', 'show', 'stats'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

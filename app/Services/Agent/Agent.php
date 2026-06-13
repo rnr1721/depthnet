@@ -71,8 +71,8 @@ class Agent implements AgentInterface
      */
     public function think(AiPreset $currentPreset): AiAgentResponseInterface
     {
+        $presetId = $currentPreset->getId();
         try {
-            $presetId = $currentPreset->getId();
             $this->setupPresetEnvironment($currentPreset);
 
             $context  = $this->buildContext($currentPreset);
@@ -157,26 +157,29 @@ class Agent implements AgentInterface
         $this->pluginRegistry->applyPreset($preset);
         $this->shortcodeManagerService->setDefaultShortcodes($preset);
 
-        if ($preset->getAgentResultMode() === 'tool_calls') {
-            // Override the global [[command_instructions]] with an empty value
-            // at preset scope. PlaceholderService resolves preset scope after
-            // global scope, so this effectively suppresses the tag instructions.
-            // The model learns about available tools via the tools array in the
-            // API request — duplicating them as text in the prompt is unnecessary.
-            $this->shortcodeManagerService->registerShortcodeForPreset(
-                $preset->getId(),
-                'command_instructions',
-                '',
-                fn () => ''
-            );
-        }
-
         if ($preset->getAgentResultMode() === 'internal') {
             $this->shortcodeManagerService->registerShortcodeForPreset(
                 $preset->getId(),
                 'agent_command_results',
                 '',
                 fn () => $this->commandResultPool->getFormatted($preset)
+            );
+        }
+
+        $memo = $this->pluginMetadataService->get($preset, 'memo', 'self_system_note', null);
+        if ($memo && is_string($memo)) {
+            // Consume immediately and deterministically — read once, delete once.
+            // Putting remove() inside the resolver would tie deletion to placeholder
+            // presence in the prompt, which is a user-editable concern. The note
+            // should be consumed at the start of every cycle that finds it pending,
+            // regardless of whether [[memo]] appears in the rendered prompt.
+            $this->pluginMetadataService->remove($preset, 'memo', 'self_system_note');
+
+            $this->shortcodeManagerService->registerShortcodeForPreset(
+                $preset->getId(),
+                'memo',
+                '',
+                fn () => $memo
             );
         }
 

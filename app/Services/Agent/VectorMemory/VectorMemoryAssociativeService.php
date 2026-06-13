@@ -15,6 +15,21 @@ use Carbon\Carbon;
  * - Access tracking: each touched memory gets access_count++ and last_accessed_at update
  * - Importance reinforcement: memories that act as "bridges" gain importance over time
  * - Smart cleanup: removes lowest composite score first, not oldest
+ *
+ * Domain support (inherited from base):
+ *   When a domain filter is applied (via $config['domains'] or inline
+ *   "domain:..." prefix), the entire associative chain runs inside the
+ *   filtered set. Domains never re-enter the chain via hops — the chain
+ *   stays scoped to whatever the caller asked for.
+ *
+ *   This gives a useful semantic effect: "associations within a context"
+ *   — the chain is free to follow meaning, but bounded by the domain.
+ *
+ * Pulse support (inherited from base):
+ *   pulse:N-M restricts the chain starting set to memories created within
+ *   the given circadian range. Hops then walk only inside that subset.
+ *   The chain effectively becomes "associations within a part of the day"
+ *   — useful for surfacing patterns specific to certain hours.
  */
 class VectorMemoryAssociativeService extends VectorMemoryService
 {
@@ -44,12 +59,16 @@ class VectorMemoryAssociativeService extends VectorMemoryService
      * Search with associative chain traversal and composite scoring.
      *
      * Steps:
-     * 1. Search memories using TF-IDF similarity for the original query
-     * 2. Apply composite score = tfidf * access_weight * time_weight
-     * 3. Take the top result, use its content to seed next search step
-     * 4. Repeat for configured chain depth, avoiding already-visited memories
-     * 5. Update access stats for all touched memories
-     * 6. Return all unique results sorted by composite score descending
+     * 1. Peel inline prefixes ("domain:", "time:", "pulse:") plus any
+     *    RAG-config filters into [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery].
+     * 2. Load memories restricted to those domains, time window, AND pulse range.
+     *    The filter set pins down the STARTING set for the chain — subsequent
+     *    associative hops walk only within these memories.
+     * 3. If $cleanQuery is empty but at least one filter is set, return chronological
+     *    listing (temporal mode) — no chain walk, no semantic ranking.
+     * 4. Otherwise: TF-IDF search seeded by $cleanQuery; top hit seeds the
+     *    next hop; repeat for chain_depth steps with composite scoring.
+     * 5. Update access stats for all touched memories.
      *
      * @inheritDoc
      */
@@ -64,13 +83,73 @@ class VectorMemoryAssociativeService extends VectorMemoryService
                 ];
             }
 
-            $memories = $this->getVectorMemories($preset);
+            [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery]
+                = $this->peelSearchPrefixes($query, $config);
+
+            $hasTimeFilter  = ($from !== null || $to !== null);
+            $hasPulseFilter = ($pulseFrom !== null || $pulseTo !== null);
+            $hasAnyFilter   = $hasTimeFilter || $hasPulseFilter || !empty($domains);
+
+            if (empty($cleanQuery) && !$hasAnyFilter) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Search query cannot be empty after parsing prefixes.'
+                ];
+            }
+
+            $memQuery = new VectorMemoryQuery(
+                domains:   $domains,
+                from:      $from,
+                to:        $to,
+                pulseFrom: $pulseFrom,
+                pulseTo:   $pulseTo,
+            );
+            $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
                 return [
-                    'success' => true,
-                    'message' => 'No memories found. Store some content first.',
-                    'results' => []
+                    'success'  => true,
+                    'message'  => $this->describeEmptyResult($domains, $from, $to, $pulseFrom, $pulseTo),
+                    'results'  => [],
+                    'domains'  => $domains,
+                    'from'     => $from,
+                    'to'       => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
+                    'temporal' => empty($cleanQuery),
+                ];
+            }
+
+            // Temporal mode: chronological listing inside the filter window.
+            // No chain walk — the question "what was I thinking on Monday morning"
+            // is best answered straight, not via associations.
+            if (empty($cleanQuery)) {
+                $limit  = $config['search_limit'] ?? 5;
+                $sliced = $memories->take($limit);
+
+                $results = $sliced->map(fn (VectorMemory $m) => [
+                    'document'        => $m,
+                    'memory'          => $m,
+                    'similarity'      => 1.0,
+                    'composite_score' => 1.0,
+                    'source'          => 'temporal',
+                    'chain_step'      => 0,
+                ])->all();
+
+                // Still update access stats — these are real touches
+                $this->updateAccessStats(array_column($results, 'memory'));
+
+                return [
+                    'success'        => true,
+                    'message'        => 'Found ' . count($results) . ' memories in filter window.',
+                    'results'        => $results,
+                    'total_searched' => $memories->count(),
+                    'domains'        => $domains,
+                    'from'           => $from,
+                    'to'             => $to,
+                    'pulseFrom'      => $pulseFrom,
+                    'pulseTo'        => $pulseTo,
+                    'temporal'       => true,
                 ];
             }
 
@@ -80,7 +159,8 @@ class VectorMemoryAssociativeService extends VectorMemoryService
 
             $visitedIds   = [];
             $chainResults = [];
-            $currentQuery = $query;
+            $currentQuery = $cleanQuery;
+            $step         = 0;
 
             for ($step = 0; $step < $chainDepth; $step++) {
                 // Filter out already-visited memories
@@ -137,9 +217,15 @@ class VectorMemoryAssociativeService extends VectorMemoryService
 
             if (empty($chainResults)) {
                 return [
-                    'success' => true,
-                    'message' => 'No similar memories found.',
-                    'results' => []
+                    'success'   => true,
+                    'message'   => 'No similar memories found.',
+                    'results'   => [],
+                    'domains'   => $domains,
+                    'from'      => $from,
+                    'to'        => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
+                    'temporal'  => false,
                 ];
             }
 
@@ -150,17 +236,23 @@ class VectorMemoryAssociativeService extends VectorMemoryService
             $finalResults = array_slice($chainResults, 0, $searchLimit);
 
             // Update access stats for all touched memories
-            // 'memory' alias is present in every $chainResults entry (added above)
             $this->updateAccessStats(
                 collect($finalResults)->pluck('memory')->all()
             );
 
+            $filterNote = $hasAnyFilter ? ' within filter window' : '';
             return [
                 'success'        => true,
-                'message'        => "Found " . count($finalResults) . " memories via associative search (chain depth: {$chainDepth}).",
+                'message'        => "Found " . count($finalResults) . " memories via associative search{$filterNote} (chain depth: {$chainDepth}).",
                 'results'        => $finalResults,
                 'total_searched' => $memories->count(),
                 'chain_steps'    => $step,
+                'domains'        => $domains,
+                'from'           => $from,
+                'to'             => $to,
+                'pulseFrom'      => $pulseFrom,
+                'pulseTo'        => $pulseTo,
+                'temporal'       => false,
             ];
 
         } catch (\Throwable $e) {

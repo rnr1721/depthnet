@@ -73,8 +73,6 @@ class AgentActions implements AgentActionsInterface
         ?AiPreset $mainPreset = null,
         bool $isUser = false
     ): AiActionsResponseInterface {
-        $responseString = $this->cleanupResponse($responseString, $preset);
-
         if ($preset->getAgentResultMode() === 'tool_calls') {
             return $this->runToolCallActions($responseString, $preset, $mainPreset, $isUser);
         }
@@ -114,7 +112,7 @@ class AgentActions implements AgentActionsInterface
 
         $commands = $this->toolCallParser->parse($responseString);
 
-        return $this->buildActionsResponse($commands, $preset, $mainPreset, $isUser);
+        return $this->buildActionsResponse($commands, $preset, $mainPreset, $isUser, $responseString);
     }
 
     // ── Tag pipeline ─────────────────────────────────────────────────────────
@@ -147,7 +145,7 @@ class AgentActions implements AgentActionsInterface
 
         $preprocessedOutput = $this->commandPreProcessor->preProcess($responseString);
         $commands           = $this->commandParser->parse($preprocessedOutput);
-        $actionsResponse    = $this->buildActionsResponse($commands, $preset, $mainPreset, $isUser);
+        $actionsResponse    = $this->buildActionsResponse($commands, $preset, $mainPreset, $isUser, $responseString);
 
         // Lint runs on the original string (not preprocessed) for accurate error reporting.
         // Errors are appended to the result so the model corrects them next cycle.
@@ -169,13 +167,15 @@ class AgentActions implements AgentActionsInterface
      * @param  AiPreset      $preset
      * @param  AiPreset|null $mainPreset
      * @param  bool          $isUser
+     * @param  string        $originalResponse Response from model - original
      * @return AiActionsResponseInterface
      */
     protected function buildActionsResponse(
         array $commands,
         AiPreset $preset,
         ?AiPreset $mainPreset,
-        bool $isUser
+        bool $isUser,
+        string $originalResponse
     ): AiActionsResponseInterface {
         $output        = '';
         $systemMessage = null;
@@ -192,9 +192,13 @@ class AgentActions implements AgentActionsInterface
                 $systemMessage = $executionResult->pluginExecutionMeta['speak'];
                 $visibleToUser = true;
             }
+        } else {
+            $systemMessage = $originalResponse;
+            $visibleToUser = true;
         }
 
         $handoff = $executionResult?->pluginExecutionMeta['handoff'] ?? null;
+        $turn = (bool) ($executionResult?->pluginExecutionMeta['turn'] ?? false);
 
         return new ActionsResponseDTO(
             $output,
@@ -204,6 +208,7 @@ class AgentActions implements AgentActionsInterface
             $systemMessage,
             $handoff,
             $executionResult?->results ?? [],
+            $turn
         );
     }
 
@@ -221,25 +226,6 @@ class AgentActions implements AgentActionsInterface
             false,
             false
         );
-    }
-
-    /**
-     * Remove fake system command result blocks the model may have hallucinated.
-     * Only applies in 'separate' result mode.
-     *
-     * @param  string   $response
-     * @param  AiPreset $preset
-     * @return string
-     */
-    private function cleanupResponse(string $response, AiPreset $preset): string
-    {
-        if ($preset->getAgentResultMode() === 'separate') {
-            $response = preg_replace('/<system_output_results>.*?```\s*$/s', '', $response);
-            $response = preg_replace('/```system_command_results.*?```/s', '', $response);
-            $response = preg_replace('/🤖\s*Command\s*Results:\s*/i', '', $response);
-        }
-
-        return trim($response);
     }
 
     /**

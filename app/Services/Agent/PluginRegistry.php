@@ -3,12 +3,17 @@
 namespace App\Services\Agent;
 
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PluginExecutionContextBuilderInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Models\AiPreset;
+use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
 class PluginRegistry implements PluginRegistryInterface
 {
+    use ResolvesSourcePresetTrait;
+
     /**
      * renamed from PLUGIN_READY_METHOD. The hook is now opt-in
      * and used purely for placeholder/shortcode registration scoped to a
@@ -27,7 +32,9 @@ class PluginRegistry implements PluginRegistryInterface
     public function __construct(
         // needed to build per-preset context for the
         // registerShortcodes() hook. Stateless service, safe to inject.
-        protected PluginExecutionContextBuilderInterface $contextBuilder
+        protected PluginExecutionContextBuilderInterface $contextBuilder,
+        protected PlaceholderServiceInterface $placeholderService,
+        protected ShortcodeScopeResolverServiceInterface $scopeResolver,
     ) {
     }
 
@@ -101,12 +108,14 @@ class PluginRegistry implements PluginRegistryInterface
     {
         $this->setDisabledForNow($preset->getPluginsDisabled());
 
+        $sourcePreset = $this->resolveSourcePreset($preset);
+
         foreach ($this->allRegistered() as $plugin) {
             if (!method_exists($plugin, self::REGISTER_SHORTCODES_METHOD)) {
                 continue;
             }
 
-            $context = $this->contextBuilder->build($plugin, $preset);
+            $context = $this->contextBuilder->build($plugin, $sourcePreset);
 
             // Skip disabled plugins — no point in registering their
             // shortcodes if they can't be invoked anyway.
@@ -115,6 +124,13 @@ class PluginRegistry implements PluginRegistryInterface
             }
 
             $plugin->{self::REGISTER_SHORTCODES_METHOD}($context);
+
+        }
+        if ($preset->getId() !== $sourcePreset->getId()) {
+            $this->placeholderService->copyScope(
+                $this->scopeResolver->preset($sourcePreset->getId()),
+                $this->scopeResolver->preset($preset->getId()),
+            );
         }
     }
 

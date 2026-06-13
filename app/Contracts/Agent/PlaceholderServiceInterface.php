@@ -103,9 +103,22 @@ interface PlaceholderServiceInterface
      * @param string $description Description
      * @param callable $contentProvider Function that returns content when called
      * @param string $scope Scope identifier
+     * @param bool $stub If true, registers as a stub (weak registration).
+     *                   A stub will NOT overwrite an existing non-stub
+     *                   registration for the same name in the same scope.
+     *                   A non-stub registration always wins, regardless of order.
+     *                   Use for plugins that declare a placeholder's existence
+     *                   (for frontend discovery) but defer the actual value
+     *                   to a downstream consumer.
      * @return self
      */
-    public function registerDynamic(string $name, string $description, callable $contentProvider, string $scope = 'global'): self;
+    public function registerDynamic(
+        string $name,
+        string $description,
+        callable $contentProvider,
+        string $scope = 'global',
+        bool $stub = false
+    ): self;
 
     /**
      * Enhanced processing that handles dynamic placeholders
@@ -115,4 +128,14 @@ interface PlaceholderServiceInterface
      * @return string Processed content
      */
     public function processContentWithDynamic(string $content, array $scopes = ['global']): string;
+
+    /**
+     * Copy all placeholders from one scope to another.
+     * Existing entries in the target scope are NOT overwritten.
+     *
+     * @param string $from
+     * @param string $to
+     * @return self
+     */
+    public function copyScope(string $from, string $to): self;
 }

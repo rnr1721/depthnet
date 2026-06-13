@@ -4,10 +4,12 @@ namespace App\Services\Agent\Cleanup;
 
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Ontology\OntologyServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
@@ -33,6 +35,8 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         protected SkillServiceInterface $skillService,
         protected PersonMemoryServiceInterface $personMemoryService,
         protected JournalServiceInterface $journalService,
+        protected OntologyServiceInterface $ontologyService,
+        protected HeartServiceInterface $heartService,
         protected PresetServiceInterface $presetService,
         protected LoggerInterface $logger
     ) {
@@ -84,6 +88,16 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         if ($this->option($options, 'clear_journal')) {
             $this->journalService->clear($preset);
             $cleared[] = 'journal';
+        }
+
+        if ($this->option($options, 'clear_heart')) {
+            $this->heartService->clear($preset);
+            $cleared[] = 'heart';
+        }
+
+        if ($this->option($options, 'clear_ontology')) {
+            $this->ontologyService->clear($preset);
+            $cleared[] = 'ontology';
         }
 
         $this->logger->info('PresetCleanupService: cleared preset', [

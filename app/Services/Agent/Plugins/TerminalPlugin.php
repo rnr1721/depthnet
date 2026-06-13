@@ -234,6 +234,16 @@ class TerminalPlugin implements CommandPluginInterface
                 'value'       => 'sandbox-user',
                 'required'    => false,
             ],
+            'prompt_pattern' => [
+                'type'        => 'text',
+                'label'       => 'Prompt regex pattern',
+                'description' => 'Regex to detect shell prompt for command completion. '
+                    . 'Default matches $, #, > at end of line. '
+                    . 'For custom prompts (starship, powerlevel10k, ❯, etc.), adjust accordingly.',
+                'placeholder' => '/[$#>❯]\s*$/u',
+                'value'       => '/[$#>]\s*$/',
+                'required'    => false,
+            ],
         ];
     }
 
@@ -273,6 +283,7 @@ class TerminalPlugin implements CommandPluginInterface
             'command_timeout'  => 5,
             'capture_delay_ms' => 800,
             'sandbox_user'     => 'sandbox-user',
+            'prompt_pattern'   => '/[$#>]\s*$/',
         ];
     }
 
@@ -346,6 +357,8 @@ class TerminalPlugin implements CommandPluginInterface
             (int) $context->get('command_timeout', 5),
             (int) $context->get('capture_delay_ms', 800),
             (int) $context->get('capture_lines', 50),
+            true,
+            $context->get('prompt_pattern', null) ?: null,
         );
 
         return $output ?? 'Command sent but could not capture output. Try [terminal screen][/terminal].';

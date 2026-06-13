@@ -5,6 +5,7 @@ namespace App\Services\Agent\VectorMemory;
 use App\Models\AiPreset;
 use App\Models\VectorMemory;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Embedding-based associative vector memory service.
@@ -14,17 +15,26 @@ use Carbon\Carbon;
  * because hops follow semantic similarity rather than keyword overlap.
  *
  * Algorithm:
- *  1. Embed the query via EmbeddingService
- *  2. Find top-K candidates by cosine similarity (initial retrieval)
- *  3. Build a local similarity graph over all loaded embeddings
- *  4. Walk the graph from top candidates: each hop expands to the
+ *  1. Resolve domain/time/pulse filters (config wins; otherwise parse inline prefixes)
+ *  2. Load memories restricted to those filters
+ *  3. Embed the cleaned query via EmbeddingService
+ *  4. Find top-K candidates by cosine similarity (initial retrieval)
+ *  5. Build a local similarity graph over the loaded embeddings
+ *  6. Walk the graph from top candidates: each hop expands to the
  *     semantically nearest unvisited neighbours
- *  5. Score every visited node: cosine_sim * access_weight * time_decay
- *  6. Return top-K by composite score, update access stats
+ *  7. Score every visited node: cosine_sim * access_weight * time_decay
+ *  8. Return top-K by composite score, update access stats
  *
  * Falls back to EmbeddingVectorMemoryService (no graph) when the preset
  * has no embedding capability configured, and further to TF-IDF when
  * embeddings are fully unavailable.
+ *
+ * Filter scoping:
+ *   Filtering by domain/time/pulse happens BEFORE graph construction.
+ *   For a 200-record subset the graph is O(200²)=40k pair comparisons
+ *   instead of O(1000²)=1M — filters become both a semantic narrowing
+ *   and a performance win. The chain stays scoped to whatever the caller
+ *   asked for.
  */
 class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryService
 {
@@ -49,6 +59,19 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
      */
     protected const MAX_NEIGHBOURS_PER_NODE = 20;
 
+    // ── Cache parameters ─────────────────────────────────────────────────────
+
+    /**
+     * How long a built graph stays valid in cache.
+     * Set to 0 during development/debugging.
+     */
+    protected const GRAPH_CACHE_TTL_MINUTES = 30;
+
+    /**
+     * Prefix for all graph cache keys — makes it easy to monitor/flush.
+     */
+    protected const GRAPH_CACHE_PREFIX = 'vm_graph';
+
     // ── Composite scoring (mirrors VectorMemoryAssociativeService) ────────────
 
     protected const TIME_DECAY_HALF_LIFE_DAYS = 30;
@@ -59,7 +82,103 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Semantic associative search over dense embedding vectors.
+     * {@inheritDoc}
+     *
+     * Overridden to invalidate graph cache after storing a new memory.
+     */
+    public function storeVectorMemory(AiPreset $preset, string $content, array $config = []): array
+    {
+        $result = parent::storeVectorMemory($preset, $content, $config);
+
+        if ($result['success'] ?? false) {
+            $this->invalidateGraphCache($preset);
+        }
+
+        return $result;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * Overridden to invalidate graph cache after deleting a memory.
+     */
+    public function deleteVectorMemory(AiPreset $preset, int $memoryId): array
+    {
+        $result = parent::deleteVectorMemory($preset, $memoryId);
+
+        if ($result['success'] ?? false) {
+            $this->invalidateGraphCache($preset);
+        }
+
+        return $result;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * Wipes all memories AND the cached graph — graph nodes would otherwise
+     * dangle as references to deleted records.
+     */
+    public function clearVectorMemories(AiPreset $preset): array
+    {
+        $result = parent::clearVectorMemories($preset);
+
+        if ($result['success'] ?? false) {
+            $this->invalidateGraphCache($preset);
+        }
+
+        return $result;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * Bulk deletes records — graph must be invalidated for the same reason
+     * as deleteVectorMemory: cached graph would reference vanished IDs.
+     */
+    public function purgeDomain(AiPreset $preset, string $domain): int
+    {
+        $deleted = parent::purgeDomain($preset, $domain);
+
+        if ($deleted > 0) {
+            $this->invalidateGraphCache($preset);
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * Intentionally does NOT invalidate the graph: dropDomain only renames
+     * the `domain` field on existing records. Record IDs, embeddings, and
+     * similarity edges remain valid. Only the domain-filter cache key
+     * would shift, which is fine — that's a different cache entry.
+     */
+    public function dropDomain(AiPreset $preset, string $domain, array $config = []): int
+    {
+        return parent::dropDomain($preset, $domain, $config);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * Backfilling embeddings turns records from "graph-ineligible" into
+     * "graph-eligible" — the node set changes, the graph must rebuild.
+     */
+    public function backfillEmbeddings(AiPreset $preset, int $batchSize = 50): array
+    {
+        $result = parent::backfillEmbeddings($preset, $batchSize);
+
+        if (($result['processed'] ?? 0) > 0) {
+            $this->invalidateGraphCache($preset);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Semantic associative search — now with graph caching.
      *
      * {@inheritDoc}
      */
@@ -71,38 +190,103 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 return ['success' => false, 'message' => 'Error: Search query cannot be empty.'];
             }
 
-            $memories = $this->getVectorMemories($preset);
+            [$domains, $from, $to, $pulseFrom, $pulseTo, $cleanQuery]
+                = $this->peelSearchPrefixes($query, $config);
+
+            $hasTimeFilter  = ($from !== null || $to !== null);
+            $hasPulseFilter = ($pulseFrom !== null || $pulseTo !== null);
+            $hasAnyFilter   = $hasTimeFilter || $hasPulseFilter || !empty($domains);
+
+            if (empty($cleanQuery) && !$hasAnyFilter) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Search query cannot be empty after parsing prefixes.'
+                ];
+            }
+
+            $memQuery = new VectorMemoryQuery(
+                domains:   $domains,
+                from:      $from,
+                to:        $to,
+                pulseFrom: $pulseFrom,
+                pulseTo:   $pulseTo,
+            );
+            $memories = $this->getVectorMemories($preset, $memQuery);
 
             if ($memories->isEmpty()) {
-                return ['success' => true, 'message' => 'No memories found.', 'results' => []];
+                return [
+                    'success'   => true,
+                    'message'   => $this->describeEmptyResult($domains, $from, $to, $pulseFrom, $pulseTo),
+                    'results'   => [],
+                    'domains'   => $domains,
+                    'from'      => $from,
+                    'to'        => $to,
+                    'pulseFrom' => $pulseFrom,
+                    'pulseTo'   => $pulseTo,
+                    'temporal'  => empty($cleanQuery),
+                ];
+            }
+
+            // Temporal mode — no graph needed
+            if (empty($cleanQuery)) {
+                $limit  = $config['search_limit'] ?? 5;
+                $sliced = $memories->take($limit);
+
+                $results = $sliced->map(fn (VectorMemory $m) => [
+                    'document'        => $m,
+                    'memory'          => $m,
+                    'similarity'      => 1.0,
+                    'composite_score' => 1.0,
+                    'source'          => 'temporal',
+                ])->all();
+
+                $this->updateAccessStats(array_column($results, 'memory'));
+
+                return [
+                    'success'        => true,
+                    'message'        => 'Found ' . count($results) . ' memories in filter window.',
+                    'results'        => $results,
+                    'total_searched' => $memories->count(),
+                    'domains'        => $domains,
+                    'from'           => $from,
+                    'to'             => $to,
+                    'pulseFrom'      => $pulseFrom,
+                    'pulseTo'        => $pulseTo,
+                    'temporal'       => true,
+                    'embedding_used' => false,
+                ];
             }
 
             $searchLimit = $config['search_limit'] ?? 5;
             $chainDepth  = $config['chain_depth']  ?? 3;
             $threshold   = $config['similarity_threshold'] ?? 0.2;
 
-            // ── Step 1: embed the query ───────────────────────────────────────
-            $queryEmbedding = $this->embeddingService->embed($query, $preset);
+            // ── Step 1: embed the query ──────────────────────────────────────
+            $queryEmbedding = $this->embeddingService->embed($cleanQuery, $preset);
+
+            $fallbackConfig = array_merge($config, [
+                'domains'    => $domains,
+                'from'       => $from,
+                'to'         => $to,
+                'pulse_from' => $pulseFrom,
+                'pulse_to'   => $pulseTo,
+            ]);
 
             if ($queryEmbedding === null) {
                 $this->logger->info('EmbeddingAssociativeVectorMemoryService: no embedding — falling back.', [
                     'preset_id' => $preset->id,
                 ]);
-                // Graceful degradation chain: embedding → associative TF-IDF
-                return $this->fallbackSearch($preset, $query, $config);
+                return $this->fallbackSearch($preset, $cleanQuery, $fallbackConfig);
             }
 
-            // Split records: only those with a stored embedding participate in
-            // graph traversal; the rest are handled by TF-IDF supplement below.
             $withEmbedding    = $memories->filter(fn ($m) => !empty($m->embedding))->values();
             $withoutEmbedding = $memories->filter(fn ($m) => empty($m->embedding))->values();
 
             if ($withEmbedding->isEmpty()) {
-                return $this->fallbackSearch($preset, $query, $config);
+                return $this->fallbackSearch($preset, $cleanQuery, $fallbackConfig);
             }
 
-            // Trim to MAX_GRAPH_NODES BEFORE computing scores and building the graph,
-            // so that $withEmbedding indices stay consistent across all three operations.
+            // Trim to MAX_GRAPH_NODES
             if ($withEmbedding->count() > self::MAX_GRAPH_NODES) {
                 $withEmbedding = $withEmbedding
                     ->sortByDesc(fn ($m) => ($m->importance ?? 1.0) * (1 + ($m->access_count ?? 0)))
@@ -112,41 +296,43 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
 
             // ── Step 2: initial cosine retrieval ─────────────────────────────
             $initialScores = $this->computeCosineScores($queryEmbedding, $withEmbedding);
-
-            // Sort descending by raw cosine similarity
             arsort($initialScores);
 
-            // Seed nodes = top candidates above threshold
             $seedIndices = array_keys(
                 array_filter($initialScores, fn ($s) => $s >= $threshold)
             );
 
             if (empty($seedIndices)) {
-                // Nothing above threshold — supplement with TF-IDF and return
                 return $this->buildResultWithTfIdfSupplement(
                     [],
                     $withoutEmbedding,
-                    $query,
+                    $cleanQuery,
                     $searchLimit,
                     $config
                 );
             }
 
-            // Keep only top searchLimit seeds to start traversal
             $seedIndices = array_slice($seedIndices, 0, $searchLimit);
 
-            // ── Step 3: build local similarity graph ─────────────────────────
-            // Graph is built once and reused across all hops.
-            // adj[i] = [ [index => j, weight => float], ... ] sorted by weight desc
-            $adj = $this->buildLocalGraph($withEmbedding);
+            // ── Step 3: build (or retrieve from cache) local graph ───────────
+            // Cache key includes pulse filter so different circadian windows
+            // get different graphs (they have different node sets).
+            $adj = $this->getOrBuildGraph(
+                $withEmbedding,
+                $preset,
+                $domains,
+                $from,
+                $to,
+                $pulseFrom,
+                $pulseTo
+            );
 
-            // ── Step 4: graph walk ────────────────────────────────────────────
-            $visited    = [];  // index → composite score
-            $frontier   = $seedIndices;
+            // ── Step 4: graph walk ───────────────────────────────────────────
+            $visited  = [];
+            $frontier = $seedIndices;
 
-            // Seed nodes get their initial cosine score
             foreach ($seedIndices as $idx) {
-                $memory  = $withEmbedding[$idx];
+                $memory        = $withEmbedding[$idx];
                 $visited[$idx] = $this->compositeScore(
                     $initialScores[$idx],
                     $memory->access_count ?? 0,
@@ -170,7 +356,6 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                         }
 
                         $memory    = $withEmbedding[$nIdx];
-                        // Propagated score: parent composite * edge weight
                         $propScore = $visited[$nodeIdx] * $weight;
                         $score     = $this->compositeScore(
                             $propScore,
@@ -191,7 +376,7 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 $frontier = $nextFrontier;
             }
 
-            // ── Step 5: rank and assemble results ─────────────────────────────
+            // ── Step 5: rank and assemble results ────────────────────────────
             arsort($visited);
 
             $results = [];
@@ -200,30 +385,122 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
                 $results[] = [
                     'document'        => $memory,
                     'memory'          => $memory,
-                    'similarity'      => $initialScores[$idx] ?? null, // null for graph-hop nodes — not a cosine score
+                    'similarity'      => $initialScores[$idx] ?? null,
                     'composite_score' => $score,
                     'source'          => isset($initialScores[$idx]) ? 'embedding_graph' : 'embedding_graph_hop',
                 ];
             }
 
-            // ── Step 6: TF-IDF supplement for records without embedding ───────
+            // ── Step 5.5: cross-domain bridge hop (optional) ─────────────────────
+            $crossDomainResults = [];
+
+            if ($config['cross_domain_bridges'] ?? false) {
+                // Only makes sense when domain filter is active AND we have results
+                if (!empty($domains) && count($results) > 0) {
+                    // Build anchor list: for each top result, locate its index inside
+                    // $withEmbedding (we need the embedding) AND carry its composite_score
+                    // (so bridge scores propagate correctly from the actual anchor).
+                    //
+                    // Bug fix: previously this code mixed two different index spaces —
+                    // position in $results (0..K) vs index in $withEmbedding (0..N).
+                    // Now we keep them as named fields and never confuse them.
+                    $anchors = [];
+                    foreach ($results as $r) {
+                        if (count($anchors) >= 3) {
+                            break;
+                        }
+                        $memId  = $r['memory']->id;
+                        $weIdx  = $withEmbedding->search(fn ($m) => $m->id === $memId);
+                        if ($weIdx === false) {
+                            continue;
+                        }
+                        $anchors[] = [
+                            'we_idx'    => $weIdx,
+                            'composite' => $r['composite_score'] ?? $r['similarity'] ?? 0,
+                        ];
+                    }
+
+                    if (!empty($anchors)) {
+                        // Load records from OTHER domains with embeddings
+                        $otherMemories = $this->vectorMemoryModel
+                            ->where('preset_id', $preset->id)
+                            ->whereNotIn('domain', $domains)
+                            ->whereNotNull('embedding')
+                            ->limit(2000) // safety cap
+                            ->get();
+
+                        if ($otherMemories->isNotEmpty()) {
+                            $seenBridgeIds = array_map(fn ($r) => $r['memory']->id, $results);
+
+                            foreach ($anchors as $anchor) {
+                                $anchorEmb       = $withEmbedding[$anchor['we_idx']]->embedding;
+                                $anchorComposite = $anchor['composite'];
+
+                                foreach ($otherMemories as $other) {
+                                    if (in_array($other->id, $seenBridgeIds, true)) {
+                                        continue;
+                                    }
+
+                                    $sim = $this->embeddingService->cosineSimilarity($anchorEmb, $other->embedding);
+
+                                    if ($sim >= self::GRAPH_EDGE_THRESHOLD) {
+                                        $crossDomainResults[] = [
+                                            'document'        => $other,
+                                            'memory'          => $other,
+                                            'similarity'      => $sim,
+                                            // Propagate anchor's composite × bridge strength —
+                                            // strong anchor + strong link = strong bridge score.
+                                            'composite_score' => $anchorComposite * $sim,
+                                            'source'          => 'cross_domain_bridge',
+                                        ];
+                                        $seenBridgeIds[] = $other->id;
+                                    }
+                                }
+                            }
+
+                            // Sort by composite score, take top 2 bridges
+                            usort($crossDomainResults, fn ($a, $b) => $b['composite_score'] <=> $a['composite_score']);
+                            $crossDomainResults = array_slice($crossDomainResults, 0, 2);
+                        }
+                    }
+                }
+            }
+
+            // Bridges are an AUGMENTATION, not a search result. We run TF-IDF
+            // supplement on the main results first (so the K-budget is spent on
+            // the actual semantic core), then append bridges on top.
             $result = $this->buildResultWithTfIdfSupplement(
                 $results,
                 $withoutEmbedding,
-                $query,
+                $cleanQuery,
                 $searchLimit,
                 $config
             );
 
-            // ── Step 7: update access stats ───────────────────────────────────
+            // Append bridges after the main results without competing for the
+            // limit budget. Their position in the list signals "extra, related".
+            if (!empty($crossDomainResults)) {
+                $result['results'] = array_merge($result['results'], $crossDomainResults);
+            }
+
+            // ── Step 7: update access stats ──────────────────────────────────
             $this->updateAccessStats(
                 collect($result['results'])->pluck('memory')->all()
             );
 
             return array_merge($result, [
-                'total_searched'  => $memories->count(),
-                'embedding_used'  => true,
-                'graph_nodes'     => count($visited),
+                'total_searched'     => $memories->count(),
+                'embedding_used'     => true,
+                'graph_nodes'        => count($visited),
+                'graph_cached'       => $this->graphWasCached,  // see getOrBuildGraph
+                'cross_domain'       => !empty($crossDomainResults),
+                'cross_domain_count' => count($crossDomainResults),
+                'domains'            => $domains,
+                'from'               => $from,
+                'to'                 => $to,
+                'pulseFrom'          => $pulseFrom,
+                'pulseTo'            => $pulseTo,
+                'temporal'           => false,
             ]);
 
         } catch (\Throwable $e) {
@@ -232,6 +509,135 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
             ]);
             return $this->fallbackSearch($preset, $query, $config);
         }
+    }
+
+    // ── Graph caching ────────────────────────────────────────────────────────
+
+    /**
+     * Whether the graph was served from cache in the current search call.
+     * Reset before each search; used to populate the result metadata.
+     */
+    private bool $graphWasCached = false;
+
+    /**
+     * Build the local similarity graph or retrieve it from cache.
+     *
+     * Cache key is deterministic: same preset + same set of record IDs +
+     * same domain/time/pulse filters → same graph. Adding/removing a record
+     * or changing filters produces a different key → fresh build.
+     *
+     * @param  \Illuminate\Support\Collection  $memories
+     * @param  AiPreset                        $preset
+     * @param  string[]                        $domains
+     * @param  Carbon|null                     $from
+     * @param  Carbon|null                     $to
+     * @param  int|null                        $pulseFrom
+     * @param  int|null                        $pulseTo
+     * @return array<int, array<int, array{index: int, weight: float}>>
+     */
+    private function getOrBuildGraph(
+        \Illuminate\Support\Collection $memories,
+        AiPreset                        $preset,
+        array                           $domains,
+        ?Carbon                         $from,
+        ?Carbon                         $to,
+        ?int                            $pulseFrom = null,
+        ?int                            $pulseTo = null,
+    ): array {
+        $cacheKey = $this->graphCacheKey($preset, $memories, $domains, $from, $to, $pulseFrom, $pulseTo);
+
+        $cached = Cache::get($cacheKey);
+
+        if ($cached !== null) {
+            $this->graphWasCached = true;
+
+            $this->logger->debug('EmbeddingAssociativeVectorMemoryService: graph cache hit.', [
+                'preset_id'   => $preset->id,
+                'node_count'  => count($cached),
+                'cache_key'   => $cacheKey,
+            ]);
+
+            return $cached;
+        }
+
+        $this->graphWasCached = false;
+
+        $start  = microtime(true);
+        $graph  = $this->buildLocalGraph($memories);
+        $elapsed = round((microtime(true) - $start) * 1000, 1);
+
+        Cache::put($cacheKey, $graph, now()->addMinutes(self::GRAPH_CACHE_TTL_MINUTES));
+
+        $this->logger->debug('EmbeddingAssociativeVectorMemoryService: graph built and cached.', [
+            'preset_id'   => $preset->id,
+            'node_count'  => $memories->count(),
+            'edge_count'  => array_sum(array_map('count', $graph)),
+            'build_ms'    => $elapsed,
+            'cache_key'   => $cacheKey,
+        ]);
+
+        return $graph;
+    }
+
+    /**
+     * Build a deterministic cache key for the graph.
+     *
+     * Format: vm_graph:{presetId}:v{version}:{domainHash}:{timeHash}:{pulseHash}:{idsHash}
+     *
+     * Version is a monotonically increasing integer stored in a separate
+     * cache key. Incrementing it (via invalidateGraphCache) effectively
+     * invalidates all previous graph keys for this preset without needing
+     * cache tags.
+     */
+    private function graphCacheKey(
+        AiPreset                       $preset,
+        \Illuminate\Support\Collection $memories,
+        array                          $domains,
+        ?Carbon                        $from,
+        ?Carbon                        $to,
+        ?int                           $pulseFrom,
+        ?int                           $pulseTo,
+    ): string {
+        $version = Cache::get(self::GRAPH_CACHE_PREFIX . "_version:{$preset->id}", 0);
+
+        // Sort IDs for deterministic hash regardless of collection order
+        $ids     = $memories->pluck('id')->sort()->values()->toArray();
+        $idsHash = md5(implode(',', $ids));
+
+        // Normalise domains: sorted, empty = 'all'
+        sort($domains);
+        $domainHash = empty($domains) ? 'all' : md5(implode('-', $domains));
+
+        // Normalise time window
+        $timeHash = ($from?->toDateString() ?? 'any') . '_' . ($to?->toDateString() ?? 'any');
+        $timeHash = md5($timeHash);
+
+        // Pulse range — small but distinct part of the key
+        $pulseHash = md5(($pulseFrom ?? 'any') . '_' . ($pulseTo ?? 'any'));
+
+        return self::GRAPH_CACHE_PREFIX . ":{$preset->id}:v{$version}:{$domainHash}:{$timeHash}:{$pulseHash}:{$idsHash}";
+    }
+
+    /**
+     * Invalidate all cached graphs for this preset.
+     *
+     * Simply increments the version counter. Old cache entries naturally
+     * expire after GRAPH_CACHE_TTL_MINUTES and are not accessed because
+     * new graph lookups use the new version number.
+     */
+    private function invalidateGraphCache(AiPreset $preset): void
+    {
+        $oldVersion = Cache::get(self::GRAPH_CACHE_PREFIX . "_version:{$preset->id}", 0);
+        $newVersion = $oldVersion + 1;
+
+        // Store version forever — it's just a tiny integer
+        Cache::forever(self::GRAPH_CACHE_PREFIX . "_version:{$preset->id}", $newVersion);
+
+        $this->logger->debug('EmbeddingAssociativeVectorMemoryService: graph cache invalidated.', [
+            'preset_id'   => $preset->id,
+            'old_version' => $oldVersion,
+            'new_version' => $newVersion,
+        ]);
     }
 
     // ── Graph construction ────────────────────────────────────────────────────
@@ -409,7 +815,11 @@ class EmbeddingAssociativeVectorMemoryService extends EmbeddingVectorMemoryServi
     }
 
     /**
-     * Graceful degradation: try parent (embedding flat search), then TF-IDF associative.
+     * Graceful degradation: try parent (embedding flat search), which itself
+     * falls through to TF-IDF if embedding is unavailable.
+     *
+     * The caller must pass the already-cleaned query — parent will not re-parse
+     * inline prefixes (filters travel via $config keys).
      */
     private function fallbackSearch(AiPreset $preset, string $query, array $config): array
     {

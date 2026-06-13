@@ -4,28 +4,36 @@ namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
+use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
+use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
+use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
 /**
  * Single context builder - simple message processing without cycles.
  *
- * RAG pipeline:
+ * RAG pipeline (unified):
  *   Iterates over all PresetRagConfigs ordered by sort_order.
- *   Each config runs enrichWithConfig() on the shared RagContextEnricher,
- *   passing $seenIds by reference so results are deduplicated across configs.
- *   All responses are concatenated and registered as [[rag_context]].
+ *   Each config produces a RagDataInterface payload via enrichWithConfig().
+ *   All payloads are merged by RagAggregator and rendered as one
+ *   [[rag_context]] block by RagContentFormatter.
  *
- *   Persons enrichment is now a source option inside each RAG config
- *   ('persons' in sources[]) rather than a separate step.
+ *   Individual per-config system messages are still emitted by the
+ *   enricher (visible in UI for debugging/observability).
+ *
+ * Inner voice pipeline:
+ *   Unchanged.
  */
 class SingleContextBuilder implements ContextBuilderInterface
 {
     use ContentCleaningTrait;
+    use ResolvesSourcePresetTrait;
 
     public function __construct(
         protected Message                          $messageModel,
@@ -33,6 +41,8 @@ class SingleContextBuilder implements ContextBuilderInterface
         protected EnricherFactoryInterface         $enricherFactory,
         protected InputPoolServiceInterface        $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
+        protected RagAggregatorServiceInterface    $ragAggregator,
+        protected RagContentFormatterInterface     $ragFormatter,
     ) {
     }
 
@@ -49,7 +59,7 @@ class SingleContextBuilder implements ContextBuilderInterface
             $maxContextLimit = $preset->getMaxContextLimit();
         }
 
-        $sourcePreset = $sourcePreset ?? $preset;
+        $sourcePreset = $sourcePreset ?? $this->resolveSourcePreset($preset);
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())
@@ -67,36 +77,55 @@ class SingleContextBuilder implements ContextBuilderInterface
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
         $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
 
-        $seenIds  = [];
-        $ragParts = [];
+        $seenIds     = [];
+        $ragPayloads = [];
 
         foreach ($ragConfigs as $config) {
-            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds);
+            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds, $preset);
 
-            if ($ragBlock->getResponse() !== null) {
-                $ragParts[] = $ragBlock->getResponse();
+            $payload = $ragBlock->getResponseData();
+            if ($payload instanceof RagDataInterface && !$payload->isEmpty()) {
+                $ragPayloads[] = $payload;
             }
         }
 
-        $this->shortcodeManager->registerShortcodeForPreset(
-            $sourcePreset->getId(),
-            'rag_context',
-            'RAG: relevant memories retrieved before this request',
-            fn () => implode("\n\n", $ragParts)
-        );
+        $aggregated = $this->ragAggregator->merge($ragPayloads);
+        $ragText    = $this->ragFormatter->formatAggregated($aggregated);
 
-        // ── Inner voice — [[inner_voice]] ─────────────────────────────────────
-        $voiceEnricher = $this->enricherFactory->makeContextEnricher();
-        $voiceBlock    = $voiceEnricher->enrich($sourcePreset, $context, 'single');
+        $targetIds = array_unique([$sourcePreset->getId(), $preset->getId()]);
 
-        if ($voiceBlock->getResponse()) {
-            $voiceText = $this->formatForPlaceholder($voiceBlock->getResponse(), $voiceBlock->getPreset());
+        foreach ($targetIds as $id) {
             $this->shortcodeManager->registerShortcodeForPreset(
-                $preset->getId(),
-                'inner_voice',
-                'Inner voice: advice, doubt or intuition injected before each request',
-                fn () => $voiceText
+                $id,
+                'rag_context',
+                'RAG: relevant memories retrieved before this thinking cycle',
+                fn () => $ragText
             );
+        }
+
+        // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
+        $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();
+        $voiceConfigs  = $this->enricherFactory->getOrderedVoiceConfigs($sourcePreset);
+        $voiceParts    = [];
+
+        foreach ($voiceConfigs as $voiceConfig) {
+            $block = $voiceEnricher->enrich($sourcePreset, $context, $voiceConfig);
+
+            if ($block !== null) {
+                $voiceParts[] = $block;
+            }
+        }
+
+        if (!empty($voiceParts)) {
+            $voiceText = implode("\n\n", $voiceParts);
+            foreach ($targetIds as $id) {
+                $this->shortcodeManager->registerShortcodeForPreset(
+                    $id,
+                    'inner_voice',
+                    'Inner voice: perspectives injected before each request',
+                    fn () => $voiceText
+                );
+            }
         }
 
         // ── Known sources — [[known_sources]] ─────────────────────────────────
@@ -125,21 +154,5 @@ class SingleContextBuilder implements ContextBuilderInterface
         }
 
         return $context;
-    }
-
-    /**
-     * Format text for placeholders before injecting into system prompt.
-     */
-    protected function formatForPlaceholder(?string $text, ?AiPreset $preset): string
-    {
-        if (empty($text) || !$preset) {
-            return '';
-        }
-
-        $cleanText = trim($text);
-        $start     = '[' . $preset->getName() . "]\r\n";
-        $end       = '[END OF ' . $preset->getName() . "]\r\n";
-
-        return $start . $cleanText . "\r\n" . $end;
     }
 }

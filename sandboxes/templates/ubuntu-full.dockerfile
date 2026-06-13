@@ -92,10 +92,6 @@ RUN wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz \
     && rm go1.21.5.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Rust (Just to be)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-
 # Dev toolbox
 RUN apt-get update && apt-get install -y \
     sqlite3 \
@@ -114,8 +110,7 @@ USER sandbox-user
 WORKDIR /home/sandbox-user
 
 # Create .bashrc with correct permissions
-RUN echo 'export PATH="/usr/local/go/bin:/root/.cargo/bin:$PATH"' >> ~/.bashrc \
-    && echo 'alias ll="ls -la"' >> ~/.bashrc \
+RUN echo 'alias ll="ls -la"' >> ~/.bashrc \
     && echo 'alias la="ls -A"' >> ~/.bashrc \
     && echo 'alias l="ls -CF"' >> ~/.bashrc \
     && echo 'alias ..="cd .."' >> ~/.bashrc \
@@ -133,16 +128,42 @@ RUN echo 'echo "Welcome to AI Sandbox!"' >> ~/.bashrc \
     && echo 'echo "Try: python --version, node --version, php --version"' >> ~/.bashrc \
     && echo 'cd /home/sandbox-user 2>/dev/null || true' >> ~/.bashrc
 
-USER sandbox-user
+RUN mkdir -p /home/sandbox-user/.local/bin \
+    && mkdir -p /home/sandbox-user/.npm-global \
+    && mkdir -p /home/sandbox-user/.cargo \
+    && mkdir -p /home/sandbox-user/.rustup \
+    && mkdir -p /home/sandbox-user/go
 
 # Force home directory
 ENV HOME=/home/sandbox-user
 WORKDIR /home/sandbox-user
-
+ENV NPM_CONFIG_PREFIX=/home/sandbox-user/.npm-global
+ENV CARGO_HOME=/home/sandbox-user/.cargo
+ENV RUSTUP_HOME=/home/sandbox-user/.rustup
+ENV GOPATH=/home/sandbox-user/go
+ENV PATH="/home/sandbox-user/.local/bin:/home/sandbox-user/.npm-global/bin:/home/sandbox-user/.cargo/bin:${GOPATH}/bin:/usr/local/go/bin:${PATH}"
 
 # tmux config: large scrollback buffer, no status bar noise
 RUN echo 'set -g history-limit 10000' >> ~/.tmux.conf \
     && echo 'set -g status off' >> ~/.tmux.conf \
     && echo 'set -g default-terminal "screen-256color"' >> ~/.tmux.conf
+
+# LSP Runner — universal language server manager
+RUN mkdir -p ~/.local/bin ~/.local/share \
+    && git clone --branch main https://github.com/rnr1721/lsp-runner.git ~/.local/share/lsp-runner \
+    && mkdir -p ~/.local/bin \
+    && printf '#!/bin/bash\nexec python3 ~/.local/share/lsp-runner/lsp_runner.py "$@"\n' > ~/.local/bin/lsp-runner \
+    && chmod +x ~/.local/bin/lsp-runner
+
+# Rust (Just to be)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Pre-installed LSP servers (for speed)
+RUN npm install -g intelephense \
+    && npm install -g typescript-language-server \
+    && python3 -m pip install --user pyright \
+    && go install golang.org/x/tools/gopls@latest \
+    && rustup component add rust-analyzer \
+    && echo 'LSP servers: intelephense (PHP), typescript-language-server (JS/TS), pyright (Python), gopls (Go), rust-analyzer (Rust)'
 
 CMD ["bash"]

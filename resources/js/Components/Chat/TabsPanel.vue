@@ -63,11 +63,14 @@
                     {{ t('chat_no_presets_for_agent') || 'No presets for this agent.' }}
                 </div>
 
-                <PresetItem v-for="preset in filteredPresets" :key="preset.id" :ref="el => setPresetRef(el, preset.id)"
-                    :preset="preset" :isActive="selectedPresetId === preset.id" :loopActive="getPresetActive(preset.id)"
-                    :isDark="isDark" :isAdmin="isAdmin" @select="$emit('selectPreset', preset.id)"
-                    @edit="handleEditPreset"
-                    @toggleActive="(presetId, value) => $emit('togglePresetActive', presetId, value)" />
+                <div v-for="preset in filteredPresets" :key="preset.id" :class="preset.is_spawned ? 'pl-3' : ''">
+                    <PresetItem :ref="el => setPresetRef(el, preset.id)" :preset="preset"
+                        :isActive="selectedPresetId === preset.id" :loopActive="getPresetActive(preset.id)"
+                        :isDark="isDark" :isAdmin="isAdmin" @select="$emit('selectPreset', preset.id)"
+                        @edit="handleEditPreset"
+                        @toggleActive="(presetId, value) => $emit('togglePresetActive', presetId, value)" />
+                </div>
+
             </div>
 
             <!-- Users Tab -->
@@ -207,9 +210,28 @@ const agentPresetIds = computed(() => {
  * Falls back to full list when no agent selected.
  */
 const filteredPresets = computed(() => {
-    if (!agentPresetIds.value) return props.availablePresets;
-    return props.availablePresets.filter(p => agentPresetIds.value.has(p.id));
+    const presets = agentPresetIds.value
+        ? props.availablePresets.filter(p => agentPresetIds.value.has(p.id))
+        : props.availablePresets;
+
+    // Группируем: обычные пресеты + их спавны сразу после них
+    const regular = presets.filter(p => !p.is_spawned);
+    const spawned = presets.filter(p => p.is_spawned);
+
+    const result = [];
+    for (const preset of regular) {
+        result.push(preset);
+        // Спавны этого родителя — сразу после него
+        const children = spawned.filter(s => s.parent_preset_id === preset.id);
+        result.push(...children);
+    }
+    // Спавны у которых родитель не попал в список (edge case)
+    const orphans = spawned.filter(s => !regular.find(p => p.id === s.parent_preset_id));
+    result.push(...orphans);
+
+    return result;
 });
+
 
 function getPresetActive(presetId) {
     return !!props.presetActiveMap[presetId];

@@ -357,4 +357,9 @@ class WorkspacePlugin implements CommandPluginInterface
         return [$key, $value];
     }
 
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

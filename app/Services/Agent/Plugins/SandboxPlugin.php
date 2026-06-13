@@ -25,10 +25,58 @@ class SandboxPlugin implements CommandPluginInterface
     use PluginExecutionMetaTrait;
 
     protected array $languages = [
-      'shell'  => 'shell commands (bash)',
-      'php'    => 'PHP code',
-      'python' => 'Python code',
-      'node'   => 'Node.js / JavaScript code',
+        'shell'  => [
+            'name'        => 'shell commands (bash)',
+            'label'       => 'Enable Shell Commands',
+            'description' => 'Allow execution of shell commands in assigned sandbox',
+            'hint'        => 'For shell: a command or script, e.g. "ls -la /tmp".',
+            'example'     => '[run shell]ls -la[/run]',
+            'instructions' => [
+                'Execute shell commands: [run shell]ls -la[/run]',
+                'System operations: [run shell]ps aux | grep nginx[/run]',
+                'File operations: [run shell]mkdir test && echo "hello" > test/file.txt[/run]',
+                'Network testing: [run shell]ping -c 3 google.com[/run]',
+            ],
+        ],
+        'php'    => [
+            'name'        => 'PHP code',
+            'label'       => 'Enable PHP Code',
+            'description' => 'Allow execution of PHP code in assigned sandbox',
+            'hint'        => 'For php: code without opening tags, e.g. "echo date(\'Y-m-d\');".',
+            'example'     => '[run php]echo "Hello World!";[/run]',
+            'instructions' => [
+                'Execute PHP code: [run php]echo "Hello World!";[/run]',
+                'PHP calculations: [run php]$result = 15 * 8 + 45; echo "Result: $result";[/run]',
+                'PHP arrays: [run php]$data = [1,2,3]; echo array_sum($data);[/run]',
+                'PHP JSON: [run php]$json = \'{"name":"John"}\'; $data = json_decode($json, true); echo $data["name"];[/run]',
+            ],
+        ],
+        'python' => [
+            'name'        => 'Python code',
+            'label'       => 'Enable Python Code',
+            'description' => 'Allow execution of Python code in assigned sandbox',
+            'hint'        => 'For python: e.g. "import os; print(os.getcwd())".',
+            'example'     => '[run python]print("Hello World!")[/run]',
+            'instructions' => [
+                'Execute Python code: [run python]print("Hello World!")[/run]',
+                'Python calculations: [run python]result = 15 * 8 + 45; print(f"Result: {result}")[/run]',
+                'Python arrays: [run python]data = [1,2,3]; print(sum(data))[/run]',
+                'Python JSON: [run python]import json; json_data = \'{"name":"John"}\'; data = json.loads(json_data); print(data["name"])[/run]',
+            ],
+        ],
+        'node'   => [
+            'name'        => 'Node.js / JavaScript code',
+            'label'       => 'Enable Node.js Code',
+            'description' => 'Allow execution of Node.js/JavaScript code in assigned sandbox',
+            'hint'        => 'For node: e.g. "console.log(process.version)".',
+            'example'     => '[run node]console.log("Hello World!");[/run]',
+            'instructions' => [
+                'Execute Node.js code: [run node]console.log("Hello World!");[/run]',
+                'Node.js calculations: [run node]const result = 15 * 8 + 45; console.log(`Result: ${result}`);[/run]',
+                'Node.js arrays: [run node]const data = [1,2,3]; console.log(sum(data));[/run]',
+                'Node.js JSON: [run node]const json = \'{"name":"John"}\'; const data = JSON.parse(json); console.log(data.name);[/run]',
+            ],
+        ],
     ];
 
     public function __construct(
@@ -45,61 +93,27 @@ class SandboxPlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        $currentLanguages = [];
-        foreach ($this->languages as $language => $description) {
-            if ($this->isLanguageEnabled($config, $language)) {
-                $currentLanguages[] = $description;
-            }
-        }
-        return 'Execute code and commands in assigned Docker sandbox. Requires sandbox to be assigned to preset. Supports ' . implode(', ', $currentLanguages) . '.';
+        $enabled = $this->getEnabledLanguages($config);
+        $names = array_map(fn ($l) => $l['name'], $enabled);
+
+        return 'Execute code and commands in assigned Docker sandbox. '
+            . 'Requires sandbox to be assigned to preset. '
+            . 'Supports: ' . implode(', ', $names) . '.';
     }
 
     /**
-     * instructions are static — they list all four runtimes.
+     * instructions are dynamic — only enabled languages are listed.
      * Disabled languages will fail with a clear error at execute() time.
      */
     public function getInstructions(array $config = []): array
     {
+        $enabled = $this->getEnabledLanguages($config);
         $instructions = [];
 
-        // Shell commands
-        if ($this->isLanguageEnabled($config, 'shell')) {
-            $instructions = array_merge($instructions, [
-                'Execute shell commands: [run shell]ls -la[/run]',
-                'System operations: [run shell]ps aux | grep nginx[/run]',
-                'File operations: [run shell]mkdir test && echo "hello" > test/file.txt[/run]',
-                'Network testing: [run shell]ping -c 3 google.com[/run]',
-            ]);
-        }
-
-        // PHP code
-        if ($this->isLanguageEnabled($config, 'php')) {
-            $instructions = array_merge($instructions, [
-                'Execute PHP code: [run php]echo "Hello World!";[/run]',
-                'PHP calculations: [run php]$result = 15 * 8 + 45; echo "Result: $result";[/run]',
-                'PHP arrays: [run php]$data = [1,2,3]; echo array_sum($data);[/run]',
-                'PHP JSON: [run php]$json = \'{"name":"John"}\'; $data = json_decode($json, true); echo $data["name"];[/run]',
-            ]);
-        }
-
-        // Python code
-        if ($this->isLanguageEnabled($config, 'python')) {
-            $instructions = array_merge($instructions, [
-                'Execute Python code: [run python]print("Hello World!")[/run]',
-                'Python calculations: [run python]result = 15 * 8 + 45; print(f"Result: {result}")[/run]',
-                'Python lists: [run python]data = [1,2,3]; print(sum(data))[/run]',
-                'Python JSON: [run python]import json; data = json.loads(\'{"name":"John"}\'); print(data["name"])[/run]',
-            ]);
-        }
-
-        // Node.js code
-        if ($this->isLanguageEnabled($config, 'node')) {
-            $instructions = array_merge($instructions, [
-                'Execute Node.js code: [run node]console.log("Hello World!");[/run]',
-                'Node.js calculations: [run node]const result = 15 * 8 + 45; console.log(`Result: ${result}`);[/run]',
-                'Node.js arrays: [run node]const data = [1,2,3]; console.log(data.reduce((a,b) => a+b, 0));[/run]',
-                'Node.js JSON: [run node]const data = JSON.parse(\'{"name":"John"}\'); console.log(data.name);[/run]',
-            ]);
+        foreach ($enabled as $lang) {
+            if (!empty($lang['instructions'])) {
+                $instructions = array_merge($instructions, $lang['instructions']);
+            }
         }
 
         if (empty($instructions)) {
@@ -118,39 +132,26 @@ class SandboxPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
-        // Build enum from languages enabled in the current preset config
-        $enabledLanguages = array_values(array_filter(
-            $this->languages,
-            fn ($lang) => $this->isLanguageEnabled($config, $lang)
-        ));
-
-        $langList = implode(', ', array_map(
-            fn ($lang) => $lang . ' (' . ($this->languages[$lang] ?? $lang) . ')',
-            $enabledLanguages
-        ));
+        $enabled = $this->getEnabledLanguages($config);
+        $langKeys = array_keys($enabled);
 
         return [
             'name'        => 'run',
             'description' => 'Execute code or shell commands in an isolated Docker sandbox. '
                 . 'Requires a sandbox to be assigned to this preset. '
-                . "Available languages: {$langList}.",
+                . 'Available: ' . implode(', ', $langKeys) . '.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method' => [
                         'type'        => 'string',
-                        'description' => 'Execution language / runtime',
-                        'enum'        => array_values($enabledLanguages),
+                        'description' => 'Runtime: ' . implode(', ', $langKeys) . '. '
+                            . 'Use exactly one of these values.',
+                        'enum'        => $langKeys,
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => implode(' ', [
-                            'The code or command to execute.',
-                            'shell: a shell command or script, e.g. "ls -la /tmp".',
-                            'php: PHP code without opening tags, e.g. "echo date(\'Y-m-d\');".',
-                            'python: Python code, e.g. "import os; print(os.getcwd())".',
-                            'node: Node.js code, e.g. "console.log(process.version)".',
-                        ]),
+                        'description' => implode(' ', $this->buildContentHints($enabled)),
                     ],
                 ],
                 'required'   => ['method', 'content'],
@@ -204,65 +205,52 @@ class SandboxPlugin implements CommandPluginInterface
 
     public function getConfigFields(): array
     {
-        return [
+        $fields = [
             'enabled' => [
-                'type' => 'checkbox',
-                'label' => 'Enable Sandbox Plugin',
+                'type'        => 'checkbox',
+                'label'       => 'Enable Sandbox Plugin',
                 'description' => 'Allow code execution in Docker sandboxes',
-                'required' => false
-            ],
-            'enable_shell' => [
-                'type' => 'checkbox',
-                'label' => 'Enable Shell Commands',
-                'description' => 'Allow execution of shell commands in assigned sandbox',
-                'value' => true,
-                'required' => false
-            ],
-            'enable_php' => [
-                'type' => 'checkbox',
-                'label' => 'Enable PHP Code',
-                'description' => 'Allow execution of PHP code in assigned sandbox',
-                'value' => true,
-                'required' => false
-            ],
-            'enable_python' => [
-                'type' => 'checkbox',
-                'label' => 'Enable Python Code',
-                'description' => 'Allow execution of Python code in assigned sandbox',
-                'value' => true,
-                'required' => false
-            ],
-            'enable_node' => [
-                'type' => 'checkbox',
-                'label' => 'Enable Node.js Code',
-                'description' => 'Allow execution of Node.js/JavaScript code in assigned sandbox',
-                'value' => true,
-                'required' => false
-            ],
-            'execution_timeout' => [
-                'type' => 'number',
-                'label' => 'Execution Timeout (seconds)',
-                'description' => 'Maximum execution time for code/commands in assigned sandbox',
-                'min' => 5,
-                'max' => 300,
-                'value' => 30,
-                'required' => false
-            ],
-            'user' => [
-                'type' => 'text',
-                'label' => 'User for execute code',
-                'description' => 'Set user for code execution',
-                'placeholder' => 'sandbox-user',
-                'required' => true
-            ],
-            'temp_dir' => [
-                'type' => 'text',
-                'label' => 'Temporary directory',
-                'description' => 'Set temp dir for code execution',
-                'placeholder' => '/tmp',
-                'required' => true
+                'required'    => false,
             ],
         ];
+
+        foreach ($this->languages as $key => $lang) {
+            $fields["enable_{$key}"] = [
+                'type'        => 'checkbox',
+                'label'       => $lang['label'],
+                'description' => $lang['description'],
+                'value'       => true,
+                'required'    => false,
+            ];
+        }
+
+        $fields['execution_timeout'] = [
+            'type'        => 'number',
+            'label'       => 'Execution Timeout (seconds)',
+            'description' => 'Maximum execution time for code/commands in assigned sandbox',
+            'min'         => 5,
+            'max'         => 300,
+            'value'       => 30,
+            'required'    => false,
+        ];
+
+        $fields['user'] = [
+            'type'        => 'text',
+            'label'       => 'User for execute code',
+            'description' => 'Set user for code execution',
+            'placeholder' => 'sandbox-user',
+            'required'    => true,
+        ];
+
+        $fields['temp_dir'] = [
+            'type'        => 'text',
+            'label'       => 'Temporary directory',
+            'description' => 'Set temp dir for code execution',
+            'placeholder' => '/tmp',
+            'required'    => true,
+        ];
+
+        return $fields;
     }
 
     public function validateConfig(array $config): array
@@ -277,9 +265,8 @@ class SandboxPlugin implements CommandPluginInterface
         }
 
         $anyEnabled = false;
-        $languages = array_keys($this->languages);
-        foreach ($languages as $language) {
-            if ($config["enable_{$language}"] ?? true) {
+        foreach (array_keys($this->languages) as $lang) {
+            if ($config["enable_{$lang}"] ?? true) {
                 $anyEnabled = true;
                 break;
             }
@@ -294,16 +281,18 @@ class SandboxPlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled' => false,
-            'enable_shell' => false,
-            'enable_php' => true,
-            'enable_python' => true,
-            'enable_node' => true,
+        $defaults = [
+            'enabled'           => false,
             'execution_timeout' => 30,
-            'user' => 'sandbox-user',
-            'temp_dir' => '/tmp',
+            'user'              => 'sandbox-user',
+            'temp_dir'          => '/tmp',
         ];
+
+        foreach (array_keys($this->languages) as $lang) {
+            $defaults["enable_{$lang}"] = $lang === 'shell' ? false : true;
+        }
+
+        return $defaults;
     }
 
     public function getMergeSeparator(): ?string
@@ -492,4 +481,27 @@ class SandboxPlugin implements CommandPluginInterface
     {
         return (bool) ($config["enable_{$language}"] ?? true);
     }
+
+    private function getEnabledLanguages(array $config): array
+    {
+        return array_filter(
+            $this->languages,
+            fn ($lang) => $this->isLanguageEnabled($config, $lang),
+            ARRAY_FILTER_USE_KEY
+        );
+    }
+
+    private function buildContentHints(array $enabledLanguages): array
+    {
+        $hints = ['The code or command to execute.'];
+
+        foreach ($enabledLanguages as $lang) {
+            if (!empty($lang['hint'])) {
+                $hints[] = $lang['hint'];
+            }
+        }
+
+        return $hints;
+    }
+
 }

@@ -114,6 +114,14 @@
                                     {{ t('vm_vocabulary') }}
                                 </div>
                             </div>
+                            <div class="text-center" v-if="memoryStats.domain_count !== undefined">
+                                <div :class="['text-2xl font-bold', isDark ? 'text-purple-400' : 'text-purple-600']">
+                                    {{ memoryStats.domain_count }}
+                                </div>
+                                <div :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-600']">
+                                    {{ t('vm_domains') || 'Domains' }}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -124,9 +132,9 @@
                     isDark ? 'bg-gray-800 bg-opacity-90 border-gray-700' : 'bg-white bg-opacity-90 border-gray-200'
                 ]">
                     <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-                        <!-- Search -->
-                        <div class="flex-1 max-w-md">
-                            <div class="relative">
+                        <!-- Search + Domain Filter -->
+                        <div class="flex flex-col sm:flex-row gap-3 flex-1 max-w-2xl">
+                            <div class="relative flex-1">
                                 <input v-model="searchQuery" @keyup.enter="performSearch"
                                     :placeholder="t('vm_search_semantic')" :class="[
                                         'w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-indigo-500 transition-all pl-10 pr-4 py-3',
@@ -138,6 +146,15 @@
                                         d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                 </svg>
                             </div>
+                            <select v-model="selectedDomain" @change="changeDomain" :class="[
+                                'rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-indigo-500 transition-all px-4 py-3 sm:w-56',
+                                isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-gray-50 text-gray-900 ring-gray-300'
+                            ]">
+                                <option value="">{{ t('vm_all_domains') || 'All domains' }}</option>
+                                <option v-for="d in domains" :key="d.name" :value="d.name">
+                                    {{ d.name }} ({{ d.count }}){{ d.name === defaultDomain ? ' ★' : '' }}
+                                </option>
+                            </select>
                         </div>
 
                         <!-- Action Buttons -->
@@ -147,6 +164,14 @@
                                 isDark ? 'bg-indigo-600 hover:bg-indigo-700 text-white focus:ring-offset-gray-800' : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                             ]">
                                 {{ t('vm_add_memory') }}
+                            </button>
+                            <button v-if="selectedDomain && selectedDomain !== defaultDomain" @click="purgeDomain"
+                                :class="[
+                                    'px-4 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2',
+                                    isDark ? 'bg-rose-700 hover:bg-rose-800 text-white focus:ring-offset-gray-800' : 'bg-rose-600 hover:bg-rose-700 text-white'
+                                ]"
+                                :title="t('vm_purge_domain_hint') || 'Permanently delete all records of this domain'">
+                                {{ t('vm_purge_domain') || 'Purge domain' }}
                             </button>
                             <button @click="exportMemory" :class="[
                                 'px-4 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2',
@@ -203,6 +228,19 @@
                                                     (isDark ? 'bg-red-900 text-red-200' : 'bg-red-100 text-red-800')
                                         ]">
                                             {{ result.similarity_percent }}% {{ t('vm_match') }}
+                                        </span>
+                                        <span v-if="result.domain" :class="[
+                                            'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                                            domainBadgeClass(result.domain)
+                                        ]">
+                                            {{ result.domain }}
+                                        </span>
+                                        <span v-if="result.has_embedding"
+                                            :title="t('vm_embedded_tooltip') || 'Semantic embedding stored'" :class="[
+                                                'inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold',
+                                                isDark ? 'bg-violet-900 bg-opacity-50 text-violet-300' : 'bg-violet-100 text-violet-700'
+                                            ]">
+                                            ◆
                                         </span>
                                         <span :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
                                             {{ result.content.length }} {{ t('vm_chars') }}
@@ -277,6 +315,19 @@
                                                     (isDark ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-800')
                                         ]">
                                             ★ {{ memory.importance }}
+                                        </span>
+                                        <span v-if="memory.domain" :class="[
+                                            'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                                            domainBadgeClass(memory.domain)
+                                        ]">
+                                            {{ memory.domain }}
+                                        </span>
+                                        <span v-if="memory.has_embedding"
+                                            :title="t('vm_embedded_tooltip') || 'Semantic embedding stored'" :class="[
+                                                'inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold',
+                                                isDark ? 'bg-violet-900 bg-opacity-50 text-violet-300' : 'bg-violet-100 text-violet-700'
+                                            ]">
+                                            ◆
                                         </span>
                                         <span :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
                                             {{ memory.content.length }} {{ t('vm_chars') }}
@@ -362,8 +413,10 @@
         </main>
 
         <!-- Modals -->
-        <AddMemoryModal v-model="showAddModal" :preset="currentPreset" @success="refreshData" />
-        <ImportModal v-model="showImportModal" :preset="currentPreset" @success="refreshData" />
+        <AddMemoryModal v-model="showAddModal" :preset="currentPreset" :domains="domains"
+            :default-domain="defaultDomain" :preselected-domain="selectedDomain" @success="refreshData" />
+        <ImportModal v-model="showImportModal" :preset="currentPreset" :domains="domains"
+            :default-domain="defaultDomain" @success="refreshData" />
         <ImportanceModal v-model="showImportanceModal" :memory="editingMemory" :preset="currentPreset"
             @success="refreshData" />
 
@@ -392,11 +445,42 @@ const props = defineProps({
     config: Object,
     searchQuery: String,
     pagination: Object,
+    domains: { type: Array, default: () => [] },
+    currentDomain: { type: String, default: null },
+    defaultDomain: { type: String, default: 'global' },
 });
 
 const isDark = ref(false);
 const selectedPresetId = ref(props.currentPreset?.id);
 const searchQuery = ref(props.searchQuery || '');
+const selectedDomain = ref(props.currentDomain || '');
+
+// Stable pastel palette for domain badges
+const domainPalette = [
+    { light: 'bg-rose-100 text-rose-800', dark: 'bg-rose-900 bg-opacity-50 text-rose-200' },
+    { light: 'bg-amber-100 text-amber-800', dark: 'bg-amber-900 bg-opacity-50 text-amber-200' },
+    { light: 'bg-lime-100 text-lime-800', dark: 'bg-lime-900 bg-opacity-50 text-lime-200' },
+    { light: 'bg-emerald-100 text-emerald-800', dark: 'bg-emerald-900 bg-opacity-50 text-emerald-200' },
+    { light: 'bg-cyan-100 text-cyan-800', dark: 'bg-cyan-900 bg-opacity-50 text-cyan-200' },
+    { light: 'bg-sky-100 text-sky-800', dark: 'bg-sky-900 bg-opacity-50 text-sky-200' },
+    { light: 'bg-violet-100 text-violet-800', dark: 'bg-violet-900 bg-opacity-50 text-violet-200' },
+    { light: 'bg-pink-100 text-pink-800', dark: 'bg-pink-900 bg-opacity-50 text-pink-200' },
+];
+
+const hashDomainName = (name) => {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) {
+        h = ((h << 5) - h) + name.charCodeAt(i);
+        h |= 0;
+    }
+    return Math.abs(h);
+};
+
+const domainBadgeClass = (name) => {
+    if (!name) return '';
+    const idx = hashDomainName(name) % domainPalette.length;
+    return isDark.value ? domainPalette[idx].dark : domainPalette[idx].light;
+};
 
 // Modal states
 const showAddModal = ref(false);
@@ -410,22 +494,43 @@ const displayMemories = computed(() => {
 });
 
 // Methods
+const buildIndexParams = (extra = {}) => {
+    const params = { preset_id: selectedPresetId.value, ...extra };
+    if (selectedDomain.value) {
+        params.domain = selectedDomain.value;
+    }
+    return params;
+};
+
 const changePreset = () => {
+    // Switching preset resets domain filter — the list of domains is per-preset
+    selectedDomain.value = '';
     router.get(route('admin.vector-memory.index'), { preset_id: selectedPresetId.value });
+};
+
+const changeDomain = () => {
+    router.get(route('admin.vector-memory.index'), buildIndexParams());
 };
 
 const performSearch = () => {
     if (searchQuery.value.trim()) {
-        router.post(route('admin.vector-memory.search'), {
+        const payload = {
             preset_id: selectedPresetId.value,
-            query: searchQuery.value.trim()
-        });
+            query: searchQuery.value.trim(),
+        };
+        if (selectedDomain.value) {
+            payload.domain = selectedDomain.value;
+        }
+        router.post(route('admin.vector-memory.search'), payload);
+    } else if (props.searchQuery) {
+        // Empty Enter while a search is active = exit search mode
+        clearSearch();
     }
 };
 
 const clearSearch = () => {
     searchQuery.value = '';
-    router.get(route('admin.vector-memory.index'), { preset_id: selectedPresetId.value });
+    router.get(route('admin.vector-memory.index'), buildIndexParams());
 };
 
 const editImportance = (memory) => {
@@ -449,12 +554,33 @@ const clearMemory = () => {
     }
 };
 
+const purgeDomain = () => {
+    if (!selectedDomain.value) return;
+    if (selectedDomain.value === props.defaultDomain) {
+        alert(t('vm_cannot_purge_default') || `Cannot purge the default domain '${props.defaultDomain}'.`);
+        return;
+    }
+    const msg = t('vm_confirm_purge_domain', { domain: selectedDomain.value })
+        || `Permanently delete ALL records in domain '${selectedDomain.value}'? This cannot be undone.`;
+    if (confirm(msg)) {
+        router.post(route('admin.vector-memory.purge-domain'), {
+            preset_id: selectedPresetId.value,
+            domain: selectedDomain.value,
+        }, {
+            onSuccess: () => {
+                // Domain is gone — clear the filter and reload
+                selectedDomain.value = '';
+            }
+        });
+    }
+};
+
 const exportMemory = () => {
     window.location.href = route('admin.vector-memory.export', { preset_id: selectedPresetId.value });
 };
 
 const refreshData = () => {
-    router.get(route('admin.vector-memory.index'), { preset_id: selectedPresetId.value });
+    router.get(route('admin.vector-memory.index'), buildIndexParams());
 };
 
 const formatDate = (dateString) => {

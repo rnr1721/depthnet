@@ -8,7 +8,7 @@ Before each thinking cycle (or each response in single mode), the RAG pipeline r
 
 1. A dedicated **RAG preset** receives the recent conversation and formulates search queries
 2. The queries are run against the selected **sources** (vector memory, journal, skills, persons)
-3. Results are **deduplicated** and merged into a single `[[rag_context]]` block
+3. Results are **deduplicated** and merged into a single `[[rag_context]]` block. Sections of the same type from different configs (e.g. memory from two configs) are merged together rather than appearing as separate blocks.
 4. The block is injected into the main agent's system prompt before it starts thinking
 
 The RAG preset is a small, focused model — it doesn't need to be powerful, just good at formulating concise search queries from context.
@@ -22,7 +22,9 @@ Each agent can have **multiple RAG configs**, executed in order. Each config has
 - Its own set of sources to search
 - Its own search settings (mode, engine, limits)
 
-Results from all configs are **deduplicated across the pipeline** — if config 1 already retrieved memory #42, config 2 won't include it again. All results are merged into one `[[rag_context]]` block in the system prompt.
+Results from all configs are **deduplicated across the pipeline** — if config 1 already retrieved memory #42, config 2 won't include it again. Sections of the same type from different configs are merged together: two configs both pulling from vector memory produce **one** memory section in the final block, not two.
+
+Each RAG preset still writes its own system message to the chat showing what *it* retrieved — this gives you per-config visibility for debugging, while the model sees a single unified block. If a config fails (provider rate limit, network error, etc.), its system message instead shows `[RAG ERROR — <preset name>]` with the reason, so failures are immediately visible without checking logs. Other configs continue running independently.
 
 You can drag configs to reorder them. The **first config is always primary** — see below.
 
@@ -52,6 +54,8 @@ Each config can search any combination of sources:
 | `journal` | Episodic journal entries (events, decisions, errors, reflections) |
 | `skills` | Skill items from the skill knowledge base |
 | `persons` | Person facts from person memory, Heart-aware |
+| `ontology` | World-model graph snapshots — entities mentioned in retrieved text |
+| `files` | Document chunks from uploaded files (PDFs, spreadsheets, code, text) |
 
 **Vector memory** behaves according to the config's `rag_mode` setting:
 - `flat` — top-K similarity search across all memories
@@ -303,6 +307,16 @@ If `[[rag_context]]` is absent from the system prompt, RAG still runs but result
 
 ---
 
+## Cross-preset RAG
+By default, RAG retrieves from the same preset's memory space. When a preset has a target preset configured, the RAG pipeline automatically uses the target preset's data instead — the same sources, the same configs, but scoped to the target's memories.
+This enables scenarios like:
+
+- A lightweight reflection preset running in a loop that reads and writes to a full agent's memory space — the main agent stays dormant until needed
+- A memory optimizer or defragmenter preset that operates on another preset's vector memory without having its own
+- Multi-agent observation — one preset monitoring another's episodic journal and memory without interfering with its reasoning cycle
+
+Configuration is done in the preset's Agent Settings — select a target preset and whitelist the plugins allowed to write to its space. RAG always reads from the target automatically when configured; no separate whitelist needed for reads.
+
 ## Tips
 
 **Start with one config.** Add a second only when you have a clear reason — journal retrieval that needs separate tuning, or persons that are drowning in vector memory results.
@@ -318,3 +332,7 @@ If `[[rag_context]]` is absent from the system prompt, RAG still runs but result
 **Embedding engine requires setup.** You need an embedding capability configured on the RAG preset (e.g. NovitaAI with `baai/bge-m3`). Without it, the system falls back to TF-IDF automatically.
 
 **Persons source is Heart-aware.** If the HeartPlugin is active and has a dominant focus, person retrieval prioritises that person. This means the agent naturally brings up facts about whoever it's paying most attention to.
+
+**Spread RAG presets across different models or providers.** If multiple configs share the same model (especially a small fast model with tight rate limits), they may queue up against the same per-second budget and hit 429 errors. Either distribute presets across different providers, or accept that occasional `[RAG ERROR — <preset>]` messages in the chat are part of normal operation. The pipeline continues with whatever configs did succeed.
+
+**Avoid duplicating sources across configs without a reason.** Since sections of the same type are merged across configs, two configs both searching vector memory produce one merged memory section. If you want two different *strategies* on the same source (e.g. one associative for deep retrieval, one flat for breadth), this works well. But two configs with identical settings add nothing — just merge them into one.

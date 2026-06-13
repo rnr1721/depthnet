@@ -3,12 +3,16 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Capabilities\ListsModelsInterface;
+use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Capabilities\UpdateCapabilityRequest;
 use App\Models\AiPreset;
 use App\Models\PresetCapabilityConfig;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
+use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
+use App\Services\Agent\Capabilities\Vision\VisionRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -26,6 +30,8 @@ class PresetCapabilityController extends Controller
     public function __construct(
         protected EmbeddingRegistry $embeddingRegistry,
         protected EmbeddingServiceInterface $embeddingService,
+        protected VisionRegistry $visionRegistry,
+        protected VisionServiceInterface $visionService,
         protected PresetRegistryInterface $presetRegistry,
         protected LoggerInterface $logger,
     ) {
@@ -34,15 +40,17 @@ class PresetCapabilityController extends Controller
     /**
      * Show the capabilities configuration page for a preset.
      */
-    public function index(Request $request, ?int $presetId = null): Response
+    public function index(Request $request): Response
     {
+        $presetId = $request->query('preset_id');
+
         try {
             $preset           = $this->resolvePreset($presetId);
             $availablePresets = $this->presetRegistry->getActivePresets();
 
             return Inertia::render('Admin/Capabilities/Index', [
-                'capabilities'     => $this->buildCapabilitiesPayload($preset),
-                'current_preset'   => $this->presetToArray($preset),
+                'capabilities'      => $this->buildCapabilitiesPayload($preset),
+                'current_preset'    => $this->presetToArray($preset),
                 'available_presets' => $availablePresets->map(fn ($p) => $this->presetToArray($p))->toArray(),
             ]);
 
@@ -53,10 +61,10 @@ class PresetCapabilityController extends Controller
             ]);
 
             return Inertia::render('Admin/Capabilities/Index', [
-                'capabilities'     => [],
-                'current_preset'   => null,
+                'capabilities'      => [],
+                'current_preset'    => null,
                 'available_presets' => [],
-                'error'            => 'Failed to load capabilities: ' . $e->getMessage(),
+                'error'             => 'Failed to load capabilities: ' . $e->getMessage(),
             ]);
         }
     }
@@ -86,7 +94,6 @@ class PresetCapabilityController extends Controller
                 ], 422);
             }
 
-            // Validate config using the provider's own rules
             $provider = $registry->all()[$validated['driver']];
             $errors   = $provider->validateConfig($validated['config'] ?? []);
 
@@ -98,8 +105,6 @@ class PresetCapabilityController extends Controller
                 ], 422);
             }
 
-            // Merge with existing config so a masked api_key ('••••••••')
-            // doesn't overwrite the real stored value
             $existing      = PresetCapabilityConfig::forPreset($preset->id)
                 ->forCapability($capability)
                 ->first();
@@ -147,6 +152,62 @@ class PresetCapabilityController extends Controller
     }
 
     /**
+     * List models available to the preset's CURRENTLY SAVED config for a
+     * capability/driver, if the resolved provider supports enumeration.
+     *
+     * Uses the stored config (with the real api_key), not the form payload —
+     * so the config must be saved first.
+     */
+    public function models(int $presetId, string $capability): JsonResponse
+    {
+        try {
+            $preset   = $this->resolvePreset($presetId);
+            $registry = $this->resolveRegistry($capability);
+
+            $config = PresetCapabilityConfig::forPreset($preset->id)
+                ->forCapability($capability)
+                ->first();
+
+            if ($config === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Save a configuration first, then load models.',
+                ], 422);
+            }
+
+            $provider = $registry->makeFromConfig($config);
+
+            if (!$provider instanceof ListsModelsInterface) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Driver '{$config->driver}' does not support listing models.",
+                ], 422);
+            }
+
+            $models = $provider->listModels();
+
+            return response()->json([
+                'success' => true,
+                'driver'  => $config->driver,
+                'models'  => $models,
+                'count'   => count($models),
+            ]);
+
+        } catch (\Throwable $e) {
+            $this->logger->error('PresetCapabilityController::models error', [
+                'preset_id'  => $presetId,
+                'capability' => $capability,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load models: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Test the current capability config for a preset.
      * Returns success flag, descriptive message, and latency.
      */
@@ -158,12 +219,13 @@ class PresetCapabilityController extends Controller
 
             $result = match ($capability) {
                 'embedding' => $this->testEmbedding($preset),
+                'vision'    => $this->testVision($preset),
                 default     => ['success' => false, 'message' => "No test available for '{$capability}'."],
             };
 
             return response()->json(array_merge($result, [
-                'latency_ms' => round((microtime(true) - $start) * 1000, 1),
-                'preset_id'  => $preset->id,
+                'latency_ms'  => round((microtime(true) - $start) * 1000, 1),
+                'preset_id'   => $preset->id,
                 'preset_name' => $preset->getName(),
             ]));
 
@@ -177,28 +239,6 @@ class PresetCapabilityController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Test failed: ' . $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Reload the capabilities payload for a preset (used after preset switch).
-     */
-    public function show(int $presetId): JsonResponse
-    {
-        try {
-            $preset = $this->resolvePreset($presetId);
-
-            return response()->json([
-                'success'      => true,
-                'capabilities' => $this->buildCapabilitiesPayload($preset),
-                'current_preset' => $this->presetToArray($preset),
-            ]);
-
-        } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to load preset capabilities: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -228,7 +268,13 @@ class PresetCapabilityController extends Controller
                 registry:      $this->embeddingRegistry,
                 currentConfig: $existing->get('embedding'),
             ),
-            // Add image, audio, etc. here when ready.
+            'vision' => $this->buildCapabilityEntry(
+                capability:    'vision',
+                label:         'Vision',
+                description:   'Turns images into text descriptions the agent can perceive.',
+                registry:      $this->visionRegistry,
+                currentConfig: $existing->get('vision'),
+            ),
         ];
     }
 
@@ -249,6 +295,7 @@ class PresetCapabilityController extends Controller
                 'display_name'   => $provider->getDisplayName(),
                 'config_fields'  => $provider->getConfigFields(),
                 'default_config' => $provider->getDefaultConfig(),
+                'lists_models'   => $provider instanceof ListsModelsInterface,
             ];
         }
 
@@ -279,7 +326,6 @@ class PresetCapabilityController extends Controller
 
         foreach ($fields as $key => $field) {
             if (($field['type'] ?? '') === 'password') {
-                // If the incoming value is the mask — keep the stored real value
                 if (($incoming[$key] ?? '') === '••••••••' && !empty($existing[$key])) {
                     $merged[$key] = $existing[$key];
                 }
@@ -294,8 +340,8 @@ class PresetCapabilityController extends Controller
      */
     private function maskSensitiveConfig(array $config, array $driverMeta): array
     {
-        $fields  = $driverMeta['config_fields'] ?? [];
-        $masked  = $config;
+        $fields = $driverMeta['config_fields'] ?? [];
+        $masked = $config;
 
         foreach ($fields as $key => $field) {
             if (($field['type'] ?? '') === 'password' && !empty($config[$key])) {
@@ -314,6 +360,7 @@ class PresetCapabilityController extends Controller
     {
         return match ($capability) {
             'embedding' => $this->embeddingRegistry,
+            'vision'    => $this->visionRegistry,
             default     => abort(404, "Unknown capability '{$capability}'."),
         };
     }
@@ -366,6 +413,47 @@ class PresetCapabilityController extends Controller
             'success'   => true,
             'message'   => 'Embedding is working correctly.',
             'dimension' => count($vector),
+        ];
+    }
+
+    /**
+     * Run a vision test for the preset's current config.
+     * Sends a tiny solid-colour PNG and asks for a one-word description.
+     */
+    private function testVision(AiPreset $preset): array
+    {
+        if (!$this->visionService->isAvailable($preset)) {
+            return [
+                'success' => false,
+                'message' => 'No active vision configuration for this preset.',
+            ];
+        }
+
+        $pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+        $image = new ImageData(
+            base64:      $pngBase64,
+            mimeType:    'image/png',
+            sourceLabel: 'capability-test',
+        );
+
+        $description = $this->visionService->describe(
+            $image,
+            'Name the main color of this image in one word.',
+            $preset
+        );
+
+        if ($description === null) {
+            return [
+                'success' => false,
+                'message' => 'Vision request failed. Check your API key and model.',
+            ];
+        }
+
+        return [
+            'success'     => true,
+            'message'     => 'Vision is working correctly.',
+            'description' => mb_substr($description, 0, 200),
         ];
     }
 }

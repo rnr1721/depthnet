@@ -4,6 +4,7 @@ namespace App\Services\Agent;
 
 use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\AiActionsResponseInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
@@ -15,7 +16,7 @@ use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ActionsResponseDTO;
 use App\Services\Agent\DTO\AgentResponseDTO;
-use App\Services\Agent\Traits\ExtractsAgentVoice;
+use App\Services\Chat\ChatStatusService;
 use Psr\Log\LoggerInterface;
 use Illuminate\Contracts\Cache\Repository as Cache;
 
@@ -32,8 +33,6 @@ use Illuminate\Contracts\Cache\Repository as Cache;
  *   "internal"   — results pushed to CommandResultPool and injected via
  *                  [[agent_command_results]] placeholder (default, recommended
  *                  for autonomous agents)
- *   "separate"   — response and command results stored as separate messages,
- *                  results visible in chat
  *   "tool_calls" — full tool_calls pipeline: ToolCallParser parses the response,
  *                  tools array is sent to the provider API, history is stored in
  *                  assistant/tool turn format required by provider APIs.
@@ -45,15 +44,15 @@ use Illuminate\Contracts\Cache\Repository as Cache;
  */
 class AgentActionsHandler implements AgentActionsHandlerInterface
 {
-    use ExtractsAgentVoice;
-
     public function __construct(
         protected Message $messageModel,
+        protected AgentJobServiceFactoryInterface $agentJobFactory,
         protected AgentActionsInterface $agentActions,
         protected CommandResultPoolInterface $commandResultPool,
         protected InputPoolServiceInterface $inputPoolService,
         protected AgentMessageServiceInterface $agentMessageService,
         protected PresetServiceInterface $presetService,
+        protected ChatStatusService $chatStatusService,
         protected Cache $cache,
         protected LoggerInterface $logger
     ) {
@@ -92,15 +91,47 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         }
 
         $result = $this->processSuccessfulResponse($response, $preset, $mainPreset);
+
+        $actionsResult = $result['actionsResult'];
+
+        $turn = $this->determineTurnNeed($preset, $actionsResult);
+
+        if ($turn) {
+            if ($this->inputPoolService->isEnabled($preset)) {
+                $this->inputPoolService->add($preset->getId(), 'system', 'Continue');
+            } else {
+                $this->createUserMessage('Continue', $preset->getId());
+            }
+        }
+
         if ($this->inputPoolService->isEnabled($preset)) {
             $remaining = $this->inputPoolService->getAllAsJSON($preset);
             if ($remaining) {
                 $this->createUserMessage($remaining, $preset->getId());
             }
         }
+
         $this->inputPoolService->clear($preset->getId());
 
+        if ($turn) {
+            $this->agentJobFactory->make()->start($preset->getId(), singleMode: true);
+        }
+
         return new AgentResponseDTO($result['message'], $result['actionsResult'], false);
+    }
+
+    private function determineTurnNeed(AiPreset $preset, AiActionsResponseInterface $actionsResult): bool
+    {
+        if ($this->chatStatusService->getPresetStatus($preset->getId())) {
+            return false;
+        }
+        if ($preset->getTurnTrigger() === 'no_speak' && empty($actionsResult->getSystemMessage())) {
+            return true;
+        }
+        if ($actionsResult->hasTurn()) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -147,12 +178,16 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         ?AiPreset $mainPreset = null
     ): array {
         $output        = $response->getResponse();
+
         $actionsResult = $this->agentActions->runActions($output, $preset, $mainPreset);
-        $message       = $this->persistResponseMessages($response, $preset, $actionsResult);
+
+        $hasSystemMessage = !empty(trim((string) $actionsResult->getSystemMessage()));
+
+        $message       = $this->persistResponseMessages($response, $preset, $actionsResult, $hasSystemMessage);
 
         $this->deliverInterAgentMessages($response, $preset, $actionsResult);
 
-        if ($actionsResult->getSystemMessage()) {
+        if ($hasSystemMessage) {
             $this->createSystemMessage($actionsResult->getSystemMessage(), $preset->getId());
             event(new \App\Events\AgentSpeakEvent($actionsResult->getSystemMessage(), $preset));
         }
@@ -169,52 +204,19 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
      * @param  AiModelResponseInterface   $response
      * @param  AiPreset                   $preset
      * @param  AiActionsResponseInterface $actionsResult
+     * @param  bool                       $hasSystemMessage System message present.
      * @return Message
      */
     protected function persistResponseMessages(
         AiModelResponseInterface $response,
         AiPreset $preset,
-        AiActionsResponseInterface $actionsResult
+        AiActionsResponseInterface $actionsResult,
+        bool $hasSystemMessage
     ): Message {
         if ($preset->getAgentResultMode() === 'tool_calls') {
-            return $this->persistToolCalls($response, $preset, $actionsResult);
+            return $this->persistToolCalls($response, $preset, $actionsResult, $hasSystemMessage);
         }
-
-        return match ($preset->getAgentResultMode()) {
-            'separate' => $this->persistSeparate($response, $preset, $actionsResult),
-            default    => $this->persistInternal($response, $preset, $actionsResult),
-        };
-    }
-
-    /**
-     * Separate mode: response and results stored as individual messages.
-     */
-    protected function persistSeparate(
-        AiModelResponseInterface $response,
-        AiPreset $preset,
-        AiActionsResponseInterface $actionsResult
-    ): Message {
-        $message = $this->messageModel->create([
-            'role'               => $actionsResult->getRole(),
-            'content'            => $response->getResponse(),
-            'from_user_id'       => null,
-            'preset_id'          => $preset->getId(),
-            'is_visible_to_user' => $actionsResult->isVisibleForUser(),
-            'metadata'      => array_diff_key($response->getMetadata() ?? [], ['system_prompt' => '']),
-            'system_prompt' => $response->getMetadata()['system_prompt'] ?? null,
-        ]);
-
-        if (!empty(trim($actionsResult->getResult()))) {
-            $this->messageModel->create([
-                'role'               => 'result',
-                'content'            => $actionsResult->getResult(),
-                'from_user_id'       => null,
-                'preset_id'          => $preset->getId(),
-                'is_visible_to_user' => true,
-            ]);
-        }
-
-        return $message;
+        return $this->persistInternal($response, $preset, $actionsResult, $hasSystemMessage);
     }
 
     /**
@@ -228,16 +230,23 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     protected function persistInternal(
         AiModelResponseInterface $response,
         AiPreset $preset,
-        AiActionsResponseInterface $actionsResult
+        AiActionsResponseInterface $actionsResult,
+        bool $hasSystemMessage
     ): Message {
+        $baseMetadata = array_diff_key($response->getMetadata() ?? [], ['system_prompt' => '']);
+
+        if ($hasSystemMessage) {
+            $baseMetadata['content_duplicated_in_system'] = true;
+        }
+
         $message = $this->messageModel->create([
             'role'               => $actionsResult->getRole(),
             'content'            => $response->getResponse(),
             'from_user_id'       => null,
             'preset_id'          => $preset->getId(),
             'is_visible_to_user' => $actionsResult->isVisibleForUser(),
-            'metadata'      => array_diff_key($response->getMetadata() ?? [], ['system_prompt' => '']),
-            'system_prompt' => $response->getMetadata()['system_prompt'] ?? null,
+            'metadata'           => $baseMetadata,
+            'system_prompt'      => $response->getMetadata()['system_prompt'] ?? null,
         ]);
 
         if (!empty(trim($actionsResult->getResult()))) {
@@ -276,24 +285,30 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     protected function persistToolCalls(
         AiModelResponseInterface $response,
         AiPreset $preset,
-        AiActionsResponseInterface $actionsResult
+        AiActionsResponseInterface $actionsResult,
+        bool $hasSystemMessage
     ): Message {
         $rawResponse  = $this->sanitizeForJson($response->getResponse());
         $baseMetadata = $response->getMetadata() ?? [];
 
+        $metadata = array_merge(
+            array_diff_key($baseMetadata, ['system_prompt' => '']),
+            ['tool_calls_raw' => $rawResponse]
+        );
+
+        if ($hasSystemMessage) {
+            $metadata['content_duplicated_in_system'] = true;
+        }
+
         // Primary message: assistant turn with tool_calls JSON in metadata.
-        // is_visible_to_user=false — raw tool_calls JSON is not meaningful in the UI.
         $message = $this->messageModel->create([
             'role'               => 'command',
             'content'            => $rawResponse,
             'from_user_id'       => null,
             'preset_id'          => $preset->getId(),
-            'is_visible_to_user' => false,
+            'is_visible_to_user' => true,
             'system_prompt'      => $baseMetadata['system_prompt'] ?? null,
-            'metadata'           => array_merge(
-                array_diff_key($baseMetadata, ['system_prompt' => '']),
-                ['tool_calls_raw' => $rawResponse]
-            ),
+            'metadata'           => $metadata
         ]);
 
         $toolResults = $this->buildToolResults($actionsResult);
@@ -405,7 +420,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                 // or from the tool_call input. extractAgentVoice() is only a fallback
                 // for tag mode when no explicit message was provided.
                 $message    = $handoff['handoff_message']
-                    ?? $this->extractAgentVoice($response->getResponse());
+                    ?? trim((string) $actionsResult->getSystemMessage());
                 $setReplyTo = !$replyToPresetId;
                 $this->agentMessageService->deliver($preset, $targetPreset, $message, true, $setReplyTo);
             } else {
@@ -422,27 +437,20 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         if ($replyToPresetId) {
             $replyToPreset = $this->presetService->findById($replyToPresetId);
             if ($replyToPreset) {
-                // In tool_calls mode the raw response is a JSON string with tool_calls —
-                // not readable text. Use formatted command results instead so the
-                // receiving agent gets meaningful content rather than raw JSON.
-                // If there's nothing meaningful to send, skip delivery entirely.
-                if ($preset->getAgentResultMode() === 'tool_calls') {
-                    $messageText = trim($actionsResult->getSystemMessage());
-                } else {
-                    $messageText = $this->extractAgentVoice($response->getResponse());
-                }
+                $messageText = trim((string) $actionsResult->getSystemMessage());
 
                 if (!empty($messageText)) {
                     $this->agentMessageService->deliver($preset, $replyToPreset, $messageText, false, false);
+                    $this->agentMessageService->clearReplyTo($preset->getId());
                 } else {
-                    $this->logger->debug('AgentActionsHandler: skipping auto reply-to — no meaningful content', [
-                        'preset_id'     => $preset->getId(),
-                        'reply_to'      => $replyToPresetId,
-                        'result_mode'   => $preset->getAgentResultMode(),
+                    $this->logger->debug('AgentActionsHandler: reply-to pending — agent still thinking', [
+                        'preset_id' => $preset->getId(),
+                        'reply_to'  => $replyToPresetId,
                     ]);
                 }
+            } else {
+                $this->agentMessageService->clearReplyTo($preset->getId());
             }
-            $this->agentMessageService->clearReplyTo($preset->getId());
         }
     }
 

@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Contracts\Agent\AgentJobServiceInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
@@ -12,6 +12,7 @@ use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
+use App\Contracts\Chat\ChatFileAttachmentServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
@@ -91,6 +92,8 @@ class ChatController extends Controller
             $data = array_merge($data, [
                 'availablePresets' => $availablePresets->map(fn ($preset) => [
                     'id'                      => $preset->id,
+                    'is_spawned'               => $preset->is_spawned,
+                    'parent_preset_id'        => $preset->parent_preset_id,
                     'name'                    => $preset->name,
                     'description'             => $preset->description,
                     'engine_name'             => $preset->engine_name,
@@ -134,7 +137,8 @@ class ChatController extends Controller
     public function sendMessage(
         SendMessageRequest $request,
         AuthServiceInterface $authService,
-        ChatStatusServiceInterface $chatStatusService
+        ChatStatusServiceInterface $chatStatusService,
+        ChatFileAttachmentServiceInterface $chatFileAttachmentService
     ) {
         $user     = $authService->getCurrentUser();
         $presetId = (int) $request->input('preset_id', 0);
@@ -144,16 +148,54 @@ class ChatController extends Controller
             $presetId = $this->presetService->getDefaultPreset()->getId();
         }
 
-        // In cycle mode the pool accumulates; dispatch=true flushes it immediately
+        $content = $request->validated()['content'];
+
+        $files = $request->file('files', []);
+
+        $attachmentResult = ['file_ids' => [], 'files' => []];
+        $photoResult = ['photos' => []];
+
+        if (!empty($files)) {
+            $preset = $this->presetService->findById($presetId)
+                ?? $this->presetService->getDefaultPreset();
+
+            $attachMode = $request->input('attach_mode', 'documents');
+
+            if ($attachMode === 'chat') {
+                $photoResult = $chatFileAttachmentService->describeForChat($files, $preset);
+                if ($photoResult['annotation']) {
+                    $content .= $photoResult['annotation'];
+                }
+            } else {
+                $attachmentResult = $chatFileAttachmentService->process($files, $preset);
+                if ($attachmentResult['annotation']) {
+                    $content .= $attachmentResult['annotation'];
+                }
+            }
+        }
+
         $presetActive = $chatStatusService->getPresetStatus($presetId);
         $dispatch = !$presetActive;
 
-        $this->chatService->sendUserMessage(
+        // NOTE: pass the augmented $content (with annotations), not the raw validated one.
+        $message = $this->chatService->sendUserMessage(
             $user,
             $presetId,
-            $request->validated()['content'],
+            $content,                       // was $request->validated()['content']
             $dispatch
         );
+
+        // Metadata: stored doc attachments + in-chat photos flag
+        $meta = $message->metadata ?? [];
+        if (!empty($attachmentResult['file_ids'])) {
+            $meta['attachments'] = $attachmentResult['files'];
+        }
+        if (!empty($photoResult['photos'])) {
+            $meta['photos'] = $photoResult['photos']; // [{original_name, described, error?}]
+        }
+        if ($meta !== ($message->metadata ?? [])) {
+            $message->update(['metadata' => $meta]);
+        }
 
         return back();
     }
@@ -359,12 +401,12 @@ class ChatController extends Controller
      */
     public function updatePresetSettings(
         UpdatePresetSettingsRequest $request,
-        AgentJobServiceInterface $agentJobService
+        AgentJobServiceFactoryInterface $agentJobServiceFactory
     ): RedirectResponse {
         try {
             $validated = $request->validated();
 
-            $success = $agentJobService->updateModelSettings(
+            $success = $agentJobServiceFactory->make()->updateModelSettings(
                 $validated['preset_id'],
                 $validated['chat_active']
             );

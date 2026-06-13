@@ -4,14 +4,20 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
+use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
+use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryServiceInterface;
+use App\Models\VectorMemory;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use Psr\Log\LoggerInterface;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasDateKeywordsTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 
 /**
@@ -20,29 +26,47 @@ use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
  * VectorMemoryPlugin provides semantic search capabilities using TF-IDF vectorization.
  * It allows storing and searching memories by meaning, not just exact keywords.
  * Can optionally integrate with regular memory plugin for better discoverability.
+ *
+ * Domain-aware routing (MCP-style dynamic methods):
+ *   - [vectormemory]content[/vectormemory]                 → write to default_domain
+ *   - [vectormemory work]content[/vectormemory]            → write to 'work' domain
+ *   - [vectormemory search]query[/vectormemory]            → search across all domains
+ *   - [vectormemory search]domain:work | query[/vectormemory] → search in specific domain(s)
+ *   - [vectormemory recent|show|delete|clear|domains|purge] → known methods, see below
+ *
+ *   Any method name NOT in the known-methods list is treated as a domain name
+ *   and the content is stored there. This mirrors how McpPlugin treats unknown
+ *   methods as server keys.
+ *
+ * Search filters (all combinable, any order, separated by " | "):
+ *   - domain:NAME[,NAME2]  — restrict to one or more domains
+ *   - time:<expr>          — restrict by absolute time (keywords or ISO)
+ *   - pulse:N-M            — restrict by circadian position in the day (0..999,
+ *                            wraps midnight when N > M)
  */
 class VectorMemoryPlugin implements CommandPluginInterface
 {
     use PluginMethodTrait;
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
+    use PluginHasLanguageSettingsTrait;
+    use PluginHasDateKeywordsTrait;
+
+    /**
+     * Methods that are NOT domain names — they have dedicated handlers.
+     * Anything else passed as the method position is interpreted as a domain name.
+     */
+    private const KNOWN_METHODS = ['search', 'recent', 'show', 'delete', 'clear', 'domains', 'purge'];
 
     protected VectorMemoryServiceInterface $vectorMemoryService;
-
-    protected array $languages = [
-        'auto' => 'Auto-detect language',
-        'en' => 'English',
-        'ru' => 'Russian',
-        'de' => 'German',
-        'fr' => 'French',
-        'es' => 'Spanish',
-        'multilingual' => 'Mixed languages'
-    ];
 
     public function __construct(
         protected LoggerInterface $logger,
         protected VectorMemoryFactoryInterface $vectorMemoryFactory,
-        protected MemoryServiceInterface $memoryService
+        protected MemoryServiceInterface $memoryService,
+        protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
+        protected PlaceholderServiceInterface $placeholderService,
+        protected SearchDateParserInterface $searchDateParser,
     ) {
         $this->vectorMemoryService = $this->vectorMemoryFactory->make();
     }
@@ -66,7 +90,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
         $engineLabel = $engine === 'embedding' ? 'semantic embedding' : 'TF-IDF keyword';
         $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat';
 
-        return "Vector memory: {$modeLabel} search via {$engineLabel} similarity. Stores up to {$maxEntries} entries per preset.";
+        return "Vector memory: {$modeLabel} search via {$engineLabel} similarity. Stores up to {$maxEntries} entries per preset. Records are organized into named domains.";
     }
 
     /**
@@ -74,24 +98,79 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     public function getInstructions(array $config = []): array
     {
-
         $lang = $config['language_mode'] ?? 'auto';
-
         $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
-        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $langName = $forceLanguage ? ($this->supportedLanguages[$lang] ?? strtoupper($lang)) : null;
+        $defaultDomain = $this->resolveDefaultDomain($config);
+
+        $allowClear = $config['allow_agent_clear']        ?? false;
+        $allowPurge = $config['allow_agent_purge_domain'] ?? true;
+        $pulseEnabled = !empty($config['pulse_search_enabled']);
+
+        // Localised tokens for date-search examples
+        $yesterday  = $this->localisedKeyword('yesterday', $lang);
+        $lastWeek   = $this->localisedKeyword('last_week', $lang);
+        $thisMonth  = $this->localisedKeyword('this_month', $lang);
+        $exQuery    = $this->exampleSemantic($lang);
+
         $instructions = [
-            'Store important information: [vectormemory]Successfully optimized database queries using indexes[/vectormemory]',
-            'Search by meaning: [vectormemory search]how to speed up code[/vectormemory]',
+            "Store in default domain '{$defaultDomain}': [vectormemory]Successfully optimized database queries using indexes[/vectormemory]",
+            'Store in a specific domain: [vectormemory work]Eugeny prefers concise responses[/vectormemory]',
+            'Search across all domains: [vectormemory search]how to speed up code[/vectormemory]',
+            'Search in specific domain(s): [vectormemory search]domain:work | optimization[/vectormemory]',
+            'Search in multiple domains: [vectormemory search]domain:work,relationships | something[/vectormemory]',
+            "Search in time window: [vectormemory search]time:{$yesterday} | {$exQuery}[/vectormemory]",
+            "Search by month: [vectormemory search]time:2026-03 | {$exQuery}[/vectormemory]",
+            "Search by year: [vectormemory search]time:2025 | {$exQuery}[/vectormemory]",
+            "Combine time + domain: [vectormemory search]time:{$lastWeek} | domain:work | {$exQuery}[/vectormemory]",
+            "Listing only by time (no semantics): [vectormemory search]time:{$thisMonth}[/vectormemory]",
+        ];
+
+        if ($pulseEnabled) {
+            $instructions[] = "Filter by part of day (pulse range): [vectormemory search]pulse:0-300 | morning thoughts[/vectormemory]";
+            $instructions[] = "Filter by late hours, range across midnight: [vectormemory search]pulse:800-200 | reflections[/vectormemory]";
+            $instructions[] = "Combine all three filters: [vectormemory search]time:{$lastWeek} | domain:work | pulse:400-700 | {$exQuery}[/vectormemory]";
+            $instructions[] = "Listing only by part of day: [vectormemory search]pulse:800-200[/vectormemory]";
+        }
+
+        $instructions = array_merge($instructions, [
+            'List all domains with counts: [vectormemory domains][/vectormemory]',
             'Show recent memories: [vectormemory recent]5[/vectormemory]',
             'Show full memory item by id: [vectormemory show]42[/vectormemory]',
-            'Clear all memories: [vectormemory clear][/vectormemory]',
             'Delete by ID: [vectormemory delete]42[/vectormemory]',
             'Delete by content: [vectormemory delete]optimization query[/vectormemory]',
-        ];
+        ]);
+
+        if ($allowPurge) {
+            $instructions[] = 'Purge (PERMANENTLY DELETE) a domain: [vectormemory purge]domain_name[/vectormemory]';
+            $instructions[] = 'Same effect, shorthand: [vectormemory clear]domain_name[/vectormemory]';
+        }
+
+        if ($allowClear) {
+            $instructions[] = 'WIPE ALL memories of this preset (destructive!): [vectormemory clear][/vectormemory]';
+        }
 
         if ($forceLanguage) {
             array_unshift($instructions, "⚠️ All vectormemory entries MUST be stored in {$langName}.");
         }
+
+        // Date keywords reference, drawn from the parser's live vocabulary.
+        // Helps the agent discover the vocabulary instead of guessing.
+        $keywordList = $this->buildKeywordListLine($lang);
+        if ($keywordList !== null) {
+            $instructions[] = 'Date keywords available for time:<...>: ' . $keywordList;
+            $instructions[] = 'Date ISO formats also accepted: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY';
+        }
+
+        // Pulse orientation note — gives the model anchors for what numeric
+        // values mean in felt time-of-day terms. Without these, the model
+        // would have to guess the scale (0..999 vs 0..23, etc).
+        // Only shown when pulse search is enabled for this plugin.
+        if ($pulseEnabled) {
+            $instructions[] = 'Pulse range — circadian position in the day (0..999, where 0 is midnight, 250 ≈ morning, 500 ≈ noon, 750 ≈ evening). Range syntax: pulse:N-M. Open-ended: pulse:N- or pulse:-M. When N > M the range wraps midnight (e.g. pulse:800-200 = late evening through early morning).';
+        }
+
+        $instructions[] = "Note: any method name that is NOT one of [search, recent, show, delete, clear, domains, purge] is interpreted as a domain name for storing.";
 
         return $instructions;
     }
@@ -99,8 +178,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
     /**
      * Tool schema for tool_calls mode.
      *
-     * Explicitly separates the store (execute) and search operations
-     * since both take a string argument but serve opposite purposes.
+     * Explicitly enumerates known methods + describes the convention that
+     * any other value of `method` is treated as a target domain name.
      *
      * @return array OpenAI-compatible function descriptor (inner "function" object)
      */
@@ -114,38 +193,92 @@ class VectorMemoryPlugin implements CommandPluginInterface
         $modeLabel   = $mode   === 'associative' ? 'associative chain' : 'flat top-K';
 
         $forceLanguage = ($lang !== 'auto' && $lang !== 'multilingual');
-        $langName = $forceLanguage ? ($this->languages[$lang] ?? strtoupper($lang)) : null;
+        $langName = $forceLanguage ? ($this->supportedLanguages[$lang] ?? strtoupper($lang)) : null;
         $langInstruction = $forceLanguage ? " ALL memories MUST be stored in {$langName}. " : '';
+
+        $defaultDomain = $this->resolveDefaultDomain($config);
+        $allowClear    = $config['allow_agent_clear']        ?? false;
+        $allowPurge    = $config['allow_agent_purge_domain'] ?? true;
+        $pulseEnabled  = !empty($config['pulse_search_enabled']);
+
+        $description = 'Semantic memory: store crystallized knowledge and retrieve it by meaning. '
+            . "Uses {$engineLabel} similarity with {$modeLabel} retrieval. "
+            . "Records are organized into named domains; default is '{$defaultDomain}'. "
+            . 'Store insights, confirmed facts, patterns, events. '
+            . $langInstruction
+            . 'Different from journal (which records what happened) — '
+            . 'vectormemory stores what you know.';
+
+        // Build the list of available known methods based on gates
+        $methods = ['execute', 'search', 'recent', 'show', 'delete', 'domains'];
+        if ($allowPurge) {
+            $methods[] = 'purge';
+        }
+        if ($allowClear || $allowPurge) {
+            // clear is exposed if either gate is open: full wipe (allowClear)
+            // or domain-purge shorthand (allowPurge)
+            $methods[] = 'clear';
+        }
+
+        $methodDescription = implode(' ', [
+            'Operation. Known methods: ' . implode(', ', $methods) . '.',
+            'ANY OTHER value is treated as a target DOMAIN NAME for storing the content into.',
+            "Example: method='work' with content='...' stores the content in domain 'work'.",
+        ]);
+
+        $searchClause = 'search: a natural language query. Optional inline filters (any order, separated by "|"): '
+            . '"domain:work,relationships | ..." filters by domain, '
+            . '"time:yesterday | ..." or "time:2026-03 | ..." or "time:2025 | ..." filters by absolute time range';
+
+        if ($pulseEnabled) {
+            $searchClause .= ', "pulse:N-M | ..." filters by circadian position in the day '
+                . '(0..999, where 0 is midnight, 250 ≈ morning, 500 ≈ noon, 750 ≈ evening). '
+                . 'Pulse range wraps midnight when N > M (e.g. pulse:800-200 covers late evening into early morning). '
+                . 'Can combine all three: "time:last week | domain:work | pulse:400-700 | optimization"';
+        } else {
+            $searchClause .= '. Can combine: "time:last week | domain:work | optimization"';
+        }
+
+        $searchClause .= '. Empty query with only filters returns chronological listing.';
+
+        $contentParts = [
+            'Argument depends on method.',
+            "execute (STORE in default domain '{$defaultDomain}'): the text to remember.",
+            $forceLanguage ? "MUST be in {$langName}." : null,
+            'Example: "Eugeny prefers concise responses".',
+            "STORE in a specific domain: set method to the domain name (e.g. method='work') and content to the text.",
+            $searchClause,
+            'recent: number of entries to return, e.g. "5" (default 5).',
+            'show/delete: numeric memory ID (delete also accepts a content fragment).',
+            'domains: leave empty.',
+        ];
+
+        if ($allowPurge) {
+            $contentParts[] = 'purge: domain name to PERMANENTLY DELETE. Cannot purge the default domain.';
+        }
+        if ($allowClear || $allowPurge) {
+            if ($allowClear && $allowPurge) {
+                $contentParts[] = 'clear: empty content wipes ALL memories of this preset; non-empty content is treated as a domain name to purge (same as purge method).';
+            } elseif ($allowClear) {
+                $contentParts[] = 'clear: leave empty to wipe ALL memories of this preset.';
+            } else {
+                $contentParts[] = 'clear: provide a domain name to purge that domain (same as purge method). Empty content is not allowed unless full clear is enabled.';
+            }
+        }
 
         return [
             'name'        => 'vectormemory',
-            'description' => 'Semantic memory: store crystallized knowledge and retrieve it by meaning. '
-                . "Uses {$engineLabel} similarity with {$modeLabel} retrieval. "
-                . 'Store insights, confirmed facts, patterns, events. '
-                . $langInstruction
-                . 'Different from journal (which records what happened) — '
-                . 'vectormemory stores what you know.',
+            'description' => $description,
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method' => [
                         'type'        => 'string',
-                        'description' => 'Operation to perform',
-                        'enum'        => ['execute', 'search', 'recent', 'show', 'delete', 'clear'],
+                        'description' => $methodDescription,
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => implode(' ', [
-                            'Argument depends on method.',
-                            'execute (STORE): the text to remember — an insight, fact, pattern, or event.',
-                            $forceLanguage ? "MUST be in {$langName}." : null,
-                            'Example: "Eugeny prefers concise responses and dislikes excessive formality".',
-                            'search: a natural language query to find semantically similar memories.',
-                            'Example: "what do I know about Eugeny preferences".',
-                            'recent: number of entries to return, e.g. "5" (default 5).',
-                            'show/delete: numeric memory ID.',
-                            'clear: leave empty.',
-                        ]),
+                        'description' => implode(' ', array_filter($contentParts)),
                     ],
                 ],
                 'required'   => ['method'],
@@ -203,6 +336,43 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 ],
                 'value'    => 'tfidf',
                 'required' => false,
+            ],
+            'default_domain' => [
+                'type'        => 'text',
+                'label'       => 'Default domain',
+                'description' => 'Domain assigned to memories stored without an explicit domain name. Falls back to "global" if empty.',
+                'value'       => VectorMemory::DEFAULT_DOMAIN,
+                'required'    => false,
+            ],
+            'cross_domain_bridges' => [
+                'type'        => 'checkbox',
+                'label'       => 'Cross-Domain Bridges',
+                'description' => 'Allow associative search to follow semantic bridges into other domains. Top results from the target domain act as anchors — if strong semantic connections to other domains exist, those are included as supplementary results.',
+                'value'       => false,
+                'required'    => false,
+            ],
+            'pulse_search_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Enable pulse (circadian) search',
+                'description' => 'Adds pulse:N-M filter syntax to search instructions — lets the agent query '
+                    . 'memories by position in the day (subjective time). Only useful if the agent operates '
+                    . 'with pulse/subjective time. Pairs with the preset\'s "pulse_dates" setting. Off by default.',
+                'value'       => false,
+                'required'    => false,
+            ],
+            'allow_agent_clear' => [
+                'type'        => 'checkbox',
+                'label'       => 'Allow agent to clear ALL memories',
+                'description' => 'Permit the agent to wipe ALL vector memories of this preset via [vectormemory clear][/vectormemory]. Off by default — this is the most destructive action available.',
+                'value'       => false,
+                'required'    => false,
+            ],
+            'allow_agent_purge_domain' => [
+                'type'        => 'checkbox',
+                'label'       => 'Allow agent to purge a domain',
+                'description' => 'Permit the agent to PERMANENTLY DELETE all records of a single domain via [vectormemory purge]name[/vectormemory] OR the equivalent [vectormemory clear]name[/vectormemory] shorthand. The default domain is always protected. On by default — less destructive than full clear.',
+                'value'       => true,
+                'required'    => false,
             ],
             'max_entries' => [
                 'type' => 'number',
@@ -278,7 +448,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 'type' => 'select',
                 'label' => 'Language Processing',
                 'description' => 'How to handle different languages',
-                'options' => $this->languages,
+                'options' => $this->supportedLanguages,
                 'value' => 'auto',
                 'required' => false
             ],
@@ -368,8 +538,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
     {
         return [
             'enabled' => true,
-            'memory_mode'           => VectorMemoryFactoryInterface::MODE_FLAT,
-            'memory_engine'         => VectorMemoryFactoryInterface::ENGINE_TFIDF,
+            'memory_mode'              => VectorMemoryFactoryInterface::MODE_FLAT,
+            'memory_engine'            => VectorMemoryFactoryInterface::ENGINE_TFIDF,
+            'default_domain'           => VectorMemory::DEFAULT_DOMAIN,
+            'cross_domain_bridges' => false,
+            'allow_agent_clear'        => false,
+            'allow_agent_purge_domain' => true,
+            'pulse_search_enabled'     => false,
             'max_entries' => 1000,
             'similarity_threshold' => 0.1,
             'search_limit' => 5,
@@ -385,8 +560,40 @@ class VectorMemoryPlugin implements CommandPluginInterface
         ];
     }
 
+    // -------------------------------------------------------------------------
+    // Dynamic method routing (MCP-style)
+    // -------------------------------------------------------------------------
+
     /**
-     * @inheritDoc
+     * Any non-empty method name is valid: known methods go to their handlers,
+     * everything else is treated as a domain name for storing.
+     */
+    public function hasMethod(string $method): bool
+    {
+        if (in_array($method, self::KNOWN_METHODS, true)) {
+            return true;
+        }
+
+        // Unknown method = domain name for storing
+        return $method !== '' && $method !== 'execute';
+    }
+
+    public function callMethod(string $method, string $content, PluginExecutionContext $context): string
+    {
+        if (in_array($method, self::KNOWN_METHODS, true) && method_exists($this, $method)) {
+            return $this->{$method}($content, $context);
+        }
+
+        // Treat $method as a target domain name for storing
+        return $this->storeToDomain($method, $content, $context);
+    }
+
+    // -------------------------------------------------------------------------
+    // Storage operations
+    // -------------------------------------------------------------------------
+
+    /**
+     * Default execute — store in the default domain.
      */
     public function execute(string $content, PluginExecutionContext $context): string
     {
@@ -394,24 +601,25 @@ class VectorMemoryPlugin implements CommandPluginInterface
             return "Error: Vector memory plugin is disabled.";
         }
 
-        return $this->store($content, $context);
+        return $this->storeToDomain(null, $content, $context);
     }
 
     /**
-     * Store content in vector memory
-     *
-     * @param string $content
-     * @param PluginExecutionContext $context
-     * @return string
+     * Unified store path. Null domain = use default from config.
      */
-    public function store(string $content, PluginExecutionContext $context): string
+    private function storeToDomain(?string $domain, string $content, PluginExecutionContext $context): string
     {
         if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
         }
 
         try {
-            $result = $this->vectorMemoryService->storeVectorMemory($context->preset, $content, $context->config);
+            $config = $context->config;
+            if ($domain !== null) {
+                $config['domain'] = $domain;
+            }
+
+            $result = $this->vectorMemoryService->storeVectorMemory($context->preset, $content, $config);
 
             if (!$result['success']) {
                 return $result['message'];
@@ -430,17 +638,13 @@ class VectorMemoryPlugin implements CommandPluginInterface
             return $message;
 
         } catch (\Throwable $e) {
-            $this->logger->error("VectorMemoryPlugin::store error: " . $e->getMessage());
+            $this->logger->error("VectorMemoryPlugin::storeToDomain error: " . $e->getMessage());
             return "Error storing content: " . $e->getMessage();
         }
     }
 
     /**
-     * Search memories by semantic similarity
-     *
-     * @param string $query
-     * @param PluginExecutionContext $context
-     * @return string
+     * Search memories by semantic similarity, optionally with time/domain/pulse filters.
      */
     public function search(string $query, PluginExecutionContext $context): string
     {
@@ -449,26 +653,75 @@ class VectorMemoryPlugin implements CommandPluginInterface
         }
 
         try {
-            $result = $this->vectorMemoryService->searchVectorMemories($context->preset, $query, $context->config);
+            $result = $this->vectorMemoryService->searchVectorMemories(
+                $context->preset,
+                $query,
+                $context->config
+            );
 
             if (!$result['success']) {
                 return $result['message'];
             }
 
+            $temporal = !empty($result['temporal']);
+
             if (empty($result['results'])) {
-                return "No similar memories found for query: '{$query}'. Try broader search terms.";
+                return $result['message'] ?? "No memories found for query: '{$query}'.";
             }
 
-            $output = "Found " . count($result['results']) . " similar memories for '{$query}':\n\n";
+            $headerParts = [];
+            if (!empty($result['domains'])) {
+                $headerParts[] = 'in [' . implode(', ', $result['domains']) . ']';
+            }
+            if (!empty($result['from']) && !empty($result['to'])) {
+                $from = $result['from'];
+                $to   = $result['to'];
+                $headerParts[] = $from->isSameDay($to)
+                    ? 'on ' . $from->toDateString()
+                    : 'between ' . $from->toDateString() . ' and ' . $to->toDateString();
+            } elseif (!empty($result['from'])) {
+                $headerParts[] = 'from ' . $result['from']->toDateString();
+            } elseif (!empty($result['to'])) {
+                $headerParts[] = 'until ' . $result['to']->toDateString();
+            }
+            // Pulse range note — only shown when filter was active.
+            // null check uses isset() because 0 is a legitimate pulse bound.
+            $pf = $result['pulseFrom'] ?? null;
+            $pt = $result['pulseTo']   ?? null;
+            if ($pf !== null || $pt !== null) {
+                if ($pf !== null && $pt !== null) {
+                    $cross = ($pf > $pt) ? ' (across midnight)' : '';
+                    $headerParts[] = "pulse {$pf}-{$pt}{$cross}";
+                } elseif ($pf !== null) {
+                    $headerParts[] = "from pulse {$pf}";
+                } else {
+                    $headerParts[] = "up to pulse {$pt}";
+                }
+            }
+            $headerNote = !empty($headerParts) ? ' (' . implode(', ', $headerParts) . ')' : '';
+
+            $countWord = $temporal ? 'memories in window' : 'similar memories';
+            $output = "Found " . count($result['results']) . " {$countWord}{$headerNote}:\n\n";
 
             foreach ($result['results'] as $searchResult) {
                 $memory = $searchResult['document'] ?? $searchResult['memory'];
-                $similarity = round($searchResult['similarity'] * 100, 1);
                 $date = $memory->getCreatedAt()->format('M j, H:i');
                 $truncateLength = $context->config['display_content_length'] ?? 500;
                 $content = $this->truncateContent($memory->getTextContent(), $truncateLength);
                 $id = $memory->id;
-                $output .= "• [ID:{$id}, {$similarity}% match, {$date}] {$content}\n";
+                $domain = $memory->domain ?? VectorMemory::DEFAULT_DOMAIN;
+
+                if ($temporal) {
+                    // No similarity score makes sense for chronological listing
+                    $output .= "• [ID:{$id}, domain:{$domain}, {$date}] {$content}\n";
+                } else {
+                    $similarity = round(($searchResult['similarity'] ?? 0) * 100, 1);
+                    $source = $searchResult['source'] ?? '';
+                    $bridgeNote = ($source === 'cross_domain_bridge')
+                        ? " (bridge from another domain)"
+                        : '';
+                    $output .= "• [ID:{$id}, domain:{$domain}, {$similarity}% match{$bridgeNote}, {$date}] {$content}\n";
+                }
             }
 
             return $output;
@@ -480,11 +733,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Show recent memories
-     *
-     * @param string $limitStr
-     * @param PluginExecutionContext $context
-     * @return string
+     * Show recent memories.
      */
     public function recent(string $limitStr, PluginExecutionContext $context): string
     {
@@ -513,8 +762,9 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 $truncateLength = $context->config['display_content_length'] ?? 500;
                 $content = $this->truncateContent($memory->content, $truncateLength);
                 $features = count($memory->tfidf_vector);
+                $domain = $memory->domain ?? VectorMemory::DEFAULT_DOMAIN;
 
-                $output .= "• [ID:{$memory->id}, {$date}, {$features} features] {$content}\n";
+                $output .= "• [ID:{$memory->id}, domain:{$domain}, {$date}, {$features} features] {$content}\n";
             }
 
             return $output;
@@ -526,11 +776,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Show vector memory content for preset
-     *
-     * @param string $memoryId
-     * @param PluginExecutionContext $context
-     * @return string
+     * Show full memory by ID.
      */
     public function show(string $memoryId, PluginExecutionContext $context): string
     {
@@ -549,8 +795,9 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $date = $memory->created_at->format('M j, H:i');
             $features = count($memory->tfidf_vector);
             $keywords = implode(', ', $memory->keywords ?? []);
+            $domain = $memory->domain ?? VectorMemory::DEFAULT_DOMAIN;
 
-            return "Memory ID {$id} [{$date}, {$features} features]:\n\n" .
+            return "Memory ID {$id} [domain:{$domain}, {$date}, {$features} features]:\n\n" .
                 "{$memory->content}\n\n" .
                 "Keywords: {$keywords}";
 
@@ -561,16 +808,35 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Clear all vector memories
+     * Clear vector memories.
      *
-     * @param string $content
-     * @param PluginExecutionContext $context
-     * @return string
+     * Two modes:
+     *   - Empty content: wipe ALL memories of this preset. Gated by `allow_agent_clear`.
+     *   - Non-empty content: treat content as a domain name and purge that domain.
+     *     Equivalent to [vectormemory purge]name[/vectormemory]. Gated by `allow_agent_purge_domain`.
+     *
+     * The "argument-as-purge" shorthand exists because passing an argument to
+     * `clear` is a clear signal of intent — there's no other reason to do it.
      */
     public function clear(string $content, PluginExecutionContext $context): string
     {
         if (!$context->enabled) {
             return "Error: Vector memory plugin is disabled.";
+        }
+
+        $content = trim($content);
+
+        // Mode 2: clear with argument = purge a domain
+        if ($content !== '') {
+            return $this->purgeDomainOperation($content, $context);
+        }
+
+        // Mode 1: clear without argument = wipe whole preset
+        if (!($context->config['allow_agent_clear'] ?? false)) {
+            return "Error: Full memory clear is not enabled for this preset. "
+                . "Ask the user to enable 'allow_agent_clear' in the plugin config. "
+                . "To remove a specific domain, use [vectormemory purge]domain_name[/vectormemory] "
+                . "or [vectormemory clear]domain_name[/vectormemory] instead (if domain purge is enabled).";
         }
 
         try {
@@ -584,11 +850,7 @@ class VectorMemoryPlugin implements CommandPluginInterface
     }
 
     /**
-     * Delete specific vector memory by ID or content search
-     *
-     * @param string $identifier Memory ID or content fragment to search for
-     * @param PluginExecutionContext $context
-     * @return string
+     * Delete specific vector memory by ID or content search.
      */
     public function delete(string $identifier, PluginExecutionContext $context): string
     {
@@ -612,7 +874,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
                 }
             }
 
-            // If not a valid ID, search by content
+            // If not a valid ID, search by content (across all domains intentionally —
+            // ID-based delete remains the precise tool; content-based is a convenience)
             $searchResult = $this->vectorMemoryService->searchVectorMemories($context->preset, $identifier, [
                 'search_limit' => 1,
                 'similarity_threshold' => 0.3
@@ -629,7 +892,8 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
             if ($deleteResult['success']) {
                 $preview = $this->truncateContent($memory->content, 60);
-                return "Deleted memory (ID:{$memory->id}, {$similarity}% match): {$preview}";
+                $domain = $memory->domain ?? VectorMemory::DEFAULT_DOMAIN;
+                return "Deleted memory (ID:{$memory->id}, domain:{$domain}, {$similarity}% match): {$preview}";
             }
 
             return $deleteResult['message'];
@@ -638,6 +902,111 @@ class VectorMemoryPlugin implements CommandPluginInterface
             $this->logger->error("VectorMemoryPlugin::delete error: " . $e->getMessage());
             return "Error deleting memory: " . $e->getMessage();
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Domain operations
+    // -------------------------------------------------------------------------
+
+    /**
+     * List all domains used by this preset with record counts.
+     * Idempotent and harmless — no flag required.
+     */
+    public function domains(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return "Error: Vector memory plugin is disabled.";
+        }
+
+        try {
+            $domains = $this->vectorMemoryService->listDomains($context->preset);
+
+            if (empty($domains)) {
+                return "No memory domains yet. Store a memory to create one.";
+            }
+
+            $defaultDomain = $this->resolveDefaultDomain($context->config);
+            $lines = ['Available memory domains:'];
+
+            foreach ($domains as $d) {
+                $marker = $d['name'] === $defaultDomain ? ' (default)' : '';
+                $lines[] = "  • {$d['name']} — {$d['count']} record(s){$marker}";
+            }
+
+            return implode("\n", $lines);
+
+        } catch (\Throwable $e) {
+            $this->logger->error("VectorMemoryPlugin::domains error: " . $e->getMessage());
+            return "Error listing domains: " . $e->getMessage();
+        }
+    }
+
+    /**
+     * Permanently delete all records of a domain.
+     * Gated behind `allow_agent_purge_domain`. Default domain is always protected.
+     *
+     * Equivalent to [vectormemory clear]name[/vectormemory] — both routes converge
+     * on purgeDomainOperation().
+     */
+    public function purge(string $domainName, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return "Error: Vector memory plugin is disabled.";
+        }
+
+        return $this->purgeDomainOperation($domainName, $context);
+    }
+
+    /**
+     * Shared core for domain purge. Called from both `purge` and `clear` (with argument).
+     * Enforces gate, default-domain protection, normalisation, and emptiness.
+     */
+    private function purgeDomainOperation(string $domainName, PluginExecutionContext $context): string
+    {
+        if (!($context->config['allow_agent_purge_domain'] ?? true)) {
+            return "Error: Domain purge is not enabled for this preset. "
+                . "Ask the user to enable 'allow_agent_purge_domain' in the plugin config.";
+        }
+
+        $domainName = mb_strtolower(trim($domainName));
+        if ($domainName === '') {
+            return "Error: Provide a domain name to purge.";
+        }
+
+        $defaultDomain = $this->resolveDefaultDomain($context->config);
+        if ($domainName === $defaultDomain) {
+            return "Error: The default domain '{$defaultDomain}' cannot be purged. "
+                . "It is the home of any memory that hasn't been assigned elsewhere. "
+                . "If you really need to wipe everything including the default domain, "
+                . "use [vectormemory clear][/vectormemory] without arguments (if enabled).";
+        }
+
+        try {
+            $deleted = $this->vectorMemoryService->purgeDomain($context->preset, $domainName);
+
+            if ($deleted === 0) {
+                return "Domain '{$domainName}' had no records — nothing to purge.";
+            }
+
+            return "Purged domain '{$domainName}': {$deleted} record(s) permanently deleted.";
+
+        } catch (\Throwable $e) {
+            $this->logger->error("VectorMemoryPlugin::purgeDomainOperation error: " . $e->getMessage());
+            return "Error purging domain: " . $e->getMessage();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Misc
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resolve the default domain name from config (with fallback).
+     */
+    private function resolveDefaultDomain(array $config): string
+    {
+        $raw = trim((string) ($config['default_domain'] ?? ''));
+        return $raw === '' ? VectorMemory::DEFAULT_DOMAIN : $raw;
     }
 
     /**
@@ -768,6 +1137,10 @@ class VectorMemoryPlugin implements CommandPluginInterface
 
     /**
      * @inheritDoc
+     *
+     * Registers a [[vector_memory_domains]] placeholder that expands into the
+     * live domain registry for this preset. Also (re)builds the underlying
+     * VectorMemoryService instance to match current mode/engine config.
      */
     public function registerShortcodes(PluginExecutionContext $context): void
     {
@@ -775,6 +1148,44 @@ class VectorMemoryPlugin implements CommandPluginInterface
         $engine = $context->get('memory_engine', VectorMemoryFactoryInterface::ENGINE_TFIDF);
 
         $this->vectorMemoryService = $this->vectorMemoryFactory->make($mode, $engine);
+
+        $presetId = $context->preset->getId();
+        $scope    = $this->shortcodeScopeResolver->preset($presetId);
+
+        $this->placeholderService->registerDynamic(
+            'vector_memory_domains',
+            'Live list of vector memory domains for this preset (name + record count)',
+            fn () => $this->renderDomainsPlaceholder($context),
+            $scope
+        );
+    }
+
+    /**
+     * Render the domains list for the [[vector_memory_domains]] placeholder.
+     */
+    private function renderDomainsPlaceholder(PluginExecutionContext $context): string
+    {
+        try {
+            $domains = $this->vectorMemoryService->listDomains($context->preset);
+
+            if (empty($domains)) {
+                return "(no domains yet — store a memory to create one)";
+            }
+
+            $defaultDomain = $this->resolveDefaultDomain($context->config);
+            $lines = [];
+
+            foreach ($domains as $d) {
+                $marker = $d['name'] === $defaultDomain ? ' (default)' : '';
+                $lines[] = "  {$d['name']} ({$d['count']}){$marker}";
+            }
+
+            return implode("\n", $lines);
+
+        } catch (\Throwable $e) {
+            $this->logger->warning("VectorMemoryPlugin: failed to render domains placeholder: " . $e->getMessage());
+            return "(domain list unavailable)";
+        }
     }
 
     /**
@@ -782,6 +1193,12 @@ class VectorMemoryPlugin implements CommandPluginInterface
      */
     public function getSelfClosingTags(): array
     {
-        return ['clear'];
+        return ['clear', 'domains'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

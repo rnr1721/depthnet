@@ -35,7 +35,7 @@ class McpServer extends Model
     ];
 
     protected $attributes = [
-        'transport'     => 'sse',
+        'transport'     => 'streamable_http',
         'is_enabled'    => true,
         'added_by_agent' => false,
         'health_status' => 'unknown',
@@ -62,6 +62,10 @@ class McpServer extends Model
     public function getUrl(): string
     {
         return $this->url;
+    }
+    public function getTransport(): string
+    {
+        return $this->transport ?? 'streamable_http';
     }
     public function getHeaders(): array
     {

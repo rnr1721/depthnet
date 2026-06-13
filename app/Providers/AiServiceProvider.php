@@ -9,10 +9,17 @@ use Psr\Log\LoggerInterface;
 use App\Contracts\Agent\AgentActionsInterface;
 use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
+use App\Contracts\Agent\Browser\BrowserServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Capabilities\VisionServiceInterface;
+use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
+use App\Contracts\Agent\Code\LspServiceInterface;
+use App\Contracts\Agent\Code\ProjectAdapterRegistryInterface;
+use App\Contracts\Agent\Code\WorkspaceTopologyServiceInterface;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandLinterInterface;
@@ -21,10 +28,16 @@ use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\Enricher\CyclePromptEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
+use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
+use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSectionRendererRegistryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Mcp\McpClientInterface;
 use App\Contracts\Agent\Mcp\McpServerRepositoryInterface;
@@ -35,6 +48,9 @@ use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Mood\MoodInfluencerInterface;
+use App\Contracts\Agent\Ontology\OntologyQueryServiceInterface;
+use App\Contracts\Agent\Ontology\OntologyServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\Orchestrator\OrchestratorFactoryInterface;
@@ -46,13 +62,18 @@ use App\Contracts\Agent\PluginManagerInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
+use App\Contracts\Agent\PresetInnerVoiceConfigServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
+use App\Contracts\Agent\PresetPluginDataServiceInterface;
 use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetRagConfigServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
+use App\Contracts\Agent\Spawn\SpawnServiceInterface;
 use App\Contracts\Agent\Terminal\TerminalServiceInterface;
 use App\Contracts\Agent\ToolCallParserInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
@@ -62,16 +83,35 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
+use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
 use App\Services\Agent\AgentActions;
 use App\Services\Agent\AgentActionsHandler;
 use App\Services\Agent\AgentJobService;
+use App\Services\Agent\AgentJobServiceFactory;
 use App\Services\Agent\AgentMessageService;
+use App\Services\Agent\Browser\BrowserService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
+use App\Services\Agent\Capabilities\Vision\Drivers\ClaudeVisionProvider;
+use App\Services\Agent\Capabilities\Vision\Drivers\NovitaVisionProvider;
+use App\Services\Agent\Capabilities\Vision\VisionRegistry;
+use App\Services\Agent\Capabilities\Vision\VisionService;
+use App\Services\Agent\Cleanup\PresetCleanupFactory;
 use App\Services\Agent\Cleanup\PresetCleanupService;
+use App\Services\Agent\Code\Adapters\Go\GoAdapter;
+use App\Services\Agent\Code\Adapters\Node\GenericNodeAdapter;
+use App\Services\Agent\Code\Adapters\Node\NextJsAdapter;
+use App\Services\Agent\Code\Adapters\Node\ViteAdapter;
+use App\Services\Agent\Code\Adapters\Php\GenericPhpAdapter;
+use App\Services\Agent\Code\Adapters\Php\LaravelAdapter;
+use App\Services\Agent\Code\Adapters\Php\SymfonyAdapter;
+use App\Services\Agent\Code\Adapters\Python\PythonAdapter;
+use App\Services\Agent\Code\LspService;
+use App\Services\Agent\Code\ProjectAdapterRegistry;
+use App\Services\Agent\Code\WorkspaceTopologyService;
 use App\Services\Agent\CommandExecutor;
 use App\Services\Agent\CommandInstructionBuilder;
 use App\Services\Agent\CommandLinter;
@@ -82,11 +122,29 @@ use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\EngineRegistry;
+use App\Services\Agent\Enricher\CyclePromptEnricher;
 use App\Services\Agent\Enricher\EnricherFactory;
+use App\Services\Agent\Enricher\InnerVoiceEnricher;
 use App\Services\Agent\Enricher\PersonContextEnricher;
+use App\Services\Agent\Enricher\Rag\RagAggregatorService;
+use App\Services\Agent\Enricher\Rag\RagContentFormatter;
+use App\Services\Agent\Enricher\Rag\RagSectionRendererRegistry;
+use App\Services\Agent\Enricher\Rag\Renderers\FilesSectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\JournalSectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryAdditionalRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryAssociativeRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryKeywordFallbackRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemoryKeywordRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemorySemanticAssociativeRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\MemorySemanticRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\OntologySectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\PersonsSectionRenderer;
+use App\Services\Agent\Enricher\Rag\Renderers\SkillsSectionRenderer;
+use App\Services\Agent\Enricher\Services\PresetInnerVoiceConfigService;
 use App\Services\Agent\Enricher\Services\PresetRagConfigService;
 use App\Services\Agent\EnvironmentInfoService;
 use App\Services\Agent\Goals\GoalService;
+use App\Services\Agent\Heart\HeartService;
 use App\Services\Agent\Journal\JournalService;
 use App\Services\Agent\Mcp\McpClient;
 use App\Services\Agent\Mcp\McpServerRepository;
@@ -98,6 +156,8 @@ use App\Services\Agent\Memory\TextMemoryExporter;
 use App\Services\Agent\Memory\TextMemoryImporter;
 use App\Services\Agent\Memory\MemoryService;
 use App\Services\Agent\Memory\PersonMemoryService;
+use App\Services\Agent\Ontology\OntologyQueryService;
+use App\Services\Agent\Ontology\OntologyService;
 use App\Services\Agent\Orchestrator\AgentService;
 use App\Services\Agent\Orchestrator\AgentTaskService;
 use App\Services\Agent\Orchestrator\OrchestratorFactory;
@@ -111,6 +171,8 @@ use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
+use App\Services\Agent\Plugins\CodePlugin;
+use App\Services\Agent\Plugins\DocumentManagerPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\HeartPlugin;
@@ -119,16 +181,22 @@ use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\MyselfPlugin;
+use App\Services\Agent\Plugins\OntologyPlugin;
 use App\Services\Agent\Plugins\PersonPlugin;
 use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
+use App\Services\Agent\Plugins\ProjectMapPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\RagQueryPlugin;
+use App\Services\Agent\Plugins\Related\PluginData\PresetPluginDataService;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
 use App\Services\Agent\Plugins\SandboxPlugin;
 use App\Services\Agent\Plugins\SelfNotePlugin;
 use App\Services\Agent\Plugins\ShellPlugin;
 use App\Services\Agent\Plugins\SkillPlugin;
+use App\Services\Agent\Plugins\SpawnPlugin;
+use App\Services\Agent\Plugins\SpeakPlugin;
+use App\Services\Agent\Plugins\SwitchPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\TerminalPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
@@ -142,9 +210,12 @@ use App\Services\Agent\Providers\DeepSeekModel;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
+use App\Services\Agent\PulseService;
+use App\Services\Agent\Search\SearchDateParser;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillService;
+use App\Services\Agent\Spawn\SpawnService;
 use App\Services\Agent\Terminal\TerminalService;
 use App\Services\Agent\ToolCallParser;
 use App\Services\Agent\ToolSchemaBuilder;
@@ -168,10 +239,14 @@ class AiServiceProvider extends ServiceProvider
     public function register(): void
     {
 
+        $this->app->singleton(PulseServiceInterface::class, PulseService::class);
+
         $this->app->bind(McpClientInterface::class, McpClient::class);
         $this->app->bind(McpServerRepositoryInterface::class, McpServerRepository::class);
 
         $this->app->singleton(CommandResultPoolInterface::class, CommandResultPoolService::class);
+
+        $this->app->singleton(SearchDateParserInterface::class, SearchDateParser::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
         $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
@@ -182,15 +257,52 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
 
-        //$this->app->bind(RagContextEnricherInterface::class, RagContextEnricher::class);
+        $this->app->bind(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
+        $this->app->bind(CyclePromptEnricherInterface::class, CyclePromptEnricher::class);
+        $this->app->bind(PresetInnerVoiceConfigServiceInterface::class, PresetInnerVoiceConfigService::class);
 
-        $this->app->bind(PresetRagConfigServiceInterface::class,PresetRagConfigService::class);
+        $this->app->singleton(RagSectionRendererRegistryInterface::class, function ($app) {
+            $pulse = $app->make(\App\Contracts\Agent\PulseServiceInterface::class);
+            return new RagSectionRendererRegistry([
+                // Memory renderers — temporally anchored via $memory->getCreatedAt()
+                new MemorySemanticAssociativeRenderer($pulse),
+                new MemorySemanticRenderer($pulse),
+                new MemoryAssociativeRenderer($pulse),
+                new MemoryKeywordRenderer($pulse),
+                new MemoryKeywordFallbackRenderer($pulse),
+                new MemoryAdditionalRenderer($pulse),
+                // Journal — temporally anchored via $entry->recorded_at
+                new JournalSectionRenderer($pulse),
+                // Non-temporal renderers — pulse label is meaningless here, so
+                // these keep their original constructors with no extra deps.
+                new SkillsSectionRenderer(),
+                new OntologySectionRenderer(),
+                new FilesSectionRenderer(),
+                new PersonsSectionRenderer(),
+            ]);
+        });
+
+        $this->app->singleton(
+            RagContentFormatterInterface::class,
+            RagContentFormatter::class,
+        );
+
+        $this->app->singleton(
+            RagAggregatorServiceInterface::class,
+            RagAggregatorService::class,
+        );
+
+
+        $this->app->bind(PresetRagConfigServiceInterface::class, PresetRagConfigService::class);
         $this->app->bind(PersonContextEnricherInterface::class, PersonContextEnricher::class);
         $this->app->singleton(EnricherFactoryInterface::class, EnricherFactory::class);
 
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
 
         $this->app->singleton(JournalServiceInterface::class, JournalService::class);
+
+        $this->app->singleton(OntologyServiceInterface::class, OntologyService::class);
+        $this->app->bind(OntologyQueryServiceInterface::class, OntologyQueryService::class);
 
         // EmbeddingRegistry: singleton so all drivers are registered once.
         $this->app->singleton(EmbeddingRegistry::class, function ($app) {
@@ -215,6 +327,31 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(EmbeddingServiceInterface::class, EmbeddingService::class);
 
+        $this->app->singleton(VisionRegistry::class, function ($app) {
+            $registry = new VisionRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            $registry->register(
+                new NovitaVisionProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            $registry->register(
+                new ClaudeVisionProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            return $registry;
+        });
+
+        $this->app->singleton(VisionServiceInterface::class, VisionService::class);
+
         // VectorMemoryFactory
         $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {
             return new VectorMemoryFactory(
@@ -237,6 +374,8 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
+        $this->app->bind(HeartServiceInterface::class, HeartService::class);
+
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
         $this->app->singleton(ShortcodeScopeResolverServiceInterface::class, ShortcodeScopeResolverService::class);
@@ -245,6 +384,7 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(EnvironmentInfoServiceInterface::class, EnvironmentInfoService::class);
 
         $this->app->singleton(AgentJobServiceInterface::class, AgentJobService::class);
+        $this->app->singleton(AgentJobServiceFactoryInterface::class, AgentJobServiceFactory::class);
         $this->app->singleton(CommandInstructionBuilderInterface::class, CommandInstructionBuilder::class);
         $this->app->bind(CommandPreProcessorInterface::class, CommandPreProcessor::class);
 
@@ -293,16 +433,18 @@ class AiServiceProvider extends ServiceProvider
         });
         $this->app->bind(AgentMessageServiceInterface::class, AgentMessageService::class);
         $this->app->singleton(PresetPromptServiceInterface::class, PresetPromptService::class);
+        $this->app->singleton(PresetPluginDataServiceInterface::class, PresetPluginDataService::class);
         $this->app->bind(PresetServiceInterface::class, PresetService::class);
         $this->app->singleton(PresetRegistryInterface::class, PresetRegistry::class);
-
-
 
         $this->app->singleton(AgentActionsHandlerInterface::class, AgentActionsHandler::class);
         $this->app->singleton(AgentActionsInterface::class, AgentActions::class);
         $this->app->singleton(AgentInterface::class, Agent::class);
 
+        $this->app->bind(PresetCleanupFactoryInterface::class, PresetCleanupFactory::class);
         $this->app->singleton(PresetCleanupServiceInterface::class, PresetCleanupService::class);
+
+        $this->app->bind(SpawnServiceInterface::class, SpawnService::class);
 
         $this->app->singleton(TelegramServiceInterface::class, function () {
             return new TelegramService(
@@ -313,6 +455,40 @@ class AiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(TerminalServiceInterface::class, TerminalService::class);
+
+        // Registering adapters as tagged services
+        $this->app->tag([
+            GenericPhpAdapter::class,
+            LaravelAdapter::class,
+            SymfonyAdapter::class,
+            NextJsAdapter::class,
+            GenericNodeAdapter::class,
+            ViteAdapter::class,
+            PythonAdapter::class,
+            GoAdapter::class
+        ], 'project.adapters');
+
+        // Registry
+        $this->app->singleton(ProjectAdapterRegistryInterface::class, function ($app) {
+            return new ProjectAdapterRegistry(
+                $app->tagged('project.adapters')
+            );
+        });
+
+        // WorkspaceTopologyService
+        $this->app->singleton(WorkspaceTopologyServiceInterface::class, function ($app) {
+            return new WorkspaceTopologyService(
+                $app->make(SandboxManagerInterface::class),
+                $app->make(PresetSandboxServiceInterface::class),
+                $app->make(PluginMetadataServiceInterface::class),
+                $app->make(ProjectAdapterRegistryInterface::class),
+                $app->make(LoggerInterface::class),
+            );
+        });
+
+        $this->app->singleton(LspServiceInterface::class, LspService::class);
+
+        $this->app->bind(BrowserServiceInterface::class, BrowserService::class);
 
     }
 
@@ -329,7 +505,6 @@ class AiServiceProvider extends ServiceProvider
     protected function registerPlugins(PluginRegistryInterface $registry, $app): void
     {
 
-
         // built-in + composer packages
         $allPlugins = $this->getAllAvailablePlugins();
 
@@ -344,6 +519,13 @@ class AiServiceProvider extends ServiceProvider
                 }
             }
         }
+
+        $mood = $registry->get('mood');
+        $heart = $registry->get('heart');
+        if ($mood instanceof MoodInfluencerInterface && $heart instanceof HeartPlugin) {
+            $heart->setMoodInfluencer($mood);
+        }
+
     }
 
     /**
@@ -370,15 +552,23 @@ class AiServiceProvider extends ServiceProvider
     {
         return [
             AgentPlugin::class,
+            SpeakPlugin::class,
+            JournalPlugin::class,
             VectorMemoryPlugin::class,
             MemoryPlugin::class,
             RagQueryPlugin::class,
-            JournalPlugin::class,
+            OntologyPlugin::class,
             PersonPlugin::class,
             SandboxPlugin::class,
+            CodePlugin::class,
+            ProjectMapPlugin::class,
+            DocumentManagerPlugin::class,
             TerminalPlugin::class,
-            PromptPlugin::class,
             ShellPlugin::class,
+            McpPlugin::class,
+            PromptPlugin::class,
+            SwitchPlugin::class,
+            SpawnPlugin::class,
             DopaminePlugin::class,
             MoodPlugin::class,
             MyselfPlugin::class,
@@ -388,7 +578,6 @@ class AiServiceProvider extends ServiceProvider
             GoalPlugin::class,
             AgentTaskPlugin::class,
             SkillPlugin::class,
-            McpPlugin::class,
             HeartPlugin::class,
             BeingPlugin::class,
             RhythmPlugin::class,
@@ -407,7 +596,7 @@ class AiServiceProvider extends ServiceProvider
 
         // Method 1: From config - manual registration
         $configPlugins = config('ai.plugins.composer', []);
-        $discovered = array_merge($discovered, $configPlugins);
+        $discovered = $configPlugins;
 
         // Method 2: Tagged services - automatic registration
         try {

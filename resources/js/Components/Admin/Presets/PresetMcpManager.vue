@@ -75,6 +75,14 @@
                             placeholder="https://mcp.example.com/sse" />
                     </div>
 
+                    <div class="mb-3">
+                        <label :class="labelClass">{{ $t('mcp_transport') }}</label>
+                        <select v-model="newServer.transport" :class="inputClass">
+                            <option value="streamable_http">Streamable HTTP (новый, по умолчанию)</option>
+                            <option value="sse">Legacy SSE (phone-mcp, старые серверы)</option>
+                        </select>
+                    </div>
+
                     <!-- Headers (optional) -->
                     <div class="mb-3">
                         <button type="button" @click="showHeaders = !showHeaders"
@@ -316,7 +324,7 @@ const actionButtonClass = computed(() => [
 
 // ── Methods ───────────────────────────────────────────────────────────────────
 function resetNewServer() {
-    return { name: '', server_key: '', url: '', headers: [] };
+    return { name: '', server_key: '', url: '', headers: [], transport: 'streamable_http' };
 }
 
 function addHeader() {
@@ -366,6 +374,7 @@ async function addServer() {
             name: newServer.value.name,
             server_key: newServer.value.server_key,
             url: newServer.value.url,
+            transport: newServer.value.transport,
             headers,
         });
 

@@ -16,6 +16,8 @@ class SendMessageRequest extends FormRequest
         return [
             'content' => 'required|string',
             'preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'files'     => ['nullable', 'array', 'max:10'],
+            'files.*'   => ['file', 'max:51200'],
         ];
     }
 

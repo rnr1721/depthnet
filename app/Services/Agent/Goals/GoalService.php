@@ -3,6 +3,7 @@
 namespace App\Services\Agent\Goals;
 
 use App\Contracts\Agent\Goals\GoalServiceInterface;
+use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Goal;
 use App\Models\GoalProgress;
@@ -13,7 +14,8 @@ class GoalService implements GoalServiceInterface
     public function __construct(
         protected LoggerInterface $logger,
         protected Goal $goalModel,
-        protected GoalProgress $goalProgressModel
+        protected GoalProgress $goalProgressModel,
+        protected HeartServiceInterface $heartService,
     ) {
     }
 
@@ -98,6 +100,9 @@ class GoalService implements GoalServiceInterface
             }
 
             $goal->update(['status' => $status]);
+
+            // Sync with Heart if active
+            $this->syncGoalStatusWithHeart($preset, $goal->title, $status);
 
             return [
                 'success' => true,
@@ -231,6 +236,76 @@ class GoalService implements GoalServiceInterface
             ->get();
 
         return $goals[$number - 1] ?? null;
+    }
+
+    /**
+     * Sync goal status change with Heart if Heart has active connections or signals.
+     * Does nothing if Heart has no data — avoids coupling to disabled plugin.
+     *
+     * Status mapping:
+     *   done   → relief | pride   (completion is positive)
+     *   paused → unresolved       (unfinished creates mild negative signal)
+     *   active → anticipation     (resuming creates forward-looking signal)
+     */
+    private function syncGoalStatusWithHeart(AiPreset $preset, string $goalTitle, string $status): void
+    {
+        try {
+            if (!$this->shouldSyncWithHeart($preset)) {
+                return;
+            }
+
+            $signals = match ($status) {
+                'done'   => [
+                    ['type' => 'relief',       'intensity' => 0.5, 'focus' => 'release',      'valence' => 0.5,  'duration' => 'brief'],
+                    ['type' => 'pride',        'intensity' => 0.4, 'focus' => 'achievement',  'valence' => 0.4,  'duration' => 'brief'],
+                ],
+                'paused' => [
+                    ['type' => 'unresolved',   'intensity' => 0.4, 'focus' => 'open_end',     'valence' => -0.1, 'duration' => 'sustained'],
+                ],
+                'active' => [
+                    ['type' => 'anticipation', 'intensity' => 0.5, 'focus' => 'future',       'valence' => 0.4,  'duration' => 'variable'],
+                ],
+                default => [],
+            };
+
+            foreach ($signals as $signal) {
+                $this->heartService->registerSignal(
+                    $preset,
+                    $goalTitle,
+                    $signal['type'],
+                    $signal['intensity'],
+                    $signal['focus'],
+                    $signal['valence'],
+                    $signal['duration'],
+                );
+            }
+
+        } catch (\Throwable $e) {
+            // Heart sync must never crash GoalService
+            $this->logger->warning("GoalService: Heart sync failed for goal '{$goalTitle}'", [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Check if Heart has active data — connections or signals.
+     * Used to decide whether to sync goal events with Heart.
+     *
+     * GoalService does not check plugin config directly —
+     * it infers Heart activity from the presence of data.
+     * If Heart was never used or was cleared, this returns false.
+     */
+    private function shouldSyncWithHeart(AiPreset $preset): bool
+    {
+        try {
+            $connections = $this->heartService->getConnections($preset);
+            $signals     = $this->heartService->getSignals($preset);
+
+            return !empty($connections) || !empty($signals);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

@@ -161,103 +161,8 @@
                 </p>
             </div>
 
-            <!-- Inner Voice -->
-            <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
-                <div class="flex items-center justify-between mb-1">
-                    <h6 :class="['text-sm font-medium', isDark ? 'text-white' : 'text-gray-900']">Inner Voice</h6>
-                    <button type="button" @click="showVoiceHint = !showVoiceHint" :class="[
-                        'flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all',
-                        showVoiceHint
-                            ? (isDark ? 'bg-violet-900 text-violet-300' : 'bg-violet-100 text-violet-700')
-                            : (isDark ? 'text-gray-400 hover:bg-gray-600' : 'text-gray-500 hover:bg-gray-100')
-                    ]">
-                        <svg class="w-3 h-3 transition-transform" :class="showVoiceHint ? 'rotate-180' : ''" fill="none"
-                            stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                        </svg>
-                        Setup guide
-                    </button>
-                </div>
-
-                <p :class="['text-xs mb-3', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    A separate preset whose response is injected as <span class="font-mono">[[inner_voice]]</span> into
-                    the system prompt before each cycle. Use it as an advisor, conscience, muse, or subconscious.
-                </p>
-
-                <select :value="modelValue.voice_preset_id ?? ''" @change="onVoicePresetChange($event.target.value)"
-                    :class="inputClass">
-                    <option value="">— Disabled —</option>
-                    <option v-for="preset in otherPresets" :key="preset.id" :value="preset.id">
-                        {{ preset.name }} ({{ preset.engine_name }})
-                    </option>
-                </select>
-
-                <!-- Collapsible setup guide -->
-                <Transition enter-active-class="transition-all duration-200 ease-out overflow-hidden"
-                    enter-from-class="opacity-0 max-h-0" enter-to-class="opacity-100 max-h-screen"
-                    leave-active-class="transition-all duration-150 ease-in overflow-hidden"
-                    leave-from-class="opacity-100 max-h-screen" leave-to-class="opacity-0 max-h-0">
-                    <div v-if="showVoiceHint" class="mt-3 space-y-3">
-                        <p :class="['text-xs leading-relaxed', isDark ? 'text-gray-400' : 'text-gray-500']">
-                            Create a lightweight preset and tune its <span class="font-mono">system_prompt</span> to
-                            define the character of the voice. Pick one of the examples below:
-                        </p>
-
-                        <!-- Voice examples -->
-                        <div class="space-y-2">
-                            <div v-for="example in voiceExamples" :key="example.label"
-                                :class="['rounded-xl overflow-hidden', isDark ? 'bg-gray-900' : 'bg-gray-100 ring-1 ring-gray-200']">
-                                <div
-                                    :class="['flex items-center justify-between px-4 py-2 border-b', isDark ? 'border-gray-700' : 'border-gray-200']">
-                                    <span
-                                        :class="['text-xs font-medium', isDark ? 'text-violet-300' : 'text-violet-700']">
-                                        {{ example.label }}
-                                    </span>
-                                    <button type="button" @click="copyVoicePrompt(example)" :class="[
-                                        'text-xs px-2 py-0.5 rounded-lg transition-all',
-                                        copiedVoice === example.label
-                                            ? (isDark ? 'bg-violet-800 text-violet-200' : 'bg-violet-100 text-violet-700')
-                                            : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white text-gray-600 hover:bg-gray-100 ring-1 ring-gray-200')
-                                    ]">
-                                        {{ copiedVoice === example.label ? '✓ Copied' : 'Copy' }}
-                                    </button>
-                                </div>
-                                <pre
-                                    :class="['px-4 py-3 text-xs font-mono whitespace-pre-wrap leading-relaxed', isDark ? 'text-gray-300' : 'text-gray-700']">{{ example.prompt }}</pre>
-                            </div>
-                        </div>
-
-                        <ul :class="['text-xs space-y-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                            <li class="flex gap-2"><span class="text-violet-500 flex-shrink-0">→</span> Add <span
-                                    class="font-mono">[[inner_voice]]</span> to the main preset's system prompt where
-                                you want the voice to appear.</li>
-                            <li class="flex gap-2"><span class="text-violet-500 flex-shrink-0">→</span> The voice preset
-                                does not need to be active or in a loop — it's called silently.</li>
-                            <li class="flex gap-2"><span class="text-violet-500 flex-shrink-0">→</span> Use a fast cheap
-                                model — the output is short by design.</li>
-                        </ul>
-                    </div>
-                </Transition>
-            </div>
-
-            <!-- Voice context limit -->
-            <div>
-                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
-                    {{ t('p_modal_voice_context_limit') }}
-                </label>
-                <input :value="modelValue.voice_context_limit ?? 5"
-                    @input="updateField('voice_context_limit', parseNumber($event.target.value))" type="number" min="0"
-                    max="20" step="1" :class="inputClass" :placeholder="t('p_modal_voice_context_limit_placeholder')" />
-                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
-                    {{ t('p_modal_voice_context_limit_desc') }}
-                </p>
-                <div v-if="errors.voice_context_limit" class="text-red-500 text-xs mt-1">
-                    {{ errors.voice_context_limit }}
-                </div>
-            </div>
-
             <!-- Cycle Inner Voice -->
-            <div class="mt-6">
+            <div class="border-t pt-4" :class="isDark ? 'border-gray-600' : 'border-gray-200'">
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
                     {{ t('p_modal_cycle_prompt_preset') }}
                 </label>
@@ -307,6 +212,50 @@
                     {{ errors.voice_mp_commands }}
                 </div>
             </div>
+
+            <!-- Spawn info — only for spawned presets -->
+            <div v-if="modelValue.is_spawned" class="border-t pt-4"
+                :class="isDark ? 'border-gray-600' : 'border-gray-200'">
+
+                <h6
+                    :class="['text-sm font-medium mb-3 flex items-center gap-2', isDark ? 'text-white' : 'text-gray-900']">
+                    <!-- иконка "инструмент" -->
+                    <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    {{ t('p_modal_spawn_info') }}
+                </h6>
+
+                <div class="space-y-3">
+                    <!-- Parent preset -->
+                    <div>
+                        <label
+                            :class="['block text-xs font-medium mb-1 opacity-70', isDark ? 'text-white' : 'text-gray-700']">
+                            {{ t('p_modal_spawn_parent') }}
+                        </label>
+                        <div :class="[
+                            'px-3 py-2 rounded-lg text-sm flex items-center gap-2',
+                            isDark ? 'bg-gray-600 text-gray-200' : 'bg-gray-100 text-gray-700'
+                        ]">
+                            <svg class="w-4 h-4 opacity-50 flex-shrink-0" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18" />
+                            </svg>
+                            <span>{{ parentPresetName }}</span>
+                        </div>
+                    </div>
+
+                    <!-- Lifecycle hint -->
+                    <p :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        {{ t('p_modal_spawn_lifecycle_hint') }}
+                    </p>
+                </div>
+            </div>
+
 
         </div>
     </div>
@@ -397,53 +346,18 @@ const otherPresets = computed(() =>
     props.availablePresets.filter(p => p.id !== props.modelValue.id)
 );
 
+// Find the name of the parent preset by its ID
+const parentPresetName = computed(() => {
+    if (!props.modelValue.parent_preset_id) return '—';
+    const parent = props.availablePresets.find(
+        p => p.id === props.modelValue.parent_preset_id
+    );
+    return parent ? parent.name : `#${props.modelValue.parent_preset_id}`;
+});
+
+
 const onRagPresetChange = (value) => {
     updateField('rag_preset_id', value ? parseInt(value) : null);
 };
 
-const showVoiceHint = ref(false);
-const copiedVoice = ref(null);
-
-const voiceExamples = [
-    {
-        label: 'Advisor',
-        prompt: `You are the agent's inner advisor.
-Given the conversation below, offer ONE short practical suggestion
-or question the agent should consider before responding.
-Maximum 2 sentences. No preamble.`
-    },
-    {
-        label: 'Conscience',
-        prompt: `You are the agent's conscience.
-If you sense any ethical concern, bias, or potential harm in the conversation,
-raise it briefly. If everything seems fine, stay silent (output nothing).
-Maximum 1 sentence.`
-    },
-    {
-        label: 'Skeptic',
-        prompt: `You are the agent's inner skeptic.
-Identify ONE assumption or weak point in the current reasoning.
-Be blunt. Maximum 1 sentence.`
-    },
-    {
-        label: 'Muse',
-        prompt: `You are the agent's creative muse.
-Offer ONE unexpected angle, metaphor, or idea related to the conversation.
-Maximum 1 sentence. Be surprising.`
-    },
-];
-
-const copyVoicePrompt = async (example) => {
-    try {
-        await navigator.clipboard.writeText(example.prompt);
-        copiedVoice.value = example.label;
-        setTimeout(() => { copiedVoice.value = null; }, 2000);
-    } catch {
-        copiedVoice.value = null;
-    }
-};
-
-const onVoicePresetChange = (value) => {
-    updateField('voice_preset_id', value ? parseInt(value) : null);
-};
 </script>

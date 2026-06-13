@@ -23,6 +23,12 @@ use Psr\Log\LoggerInterface;
  * persists the distilled records with the original date, and removes
  * the originals.
  *
+ * Scope: operates ONLY on the default domain (VectorMemory::DEFAULT_DOMAIN,
+ * normally "global"). All other domains are agent-managed namespaces —
+ * cold accumulators that the agent curates explicitly. The default domain
+ * is the hot, distillable layer where unstructured kristallisations land
+ * and need periodic compression.
+ *
  * Injects the defrag prompt via additionalParams['system_prompt_override'],
  * which AiModelPromptTrait reads instead of the preset's active prompt.
  * No changes required to providers or the request interface.
@@ -55,10 +61,14 @@ class DefragService implements DefragServiceInterface
         $prompt     = $this->resolvePrompt($preset, $keepPerDay);
         $timezone   = config('app.timezone', 'UTC');
 
-        $recordsBefore = $this->vectorMemoryModel->where('preset_id', $preset->id)->count();
+        $recordsBefore = $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
+            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
+            ->count();
 
         $days = $this->vectorMemoryModel
             ->where('preset_id', $preset->id)
+            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
             ->selectRaw("DATE(CONVERT_TZ(created_at, 'UTC', ?)) as day, COUNT(*) as cnt", [$timezone])
             ->groupBy('day')
             ->havingRaw('cnt > ?', [$keepPerDay])
@@ -80,7 +90,10 @@ class DefragService implements DefragServiceInterface
             }
         }
 
-        $recordsAfter = $this->vectorMemoryModel->where('preset_id', $preset->id)->count();
+        $recordsAfter = $this->vectorMemoryModel
+            ->where('preset_id', $preset->id)
+            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
+            ->count();
 
         $result = [
             'days_processed'  => $daysProcessed,
@@ -122,6 +135,7 @@ class DefragService implements DefragServiceInterface
     ): void {
         $memories = $this->vectorMemoryModel
             ->where('preset_id', $preset->id)
+            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
             ->whereRaw("DATE(CONVERT_TZ(created_at, 'UTC', ?)) = ?", [$timezone, $day])
             ->orderBy('created_at', 'asc')
             ->get();
@@ -173,6 +187,7 @@ class DefragService implements DefragServiceInterface
 
                 $memory = $this->vectorMemoryModel->newInstance([
                     'preset_id'    => $preset->id,
+                    'domain'       => VectorMemory::DEFAULT_DOMAIN,
                     'content'      => $text,
                     'tfidf_vector' => [],
                     'keywords'     => [],

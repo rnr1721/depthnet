@@ -25,11 +25,16 @@ class TerminalService implements TerminalServiceInterface
     /** Name of the tmux session inside the container */
     private const TMUX_SESSION = 'agent';
 
-    /**
-     * Known tmux special key names (case-insensitive).
-     * These are passed bare to send-keys without quoting.
-     */
-    private const SPECIAL_KEY_PATTERN = '/^(C-[a-z\[\]\\\\^_]|M-[a-zA-Z]|\^[A-Z]|Up|Down|Left|Right|Home|End|NPage|PPage|Enter|Space|Tab|BSpace|Escape|Esc|F([1-9]|1[0-9]|20))$/i';
+    private const SPECIAL_KEYS = [
+        'Up', 'Down', 'Left', 'Right',
+        'Home', 'End', 'NPage', 'PPage',
+        'Enter', 'Space', 'Tab', 'BSpace',
+        'Escape', 'Esc',
+    ];
+
+    private const CTRL_META_PATTERN = '/^(C-[a-z\[\]\\\\^_]|M-[a-zA-Z]|\^[A-Z]|F([1-9]|1[0-9]|20))$/i';
+
+    private const DEFAULT_PROMPT_PATTERN = '/(?:^|\n)[^\n]*[$#>]\s*$/';
 
     public function __construct(
         protected SandboxManagerInterface $sandboxManager,
@@ -75,14 +80,20 @@ class TerminalService implements TerminalServiceInterface
         string $user,
         int    $timeout,
         int    $delayMs,
-        int    $captureLines
+        int    $captureLines,
+        bool   $waitForPrompt = true,
+        ?string $promptPattern = null
     ): ?string {
-        $sendError = $this->sendKeys($sandboxId, $command, $user, $timeout, isCommand: true);
+        $sendError = $this->sendKeys($sandboxId, $command, $user, $timeout, true);
         if ($sendError) {
             return null;
         }
 
-        usleep($delayMs * 1000);
+        if ($waitForPrompt) {
+            $this->waitForPrompt($sandboxId, $user, $timeout, $delayMs, $promptPattern);
+        } else {
+            usleep($delayMs * 1000);
+        }
 
         return $this->captureScreen($sandboxId, $user, $timeout, $captureLines);
     }
@@ -96,7 +107,7 @@ class TerminalService implements TerminalServiceInterface
         int    $delayMs,
         int    $captureLines
     ): ?string {
-        $sendError = $this->sendKeys($sandboxId, $input, $user, $timeout, isCommand: false);
+        $sendError = $this->sendKeys($sandboxId, $input, $user, $timeout, true);
         if ($sendError) {
             return null;
         }
@@ -169,24 +180,15 @@ class TerminalService implements TerminalServiceInterface
     /**
      * Build and send a tmux send-keys command.
      *
-     * Three formats are supported:
-     *
-     *   1. Pure special key(s):  "C-c"  "Up"  "F10"  "Enter"
+     * Supported formats:
+     *   1. Pure special keys:  "C-c", "Up Down", "F10"
      *      → tmux send-keys -t agent C-c
-     *      → tmux send-keys -t agent Up
-     *      Multiple keys space-separated: "C-b d" → two separate keys
-     *
-     *   2. Mixed — text | Key1 Key2:  "yes | Enter"  "q | Enter"
-     *      → tmux send-keys -t agent 'yes' Enter
-     *      The pipe separates the literal text from trailing key names.
-     *
-     *   3. Plain text (isCommand=true):
-     *      → tmux send-keys -t agent 'ls -la' Enter
-     *      Enter is appended automatically.
-     *
-     *   4. Plain text (isCommand=false, no pipe):
-     *      → tmux send-keys -t agent 'text'
-     *      No Enter — caller decides whether to add it.
+     *   2. Mixed: "text | Enter", "q | Enter"
+     *      → tmux send-keys -t agent -l 'text' Enter
+     *   3. Plain text with Enter: "ls -la", "yes"
+     *      → tmux send-keys -t agent -l 'ls -la' Enter
+     *   4. Plain text without Enter (appendEnter=false):
+     *      → tmux send-keys -t agent -l 'text'
      *
      * Returns null on success, error string on failure.
      */
@@ -195,57 +197,91 @@ class TerminalService implements TerminalServiceInterface
         string $input,
         string $user,
         int    $timeout,
-        bool   $isCommand = false
+        bool $appendEnter = false
     ): ?string {
-        $input = trim($input);
-
-        $parts   = $this->buildSendKeysParts($input, $isCommand);
+        $input = rtrim($input, "\r\n");
+        $parts = $this->buildSendKeysParts($input, $appendEnter);
         $session = self::TMUX_SESSION;
-        $cmd     = "tmux send-keys -t {$session} " . implode(' ', $parts);
 
-        $result = $this->exec($sandboxId, $cmd, $user, $timeout);
+        // Separating: literal text and control keys
+        $literal = [];
+        $controls = [];
+        $isLiteral = false;
 
-        if ($result === null) {
-            return 'Error: Failed to send input to terminal session.';
+        foreach ($parts as $part) {
+            if ($part === '-l') {
+                $isLiteral = true;
+                continue;
+            }
+            if ($isLiteral) {
+                $literal[] = $part;
+                $isLiteral = false;
+            } else {
+                $controls[] = $part;
+            }
+        }
+
+        // 1. Sending literal text
+        if (!empty($literal)) {
+            $cmd = "tmux send-keys -t {$session} -l " . implode(' ', $literal);
+            $result = $this->exec($sandboxId, $cmd, $user, $timeout);
+            if ($result === null) {
+                return 'Error: Failed to send literal text to terminal.';
+            }
+            usleep(50 * 1000); // 50ms — даём tmux обработать literal
+        }
+
+        // 2. Sending literal text
+        if (!empty($controls)) {
+            $cmd = "tmux send-keys -t {$session} " . implode(' ', $controls);
+            $result = $this->exec($sandboxId, $cmd, $user, $timeout);
+            if ($result === null) {
+                return 'Error: Failed to send keys to terminal.';
+            }
+            usleep(50 * 1000); // 50ms — allow the shell to process keypresses
         }
 
         return null;
     }
 
     /**
-     * Parse input and return the tmux send-keys argument list.
+     * Build tmux send-keys arguments.
+     * Uses -l (literal) for text to avoid shell escaping edge cases.
      *
      * @return string[]
      */
-    private function buildSendKeysParts(string $input, bool $isCommand): array
+    private function buildSendKeysParts(string $input, bool $appendEnter = false): array
     {
-        // Empty input → just Enter
         if ($input === '') {
             return ['Enter'];
         }
 
-        // Check for pipe separator: "text | Key1 Key2"
-        if (str_contains($input, '|')) {
+        if (preg_match('/\s\|\s/', $input)) {
             $pipePos  = strrpos($input, '|');
             $textPart = trim(substr($input, 0, $pipePos));
             $keysPart = trim(substr($input, $pipePos + 1));
 
-            $parts = [];
+            $keyTokens = preg_split('/\s+/', $keysPart);
+            $allKeys = !empty($keyTokens) && array_reduce(
+                $keyTokens,
+                fn (bool $carry, string $t) => $carry && $this->isSpecialKey($t),
+                true
+            );
 
-            if ($textPart !== '') {
-                $parts[] = $this->quoteText($textPart);
-            }
-
-            foreach (preg_split('/\s+/', $keysPart) as $key) {
-                if ($key !== '') {
-                    $parts[] = $key; // bare key names, not quoted
+            if ($allKeys) {
+                $parts = [];
+                if ($textPart !== '') {
+                    // -l — literal mode: не требует shell escaping
+                    $parts[] = '-l';
+                    $parts[] = $this->quoteText($textPart);
                 }
+                foreach ($keyTokens as $key) {
+                    $parts[] = $key;
+                }
+                return $parts;
             }
-
-            return $parts;
         }
 
-        // Pure special key(s) — space-separated list: "C-c"  "Up Down"  "F10"
         $tokens = preg_split('/\s+/', $input);
         $allSpecial = !empty($tokens) && array_reduce(
             $tokens,
@@ -254,14 +290,14 @@ class TerminalService implements TerminalServiceInterface
         );
 
         if ($allSpecial) {
-            return $tokens; // bare, no quotes, no Enter
+            return $tokens;
         }
 
-        // Plain text
-        $parts = [$this->quoteText($input)];
+        // Plain text — literal mode
+        $parts = ['-l', $this->quoteText($input)];
 
-        if ($isCommand) {
-            $parts[] = 'Enter'; // commands need Enter
+        if ($appendEnter) {
+            $parts[] = 'Enter';
         }
 
         return $parts;
@@ -280,7 +316,8 @@ class TerminalService implements TerminalServiceInterface
      */
     private function isSpecialKey(string $token): bool
     {
-        return (bool) preg_match(self::SPECIAL_KEY_PATTERN, $token);
+        return in_array($token, self::SPECIAL_KEYS, true)
+            || (bool) preg_match(self::CTRL_META_PATTERN, $token);
     }
 
     /**
@@ -309,4 +346,72 @@ class TerminalService implements TerminalServiceInterface
             return null;
         }
     }
+
+    /**
+     * Wait for the shell prompt to appear on the terminal screen.
+     * This is a heuristic that checks the last 2 lines of the screen for a prompt pattern.
+     * It polls every 200ms until it sees a prompt or reaches maxWaitMs.
+     * If the prompt is detected before delayMs, it waits the remaining time to ensure a consistent delay.
+     *
+     * @param  string   $sandboxId
+     * @param  string   $user
+     * @param  int      $timeout
+     * @param  int      $delayMs     Total milliseconds to wait (including time until prompt appears)
+     */
+    private function waitForPrompt(
+        string $sandboxId,
+        string $user,
+        int    $timeout,
+        int    $delayMs,
+        ?string $promptPattern = null
+    ): void {
+        $pattern = $promptPattern ?? self::DEFAULT_PROMPT_PATTERN;
+        $maxWaitMs = max($delayMs, 5000);
+        $pollIntervalMs = 200;
+        $elapsed = 0;
+
+        while ($elapsed < $maxWaitMs) {
+            usleep($pollIntervalMs * 1000);
+            $elapsed += $pollIntervalMs;
+
+            $screen = $this->captureScreenLow($sandboxId, $user, $timeout, 2);
+
+            if ($screen !== null && preg_match($pattern, rtrim($screen, "\r\n"))) {
+                usleep(200 * 1000);
+                return;
+            }
+        }
+
+        usleep(max(0, $delayMs * 1000 - $elapsed * 1000));
+    }
+
+    /**
+     * Capture screen without the extra logging and trimming of captureScreen().
+     * Used internally for waitForPrompt to check the last 2 lines of the screen.
+     *
+     * @param  string   $sandboxId
+     * @param  string   $user
+     * @param  int      $timeout
+     * @param  int      $lines       Lines to capture
+     * @return string|null           Screen content, or null if session does not exist
+     */
+    private function captureScreenLow(
+        string $sandboxId,
+        string $user,
+        int    $timeout,
+        int    $lines
+    ): ?string {
+        $cmd = 'tmux capture-pane -t ' . self::TMUX_SESSION . ' -p 2>/dev/null';
+        $output = $this->exec($sandboxId, $cmd, $user, $timeout);
+
+        if ($output === null || $output === '') {
+            return null;
+        }
+
+        $allLines = explode("\n", rtrim($output));
+        $lastLines = array_slice($allLines, -$lines);
+
+        return implode("\n", $lastLines);
+    }
+
 }

@@ -2,23 +2,27 @@
 
 namespace App\Services\Agent\Enricher;
 
+use App\Contracts\Agent\Enricher\EnricherPayloadInterface;
 use App\Contracts\Agent\Enricher\EnricherResponseInterface;
 use App\Models\AiPreset;
 
 class EnricherResponse implements EnricherResponseInterface
 {
     /**
-     * @param AiPreset            $mainPreset   Main preset being enriched
-     * @param AiPreset|null       $voicePreset  Secondary preset (RAG, voice, etc.)
-     * @param string|null         $response     Text ready for shortcode injection
-     * @param array<string, true> $retrievedIds Namespaced IDs of retrieved records
-     *                                          for cross-config deduplication
+     * @param AiPreset                       $mainPreset   Main preset being enriched
+     * @param AiPreset|null                  $voicePreset  Secondary preset (RAG, voice, etc.)
+     * @param string|null                    $response     Text ready for shortcode injection
+     * @param array<string, true>            $retrievedIds Namespaced IDs of retrieved records
+     *                                                     for cross-config deduplication
+     * @param EnricherPayloadInterface|null  $responseData Structured payload accompanying the text response
+     *                                                     (RagDataInterface for RAG enrichers, etc.)
      */
     public function __construct(
-        private AiPreset  $mainPreset,
-        private ?AiPreset $voicePreset = null,
-        private ?string   $response = null,
-        private array     $retrievedIds = [],
+        private AiPreset                  $mainPreset,
+        private ?AiPreset                 $voicePreset = null,
+        private ?string                   $response = null,
+        private array                     $retrievedIds = [],
+        private ?EnricherPayloadInterface $responseData = null,
     ) {
     }
 
@@ -28,6 +32,14 @@ class EnricherResponse implements EnricherResponseInterface
     public function getResponse(): ?string
     {
         return $this->response;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getResponseData(): ?EnricherPayloadInterface
+    {
+        return $this->responseData;
     }
 
     /**

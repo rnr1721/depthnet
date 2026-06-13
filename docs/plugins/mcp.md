@@ -16,6 +16,17 @@ Then enable the **MCP** plugin in the preset's plugin settings.
 | **Connection whitelist** | If set, the agent can only connect to domains listed here (one per line). Leave empty to allow any domain when agent-connect is enabled. |
 | **Tools cache TTL (minutes)** | How long to cache the tools list fetched from each server (1–1440). Default: `60`. |
 
+## Transport
+
+DepthNet supports both MCP transport protocols. The transport is selected per-server when adding it in the **MCP Servers** tab.
+
+| Transport | When to use |
+|---|---|
+| **Streamable HTTP** (default) | MCP spec 2025-03-26. The modern transport used by most current servers — a single endpoint with request/response over POST. |
+| **Legacy SSE** | MCP spec 2024-11-05. Older servers that expose an `/sse` endpoint: the client opens a persistent stream, posts requests to a message endpoint discovered from that stream, and reads responses back through it. |
+
+Leave it on **Streamable HTTP** unless the server only speaks legacy SSE — a good hint is a connection URL ending in `/sse`. When a legacy server later upgrades to Streamable HTTP, just switch the transport in the UI; nothing else changes.
+
 ## Commands
 
 **Discovering servers and tools:**
@@ -66,8 +77,38 @@ MCP dramatically extends what an agent can do without any custom plugin code. Co
 
 The agent can use `[mcp list]` to orient itself at the start of a task, then call specific tools as needed across multiple cycles.
 
+## Image results (vision)
+
+Some MCP tools return images rather than text — a phone camera tool, a screenshot
+service, a chart generator. When a tool returns an image block, DepthNet resolves
+it to a text description through the preset's **[vision capability](../capabilities/vision.md)**,
+so the agent perceives the image as text rather than receiving raw data it cannot read.
+
+How the description is delivered depends on the **"Route recognized media to input
+pool"** (`send_to_pool`) setting on the vision capability:
+
+- **Off (default)** — the description appears inline in the tool result, e.g.
+  `[image: image/jpeg]` followed by what the model saw.
+- **On, with the preset in pool input mode** — the description is pushed into the
+  input pool under the source name `mcp_<server_key>`. If that source is configured
+  as a **known source**, it flows into the system prompt via `[[known_sources]]` —
+  the agent perceives the image as part of its own sensory state (e.g. "what the
+  camera sees") rather than as a tool result.
+
+This requires the vision capability to be configured and active for the preset. If
+it isn't, the agent receives a short note that an image arrived but could not be
+described, instead of silently losing it.
+
+> Example: an agent with a phone-mcp server connected calls
+> `[mcp phone]take_photo[/mcp]`. The returned image is described by the vision
+> provider; with `send_to_pool` on and `mcp_phone` set as a known source, the
+> description surfaces in the prompt as a live sensory input.
+
 ## Notes
 
 - Tool lists are cached per server to avoid redundant network calls. Use `[mcp tools]server_key` to force a refresh and update the cache.
 - Server health status is tracked automatically — a failed tool call marks the server as unhealthy until it succeeds again.
 - Servers added by the agent via `[mcp connect]` are flagged as agent-added, which makes them easy to identify and review in the UI.
+- Legacy SSE servers are stateless per call in DepthNet — each tool call opens a short-lived stream with a fresh session. This is slightly less efficient than Streamable HTTP (an extra handshake per call) but requires no persistent connection, which suits the per-cycle execution model. Imperceptible on a local network.
+- Tools that return images have them resolved to text via the vision capability; see Vision. Without vision configured, image results
+are noted but not described.

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @property int $id
  * @property int $preset_id
+ * @property string $domain
  * @property string $content
  * @property array $tfidf_vector
  * @property array $keywords
@@ -23,8 +24,15 @@ class VectorMemory extends Model implements TfIdfDocumentInterface
 {
     use HasFactory;
 
+    /**
+     * Default domain assigned when none is specified.
+     * Existing records before the migration also fall into this domain.
+     */
+    public const DEFAULT_DOMAIN = 'global';
+
     protected $fillable = [
         'preset_id',
+        'domain',
         'content',
         'tfidf_vector',
         'embedding',
@@ -47,6 +55,10 @@ class VectorMemory extends Model implements TfIdfDocumentInterface
         'updated_at' => 'datetime'
     ];
 
+    protected $attributes = [
+        'domain' => self::DEFAULT_DOMAIN,
+    ];
+
     /**
      * Get the preset that owns this vector memory
      */
@@ -61,6 +73,24 @@ class VectorMemory extends Model implements TfIdfDocumentInterface
     public function scopeForPreset($query, int $presetId)
     {
         return $query->where('preset_id', $presetId);
+    }
+
+    /**
+     * Scope to filter by domain(s).
+     *
+     * @param  string|string[]  $domains  Single domain or list. Empty array = no filter.
+     */
+    public function scopeInDomains($query, string|array $domains)
+    {
+        if (is_string($domains)) {
+            return $query->where('domain', $domains);
+        }
+
+        if (empty($domains)) {
+            return $query;
+        }
+
+        return $query->whereIn('domain', $domains);
     }
 
     /**

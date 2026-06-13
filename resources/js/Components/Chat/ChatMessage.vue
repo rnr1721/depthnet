@@ -157,16 +157,24 @@
           <div class="text-xs text-indigo-200 opacity-75 mb-1">
             {{ src.source }}
           </div>
-          <div class="text-sm leading-relaxed whitespace-pre-wrap">{{ src.content }}</div>
+          <div class="text-sm leading-relaxed message-content" v-html="poolSourceHtml(src.content)"></div>
           {{ formatSourceTime(src.timestamp) }}
           <span v-if="src.ago" :title="t('chat_pool_ago_hint')" class="cursor-help">
             ({{ src.ago }})
+          </span>
+          <span v-if="src.pulses_ago !== undefined" class="text-xs opacity-50 ml-1" :title="src.pulses_ago + ' pulses'">
+            ⏱
           </span>
         </div>
       </div>
 
       <!-- Regular message content -->
-      <div v-else class="message-content leading-relaxed" v-html="formattedContent"></div>
+      <div v-else-if="!contentDuplicatedInSystem" class="message-content leading-relaxed" v-html="formattedContent">
+      </div>
+
+      <div v-else :class="['text-xs italic opacity-50', isDark ? 'text-gray-500' : 'text-gray-400']">
+        {{ t('chat_response_shown_below') || 'Response shown below' }}
+      </div>
 
       <!-- Commands -->
       <div v-for="command in extractedCommands" :key="command.id" :class="[
@@ -178,7 +186,11 @@
           isDark ? 'text-blue-300' : 'text-blue-700 hover:text-blue-800'
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
-            :class="{ 'rotate-90': commandStates[command.id] }">▶</span>
+            :class="{ 'rotate-90': commandStates[command.id] }">
+            <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5l8 7-8 7V5z" />
+            </svg>
+          </span>
           <span class="mr-2">{{ command.icon }}</span>
           <span class="flex-1">{{ command.name }}</span>
 
@@ -223,7 +235,11 @@
           isDark ? 'text-blue-300' : 'text-blue-700 hover:text-blue-800'
         ]">
           <span class="mr-2 transition-transform duration-300 ease-out"
-            :class="{ 'rotate-90': commandStates[toolCall.id] }">▶</span>
+            :class="{ 'rotate-90': commandStates[toolCall.id] }">
+            <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5l8 7-8 7V5z" />
+            </svg>
+          </span>
           <span class="mr-2">{{ toolCall.icon }}</span>
           <span class="flex-1">{{ toolCall.displayName }}</span>
 
@@ -261,7 +277,11 @@
         'text-sm mt-2 mb-2 px-2 py-1 rounded transition-colors flex items-center',
         isDark ? 'text-blue-400 hover:text-blue-300 hover:bg-gray-700' : 'text-blue-600 hover:text-blue-800 hover:bg-blue-50'
       ]">
-        <span class="mr-1 transition-transform duration-200" :class="{ 'rotate-90': isResultsExpanded }">▶</span>
+        <span class="mr-1 transition-transform duration-200" :class="{ 'rotate-90': isResultsExpanded }">
+          <svg class="w-5 h-5 inline" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5l8 7-8 7V5z" />
+          </svg>
+        </span>
         {{ isResultsExpanded ? t('chat_agent_results_show') : t('chat_agent_results_hide') }} {{ t('chat_agent_results')
         }}
       </button>
@@ -282,6 +302,9 @@
       ]">
         {{ formatTime(message.created_at) }}
       </div>
+      <!-- File attachments -->
+      <MessageAttachments v-if="message.metadata?.attachments?.length" :metadata="message.metadata" :isDark="isDark" />
+
     </div>
   </div>
 </template>
@@ -291,6 +314,7 @@ import { computed, ref, reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import MessageAttachments from '@/Components/Chat/MessageAttachments.vue';
 
 const { t } = useI18n();
 
@@ -316,6 +340,10 @@ const copiedSystemPrompt = ref(false);
 
 const hasSystemPrompt = computed(() =>
   ['assistant', 'thinking', 'command'].includes(props.message.role)
+);
+
+const contentDuplicatedInSystem = computed(() =>
+  props.message.metadata?.content_duplicated_in_system === true
 );
 
 async function openSystemPrompt() {
@@ -406,6 +434,9 @@ const pluginIcons = {
 
   // MCP
   'mcp': '🔌',
+
+  // Speak
+  'speak': '💬',
 };
 
 // ─── TTS helpers ─────────────────────────────────────────────────────────────
@@ -545,7 +576,7 @@ const extractedCommands = computed(() => {
   while ((match = commandRegex.exec(userContent)) !== null) {
     const [, plugin, method, commandContent] = match;
 
-    if (plugin === 'agent' && method === 'speak') {
+    if (plugin === 'agent' && !method) {
       continue;
     }
 
@@ -562,81 +593,76 @@ const extractedToolCalls = computed(() => {
   const content = props.message.content;
   if (!content) return [];
 
-  // Find JSON containing "tool_calls" — either array or object with tool_calls key
+  // Find the tool_calls JSON — try to parse the whole content first
   let toolCallsData = null;
 
-  // Try to find {...} or [...] containing "tool_calls"
-  const jsonMatches = content.match(/(\{[^{}]*"tool_calls"\s*:\s*\[[^\]]*\][^{}]*\}|\[[^\]]*"type"\s*:\s*"function"[^\]]*\])/g);
-  if (!jsonMatches) return [];
-
-  for (const candidate of jsonMatches) {
-    try {
-      const parsed = JSON.parse(candidate);
-      // Normalize to array of calls
-      if (Array.isArray(parsed)) {
-        // Anthropic-like format: array of objects with name, input fields
-        if (parsed[0]?.type === 'tool_use') {
-          toolCallsData = parsed.map(tc => ({
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.input
-          }));
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.tool_calls) {
+      toolCallsData = parsed.tool_calls.map(tc => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: JSON.parse(tc.function.arguments || '{}')
+      }));
+    }
+  } catch {
+    // Not pure JSON — try to find JSON substring
+    const start = content.indexOf('{"tool_calls"');
+    if (start !== -1) {
+      // Find matching closing brace
+      let depth = 0;
+      let end = -1;
+      for (let i = start; i < content.length; i++) {
+        if (content[i] === '{') depth++;
+        else if (content[i] === '}') {
+          depth--;
+          if (depth === 0) { end = i + 1; break; }
         }
-        // OpenAI bare array
-        else if (parsed[0]?.type === 'function') {
-          toolCallsData = parsed.map(tc => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: JSON.parse(tc.function.arguments || '{}')
-          }));
-        }
-      } else if (parsed.tool_calls) {
-        // OpenAI wrapped: {tool_calls: [...]}
-        toolCallsData = parsed.tool_calls.map(tc => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: JSON.parse(tc.function.arguments || '{}')
-        }));
       }
-      if (toolCallsData) break;
-    } catch (e) {
-      // invalid JSON, skip
+      if (end !== -1) {
+        try {
+          const parsed = JSON.parse(content.substring(start, end));
+          if (parsed.tool_calls) {
+            toolCallsData = parsed.tool_calls.map(tc => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: JSON.parse(tc.function.arguments || '{}')
+            }));
+          }
+        } catch { }
+      }
     }
   }
 
   if (!toolCallsData) return [];
 
-  // Фильтруем: убираем agent speak
+  // Filtering agent speak - everything else remains unchanged
   const filteredCalls = toolCallsData.filter(tc => {
     const name = tc.name?.toLowerCase();
-    const method = tc.arguments?.method?.toLowerCase();
-    // Скрываем agent speak, но оставляем agent handoff, pause, resume и т.д.
-    return !(name === 'agent' && method === 'speak');
+    if (name === 'speak') {
+      const content = tc.arguments?.content || '';
+      return /^[a-z][a-z0-9_]*:/.test(content.trim()); // handoff = show
+    }
+    return true; // all other calls are shown by default
   });
 
   if (filteredCalls.length === 0) return [];
 
-  // Convert to a format suitable for display
   return filteredCalls.map((tc, idx) => {
     const method = tc.arguments?.method || '';
     const argsContent = (() => {
-      const { method, ...rest } = tc.arguments || {};
-      if (Object.keys(rest).length === 1 && rest.content) {
-        return rest.content;
-      }
+      const { method: _, ...rest } = tc.arguments || {};
+      if (Object.keys(rest).length === 1 && rest.content) return rest.content;
       return JSON.stringify(rest, null, 2);
     })();
 
     const toolCallId = `tc_${props.message.id}_${idx}`;
-
-    if (!(toolCallId in commandStates)) {
-      commandStates[toolCallId] = props.showCommandResults;
-    }
+    if (!(toolCallId in commandStates)) commandStates[toolCallId] = props.showCommandResults;
 
     return {
       id: toolCallId,
       plugin: tc.name,
-      method: method,
+      method,
       displayName: method ? `${tc.name} ${method}` : tc.name,
       content: argsContent,
       rawArguments: tc.arguments,
@@ -646,10 +672,29 @@ const extractedToolCalls = computed(() => {
 });
 
 const formattedContent = computed(() => {
+
   let content = props.message.content;
 
-  content = content.replace(/\{(?:[^{}]*"tool_calls"\s*:\s*\[[^\]]*\][^{}]*)\}/g, '');
-  content = content.replace(/\[\s*\{[^]]*"type"\s*:\s*"function"[^]]*\}\s*\]/g, '');
+  // Chips collected at function scope so post-parse replacement sees them
+  // regardless of the role branch.
+  const photoBlocks = [];
+  const fileBlocks = [];
+
+  // Remove tool_calls JSON block using depth counter
+  const tcStart = content.indexOf('{"tool_calls"');
+  if (tcStart !== -1) {
+    let depth = 0, end = -1;
+    for (let i = tcStart; i < content.length; i++) {
+      if (content[i] === '{') depth++;
+      else if (content[i] === '}') {
+        depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    if (end !== -1) {
+      content = content.substring(0, tcStart) + content.substring(end);
+    }
+  }
 
   const commandResultsMarker = '<system_output_results>';
   let userContent = content;
@@ -659,35 +704,53 @@ const formattedContent = computed(() => {
     if (lastIndex !== -1) userContent = content.substring(0, lastIndex).trim();
   }
 
-  userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
-  userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
-  userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  userContent = userContent.replace(
-    /___FAKE_AGENT_MARKER___/g,
-    `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
+  if (props.message.role === 'system') {
+    userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  } else {
+
+    // Extract ```photo``` and ```file``` blocks → placeholders → chips later.
+    userContent = userContent.replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
+      photoBlocks.push(inner.trim());
+      return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
+    });
+    userContent = userContent.replace(/```file\n([\s\S]*?)```/g, (m, inner) => {
+      fileBlocks.push(inner.trim());
+      return `___FILE_CHIP_${fileBlocks.length - 1}___`;
+    });
+
+    userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
+    userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
+    userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    userContent = userContent.replace(
+      /___FAKE_AGENT_MARKER___/g,
+      `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
       <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
     </span>`
-  );
-  userContent = userContent.replace(
-    /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1(?:\s+[a-z][a-z0-9_]*)?\])/g,
-    (match, plugin, method) => {
-      const methodDisplay = method ? ` ${method}` : '';
-      const pluginName = `${plugin}${methodDisplay}`;
-      return `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Unclosed command tag">
+    );
+    userContent = userContent.replace(
+      /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1(?:\s+[a-z][a-z0-9_]*)?\])/g,
+      (match, plugin, method) => {
+        const methodDisplay = method ? ` ${method}` : '';
+        const pluginName = `${plugin}${methodDisplay}`;
+        return `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Unclosed command tag">
         <span class="mr-1">⚠️</span>[${pluginName}]
       </span>`;
-    }
-  );
-  userContent = userContent.replace(
-    /<system_output_results>/g,
-    `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
+      }
+    );
+    userContent = userContent.replace(
+      /<system_output_results>/g,
+      `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
       <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
     </span>`
-  );
+    );
+  }
 
-  const userHtml = marked.parse(userContent, { breaks: true, gfm: true });
+  let userHtml = marked.parse(userContent, { breaks: true, gfm: true });
+  userHtml = injectChips(userHtml, photoBlocks, fileBlocks);
+
   return DOMPurify.sanitize(userHtml);
 });
+
 
 // ─── Methods ──────────────────────────────────────────────────────────────────
 
@@ -736,6 +799,70 @@ function getPluginIcon(pluginName, method = null) {
   // Return the icon from the mapping or a default one
   return pluginIcons[baseName] || '🛠️';
 }
+
+/**
+ * Render text that may contain ```photo``` / ```file``` markers into safe HTML
+ * with chips. Shared by pool sources (and reusable elsewhere).
+ */
+function renderPhotoChips(rawText) {
+  if (!rawText) return '';
+
+  const photoBlocks = [];
+  const fileBlocks = [];
+
+  let text = String(rawText);
+
+  text = text.replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
+    photoBlocks.push(inner.trim());
+    return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
+  });
+
+  text = text.replace(/```file\n([\s\S]*?)```/g, (m, inner) => {
+    fileBlocks.push(inner.trim());
+    return `___FILE_CHIP_${fileBlocks.length - 1}___`;
+  });
+
+  let html = marked.parse(text, { breaks: true, gfm: true });
+  html = injectChips(html, photoBlocks, fileBlocks);
+
+  return DOMPurify.sanitize(html);
+}
+
+/** Per-source rendered HTML for pool messages. */
+function poolSourceHtml(content) {
+  return renderPhotoChips(content);
+}
+
+/**
+ * Replace ___PHOTO_CHIP_n___ / ___FILE_CHIP_n___ placeholders in an HTML string
+ * with chip markup. Shared by formattedContent and renderPhotoChips.
+ */
+function injectChips(html, photoBlocks, fileBlocks) {
+  photoBlocks.forEach((desc, i) => {
+    const safe = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const chip = `<details class="photo-chip my-1">
+      <summary class="${props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
+        <span>📷</span><span>${t('chat_photo_shown') || 'Photo shown'}</span>
+      </summary>
+      <div class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-sm mt-1 pl-2 border-l-2 ${props.isDark ? 'border-teal-800' : 'border-teal-200'}">${safe}</div>
+    </details>`;
+    html = html.replace(`___PHOTO_CHIP_${i}___`, chip);
+  });
+
+  fileBlocks.forEach((body, i) => {
+    const safe = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const chip = `<details class="file-chip my-1">
+      <summary class="${props.isDark ? 'bg-sky-900 text-sky-200' : 'bg-sky-50 text-sky-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
+        <span>📄</span><span>${t('chat_file_shown') || 'File shown'}</span>
+      </summary>
+      <pre class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-xs mt-1 pl-2 border-l-2 ${props.isDark ? 'border-sky-800' : 'border-sky-200'} whitespace-pre-wrap">${safe}</pre>
+    </details>`;
+    html = html.replace(`___FILE_CHIP_${i}___`, chip);
+  });
+
+  return html;
+}
+
 </script>
 
 <style>

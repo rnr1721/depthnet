@@ -14,20 +14,24 @@ class AiPreset extends Model
     protected $table = "ai_presets";
 
     protected $fillable = [
+        'target_preset_id',
+        'target_plugins_whitelist',
+        'parent_preset_id',
+        'is_spawned',
         'name',
         'description',
         'engine_name',
         'active_prompt_id',
         'input_mode',
         'pool_relative_dates',
+        'pulse_dates',
         'preset_code',
         'preset_code_next',
         'pre_run_commands',
+        'turn_trigger',
         'defrag_enabled',
         'defrag_prompt',
         'defrag_keep_per_day',
-        'voice_preset_id',
-        'voice_context_limit',
         'cycle_prompt_preset_id',
         'cp_context_limit',
         'voice_mp_commands',
@@ -54,50 +58,120 @@ class AiPreset extends Model
 
 
     protected $casts = [
-        'pool_relative_dates' => 'boolean',
-        'engine_config'          => 'array',
-        'metadata'               => 'array',
-        'loop_interval'          => 'integer',
-        'active_prompt_id'       => 'integer',
-        'defrag_enabled'         => 'boolean',
-        'defrag_keep_per_day'    => 'integer',
-        'voice_preset_id'        => 'integer',
-        'voice_context_limit'    => 'integer',
-        'cycle_prompt_preset_id' => 'integer',
-        'cp_context_limit'       => 'integer',
-        'max_context_limit'      => 'integer',
-        'before_execution_wait'  => 'integer',
-        'allow_handoff_to'       => 'boolean',
-        'allow_handoff_from'     => 'boolean',
-        'rhasspy_enabled'        => 'boolean',
+        'target_preset_id'         => 'integer',
+        'parent_preset_id'         => 'integer',
+        'is_spawned'               => 'boolean',
+        'pool_relative_dates'      => 'boolean',
+        'pulse_dates'              => 'boolean',
+        'engine_config'            => 'array',
+        'metadata'                 => 'array',
+        'loop_interval'            => 'integer',
+        'active_prompt_id'         => 'integer',
+        'defrag_enabled'           => 'boolean',
+        'defrag_keep_per_day'      => 'integer',
+        'cycle_prompt_preset_id'   => 'integer',
+        'cp_context_limit'         => 'integer',
+        'max_context_limit'        => 'integer',
+        'before_execution_wait'    => 'integer',
+        'allow_handoff_to'         => 'boolean',
+        'allow_handoff_from'       => 'boolean',
+        'rhasspy_enabled'          => 'boolean',
         'rhasspy_incoming_enabled' => 'boolean',
-        'is_active'              => 'boolean',
-        'is_default'             => 'boolean',
-        'created_at'             => 'datetime',
-        'updated_at'             => 'datetime',
+        'is_active'                => 'boolean',
+        'is_default'               => 'boolean',
+        'created_at'               => 'datetime',
+        'updated_at'               => 'datetime',
     ];
 
 
     protected $attributes = [
-        'input_mode'             => 'pool',
-        'pool_relative_dates' => false,
-        'is_active'              => true,
-        'is_default'             => false,
-        'agent_result_mode'      => 'tool_calls',
-        'allow_handoff_to'       => true,
-        'allow_handoff_from'     => true,
-        'error_behavior'         => 'stop',
-        'before_execution_wait'  => 5,
-        'engine_config'          => '{}',
-        'metadata'               => '{}',
-        'plugins_disabled'       => '',
-        'voice_context_limit'    => 4,
-        'cp_context_limit'       => 5,
-        'voice_mp_commands'      => '',
-        'pre_run_commands'       => '',
-        'rhasspy_enabled'        => false,
+        'target_preset_id'         => null,
+        'target_plugins_whitelist' => null,
+        'is_spawned'               => false,
+        'parent_preset_id'         => null,
+        'input_mode'               => 'pool',
+        'pool_relative_dates'      => false,
+        'pulse_dates'              => false,
+        'is_active'                => true,
+        'is_default'               => false,
+        'agent_result_mode'        => 'tool_calls',
+        'allow_handoff_to'         => true,
+        'allow_handoff_from'       => true,
+        'error_behavior'           => 'stop',
+        'before_execution_wait'    => 5,
+        'engine_config'            => '{}',
+        'metadata'                 => '{}',
+        'plugins_disabled'         => '',
+        'cp_context_limit'         => 5,
+        'voice_mp_commands'        => '',
+        'pre_run_commands'         => '',
+        'turn_trigger'             => 'no_speak',
+        'rhasspy_enabled'          => false,
         'rhasspy_incoming_enabled' => false,
     ];
+
+    /**
+     * The preset whose plugin context this preset operates in.
+     * When set, plugin commands execute against the target preset's
+     * data space (memory, journal, etc.) instead of own.
+     */
+    public function targetPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'target_preset_id');
+    }
+
+    /**
+     * ID of the target preset for cross-preset execution.
+     * Null means operate in own context (default behaviour).
+     */
+    public function getTargetPresetId(): ?int
+    {
+        return $this->target_preset_id;
+    }
+
+    /**
+     * Raw whitelist string, e.g. "memory,journal,vector_memory".
+     * Null means no cross-preset execution is configured.
+     */
+    public function getTargetPluginsWhitelist(): ?string
+    {
+        return $this->target_plugins_whitelist;
+    }
+
+    /**
+     * Parsed whitelist as array.
+     * Returns empty array when null — no plugins whitelisted.
+     */
+    public function getTargetPluginsWhitelistArray(): array
+    {
+        if (empty($this->target_plugins_whitelist)) {
+            return [];
+        }
+
+        return array_values(
+            array_filter(
+                array_map('trim', explode(',', $this->target_plugins_whitelist))
+            )
+        );
+    }
+
+
+    /**
+     * Parent preset that spawned this one.
+     * Null for regular (non-spawned) presets.
+     */
+    public function parentPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'parent_preset_id');
+    }
+
+    /**
+     * Ephemeral child presets spawned by this preset.
+     */
+    public function spawnedPresets(): HasMany
+    {
+        return $this->hasMany(AiPreset::class, 'parent_preset_id');
+    }
 
 
     /**
@@ -135,6 +209,16 @@ class AiPreset extends Model
     }
 
     /**
+     * Attachment files (documents), related to preset
+     *
+     * @return HasMany
+     */
+    public function files(): HasMany
+    {
+        return $this->hasMany(File::class, 'preset_id');
+    }
+
+    /**
      * User who created this preset
      */
     public function creator(): BelongsTo
@@ -164,6 +248,16 @@ class AiPreset extends Model
     public function pluginConfigurations(): HasMany
     {
         return $this->hasMany(PresetPluginConfig::class, 'preset_id');
+    }
+
+    /**
+     * InnerVoice pipeline configs for this preset, ordered for execution
+     *
+     * @return HasMany
+     */
+    public function innerVoiceConfigs(): HasMany
+    {
+        return $this->hasMany(PresetInnerVoiceConfig::class, 'preset_id');
     }
 
     /**
@@ -219,29 +313,6 @@ class AiPreset extends Model
     }
 
     /**
-     * Voice preset: if set, this preset will receive hints from another preset that is optimized for voice interactions
-     */
-    public function voicePreset(): BelongsTo
-    {
-        return $this->belongsTo(AiPreset::class, 'voice_preset_id');
-    }
-
-    /**
-     * Whether Internal Voice enrichment is enabled for this preset.
-     * True when voice_preset_id is set and points to an existing preset.
-     */
-    public function hasVoice(): bool
-    {
-        return !is_null($this->voice_preset_id);
-    }
-
-    public function commandResults(): HasMany
-    {
-        return $this->hasMany(PresetCommandResult::class, 'preset_id')
-                    ->orderBy('created_at', 'asc');
-    }
-
-    /**
      * Get ID of the preset
      *
      * @return int
@@ -250,6 +321,23 @@ class AiPreset extends Model
     {
         return $this->id;
     }
+
+    /**
+     * Whether this preset was created by SpawnPlugin at runtime.
+     */
+    public function isSpawned(): bool
+    {
+        return $this->is_spawned;
+    }
+
+    /**
+     * ID of the parent preset, or null if this is a regular preset.
+     */
+    public function getParentPresetId(): ?int
+    {
+        return $this->parent_preset_id;
+    }
+
 
     /**
      * Get name of the preset
@@ -332,6 +420,11 @@ class AiPreset extends Model
         return $this->pool_relative_dates;
     }
 
+    public function getPulseDates(): bool
+    {
+        return $this->pulse_dates;
+    }
+
     public function getPluginsDisabled(): string
     {
         return $this->plugins_disabled ?? '';
@@ -409,16 +502,6 @@ class AiPreset extends Model
     }
 
     /**
-     * Context limit for Inner Voice in single mode
-     *
-     * @return integer
-     */
-    public function getVoiceContextLimit(): int
-    {
-        return $this->voice_context_limit;
-    }
-
-    /**
      * Context limit for Inner Voice in loop mode
      *
      * @return integer
@@ -441,7 +524,7 @@ class AiPreset extends Model
 
     /**
      * Get agent result mode for this preset
-     * If the results  are returned as separate messages or as a single response
+     * tool_calls or internal
      *
      * @return string
      */
@@ -540,6 +623,11 @@ class AiPreset extends Model
         return $this->pre_run_commands ?? '';
     }
 
+    public function getTurnTrigger(): string
+    {
+        return $this->turn_trigger ?? 'none';
+    }
+
     public function getErrorBehavior(): string
     {
         return $this->error_behavior;
@@ -573,6 +661,15 @@ class AiPreset extends Model
     public function allowsHandoffFrom(): bool
     {
         return $this->allow_handoff_from;
+    }
+
+    /**
+     * Scope: exclude ephemeral spawned presets from regular listings.
+     * Use in UI queries: AiPreset::withoutSpawns()->orderBy('name')->get()
+     */
+    public function scopeWithoutSpawns($query)
+    {
+        return $query->where('is_spawned', false);
     }
 
     /**

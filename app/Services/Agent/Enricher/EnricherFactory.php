@@ -2,8 +2,9 @@
 
 namespace App\Services\Agent\Enricher;
 
-use App\Contracts\Agent\Enricher\ContextEnricherInterface;
+use App\Contracts\Agent\Enricher\CyclePromptEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
+use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\Enricher\RagContextEnricherInterface;
 use App\Models\AiPreset;
@@ -20,9 +21,17 @@ class EnricherFactory implements EnricherFactoryInterface
     /**
      * @inheritDoc
      */
-    public function makeContextEnricher(): ContextEnricherInterface
+    public function makeInnerVoiceEnricher(): InnerVoiceEnricherInterface
     {
-        return $this->container->make(ContextEnricher::class);
+        return $this->container->make(InnerVoiceEnricher::class);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function makeCyclePromptEnricher(): CyclePromptEnricherInterface
+    {
+        return $this->container->make(CyclePromptEnricher::class);
     }
 
     /**
@@ -47,5 +56,13 @@ class EnricherFactory implements EnricherFactoryInterface
     public function getOrderedRagConfigs(AiPreset $preset): Collection
     {
         return $preset->ragConfigs()->get();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getOrderedVoiceConfigs(AiPreset $preset): Collection
+    {
+        return $preset->innerVoiceConfigs()->enabled()->ordered()->get();
     }
 }

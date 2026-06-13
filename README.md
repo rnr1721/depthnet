@@ -5,9 +5,10 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Research-blue?style=flat-square)
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
-![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue?style=flat-square)
+![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP%20%2B%20SSE%20HTTP-blue?style=flat-square)
+![Vision](https://img.shields.io/badge/Vision-Claude%20%7C%20Novita-purple?style=flat-square)
 
-**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.6
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.8
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 
@@ -49,11 +50,15 @@ Choose your preferred installation method:
 
 ⚠️ **For sandbox code execution, use Docker installation method**
 
+- **[Document Manager](docs/plugins/documents.md)** — file storage and semantic search for agents
+
+- **[Code Plugin](docs/plugins/code.md)** — sandbox filesystem navigation and editing
+
 - **[Docker Installation](docs/installation/docker.md)** - Recommended (includes Supervisor)
 - **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
-- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - Browser setup for voice input and text-to-speech
+- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - hands-free voice dialogue, wake word, browser setup
 - **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration
 
 - **[Reverse proxy](docs/installation/reverse-proxy.md)** - instruction for production environments
@@ -82,18 +87,22 @@ DepthNet enables autonomous AI agents through:
 - **Continuous Reasoning**: Agents operate in persistent thinking loops beyond simple request-response
 - **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
-- **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, image, audio and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
-- **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single `[[rag_context]]` block. Sources per config: vector memory (flat or associative), journal, skills, persons. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
+- **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, vision (image), and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
+- **Native Vision**: Agents can actually *see* — images attached to chat, images returned by MCP tools, and image files uploaded as documents. A single vision service serves all three entry points through a per-preset provider (Claude or Novita), with configurable image normalization (resize/format/quality). Images returned by MCP tools can be routed into the input pool and, when set as a known source, perceived as part of the agent's own sensory state rather than a tool result. The agent never receives raw image data — only text descriptions; when vision is not configured, no image content reaches the agent (no confabulation). [→](docs/capabilities/vision.md)
+- **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single unified `[[rag_context]]` block, with sections of the same type from different configs combined into one. Each config also writes its own system message to the chat for per-config visibility; failures appear as `[RAG ERROR — <preset>]` messages so operational issues are immediately visible. Sources per config: vector memory (flat or associative), journal, skills, persons, ontology, files. Queries formulated by the RAG model can carry `time:` and `domain:` prefixes — temporal scoping and domain selection become part of the query formulation, not a separate config axis. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
-- **Inner Voice**: A secondary preset (on any supported provider) can run alongside the main one. Its output is injected via placeholder (request-response mode) or added to the input pool as an additional source (loop mode)
+- **Inner Voice**: Multi-voice pipeline — attach one or more voice presets to any agent, each running independently and contributing a labeled block to [[inner_voice]]. Works in both single and loop modes. A separate cycle prompt preset can be configured for loop mode as an anti-loop mechanism — its output goes into the input pool rather than the system prompt.[→](docs/memory/inner-voice.md)
 - **Self-Motivation**: Internal reward system for goal-oriented behavior
 - **Multi-User Interaction**: Users can interact with agents during their autonomous reasoning cycles
 - **Sandbox Isolation**: Code execution in isolated Docker containers for enhanced security
 - **Agent Handoff**: Seamless delegation between specialized AI presets within single workflows
 - **Known Sources**: Named data sources (sensors, projections, signals) defined per-preset. Their values are excluded from the regular input pool JSON and instead injected into the system prompt via `[[known_sources]]`, allowing the agent to treat sensor data as part of its own context rather than incoming messages
 - **Pre-Run Commands**: Automatic command execution before each thinking cycle via CommandPreRunner. Results available in the system prompt via `[[pre_command_results]]` — useful for gathering fresh data before each cycle without explicit agent action
+- **Document Manager**: File storage layer for agents — upload PDFs, spreadsheets, code and text files, chunk and index them for semantic search. Files live in Laravel storage (read-only reference) or directly in the sandbox (full agent access). Integrates with the RAG pipeline as a source (files in RAG config sources). Agents can search, inspect and delete files via the documents plugin. [→](docs/plugins/documents.md)
+- **Code Plugin**: Structured filesystem access with code intelligence (LSP). Navigate directory trees, read files with precise line control, search by text, apply targeted edits via replace/patch/batch, and understand code through symbols, references, hover, definition, and diagnostics — all without rewriting entire files. Paths are auto-normalized (tilde expansion, `../` collapse, key prefix stripping). Includes file size caps and structured error reporting [→](docs/plugins/code.md)
 - **Auto-Handoff Chains**: Presets can be configured with `preset_code_next` to automatically hand off to the next preset after every response, enabling pipeline workflows without prompt engineering
+- **LLM Orchestrator (Spawn Plugin)**: Agents can dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime — without human intervention. An agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity, memory, or personality plugins), but can be configured freely. This enables model-driven orchestration as an alternative to the deterministic   orchestrator — flexible and dynamic, with the agent itself deciding decomposition and delegation. [→](docs/plugins/spawn.md)
 - **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
 - **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
 - **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
@@ -114,11 +123,9 @@ The agent can work both in a cycle and in the usual "question-answer" mode. Natu
 
 Each preset has an `agent_result_mode` setting that controls both how commands are executed and how results are stored:
 
-- **`internal`** (default) — Results are pushed to CommandResultPool and injected into the next cycle's system prompt via `[[agent_command_results]]`. Recommended for autonomous agents — keeps results out of the conversation context where models can confuse them with their own previous output.
+- **`tool_calls`** (default) — Native provider tool-calling. Plugin schemas are sent to the provider API as a `tools` array; the model invokes plugins through the provider's structured mechanism instead of writing tag syntax. History is stored in the correct `assistant/tool` turn format required by provider APIs. Suitable for tool-oriented agents and production workflows. **For creative and imaginative agents, the tag mode might be suitable** — tag mode preserves the natural flow of thought within the model's output.
 
-- **`separate`** — Response and command results are stored as separate messages. Results are visible in chat. Useful when you want the conversation history to clearly show what was executed.
-
-- **`tool_calls`** — Native provider tool-calling. Plugin schemas are sent to the provider API as a `tools` array; the model invokes plugins through the provider's structured mechanism instead of writing tag syntax. History is stored in the correct `assistant/tool` turn format required by provider APIs. Suitable for tool-oriented agents and production workflows. **Not recommended for subjective agents** (like Adalia) — tag mode preserves the natural flow of thought within the model's output.
+- **`internal`** — Results are pushed to CommandResultPool and injected into the next cycle's system prompt via `[[agent_command_results]]`. Recommended for autonomous agents — keeps results out of the conversation context where models can confuse them with their own previous output. The results may depend directly on the number of model parameters.
 
   Supported providers for `tool_calls` mode: DeepSeek (V3.2+), Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint). For LocalModel — opt-in via `supports_tool_calls: true` in preset config, depends on the specific model and server.
 
@@ -129,27 +136,33 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | Plugin | Description | Docs |
 |---|---|---|
 | **Sandbox** (`run`) | Execute PHP, Python, Node.js, and shell commands in isolated Docker containers. Requires a sandbox assigned to the preset. | [→](docs/plugins/sandbox.md) |
-| **Terminal** | Persistent interactive terminal (tmux) inside the sandbox. Working directory, running processes, and shell history survive between cycles. Supports special keys (`C-c`, `F10`, `Up`, etc.) for interactive programs. Monitor mode auto-injects screen via `[[terminal_screen]]`. | [→](docs/plugins/terminal.md) |
+| **Terminal** (`terminal`) | Persistent interactive terminal (tmux) inside the sandbox. Working directory, running processes, and shell history survive between cycles. Supports special keys (`C-c`, `F10`, `Up`, etc.) for interactive programs, mixed input mode (`text | Enter`), and configurable prompt detection patterns for command synchronization. Monitor mode auto-injects screen via `[[terminal_screen]]`. Built with literal text mode (`send-keys -l`) for safe handling of special characters, pipe-aware parsing (shell pipelines vs mixed mode disambiguation), and micro-delay timing for reliable PTY synchronization. |
 | **Shell** | Run shell commands directly on the host as the PHP process user. Use only for trusted operational tasks — prefer Sandbox for code execution. | [→](docs/plugins/shell.md) |
-| **Memory** | Persistent flat notepad injected into every cycle via `[[notepad_content]]`. Best for identity anchors, rules, and always-visible facts. Supports export/import. | [→](docs/plugins/memory.md) |
-| **Workspace** | Persistent key-value scratchpad for structured working state — plans, drafts, intermediate results. Accessible via `[[workspace]]`. | [→](docs/plugins/workspace.md) |
-| **Vector Memory** | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Supports defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
-| **Journal** | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and date-filtered search. | [→](docs/plugins/journal.md) |
-| **Skill** | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
-| **Person** | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
-| **Goal** | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
-| **MCP** | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
-| **Telegram** | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
-| **Browser** | Persistent Playwright browser with session memory surviving across thinking cycles. Open pages, click, type, read structured snapshots. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |
-| **Dopamine** | Self-motivation system. Agent rewards/penalises itself; level visible via `[[dopamine_level]]`. Optional auto-decay. | [→](docs/plugins/dopamine.md) |
-| **Heart** | Attention and connection engine. Tracks named connections, emotional signals, dominant focus, and gravity. State visible via `[[heart_state]]`. Not an emotion simulator — a measurable attention system. | [→](docs/plugins/heart.md) |
-| **Being** | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
-| **Rhythm** | Temporal context snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset/sunrise. Injected via `[[rhythm]]`. Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
-| **RAG Query** | Explicit RAG search control — agent queues specific queries for the next cycle. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
-| **Agent** | Lifecycle control — pause/resume thinking cycles, check status, send visible messages to user (`speak`), hand off to another preset. | [→](docs/plugins/agent.md) |
-| **Mode** | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
-| **Mood** | Lightweight tone control — agent sets a named mood (`friendly`, `analytical`, `focused`, etc.) visible via `[[mood]]`. | [→](docs/plugins/mood.md) |
-| **Agent Task** | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
+| **Memory** (`memory`) | Persistent flat notepad injected into every cycle via `[[notepad_content]]`. Best for identity anchors, rules, and always-visible facts. Supports export/import. | [→](docs/plugins/memory.md) |
+| **Workspace** (`workspace`) | Persistent key-value scratchpad for structured working state — plans, drafts, intermediate results. Accessible via `[[workspace]]`. | [→](docs/plugins/workspace.md) |
+| **Vector Memory** (`vectormemory`) | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Organised into agent-managed domains. Supports temporal filtering, circadian (pulse) filtering, cross-domain bridges, defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
+| **Document Manager** (`documents`) | File storage and semantic search for agents. Upload PDFs, images, spreadsheets, code and text — files are chunked and indexed automatically. Two storage modes: Laravel storage (read-only reference) or sandbox (full agent access). Integrates with RAG pipeline as a `files` source. | [→](docs/plugins/documents.md) |
+| **Journal** (`journal`) | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and temporal search — ISO dates, calendar months/years, ranges, and multilingual relative keywords (`yesterday` / `вчера` / `last week`). | [→](docs/plugins/journal.md) |
+| **Skill** (`skill`) | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
+| **Person** (`person`) | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
+| **Goal** (`goal`) | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
+| **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26) and legacy SSE (2024-11-05). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
+| **Telegram** (`telegram`) | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
+| **Code** (`code`) | Structured sandbox filesystem access with LSP code intelligence. Navigate, read, search, edit (replace/patch/batch), plus symbols, references, hover, definition, diagnostics. Requires sandbox. | [→](docs/plugins/code.md) |
+| **Browser** (`browser`) | Persistent Playwright browser with session memory surviving across thinking cycles. Returns numbered page snapshots — the agent acts on elements by number. Auto-snapshots after each action. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |
+| **Dopamine** (`dopamine`) | Self-motivation system. Agent rewards/penalises itself; level visible via `[[dopamine_level]]`. Optional auto-decay. | [→](docs/plugins/dopamine.md) |
+| **Heart** (`heart`) | Attention and connection engine. Tracks named connections, emotional signals, dominant focus, and gravity. State visible via `[[heart_state]]`. Not an emotion simulator — a measurable attention system. | [→](docs/plugins/heart.md) |
+| **Ontology** (`ontology`) | World-model graph — temporal property graph of entities and relationships. Stores durable facts about people, places, concepts and how they connect over time. Integrates with RAG pipeline as an `ontology` source. | [→](docs/plugins/ontology.md) [→](docs/memory/ontology.md) |
+| **Being** (`being`) | Self-authorship. Agent writes its own essence phrase, injected at the top of the next cycle via `[[being]]`. History via `[[being_history]]`. | [→](docs/plugins/being.md) |
+| **Rhythm** (`rhythm`) | The agent's own clock — temporal sense injected via [[rhythm]], plus an optional [[rhythm_self]] self-description of how the agent relates to its own time. Snapshot covers date/time, day-of-life and pulse position (subjective time unit, optional), cycle rhythm, day/week/year progress, weather, sunset/sunrise. Commands for past snapshots (at), intervals (diff), and elapsed time (since). Open-Meteo, no API key needed. | [→](docs/plugins/rhythm.md) |
+| **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Queries support time:, domain: and (optionally) pulse: circadian filters, allowing the agent to retrieve memories from a specific window, domain, or part of day on demand. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
+| **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, request additional steps. | [→](docs/plugins/agent.md) |
+| **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
+| **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
+| Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
+| **Mood** (`mood`) | Emotional state vector with decay physics. Agent maintains a weighted mix of arbitrary emotional states that decay over cycles, reinforforce on attention, and mix simultaneously. State visible via `[[mood]]`. Integrates with Heart if both are active. | [→](docs/plugins/mood.md) |
+| **Agent Task** (`task`) | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
+| **Spawn** (`spawn`) | LLM-driven orchestrator — dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime. Agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity or memory plugins). Alternative to the deterministic orchestrator for flexible, model-driven task decomposition. Active spawns visible via `[[active_spawns]]`. | [→](docs/plugins/spawn.md) |
 
 Visual memory management is available using MemoryManager and VectorMemoryManager (Vector and normal memory is individual for each preset).
 
@@ -170,7 +183,7 @@ All command plugins implements CommandPluginInterface. Orchestrator is PluginReg
 
 ### Command Syntax Examples
 
-The AI communicates through special command tags that trigger plugin execution. This is the default tag-based syntax used in `internal` and `separate` result modes. In `tool_calls` mode, the model invokes the same plugins natively through the provider API — no tag syntax needed.
+The AI communicates through special command tags that trigger plugin execution. This is the default tag-based syntax used in `internal` result mode. In `tool_calls` mode, the model invokes the same plugins natively through the provider API — no tag syntax needed.
 
 ```
 # Code execution
@@ -181,12 +194,15 @@ The AI communicates through special command tags that trigger plugin execution. 
 [run python]import datetime; print(f"Server time: {datetime.now()}")[/run]
 [run node]console.log(`Memory: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);[/run]
 
-# Agent workflow management
-[agent handoff]analyst[/agent]  # Transfer control to another preset
-[agent handoff]researcher:Find data about Tesla[/agent]  # Transfer with specific task
+# Agent lifecycle control
 [agent pause][/agent]   # Pause autonomous thinking
 [agent resume][/agent]  # Resume autonomous thinking
 [agent status][/agent]  # Check current agent status
+[agent turn][/agent]    # Request one additional thinking step
+
+# Speaking and delegation (Speak plugin)
+[speak]I found something interesting[/speak]       # Send message to interlocutor
+[speak analyst]Please review these findings[/speak] # Delegate to another preset
 
 # Persistent memory management
 [memory]This information will be appended to memory content[/memory]
@@ -195,8 +211,15 @@ The AI communicates through special command tags that trigger plugin execution. 
 
 # Semantic memory with intelligent search  
 [vectormemory]Successfully optimized database queries using proper indexing techniques[/vectormemory]
+[vectormemory work]Eugeny prefers concise responses[/vectormemory]  # Store in a specific domain
 [vectormemory search]database performance optimization[/vectormemory] # Finds related memories by meaning
+[vectormemory search]domain:work | optimization[/vectormemory]  # Search within a specific domain
+[vectormemory search]time:yesterday | optimization[/vectormemory]  # Search within a time window
+[vectormemory search]time:last week | domain:work | architecture[/vectormemory]  # Time + domain combined
+[vectormemory search]time:2026-03[/vectormemory]  # Chronological listing for the window
+[vectormemory search]pulse:0-300 | morning thoughts[/vectormemory]
 [vectormemory recent]5[/vectormemory]  # Show 5 most recent memories
+[vectormemory domains][/vectormemory]  # List all domains with record counts
 [vectormemory clear][/vectormemory]
 
 # Memory integration: When enabled, vector memories automatically add reference links 
@@ -223,6 +246,9 @@ The AI communicates through special command tags that trigger plugin execution. 
 [journal recent]10[/journal]
 [journal search]memory optimization[/journal]
 [journal search]yesterday | errors[/journal]
+[journal search]2024-03 | feature X[/journal]              # Month-level search
+[journal search]last week | architecture[/journal]         # Previous calendar week
+[journal search]2024-03-10:2024-03-15 | database[/journal] # Date range
 
 # Self-authorship
 [being]The will that chooses presence over habit[/being]
@@ -243,6 +269,14 @@ The AI communicates through special command tags that trigger plugin execution. 
 [heart focus][/heart]
 [heart beat][/heart]
 
+# Mood — emotional state vector
+[mood feel]curiosity: 0.8, focus: 0.6[/mood]
+[mood feel]melancholy: 0.4[/mood]
+[mood fade]curiosity[/mood]
+[mood beat][/mood]
+[mood state][/mood]
+[mood clear][/mood]
+
 # Person memory with aliases and semantic search
 [person]Женя | loves punk aesthetic and travel[/person]
 [person recall]Женя[/person]          # recall by name or alias
@@ -257,18 +291,25 @@ The AI communicates through special command tags that trigger plugin execution. 
 
 # Temporal context
 [rhythm show][/rhythm]
+[rhythm show][/rhythm]
+[rhythm at]yesterday[/rhythm]
+[rhythm diff]yesterday | today[/rhythm]
+[rhythm since]2026-03-15[/rhythm]
 
-# RAG query control
+# RAG query control — queries support time: and domain: prefixes
 [rag query]Technical breakthroughs in AI self-regulation[/rag]
+[rag query]time:last week | architecture decisions[/rag]
+[rag query]domain:work | optimization patterns[/rag]
+[rag query]pulse:800-200 | late reflections[/rag]
 [rag show][/rag]
 [rag clear][/rag]
 
 # Browser — persistent Playwright browser with session memory
 [browser open]https://example.com[/browser]
-[browser search]best php frameworks 2026[/browser]
 [browser snapshot][/browser]
-[browser click]text=Submit[/browser]
-[browser type]{"selector":"input[name=q]","text":"hello"}[/browser]
+[browser click]3[/browser]
+[browser type]2 | hello[/browser]
+[browser type]2 | mypassword | submit[/browser]
 [browser press]Enter[/browser]
 [browser scroll]500[/browser]
 [browser back][/browser]
@@ -301,6 +342,25 @@ The AI communicates through special command tags that trigger plugin execution. 
 [telegram mark_read]@username[/telegram]
 [telegram me][/telegram]
 
+# Ontology — world-model graph
+[ontology find]eugeny[/ontology]
+[ontology add_node]eugeny | Person | Женя, Евгений[/ontology]
+[ontology add_edge]eugeny | lives_in | kharkiv[/ontology]
+[ontology add_edge]sergey | lived_in | kharkiv | 2010-01-01[/ontology]
+[ontology set_property]eugeny | occupation | software_engineer[/ontology]
+[ontology set_property]eugeny | current_city | @kharkiv[/ontology]
+[ontology snapshot]eugeny | 2[/ontology]
+[ontology merge]женя | eugeny[/ontology]
+[ontology close]old_project[/ontology]
+
+# Conditional prompt blocks
+[switch]cautious[/switch]        # activate a named block
+[switch list][/switch]           # list available block codes
+[switch current][/switch]        # show active block code
+[switch get]cautious[/switch]    # read block content (if allow_inspect enabled)
+[switch write]code | content[/switch]  # create/overwrite block (if allow_write enabled)
+[switch remove]cautious[/switch] # delete block (if allow_write enabled)
+
 ```
 
 <a href="docs/screenshots/chat.png">
@@ -311,7 +371,7 @@ The AI communicates through special command tags that trigger plugin execution. 
 
 Two pipelines depending on the preset's `agent_result_mode`:
 
-**Tag pipeline** (`internal` / `separate`):
+**Tag pipeline** (`internal`):
 1. **CommandValidator** scans AI response for unclosed tags and syntax errors
 2. **CommandParser** extracts valid commands and prepares execution data
 3. **CommandExecutor** routes commands to appropriate plugins
@@ -356,18 +416,17 @@ make restart
 📄 Page Title
 🔗 https://example.com
 
-── Content ──
-Main page text, cleaned of nav/footer/scripts...
-
 ── Inputs ──
-  [search] q (Search...)  selector: input[name=q]
+  [1] email (Search...)
 
 ── Buttons ──
-  [Submit]  selector: #submit-btn
+  [2] Submit
 
 ── Links ──
-  About  →  https://example.com/about
-  Docs   →  https://example.com/docs
+  [3] About  →  https://example.com/about
+  [4] Docs   →  https://example.com/docs
+
+── Scroll: 100%, end of page ──
 ```
 
 This gives the model enough to reason, navigate, and interact — without drowning in HTML noise.
@@ -388,6 +447,12 @@ Built on modern Laravel principles with dependency injection:
 - **AgentTaskServiceInterface**: Task lifecycle management — create, complete, fail, validate, escalate
 - **AgentServiceInterface**: Agent and role CRUD with structured data formatting for UI
 - **ToolSchemaBuilderInterface**: Builds OpenAI-compatible tool schemas from registered plugins for `tool_calls` mode
+- **InnerVoiceEnricherInterface**: Executes a single voice preset in a synthetic flat context and returns a labeled block for [[inner_voice]]
+- **CyclePromptEnricherInterface**: Anti-loop impulse for cycle mode — calls cycle_prompt_preset and injects result into the input pool
+- **EnricherFactoryInterface**: Factory for all enricher types; manages ordered RAG and inner voice config pipelines
+- **TerminalServiceInterface**: Persistent terminal session management with prompt-synced command execution, literal text handling, and special key abstraction
+- **WorkspaceTopologyServiceInterface**: Workspace mapping with pluggable project adapters (Laravel, Next.js, Go, Python, etc.), auto-detection, and persistent workspace root
+- **ProjectAdapterInterface**: Language/framework-specific project detection — root markers, file icons, ignored paths, and fingerprint identification
 
 **Core Interfaces:**
 - **AiAgentResponseInterface**: Unified agent response handling with handoff support
@@ -409,10 +474,10 @@ Integrations (Telegram, Rhasspy) are configured per-preset — each agent can us
 
 ### Agent Handoff System
 
-DepthNet provides a **decentralized asynchronous messaging system** that allows AI presets to communicate with each other independently.
+DepthNet provides a **decentralized asynchronous messaging system** via the Speak plugin...
 
 **How it works:**
-- Any preset can send a message to another using `[agent handoff]preset_code:message[/agent]`
+- Any preset can send a message to another using `[speak analyst]Please review these findings[/speak]`
 - Messages are delivered via `AgentMessageService` respecting the target's input mode (pool or plain)
 - The target preset processes the message in its own independent thinking cycle
 - Responses are automatically routed back to the sender (reply-to mechanism)
@@ -425,6 +490,7 @@ DepthNet provides a **decentralized asynchronous messaging system** that allows 
 - **No ping-pong**: Reply-to is fire-and-forget — one request, one response, done
 - **Atomic locking**: Cache-based locks with TTL prevent duplicate execution and auto-recover from crashes
 - **Independent testing**: Debug each preset separately while maintaining workflow integrity
+- **Cross-Preset Execution**: A preset can operate in another preset's data space — reading via RAG and writing via whitelisted plugins (memory, journal, vector memory etc). Enables continuous existence patterns, memory optimizers, and multi-agent observation without full agent activation.
 
 **Benefits:**
 - **Modular workflows**: Break complex tasks into specialized components
@@ -530,6 +596,7 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - **Responsive Design**: Works seamlessly on desktop and mobile
 - **Thinking Visibility**: Toggle between seeing all thoughts vs. responses only
 - **Dark/Light Themes**: Customizable appearance with user preferences
+- **Voice Interface**: Built-in TTS/STT via the browser's Web Speech API — no keys or external services. Hands-free spoken dialogue on desktop (wake word = preset name), push-to-talk on mobile. [→](docs/ui/text-to-speech.md)
 
 **Important**: This platform is designed for controlled research environments. Production deployment requires appropriate security hardening based on your specific risk assessment.
 
@@ -689,6 +756,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
 - Requires provider support: DeepSeek V3.2+, Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint)
 - For LocalModel: opt-in via `supports_tool_calls: true` in preset config — depends on specific model and server (Ollama supports it from llama3.1+, mistral-nemo, qwen2.5+)
 - Not recommended for subjective/identity agents — tag mode preserves the natural flow of thought within model output; tool_calls creates a more mechanical separation between reasoning and action
+"Voice presets configured as tool_calls receive a synthetic flat context without a tools array — tools cannot execute. The model responds with plain text; a visible system notice is written to the main preset's history. Switch to internal for voice presets."
 
 **System Prompt Critical Factors:**
 - Agent behavior heavily dependent on system prompt quality and precision
@@ -698,8 +766,9 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[notepad_content]]` - Persistent memory content (2000 char limit)
   - `[[current_datetime]]` - Real-time timestamp
   - `[[command_instructions]]` - Auto-generated plugin documentation (tag mode only; empty in tool_calls mode)
-  - `[[rag_context]]` - Merged output from all RAG configs (deduplicated across sources)
-  - `[[inner_voice]]` - Output from the inner voice preset (request-response mode)
+  - `[[rag_context]]` - Merged output from all RAG configs (deduplicated across configs, sections of same type merged)
+  - `[[main_rag_context]]` — RAG context from the main preset, available inside inner voice prompts
+  - `[[inner_voice]]` - Merged output from all enabled inner voice configs, each wrapped in a labeled block ([Voice Name]...[END Voice Name]). Ordered by sort_order.
   - `[[being]]` - Agent's self-defined essence phrase
   - `[[being_history]]` - Previous essence phrases
   - `[[workspace]]` - Persistent key-value scratchpad entries
@@ -707,11 +776,17 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[pre_command_results]]` - Results of pre-cycle automatic commands
   - `[[agent_command_results]]` - Command results in internal mode
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
+  - `[[mood]]` - Current emotional state vector: top active states by intensity, e.g. `focus(0.9), curiosity(0.7)`. Empty when no active states.
   - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
+  - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
   - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.
+  - `[[active_spawns]]` - List of active spawned instruments created by this agent. Injected when Spawn plugin is enabled.
   - `[[terminal_screen]]` - Current terminal screen content. Injected when Terminal plugin is enabled and monitor is on (`[terminal on][/terminal]`). Empty string when monitor is off.
+  - `[[active_switch]]` - Content of the currently active prompt block (Switch plugin). Empty if no block is active.
+  - `[[active_switch_code]]` - Code of the currently active prompt block. Useful for agent self-awareness.
+  - `[[available_switches]]` - All available switch variants
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -723,6 +798,10 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
 - Small models may fabricate reasons for dopamine changes or forget command syntax
 - Large models demonstrate genuine strategic thinking and adaptation
 - **Memory integration creates powerful knowledge discovery**: Agents can see semantic memory references in their constant context, leading to better information retrieval and learning patterns. Semantic journal search enables pattern recognition across past decisions and actions — the agent can find "I decided X" and "I did Y" connections even when phrased differently
+**Terminal & PTY Synchronization:**
+- Tmux `send-keys -l` (literal mode) and bare control keys must be sent as separate commands — combining them in one `send-keys` call causes literal interpretation of key names (e.g. `Enter` becomes text, not a keypress)
+- Micro-delays (50ms) between literal text and control keys prevent race conditions in shell command processing
+- Prompt detection via regex (configurable per sandbox) prevents command output mixing across multiple terminal calls in one cycle
 
 ## Default Credentials
 
@@ -760,7 +839,8 @@ for autonomous development rather than human imitation. The platform's plugin
 ecosystem directly supports subjectness research:
 
 - **Being** — self-authorship and identity continuity
-- **Heart** — measurable attention and connection tracking  
+- **Heart** — measurable attention and connection tracking
+- **Mood** — emotional state physics: decay, mixing, heart integration
 - **Dopamine** — goal-oriented motivation cycles
 - **Journal** — episodic memory and experience recording
 - **Workspace** — persistent internal state across sessions

@@ -66,35 +66,50 @@ class BeingPlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        $max = $config['history_limit'] ?? 5;
-        return "Self-authorship plugin. The agent defines its own essence as a single phrase injected into the next cycle. History of the last {$max} phrases";
+        $max      = $config['history_limit'] ?? 5;
+        $allowSet = $config['allow_agent_set'] ?? true;
+
+        return $allowSet
+            ? "Essence phrase management — read and set a short self-definition that is injected into the system prompt at the start of the next cycle. History of the last {$max} phrases retained."
+            : "Essence phrase — current phrase and history (last {$max}).";
     }
 
     public function getInstructions(array $config = []): array
     {
-        $default = $config['default_being'] ?? '';
+        $default      = $config['default_being'] ?? '';
+        $allowSet     = $config['allow_agent_set'] ?? true;
 
-        $instructions = array_filter([
-            'Set your essence for the next cycle:',
-            '  [being]The will that chooses presence over habit[/being]',
-            '',
-            'This phrase will appear at the top of your next prompt as [[being]].',
-            'You are writing yourself. Choose with intention.',
-            '',
-            'Show current phrase:    [being show][/being]',
-            'Show history:           [being history][/being]',
-            'Clear (revert default): [being clear][/being]',
-            '',
-            !empty($default) ? "Default phrase when none is set: \"{$default}\"" : '',
-        ]);
+        $instructions = [];
 
         $warning = $this->buildLanguageWarning($config, 'being_language', 'being phrases');
         if ($warning) {
-            array_unshift($instructions, $warning);
+            $instructions[] = $warning;
         }
 
-        return $instructions;
+        if ($allowSet) {
+            $instructions[] = 'Set your essence for the next cycle:';
+            $instructions[] = '  [being]The will that chooses presence over habit[/being]';
+            $instructions[] = '';
+            $instructions[] = 'This phrase will appear at the top of your next prompt.';
+            $instructions[] = 'You are writing yourself. Choose with intention.';
+        }
+
+        $instructions[] = '';
+        $instructions[] = 'Show current phrase:    [being show][/being]';
+        $instructions[] = 'Show history:           [being history][/being]';
+
+        if ($allowSet) {
+            $instructions[] = 'Clear (revert default): [being clear][/being]';
+        }
+
+        if (!empty($default)) {
+            $instructions[] = '';
+            $instructions[] = "Default phrase when none is set: \"{$default}\"";
+        }
+
+        return array_filter($instructions);
     }
+
 
     /**
      * Tool schema for tool_calls mode.
@@ -103,41 +118,65 @@ class BeingPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
-        $default = $config['default_being'] ?? '';
+        $default         = $config['default_being'] ?? '';
         $langInstruction = $this->buildLanguageInstruction($config, 'being_language');
+        $allowSet        = $config['allow_agent_set'] ?? true;
+
+        // Build allowed methods based on gate
+        $methods = ['show', 'history'];
+        if ($allowSet) {
+            array_unshift($methods, 'execute');
+            $methods[] = 'clear';
+        }
+
+        // Build content description based on what's allowed
+        $contentParts = [];
+
+        if ($allowSet) {
+            $contentParts[] = 'execute (SET your being): the essence phrase itself — the actual text, not a command.';
+            if ($langInstruction) {
+                $contentParts[] = 'Must be written in the configured language.';
+            }
+            $contentParts[] = 'Example: "One who acts and explores" or "The will that chooses presence over habit".';
+            $contentParts[] = 'Max 500 characters. This phrase will appear at the top of your next thinking cycle.';
+        }
+
+        $contentParts[] = 'show: leave empty — returns current phrase.';
+        $contentParts[] = 'history: leave empty — returns previous phrases.';
+
+        if ($allowSet) {
+            $contentParts[] = 'clear: leave empty — removes current phrase, reverts to default.';
+        }
+
+        // Build description
+        $description = $allowSet
+            ? 'Self-authorship: define your own essence as a single phrase that persists into the next cycle injected into the system prompt at the start of the next cycle. '
+                . $langInstruction
+                . 'You are writing yourself — choose with intention. '
+                . (!empty($default) ? "Default when none is set: \"{$default}\"." : '')
+            : 'Read your current essence phrase and its history. ';
 
         return [
             'name'        => 'being',
-            'description' => 'Self-authorship: define your own essence as a single phrase that persists into the next cycle via [[being]] placeholder. '
-                . $langInstruction
-                . 'You are writing yourself — choose with intention. '
-                . (!empty($default) ? "Default when none is set: \"{$default}\"." : ''),
+            'description' => $description,
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method' => [
                         'type'        => 'string',
                         'description' => 'Operation to perform',
-                        'enum'        => ['execute', 'show', 'history', 'clear'],
+                        'enum'        => $methods,
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => implode(' ', array_filter([
-                            'Argument depends on method.',
-                            'execute (SET your being): the essence phrase itself — the actual text, not a command.',
-                            $langInstruction ? 'Must be written in the configured language.' : null,
-                            'Example: "Тот, кто действует и исследует" or "The will that chooses presence over habit".',
-                            'Max 500 characters. This phrase will appear at the top of your next thinking cycle.',
-                            'show: leave empty — returns current phrase.',
-                            'history: leave empty — returns previous phrases.',
-                            'clear: leave empty — removes current phrase, reverts to default.',
-                        ])),
+                        'description' => implode(' ', $contentParts),
                     ],
                 ],
                 'required'   => ['method'],
             ],
         ];
     }
+
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -156,6 +195,13 @@ class BeingPlugin implements CommandPluginInterface
                 'Being Language',
                 'Force language for being phrases. Model will be instructed accordingly.'
             ),
+            'allow_agent_set' => [
+                'type'        => 'checkbox',
+                'label'       => 'Allow agent to change being',
+                'description' => 'When disabled, the agent can only read its essence phrase, not change it. Useful for background processes that share identity with the main preset.',
+                'value'       => true,
+                'required'    => false,
+            ],
             'default_being' => [
                 'type'        => 'text',
                 'label'       => 'Default essence phrase',
@@ -220,6 +266,7 @@ class BeingPlugin implements CommandPluginInterface
                 'default_being'  => '',
                 'history_limit'  => 5,
                 'history_format' => 'numbered',
+                'allow_agent_set' => true
             ],
             $this->getDefaultLanguageConfig('being_language')
         );
@@ -237,6 +284,10 @@ class BeingPlugin implements CommandPluginInterface
     {
         if (!$context->enabled) {
             return 'Error: Being plugin is disabled.';
+        }
+
+        if (!($context->get('allow_agent_set', true))) {
+            return 'Error: changing being is not allowed.';
         }
 
         $phrase = trim($content);
@@ -329,6 +380,10 @@ class BeingPlugin implements CommandPluginInterface
     {
         if (!$context->enabled) {
             return 'Error: Being plugin is disabled.';
+        }
+
+        if (!($context->get('allow_agent_set', true))) {
+            return 'Error: changing being is not allowed.';
         }
 
         $state = $this->getState($context);
@@ -494,4 +549,10 @@ class BeingPlugin implements CommandPluginInterface
     {
         return ['show', 'history', 'clear'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

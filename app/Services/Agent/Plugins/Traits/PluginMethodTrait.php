@@ -33,19 +33,28 @@ trait PluginMethodTrait
 
     public function hasMethod(string $method): bool
     {
-        return method_exists($this, $method)
-            && !in_array($method, self::EXCLUDED_METHODS, true);
+
+        $camel = $this->kebabToCamel($method);
+        return (method_exists($this, $method) || method_exists($this, $camel))
+            && !in_array($method, self::EXCLUDED_METHODS, true)
+            && !in_array($camel, self::EXCLUDED_METHODS, true);
     }
 
     public function callMethod(string $method, string $content, PluginExecutionContext $context): string
     {
-        if (!$this->hasMethod($method)) {
-            throw new \BadMethodCallException(
-                "Method '{$method}' does not exist in " . static::class
-            );
+        $camel = $this->kebabToCamel($method);
+
+        if (method_exists($this, $camel) && !in_array($camel, self::EXCLUDED_METHODS, true)) {
+            return $this->{$camel}($content, $context);
         }
 
-        return $this->{$method}($content, $context);
+        if (method_exists($this, $method) && !in_array($method, self::EXCLUDED_METHODS, true)) {
+            return $this->{$method}($content, $context);
+        }
+
+        throw new \BadMethodCallException(
+            "Method '{$method}' does not exist in " . static::class
+        );
     }
 
     public function getAvailableMethods(): array
@@ -57,4 +66,10 @@ trait PluginMethodTrait
             fn ($m) => !in_array($m, self::EXCLUDED_METHODS, true) && !str_starts_with($m, '__')
         ));
     }
+
+    private function kebabToCamel(string $input): string
+    {
+        return lcfirst(str_replace('-', '', ucwords($input, '-')));
+    }
+
 }

@@ -13,6 +13,87 @@ Two similarity engines are available:
 - **TF-IDF** — keyword-based similarity, works out of the box with no external API required. Good general-purpose choice.
 - **Embedding** — true semantic similarity using a language model. Understands meaning across different phrasings and languages. Requires an embedding capability configured for the preset.
 
+## Domains
+
+Memories are organized into named **domains** — agent-managed namespaces inside a single preset's memory. Think of them as folders: `work`, `relationships`, `architecture_notes`, `experiments`. The agent creates and uses them freely as it works.
+
+A domain exists for as long as it has at least one record. There's no separate registry to maintain — write the first record into `archive` and the domain appears; delete the last record from it and the domain quietly vanishes. The default domain is `global` (configurable per preset); memories stored without specifying a domain land there.
+
+When the agent searches, it can:
+
+- Search across **all** domains (the default — useful when it doesn't know where a memory lives).
+- Filter to **specific** domains (e.g. "search only within `work`").
+- Search across **several** named domains at once.
+- Combine the domain filter with a [time filter](#temporal-search) in any order.
+
+In the admin UI, the live list of domains with record counts is shown in the action bar, and you can filter the view to a single domain at any time.
+
+## Temporal search
+
+Vector memory entries are timestamped, and search can be bounded to a time window. The window can be a single date, a range, an ISO month or year, or a relative keyword like `yesterday` or `last week`. Time expressions are recognised in multiple languages — the same keyword vocabulary used by Journal.
+
+The filter is added via a `time:` prefix at the start of the query, separated from the semantic part by `|`:
+
+| Query | Meaning |
+|---|---|
+| `[vectormemory search]time:yesterday \| optimization[/vectormemory]` | Optimization-related memories from yesterday |
+| `[vectormemory search]time:last week \| architecture[/vectormemory]` | Architecture-related memories from the previous calendar week |
+| `[vectormemory search]time:2026-03 \| database[/vectormemory]` | Anything about databases stored in March 2026 |
+| `[vectormemory search]time:2025[/vectormemory]` | All memories stored throughout 2025 (chronological listing) |
+| `[vectormemory search]time:2026-03-10:2026-03-15 \| feature X[/vectormemory]` | Feature X discussions in that specific window |
+
+Accepted date expressions:
+
+- **ISO formats**: `YYYY-MM-DD`, `YYYY-MM-DD:YYYY-MM-DD`, `YYYY-MM`, `YYYY`
+- **Keywords**: `today`, `yesterday`, `this week`, `last week`, `this month`, `last month`, `this year`, `last year` — and their localised variants (Russian: `сегодня`, `вчера`, `прошлая неделя`, etc.)
+
+The full keyword vocabulary lives in `data/search/keywords.json` and is easy to extend with additional languages — no PHP changes required.
+
+**Temporal-only listing.** When the query is empty but a time filter is set, the search returns memories in chronological order (newest first), without semantic ranking. Useful for "what did I think about this week" style questions:
+
+```
+[vectormemory search]time:this week[/vectormemory]
+```
+
+**Composing filters.** `time:` and `domain:` can both be present in any order:
+
+```
+[vectormemory search]time:last week | domain:work | optimization[/vectormemory]
+[vectormemory search]domain:work | time:last week | optimization[/vectormemory]
+```
+
+Both forms produce the same result.
+
+**Behaviour in associative mode.** When a time filter is set, the associative chain operates entirely within the time window — the starting set is pre-filtered, and subsequent hops stay inside it. This gives "associations within a period" semantics, parallel to how the domain filter scopes the chain.
+
+## Pulse (circadian) search
+
+When **Enable pulse (circadian) search** is on, vector memory accepts a `pulse:` prefix that filters records by their position within the day — independent of the calendar date. Pulse is a subjective time unit: 1000 pulses span one day (0 = midnight, ~250 = morning, ~500 = noon, ~750 = evening).
+
+This is a search axis that `time:` cannot express. Where `time:` answers "*when* (which dates)", pulse answers "*what part of the day*", across the entire history. It lets an agent surface, say, everything it crystallised in the early hours regardless of which day it was.
+
+| Command | Description |
+|---|---|
+| `[vectormemory search]pulse:0-300 \| morning thoughts[/vectormemory]` | Memories from the morning part of the day matching the query |
+| `[vectormemory search]pulse:800-200 \| reflections[/vectormemory]` | Late-evening through early-morning (range **wraps midnight**) |
+| `[vectormemory search]pulse:0-300[/vectormemory]` | Chronological listing of all morning-pulse memories |
+| `[vectormemory search]time:last week \| domain:work \| pulse:400-700 \| optimization[/vectormemory]` | All three filters combined, any order |
+
+Pulse range syntax:
+
+- `pulse:N-M` — range from N to M (each 0–999)
+- `pulse:N-` — open upper bound (N and later in the day)
+- `pulse:-M` — open lower bound (up to M)
+- When **N > M**, the range **wraps across midnight** — e.g. `pulse:800-200` covers late evening (800–999) plus early morning (0–200)
+
+The `time:`, `domain:`, and `pulse:` filters are independent and combine in any order. An empty query with only filters returns a chronological listing within the filtered set.
+
+Pulse pairs with the preset's `pulse_dates` setting: when `pulse_dates` is enabled, results retrieved through the RAG pipeline carry a `[day N pulse M]` coordinate alongside the date, so the agent sees both *when* a memory formed and *where in its own day* it sat.
+
+> **Performance note:** pulse position is derived from `created_at`, not stored as a column, so the pulse filter is applied in-memory after the database fetch. For typical preset sizes (≤1000 records) this is negligible. If a preset grows very large and uses pulse-only queries heavily, denormalising a `pulse_position` column with an index is the natural optimisation.
+
+---
+
 ## Setup
 
 Enable the **Vector Memory** plugin in your preset settings and configure:
@@ -21,34 +102,68 @@ Enable the **Vector Memory** plugin in your preset settings and configure:
 |---|---|
 | **Search mode** | `Flat` returns the top-K most similar memories directly. `Associative` starts from the best match and then traverses related memories via a graph walk — useful for agents that need richer, interconnected recall. |
 | **Similarity engine** | `TF-IDF` (no API needed) or `Embedding` (requires embedding capability on the preset). |
-| **Max entries** | How many memories to store per preset (100–5000). Oldest entries are removed automatically when the limit is reached if auto-cleanup is enabled. |
+| **Default domain** | Domain assigned to memories stored without an explicit domain name. Defaults to `global`. |
+| **Allow agent to clear ALL memories** | When enabled, the agent can wipe the entire vector memory of this preset with `[vectormemory clear][/vectormemory]`. **Off by default** — this is the most destructive action available. |
+| **Allow agent to purge a domain** | When enabled, the agent can permanently delete all records of a single domain via `[vectormemory purge]name[/vectormemory]` (or the shorthand `[vectormemory clear]name[/vectormemory]`). The default domain is always protected from purge. **On by default** — less destructive than full clear. |
+| **Max entries** | How many memories to store per preset (100–5000). Weakest entries are removed automatically when the limit is reached if auto-cleanup is enabled. |
 | **Similarity threshold** | Minimum similarity score (0.0–1.0) for a result to be returned. Lower values return more results; higher values return only close matches. Default: `0.1`. |
 | **Search results limit** | Maximum number of results returned per search query (1–20). Default: `5`. |
 | **Boost recent memories** | Give higher relevance to more recently stored memories. |
+| **Cross-domain bridges** (associative + embedding only) | When enabled, after the in-domain associative result is built, the top anchors are also compared against memories from *other* domains. Strong semantic links bring back up to two extra results marked as bridges — useful when knowledge in `work` connects to something stored in `architecture`, but you didn't ask there. Off by default. |
 | **Language mode** | Auto-detect, or force a specific language for all entries. If forced, the agent receives an instruction to write memories in that language. |
 | **Integrate with Memory Plugin** | When enabled, a reference link is also added to the regular notepad (Memory plugin) each time something is stored in vector memory — so the agent can notice it exists even without searching. |
+| **Enable pulse (circadian) search** | Adds the `pulse:N-M` filter to search instructions, letting the agent query memories by position in the day (subjective time). Off by default. Only useful for agents that operate with pulse — pairs with the preset's `pulse_dates` setting. |
 
 ## Search modes in detail
 
 ### Flat mode
+
 The default. Searches all memories and returns the top-K most similar results directly. Fast, predictable, and works well in most cases.
 
 ### Associative mode
+
 Designed for agents that build deep interconnected knowledge over time. The search starts with the best match for your query, then uses *that memory's content* to seed the next search step — and so on, up to a configured chain depth. This way, the agent doesn't just find directly relevant memories, it also surfaces related ones that wouldn't appear in a plain similarity search.
 
 Memories in associative mode also accumulate access statistics. Frequently retrieved memories gain a small importance boost over time (similar to long-term potentiation), while memories that haven't been accessed in a long time gradually become lower priority. When the memory limit is reached, the *weakest* memories are removed first — not necessarily the oldest ones.
 
+When the agent applies a domain filter, the associative chain stays inside the requested domains for the entire walk — giving "associations within a context" semantics. With **Cross-domain bridges** enabled (associative + embedding), the top in-domain results also become anchors for a sideways look: strong semantic links into other domains can surface up to two extra results marked as bridges, without taking slots away from the main answer.
+
 ## Commands
+
+### Storage
 
 | Command | Description |
 |---|---|
-| `[vectormemory]text to remember[/vectormemory]` | Store a new memory |
-| `[vectormemory search]query[/vectormemory]` | Search by meaning |
+| `[vectormemory]text to remember[/vectormemory]` | Store a new memory in the default domain |
+| `[vectormemory work]text to remember[/vectormemory]` | Store a new memory in the `work` domain (creates the domain if it doesn't exist) |
+
+Any method name that is not one of the known commands below (`search`, `recent`, `show`, `delete`, `clear`, `domains`, `purge`) is interpreted as a domain name. So `[vectormemory architecture_notes]...[/vectormemory]` writes into a domain called `architecture_notes`.
+
+### Retrieval
+
+| Command | Description |
+|---|---|
+| `[vectormemory search]query[/vectormemory]` | Search across all domains |
+| `[vectormemory search]domain:work | query[/vectormemory]` | Search only within the `work` domain |
+| `[vectormemory search]domain:work,relationships | query[/vectormemory]` | Search across multiple specific domains |
+| `[vectormemory search]time:yesterday | query[/vectormemory]` | Search within a time window (see [Temporal search](#temporal-search)) |
+| `[vectormemory search]time:last week | domain:work | query[/vectormemory]` | Time + domain filter combined |
+| `[vectormemory search]time:2026-03[/vectormemory]` | Chronological listing for the window, no semantic query |
 | `[vectormemory recent]5[/vectormemory]` | Show the N most recent memories |
 | `[vectormemory show]42[/vectormemory]` | Show full content of memory by ID |
+| `[vectormemory domains][/vectormemory]` | List all domains with their record counts |
+
+### Maintenance
+
+| Command | Description |
+|---|---|
 | `[vectormemory delete]42[/vectormemory]` | Delete by ID |
 | `[vectormemory delete]some content[/vectormemory]` | Delete by content search (finds best match) |
-| `[vectormemory clear][/vectormemory]` | Wipe all vector memories for this preset |
+| `[vectormemory purge]work[/vectormemory]` | Permanently delete all records of the `work` domain (gated by **Allow agent to purge a domain**) |
+| `[vectormemory clear]work[/vectormemory]` | Shorthand for purge — same as above |
+| `[vectormemory clear][/vectormemory]` | Wipe ALL vector memories for this preset (gated by **Allow agent to clear ALL memories**) |
+
+The default domain is always protected from purge. To remove its contents you need to clear everything.
 
 ## How agents use it
 
@@ -58,9 +173,11 @@ Vector memory is designed for **knowledge**, not events. The distinction matters
 - **Store in Journal instead**: what happened, what was said, what was done
 
 Typical agent behaviour:
-- After solving a problem, stores the solution approach for future reference
-- Before starting a task, searches for relevant past knowledge
-- Accumulates a personal knowledge base over time that makes it progressively more capable in its domain
+
+- After solving a problem, stores the solution approach for future reference in an appropriate domain (e.g. `architecture`, `debugging`).
+- Before starting a task, searches for relevant past knowledge — first across all domains, then narrows down if needed.
+- Organizes long-term knowledge into themed domains as it grows: `relationships`, `preferences`, `tooling`, etc.
+- Accumulates a personal knowledge base over time that makes it progressively more capable in its domain.
 
 ## Memory + Vector Memory integration
 
@@ -73,6 +190,8 @@ If **Integrate with Memory Plugin** is enabled, every new vector memory also lea
 As an agent runs over days and weeks, vector memory accumulates many fine-grained entries. Defragmentation compresses them: entries from the same calendar day are grouped and sent to the model, which distils them into a smaller set of consolidated memories. The originals are replaced by the distilled versions, preserving the original date.
 
 This keeps the memory base compact and reduces noise from redundant or overly granular entries without losing the substance of what was stored.
+
+**Scope.** Defragmentation operates only on the **default domain** (`global` by default). Other domains are agent-managed namespaces — cold accumulators that the agent curates explicitly — and are never touched. The default domain is the hot, distillable layer where unstructured kristallisations land and need periodic compression.
 
 **Enable defragmentation** per preset in its settings (`defrag_enabled`). You can also set how many entries to keep per day after compression (`defrag_keep_per_day`) and provide a custom prompt for the distillation step if you want to control how the model summarises.
 
@@ -121,10 +240,13 @@ The command processes records in batches and shows a progress bar. If some recor
 
 Vector memories can be exported and imported via the preset's UI. This is useful for backups, transferring a knowledge base between presets or installations, or seeding a new agent with existing knowledge.
 
-**Export** produces a JSON file containing all memories with their content, keywords, importance scores, and access statistics.
+**Export** produces a JSON file (format v3) containing all memories with their content, keywords, importance scores, access statistics, and per-record domain.
 
 **Import** accepts either:
-- A previously exported JSON file — timestamps and access stats are preserved
-- A plain text file — one memory per line, stored with default metadata
 
-Both v1 (legacy) and v2 export formats are supported transparently on import.
+- A previously exported JSON file — timestamps, access stats, and domains are preserved.
+- A plain text file — one memory per line, stored with default metadata in the default domain.
+
+Older export formats (v1, v2) are supported transparently on import — they simply don't carry per-record domain, so all imported records land in the default domain.
+
+On import you can optionally set a **Target domain** which overrides per-record domain values from the source. This is useful when migrating data from another preset and you want everything funneled into a single domain regardless of how it was organized originally.

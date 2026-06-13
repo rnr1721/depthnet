@@ -3,15 +3,19 @@
 use App\Http\Controllers\Admin\AgentController;
 use App\Http\Controllers\Admin\AgentTaskController;
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\FileController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\JournalController;
 use App\Http\Controllers\Admin\KnownSourceController;
 use App\Http\Controllers\Admin\MemoryController;
+use App\Http\Controllers\Admin\OntologyController;
 use App\Http\Controllers\Admin\PersonController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\PresetCapabilityController;
 use App\Http\Controllers\Admin\PresetController;
+use App\Http\Controllers\Admin\PresetInnerVoiceConfigController;
 use App\Http\Controllers\Admin\PresetMcpController;
+use App\Http\Controllers\Admin\PresetPluginDataController;
 use App\Http\Controllers\Admin\PresetPromptController;
 use App\Http\Controllers\Admin\PresetRagConfigController;
 use App\Http\Controllers\Admin\PresetSandboxController;
@@ -124,6 +128,14 @@ Route::middleware('auth')->group(function () {
                 Route::post('/reorder', [PresetRagConfigController::class, 'reorder'])->name('reorder');
             });
 
+            Route::prefix('/{presetId}/inner-voice-configs')->name('inner-voice-configs.')->group(function () {
+                Route::get('/', [PresetInnerVoiceConfigController::class, 'index'])->name('index');
+                Route::post('/', [PresetInnerVoiceConfigController::class, 'store'])->name('store');
+                Route::put('/{configId}', [PresetInnerVoiceConfigController::class, 'update'])->name('update');
+                Route::delete('/{configId}', [PresetInnerVoiceConfigController::class, 'destroy'])->name('destroy');
+                Route::post('/reorder', [PresetInnerVoiceConfigController::class, 'reorder'])->name('reorder');
+            });
+
             // MCP management routes
             Route::prefix('/{presetId}/mcp')->name('mcp.')->group(function () {
                 Route::get('/', [PresetMcpController::class, 'index'])->name('index');
@@ -152,6 +164,16 @@ Route::middleware('auth')->group(function () {
                 Route::patch('/{promptId}/activate', [PresetPromptController::class, 'activate'])->name('activate');
                 Route::post('/{promptId}/duplicate', [PresetPromptController::class, 'duplicate'])->name('duplicate');
             });
+
+            // Plugin Data — universal key-value storage for plugins
+            Route::prefix('/{presetId}/plugin-data/{pluginCode}')->name('plugin-data.')->group(function () {
+                Route::get('/', [PresetPluginDataController::class, 'index'])->name('index');
+                Route::post('/', [PresetPluginDataController::class, 'store'])->name('store');
+                Route::put('/{id}', [PresetPluginDataController::class, 'update'])->name('update');
+                Route::delete('/{id}', [PresetPluginDataController::class, 'destroy'])->name('destroy');
+                Route::post('/reorder', [PresetPluginDataController::class, 'reorder'])->name('reorder');
+            });
+
         });
 
         // AI Engines management routes
@@ -204,6 +226,17 @@ Route::middleware('auth')->group(function () {
             Route::get('/export', [VectorMemoryController::class, 'export'])->name('export');
             Route::post('/import', [VectorMemoryController::class, 'import'])->name('import');
             Route::get('/stats', [VectorMemoryController::class, 'stats'])->name('stats');
+            Route::post('/purge-domain', [VectorMemoryController::class, 'purgeDomain'])->name('purge-domain');
+        });
+
+        // Document Management routes
+        Route::prefix('documents')->name('documents.')->group(function () {
+            Route::get('/', [FileController::class, 'index'])->name('index');
+            Route::post('/', [FileController::class, 'store'])->name('store');
+            Route::delete('/{fileId}', [FileController::class, 'destroy'])->name('destroy');
+            Route::post('/search', [FileController::class, 'search'])->name('search');
+            Route::post('/{fileId}/reprocess', [FileController::class, 'reprocess'])->name('reprocess');
+            Route::get('/{fileId}/download', [FileController::class, 'download'])->name('download');
         });
 
         // Capabilities Management routes
@@ -216,6 +249,8 @@ Route::middleware('auth')->group(function () {
             Route::put('/{presetId}/{capability}', [PresetCapabilityController::class, 'update'])->name('update');
             // Test the current config
             Route::post('/{presetId}/{capability}/test', [PresetCapabilityController::class, 'test'])->name('test');
+            // List available models for capabilities that support it (e.g. LLMs)
+            Route::get('/{presetId}/{capability}/models', [PresetCapabilityController::class, 'models'])->name('models');
         });
 
         // Skills Management routes
@@ -304,6 +339,22 @@ Route::middleware('auth')->group(function () {
             Route::post('/clear', [JournalController::class, 'clear'])->name('clear');
             Route::post('/search', [JournalController::class, 'search'])->name('search');
         });
+
+        // Ontology Management routes
+        Route::prefix('ontology')->name('ontology.')->group(function () {
+            Route::get('/', [OntologyController::class, 'index'])       ->name('index');
+            // Nodes
+            Route::post('/nodes', [OntologyController::class, 'storeNode'])   ->name('node.store');
+            Route::put('/nodes/{nodeId}', [OntologyController::class, 'updateNode'])  ->name('node.update');
+            Route::delete('/nodes/{nodeId}', [OntologyController::class, 'destroyNode']) ->name('node.destroy');
+            // Edges
+            Route::post('/edges', [OntologyController::class, 'storeEdge'])   ->name('edge.store');
+            Route::put('/edges/{edgeId}', [OntologyController::class, 'updateEdge'])  ->name('edge.update');
+            Route::delete('/edges/{edgeId}', [OntologyController::class, 'destroyEdge']) ->name('edge.destroy');
+            // Bulk
+            Route::post('/clear', [OntologyController::class, 'clear'])       ->name('clear');
+        });
+
 
         if (config('sandbox.enabled', false)) {
             // Sandbox Management routes

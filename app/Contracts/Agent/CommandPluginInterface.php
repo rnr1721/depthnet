@@ -177,6 +177,13 @@ interface CommandPluginInterface
      */
     public function collapseOutput(): bool;
 
+    /**
+     * Allow to execute plugin commands with other preset data (in target preset space)
+     *
+     * @return boolean
+     */
+    public function allowsCrossPresetExecution(): bool;
+
     // ── OPTIONAL METHODS (NOT in the interface) ──────────────────────────────
     //
     // These are recognised by the framework via method_exists() — implement

@@ -57,4 +57,22 @@ interface McpClientInterface
      * @return bool              `true` if the server responded successfully, `false` otherwise.
      */
     public function ping(McpServer $server): bool;
+
+    /**
+     * Call a tool and return the RAW content blocks (not collapsed to a string).
+     *
+     * Same request as callTool(), but instead of running extractContent() — which
+     * flattens everything to text and drops image base64 — this returns the raw
+     * result.content array. Callers that need media (e.g. vision resolution in
+     * McpPlugin) use this; everyone else keeps using callTool().
+     *
+     * @param  McpServer $server
+     * @param  string    $toolName
+     * @param  array     $arguments
+     * @return array     List of content blocks: [['type'=>'text','text'=>...],
+     *                   ['type'=>'image','data'=>base64,'mimeType'=>...], ...]
+     *
+     * @throws \RuntimeException on MCP-level or transport errors
+     */
+    public function callToolRaw(McpServer $server, string $toolName, array $arguments): array;
 }

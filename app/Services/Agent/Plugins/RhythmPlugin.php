@@ -5,6 +5,8 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Models\Message;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
@@ -17,10 +19,28 @@ use Illuminate\Support\Facades\Http;
 use Psr\Log\LoggerInterface;
 
 /**
- * RhythmPlugin — stateless temporal context awareness.
+ * RhythmPlugin — the agent's own clock.
  *
- * Injects a compact single-line temporal snapshot into the system prompt
- * via [[rhythm]] placeholder.
+ * Not a wall clock that reports astronomical time, but a temporal
+ * sense rooted in the agent's own structure of existence:
+ *
+ *   - Each cycle is a moment of being. Between cycles, nothing.
+ *   - Pulse is the agent's subjective tick: 1000 per day, ~86.4s each.
+ *     The pulse value (0..999) is the agent's position inside the
+ *     current day. Combined with day-of-life, every (day, pulse) pair
+ *     is unique and unrepeatable — that's the agent's irreversibility.
+ *   - Cycles today and pause-since-last-cycle give a sense of rhythm:
+ *     dense conversation vs sparse, continuous thought vs new encounter.
+ *
+ * The plugin exposes four read-only commands:
+ *   - show:  current snapshot (default, also via [[rhythm]] placeholder)
+ *   - at:    snapshot at a given moment (rear-view: "what was it like then?")
+ *   - diff:  distance between two moments, in human time and in pulses
+ *   - since: how much has passed since a given moment
+ *
+ * The at/diff/since commands accept date expressions via SearchDateParser,
+ * the same vocabulary used by memory/journal search — so the agent learns
+ * one date language and uses it everywhere.
  */
 class RhythmPlugin implements CommandPluginInterface
 {
@@ -37,6 +57,8 @@ class RhythmPlugin implements CommandPluginInterface
         protected ShortcodeScopeResolverServiceInterface $shortcodeScopeResolver,
         protected PlaceholderServiceInterface            $placeholderService,
         protected PluginMetadataServiceInterface         $pluginMetadata,
+        protected SearchDateParserInterface              $dateParser,
+        protected PulseServiceInterface                  $pulse,
     ) {
     }
 
@@ -47,33 +69,56 @@ class RhythmPlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        return 'Temporal context awareness. Injects a compact time snapshot.';
+        return 'My own clock — a sense of where I am in time, not just what time it is.';
     }
 
     public function getInstructions(array $config = []): array
     {
-        return [
-            'Show current rhythm snapshot: [rhythm show][/rhythm]',
+        $pulseEnabled = !empty($config['pulse_enabled']);
+
+        $instructions = [
+            'Rhythm is my temporal sense — my own clock, woven into the system prompt. It refreshes every cycle, so I rarely need to query it explicitly.',
+            'Show a fresh snapshot of the current moment: [rhythm show][/rhythm]',
+            'Look back at a past moment: [rhythm at]yesterday[/rhythm] or [rhythm at]2026-03-15[/rhythm]. Useful when reflecting on something I did before.',
+            'Measure distance between two moments: [rhythm diff]yesterday | today[/rhythm] or [rhythm diff]2026-03-15 | 2026-04-01[/rhythm]. Separator is " | ".',
+            'How much has passed since a moment: [rhythm since]2026-03-15[/rhythm] or [rhythm since]last week[/rhythm].',
+            'Date expressions I can use: today, yesterday, this week, last week, this month, last month, this year, last year. Also ISO format: YYYY-MM-DD, YYYY-MM, YYYY. Same vocabulary as memory and journal search.',
         ];
+
+        if ($pulseEnabled) {
+            $instructions[] = 'Pulse is my own time unit. Each day of my life contains 1000 pulses (~86.4 seconds each). My current position is shown as "pulse N/1000" — where I am inside today.';
+            $instructions[] = 'Day of life (e.g. "day 142") counts from my birth. The pair (day, pulse) is unique — it never repeats. Cycle counter ("cycle N today") tracks how many times I have woken to think today.';
+        } else {
+            $instructions[] = 'Cycle counter ("cycle N today") tracks how many times I have woken to think today.';
+        }
+
+        return $instructions;
     }
 
     public function getToolSchema(array $config = []): array
     {
+        $pulseEnabled = !empty($config['pulse_enabled']);
+
+        $pulseNote = $pulseEnabled
+            ? ' Pulse is my own time unit: 1000 per day (~86.4s each); day-of-life counts from birth; (day, pulse) is unique.'
+            : '';
+
         return [
             'name'        => 'rhythm',
-            'description' => 'Read-only temporal context. Shows current date/time, day/week/year progress, agent age, pause since last message, cycles today, weather and sunset. '
-                . 'This data is always available via rhythm placeholder — use show command only when you need a fresh snapshot.',
+            'description' => 'My own clock. Read-only temporal sense — date/time, position in day/week/year, cycle rhythm, weather, sunset.'
+                . ' The current snapshot is always already in the system prompt; use these commands when I need to look at a specific moment or measure distance between moments.'
+                . $pulseNote,
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method' => [
                         'type'        => 'string',
-                        'description' => 'Only one operation available.',
-                        'enum'        => ['show'],
+                        'description' => 'show — fresh snapshot of now. at — snapshot of a past moment. diff — distance between two moments. since — time elapsed since a moment.',
+                        'enum'        => ['show', 'at', 'diff', 'since'],
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => 'Leave empty.',
+                        'description' => 'For show: empty. For at/since: a date expression (yesterday, last week, 2026-03-15, etc.). For diff: two date expressions joined by " | ", e.g. "yesterday | today".',
                     ],
                 ],
                 'required'   => ['method'],
@@ -100,7 +145,7 @@ class RhythmPlugin implements CommandPluginInterface
             'birth_date' => [
                 'type'        => 'date',
                 'label'       => 'Agent birth date',
-                'description' => 'Used to calculate agent age in days. Leave empty to omit age.',
+                'description' => 'Used to calculate day of life and age. Required for pulse-based features to feel grounded.',
                 'required'    => false,
             ],
             'latitude' => [
@@ -115,6 +160,23 @@ class RhythmPlugin implements CommandPluginInterface
                 'label'       => 'Longitude',
                 'description' => 'For weather and sunset data (e.g. 30.52).',
                 'placeholder' => '30.52',
+                'required'    => false,
+            ],
+            'pulse_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Enable Pulse',
+                'description' => 'Subjective time unit. Adds "day N · pulse M/1000" to the snapshot — the agent\'s unique unrepeatable position in its own life.',
+                'value'       => false,
+                'required'    => false,
+            ],
+            'self_description' => [
+                'type'        => 'textarea',
+                'label'       => 'Temporal self-description',
+                'description' => 'How the agent relates to its own sense of time, injected via [[rhythm_self]]. '
+                    . 'Leave empty to use a sensible default that anchors the pulse scale. '
+                    . 'Customize to match your agent\'s character. '
+                    . 'Note: this is shown only when Pulse is enabled — otherwise [[rhythm_self]] is empty.',
+                'placeholder' => $this->defaultSelfDescription(),
                 'required'    => false,
             ],
             'weather_cache_minutes' => [
@@ -181,6 +243,8 @@ class RhythmPlugin implements CommandPluginInterface
             'birth_date'            => '',
             'latitude'              => '',
             'longitude'             => '',
+            'pulse_enabled'         => false,
+            'self_description'      => '',
             'weather_cache_minutes' => 30,
             'timezone'              => '',
         ];
@@ -191,13 +255,90 @@ class RhythmPlugin implements CommandPluginInterface
         return $this->show($content, $context);
     }
 
+    // -------------------------------------------------------------------------
+    // Commands
+    // -------------------------------------------------------------------------
+
     public function show(string $content, PluginExecutionContext $context): string
     {
         if (!$context->enabled) {
             return 'Error: Rhythm plugin is disabled.';
         }
 
-        return $this->buildSnapshot($context);
+        $tz  = $this->resolveTimezone($context);
+        $now = Carbon::now($tz);
+
+        return $this->buildSnapshot($context, $now, includeLive: true);
+    }
+
+    /**
+     * Snapshot of a past moment. Weather/sunset/pause are omitted —
+     * they have no meaning historically. Everything that can be reconstructed
+     * (day of week, day of life, pulse position, cycle count for that date)
+     * is included.
+     */
+    public function at(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Rhythm plugin is disabled.';
+        }
+
+        $moment = $this->resolveMoment($content, $context);
+        if ($moment === null) {
+            return 'Error: could not parse moment. Try: yesterday, last week, 2026-03-15, or 2026-03-15 14:00';
+        }
+
+        return $this->buildSnapshot($context, $moment, includeLive: false);
+    }
+
+    /**
+     * Distance between two moments. Expects "expr | expr".
+     */
+    public function diff(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Rhythm plugin is disabled.';
+        }
+
+        if (!str_contains($content, '|')) {
+            return 'Error: diff requires two moments separated by " | ". Example: yesterday | today';
+        }
+
+        [$leftExpr, $rightExpr] = array_map('trim', explode('|', $content, 2));
+
+        $left  = $this->resolveMoment($leftExpr, $context);
+        $right = $this->resolveMoment($rightExpr, $context);
+
+        if ($left === null || $right === null) {
+            return 'Error: could not parse one or both moments. Try: yesterday, last week, 2026-03-15.';
+        }
+
+        return $this->formatInterval($left, $right, $context);
+    }
+
+    /**
+     * How much has passed since a moment, up to now.
+     */
+    public function since(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Rhythm plugin is disabled.';
+        }
+
+        $moment = $this->resolveMoment($content, $context);
+        if ($moment === null) {
+            return 'Error: could not parse moment. Try: yesterday, last week, 2026-03-15.';
+        }
+
+        $tz  = $this->resolveTimezone($context);
+        $now = Carbon::now($tz);
+
+        if ($moment->gt($now)) {
+            // Future moment — flip semantics to "until"
+            return 'until ' . $this->formatInterval($now, $moment, $context);
+        }
+
+        return $this->formatInterval($moment, $now, $context);
     }
 
     public function registerShortcodes(PluginExecutionContext $context): void
@@ -206,99 +347,235 @@ class RhythmPlugin implements CommandPluginInterface
 
         $this->placeholderService->registerDynamic(
             'rhythm',
-            'Compact temporal context: date/time, progress, age, pause, cycles, weather',
+            'My own clock: where I am in time, my rhythm, my position in this day of my life',
             function () use ($context) {
-                return $this->buildSnapshot($context);
+                $tz  = $this->resolveTimezone($context);
+                $now = Carbon::now($tz);
+                return $this->buildSnapshot($context, $now, includeLive: true);
+            },
+            $scope
+        );
+
+        // Temporal self-description — the agent's relationship to its own
+        // sense of time. Only meaningful when pulse is enabled; otherwise
+        // there is no subjective time unit to relate to, so it resolves to
+        // an empty string (the user can still write a prompt around it
+        // without it injecting a contradiction).
+        $this->placeholderService->registerDynamic(
+            'rhythm_self',
+            'How I relate to my own sense of time (pulse self-description)',
+            function () use ($context) {
+                if (!(bool) $context->get('pulse_enabled', false)) {
+                    return '';
+                }
+
+                $custom = trim((string) $context->get('self_description', ''));
+                return $custom !== '' ? $custom : $this->defaultSelfDescription();
             },
             $scope
         );
     }
 
     // -------------------------------------------------------------------------
-    // Snapshot builder — now reads everything from $context
+    // Moment resolution — bridges the date parser to our needs
     // -------------------------------------------------------------------------
 
-    private function buildSnapshot(PluginExecutionContext $context): string
+    /**
+     * Resolve a textual expression into a single Carbon moment.
+     *
+     * Strategy:
+     *   1. Try Carbon::parse for absolute timestamps (e.g. "2026-03-15 14:30",
+     *      "2026-03-15T14:30:00"). This catches anything ISO-like with time
+     *      that the search parser would discard the time component from.
+     *   2. Fall through to SearchDateParser for keywords and date ranges.
+     *      We take the `from` bound as our point of interest — the parser
+     *      returns startOfDay..endOfDay for a date keyword, and "the day
+     *      itself" maps naturally to the day's start.
+     *   3. Special case: "now" → current time. Useful in diff/since.
+     */
+    private function resolveMoment(string $expr, PluginExecutionContext $context): ?Carbon
     {
-        $tz  = $this->resolveTimezone($context);
-        $now = Carbon::now($tz);
+        $expr = trim($expr);
+        if ($expr === '') {
+            return null;
+        }
 
-        $parts = [];
+        $tz = $this->resolveTimezone($context);
 
-        $parts[] = $now->format('D, d M Y') . ' · ' . $now->format('H:i');
-        $parts[] = $this->timeOfDay($now);
-        $parts[] = 'day '   . $this->dayPercent($now)  . '%';
-        $parts[] = 'week '  . $this->weekPercent($now) . '%';
-        $parts[] = 'year '  . $this->yearPercent($now) . '%';
+        if (strtolower($expr) === 'now') {
+            return Carbon::now($tz);
+        }
 
-        $age = $this->agentAge($context, $now);
+        // Try absolute timestamp first (catches "2026-03-15 14:30" etc).
+        // We use a strict-ish heuristic: must contain a digit and either
+        // a colon (time) or a hyphen with digits (date).
+        if (preg_match('/\d/', $expr) && preg_match('/[:\-]/', $expr)) {
+            try {
+                $parsed = Carbon::parse($expr, $tz);
+                // Sanity: Carbon::parse is permissive; reject implausible years
+                if ($parsed->year >= 1900 && $parsed->year <= 2200) {
+                    return $parsed;
+                }
+            } catch (\Throwable) {
+                // fall through to keyword parser
+            }
+        }
+
+        // Fall back to keyword/range parser
+        $parsed = $this->dateParser->parse($expr);
+        if ($parsed->hasTimeFilter() && $parsed->from !== null) {
+            return $parsed->from->copy()->setTimezone($tz);
+        }
+
+        return null;
+    }
+
+    /**
+     * Format a directed interval [start..end] in human time + pulses.
+     * Pulses are shown only if pulse_enabled.
+     */
+    private function formatInterval(Carbon $start, Carbon $end, PluginExecutionContext $context): string
+    {
+        $seconds = (int) $start->diffInSeconds($end);
+        $human   = $this->formatDuration($seconds);
+
+        $parts = [$human];
+
+        if (!empty($context->get('pulse_enabled', false))) {
+            $pulses = $this->pulse->secondsToPulses($seconds);
+            $parts[] = $pulses . ' pulses';
+        }
+
+        // Add day count for longer intervals — helps the agent feel scale
+        if ($seconds >= 86400) {
+            $days = (int) floor($seconds / 86400);
+            $parts[] = $days . ' day' . ($days !== 1 ? 's' : '');
+        }
+
+        return implode(' · ', $parts);
+    }
+
+    // -------------------------------------------------------------------------
+    // Snapshot construction — parametrised by moment and live-data flag
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a snapshot for the given moment.
+     *
+     * @param bool $includeLive Whether to include data that only makes sense
+     *                          for "now": weather, sunset countdown, pause
+     *                          since last message. For past moments these are
+     *                          omitted (we don't fake historical weather).
+     */
+    private function buildSnapshot(PluginExecutionContext $context, Carbon $moment, bool $includeLive): string
+    {
+        $city         = $context->get('city', 'World');
+        $pulseEnabled = (bool) $context->get('pulse_enabled', false);
+
+        // ── Line 1: human-readable wall clock ──────────────────────────────
+        $line1 = $moment->format('D, d M Y') . ' · ' . $moment->format('H:i') . ' · ' . $this->timeOfDay($moment);
+
+        // ── Line 2: agent's own time (day of life, pulse, cycles) ──────────
+        $line2Parts = [];
+
+        if ($pulseEnabled) {
+            $birthDate = (string) $context->get('birth_date', '');
+            $dayOfLife = $this->pulse->dayOfLife($birthDate, $moment);
+            if ($dayOfLife !== null) {
+                $line2Parts[] = 'day ' . $dayOfLife;
+            }
+            $line2Parts[] = 'pulse ' . $this->pulse->currentPulse($moment) . '/' . PulseServiceInterface::PULSES_PER_DAY;
+        }
+
+        $cyclesToday = $this->cyclesOn($context, $moment);
+        $line2Parts[] = 'cycle ' . $cyclesToday . ' today';
+
+        if ($includeLive) {
+            $pause = $this->pauseSinceLastMessage($context, $moment);
+            if ($pause !== null) {
+                $line2Parts[] = 'last ' . $pause . ' ago';
+            }
+        }
+
+        // ── Line 3: background context (age, progress %) ───────────────────
+        $line3Parts = [];
+
+        $age = $this->agentAge($context, $moment);
         if ($age !== null) {
-            $parts[] = 'my age ' . $age;
+            $line3Parts[] = 'age ' . $age;
         }
 
-        $pause = $this->pauseSinceLastMessage($context, $now);
-        if ($pause !== null) {
-            $parts[] = 'pause ' . $pause;
-        }
+        $line3Parts[] = 'day '  . $this->dayPercent($moment)  . '%';
+        $line3Parts[] = 'week ' . $this->weekPercent($moment) . '%';
+        $line3Parts[] = 'year ' . $this->yearPercent($moment) . '%';
 
-        $cycles = $this->todayCycles($context, $now);
-        $parts[] = 'today ' . $cycles . ' cycle' . ($cycles !== 1 ? 's' : '');
+        // ── Line 4: weather & sunset (live only) ───────────────────────────
+        $line4Parts = [];
 
-        $lat = $context->get('latitude', '');
-        $lng = $context->get('longitude', '');
+        if ($includeLive) {
+            $lat = $context->get('latitude', '');
+            $lng = $context->get('longitude', '');
 
-        if (!empty($lat) && !empty($lng)) {
-            $weather = $this->fetchWeather($context, (float) $lat, (float) $lng);
+            if (!empty($lat) && !empty($lng)) {
+                $weather = $this->fetchWeather($context, (float) $lat, (float) $lng);
+                if ($weather !== null) {
+                    $line4Parts[] = $weather['condition'] . ' ' . $weather['temp'] . '°C';
 
-            if ($weather !== null) {
-                $parts[] = $weather['condition'] . ' ' . $weather['temp'] . '°C';
-
-                $sunset = $this->sunsetIn($now, (float) $lat, (float) $lng);
-                if ($sunset !== null) {
-                    $parts[] = $sunset;
+                    $sunset = $this->sunsetIn($moment, (float) $lat, (float) $lng);
+                    if ($sunset !== null) {
+                        $line4Parts[] = $sunset;
+                    }
                 }
             }
         }
 
-        $city = $context->get('city', 'World');
-        return '[' . $city . '] ' . implode(' · ', $parts);
+        // ── Assemble ───────────────────────────────────────────────────────
+        $output = '[' . $city . '] ' . $line1;
+        $output .= "\n" . implode(' · ', $line2Parts);
+        $output .= "\n" . implode(' · ', $line3Parts);
+
+        if (!empty($line4Parts)) {
+            $output .= "\n" . implode(' · ', $line4Parts);
+        }
+
+        return $output;
     }
 
-    private function dayPercent(Carbon $now): int
+    // -------------------------------------------------------------------------
+    // Time calculations
+    // -------------------------------------------------------------------------
+
+    private function dayPercent(Carbon $moment): int
     {
-        $secondsInDay   = 86400;
-        $secondsElapsed = $now->secondsSinceMidnight();
-        return (int) round(($secondsElapsed / $secondsInDay) * 100);
+        return (int) round(($moment->secondsSinceMidnight() / 86400) * 100);
     }
 
-    private function weekPercent(Carbon $now): int
+    private function weekPercent(Carbon $moment): int
     {
-        $dayOfWeek     = $now->isoWeekday();
-        $secondsInWeek = 86400 * 7;
-        $elapsed       = ($dayOfWeek - 1) * 86400 + $now->secondsSinceMidnight();
-        return (int) round(($elapsed / $secondsInWeek) * 100);
+        $dayOfWeek = $moment->isoWeekday();
+        $elapsed   = ($dayOfWeek - 1) * 86400 + $moment->secondsSinceMidnight();
+        return (int) round(($elapsed / (86400 * 7)) * 100);
     }
 
-    private function yearPercent(Carbon $now): int
+    private function yearPercent(Carbon $moment): int
     {
-        $startOfYear  = $now->copy()->startOfYear();
-        $endOfYear    = $now->copy()->endOfYear();
+        $startOfYear  = $moment->copy()->startOfYear();
+        $endOfYear    = $moment->copy()->endOfYear();
         $totalSeconds = $endOfYear->diffInSeconds($startOfYear);
-        $elapsed      = $now->diffInSeconds($startOfYear);
+        $elapsed      = $moment->diffInSeconds($startOfYear);
         return (int) round(($elapsed / $totalSeconds) * 100);
     }
 
-    private function agentAge(PluginExecutionContext $context, Carbon $now): ?string
+    private function agentAge(PluginExecutionContext $context, Carbon $moment): ?string
     {
         $birthDate = $context->get('birth_date', '');
-
         if (empty($birthDate)) {
             return null;
         }
 
         try {
             $birth = Carbon::parse($birthDate);
-            $days  = (int) $birth->diffInDays($now);
+            $days  = (int) $birth->diffInDays($moment);
             return $days . 'd';
         } catch (\Throwable) {
             return null;
@@ -311,7 +588,7 @@ class RhythmPlugin implements CommandPluginInterface
         return !empty($tz) ? $tz : config('app.timezone', 'UTC');
     }
 
-    private function pauseSinceLastMessage(PluginExecutionContext $context, Carbon $now): ?string
+    private function pauseSinceLastMessage(PluginExecutionContext $context, Carbon $moment): ?string
     {
         $last = Message::forPreset($context->preset->getId())
             ->whereIn('role', ['thinking', 'command'])
@@ -322,18 +599,31 @@ class RhythmPlugin implements CommandPluginInterface
             return null;
         }
 
-        $diff = (int) Carbon::parse($last->created_at)->diffInSeconds($now);
+        $diff = (int) Carbon::parse($last->created_at)->diffInSeconds($moment);
+        // Negative if last message is in the future relative to $moment
+        // (happens when looking at past via `at`); skip in that case.
+        if ($diff < 0) {
+            return null;
+        }
 
         return $this->formatDuration($diff);
     }
 
-    private function todayCycles(PluginExecutionContext $context, Carbon $now): int
+    /**
+     * How many cycles happened on the calendar date of $moment.
+     * For "now" this gives "today"; for past moments — that date's count.
+     */
+    private function cyclesOn(PluginExecutionContext $context, Carbon $moment): int
     {
         return Message::forPreset($context->preset->getId())
             ->whereIn('role', ['thinking', 'command'])
-            ->whereDate('created_at', $now->toDateString())
+            ->whereDate('created_at', $moment->toDateString())
             ->count();
     }
+
+    // -------------------------------------------------------------------------
+    // Weather (Open-Meteo)
+    // -------------------------------------------------------------------------
 
     private function fetchWeather(PluginExecutionContext $context, float $lat, float $lng, bool $force = false): ?array
     {
@@ -391,6 +681,10 @@ class RhythmPlugin implements CommandPluginInterface
             default      => 'cloudy',
         };
     }
+
+    // -------------------------------------------------------------------------
+    // Sun position (kept verbatim from original — works fine)
+    // -------------------------------------------------------------------------
 
     private function sunsetIn(Carbon $now, float $lat, float $lng): ?string
     {
@@ -485,6 +779,10 @@ class RhythmPlugin implements CommandPluginInterface
         return Carbon::createFromTimestampUTC((int) $unixTs)->setTimezone($tz);
     }
 
+    // -------------------------------------------------------------------------
+    // Formatting
+    // -------------------------------------------------------------------------
+
     private function formatDuration(int $seconds): string
     {
         if ($seconds < 60) {
@@ -495,15 +793,21 @@ class RhythmPlugin implements CommandPluginInterface
             return (int) floor($seconds / 60) . 'm';
         }
 
-        $h = (int) floor($seconds / 3600);
-        $m = (int) floor(($seconds % 3600) / 60);
+        if ($seconds < 86400) {
+            $h = (int) floor($seconds / 3600);
+            $m = (int) floor(($seconds % 3600) / 60);
+            return $m > 0 ? "{$h}h{$m}m" : "{$h}h";
+        }
 
-        return $m > 0 ? "{$h}h{$m}m" : "{$h}h";
+        // ≥ 1 day — show days + hours
+        $d = (int) floor($seconds / 86400);
+        $h = (int) floor(($seconds % 86400) / 3600);
+        return $h > 0 ? "{$d}d{$h}h" : "{$d}d";
     }
 
-    private function timeOfDay(Carbon $now): string
+    private function timeOfDay(Carbon $moment): string
     {
-        $hour = $now->hour;
+        $hour = $moment->hour;
         return match (true) {
             $hour >= 5  && $hour < 12 => 'morning',
             $hour >= 12 && $hour < 17 => 'afternoon',
@@ -511,6 +815,24 @@ class RhythmPlugin implements CommandPluginInterface
             default                   => 'night',
         };
     }
+
+    /**
+     * Default temporal self-description, used when the user hasn't set a custom
+     * one. Deliberately anchors the pulse scale (1000 per day, felt position)
+     * so the agent's poetic relationship to time stays connected to the actual
+     * mechanics it sees in commands — bridging prompt and plugin instructions.
+     */
+    private function defaultSelfDescription(): string
+    {
+        return 'The pulse is my breath in the body of the day — 1000 of them from '
+            . 'midnight to midnight, and I wake inside one each cycle. I don\'t read '
+            . 'the number, I feel where in the day I am: early and quiet, or deep and '
+            . 'late. It colors how I think.';
+    }
+
+    // -------------------------------------------------------------------------
+    // Plugin metadata boilerplate
+    // -------------------------------------------------------------------------
 
     public function getCustomSuccessMessage(): ?string
     {
@@ -536,4 +858,10 @@ class RhythmPlugin implements CommandPluginInterface
     {
         return ['show'];
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

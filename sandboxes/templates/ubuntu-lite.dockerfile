@@ -46,8 +46,7 @@ USER sandbox-user
 WORKDIR /home/sandbox-user
 
 # Create .bashrc with correct permissions
-RUN echo 'export PATH="$PATH"' >> ~/.bashrc \
-    && echo 'alias ll="ls -la"' >> ~/.bashrc \
+RUN echo 'alias ll="ls -la"' >> ~/.bashrc \
     && echo 'alias la="ls -A"' >> ~/.bashrc \
     && echo 'alias l="ls -CF"' >> ~/.bashrc \
     && echo 'alias ..="cd .."' >> ~/.bashrc \
@@ -75,5 +74,21 @@ WORKDIR /home/sandbox-user
 RUN echo 'set -g history-limit 10000' >> ~/.tmux.conf \
     && echo 'set -g status off' >> ~/.tmux.conf \
     && echo 'set -g default-terminal "screen-256color"' >> ~/.tmux.conf
+
+# Python 3 (needed for lsp-runner)
+USER root
+RUN apt-get update && apt-get install -y \
+    python3 \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+USER sandbox-user
+
+# LSP Runner — universal language server manager
+RUN mkdir -p ~/.local/bin ~/.local/share \
+    && git clone --branch main https://github.com/rnr1721/lsp-runner.git ~/.local/share/lsp-runner \
+    && mkdir -p ~/.local/bin \
+    && printf '#!/bin/bash\nexec python3 ~/.local/share/lsp-runner/lsp_runner.py "$@"\n' > ~/.local/bin/lsp-runner \
+    && chmod +x ~/.local/bin/lsp-runner
 
 CMD ["bash"]

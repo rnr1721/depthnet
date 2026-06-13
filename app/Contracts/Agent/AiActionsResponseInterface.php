@@ -72,4 +72,11 @@ interface AiActionsResponseInterface
      * @return \App\Services\Agent\Plugins\DTO\CommandResult[]
      */
     public function getCommandResults(): array;
+
+    /**
+     * If is one turn (if model ask for one additional turn)
+     *
+     * @return boolean
+     */
+    public function hasTurn(): bool;
 }

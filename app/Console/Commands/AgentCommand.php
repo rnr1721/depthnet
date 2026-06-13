@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Contracts\Agent\AgentJobServiceFactoryInterface;
 use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use Illuminate\Console\Command;
@@ -16,15 +17,17 @@ class AgentCommand extends Command
     protected $description = 'Manage per-preset agent thinking loops (start|stop|status)';
 
     public function handle(
-        AgentJobServiceInterface $agentJobService,
+        AgentJobServiceFactoryInterface $agentJobServiceFactory,
         PresetServiceInterface $presetService
     ): int {
         $action = $this->argument('action');
 
+        $service = $agentJobServiceFactory->make();
+
         return match ($action) {
-            'start'  => $this->handleStart($agentJobService, $presetService),
-            'stop'   => $this->handleStop($agentJobService, $presetService),
-            'status' => $this->handleStatus($agentJobService, $presetService),
+            'start'  => $this->handleStart($service, $presetService),
+            'stop'   => $this->handleStop($service, $presetService),
+            'status' => $this->handleStatus($service, $presetService),
             default  => $this->handleInvalidAction(),
         };
     }

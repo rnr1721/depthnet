@@ -67,4 +67,14 @@ trait PluginConfigTrait
         return false;
     }
 
+    /**
+     * Whether this plugin can execute in a foreign preset context.
+     * Override to return true in data-layer plugins (memory, journal, etc.)
+     * that are designed to operate across preset boundaries.
+     */
+    public function allowsCrossPresetExecution(): bool
+    {
+        return false; // safe by default
+    }
+
 }

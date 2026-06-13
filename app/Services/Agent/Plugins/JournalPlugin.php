@@ -4,9 +4,11 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
+use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
+use App\Services\Agent\Plugins\Traits\PluginHasDateKeywordsTrait;
 use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use Psr\Log\LoggerInterface;
@@ -31,6 +33,7 @@ use Psr\Log\LoggerInterface;
  *   [journal search]yesterday | query[/journal]              — relative date
  *   [journal search]2024-03-10:2024-03-15 | query[/journal]  — date range
  *   [journal search]today[/journal]                          — date only
+ *   [journal search]pulse:0-300 | query[/journal]            — circadian + semantic (if enabled)
  *   [journal delete]42[/journal]                             — delete entry
  *   [journal clear][/journal]                                — clear all
  */
@@ -40,10 +43,12 @@ class JournalPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
     use PluginHasLanguageSettingsTrait;
+    use PluginHasDateKeywordsTrait;
 
     public function __construct(
-        protected JournalServiceInterface $journalService,
-        protected LoggerInterface         $logger,
+        protected JournalServiceInterface     $journalService,
+        protected SearchDateParserInterface   $searchDateParser,
+        protected LoggerInterface             $logger,
     ) {
     }
 
@@ -59,20 +64,49 @@ class JournalPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
+        $lang = $config['journal_language'] ?? 'auto';
+        $pulseEnabled = !empty($config['pulse_search_enabled']);
+
+        $yesterday = $this->localisedKeyword('yesterday', $lang);
+        $today     = $this->localisedKeyword('today', $lang);
+        $exQuery   = $this->exampleSemantic($lang);
+
         $instructions = [
             'Add entry:              [journal]action | Refactored memory plugin[/journal]',
             'Add with details:       [journal]error | DB failed | Timeout after 30s | outcome:failure[/journal]',
             'Add decision:           [journal]decision | Chose approach A over B | Simpler implementation[/journal]',
             'Recent entries:         [journal recent]10[/journal]',
             'Show full entry:        [journal show]42[/journal]',
-            'Semantic search:        [journal search]memory optimization[/journal]',
-            'Date + semantic:        [journal search]2024-03-15 | memory optimization[/journal]',
-            'Relative date:          [journal search]yesterday | errors[/journal]',
-            'Date range + semantic:  [journal search]2024-03-10:2024-03-15 | database[/journal]',
-            'Date only:              [journal search]today[/journal]',
-            'Delete entry:           [journal delete]42[/journal]',
-            'Clear all:              [journal clear][/journal]',
+            "Semantic search:        [journal search]{$exQuery}[/journal]",
+            "Date + semantic:        [journal search]2024-03-15 | {$exQuery}[/journal]",
+            "Relative date:          [journal search]{$yesterday} | {$exQuery}[/journal]",
+            "Date range + semantic:  [journal search]2024-03-10:2024-03-15 | {$exQuery}[/journal]",
+            "Month-level search:     [journal search]2024-03 | {$exQuery}[/journal]",
+            "Year-level search:      [journal search]2024 | {$exQuery}[/journal]",
+            "Date only:              [journal search]{$today}[/journal]",
         ];
+
+        if ($pulseEnabled) {
+            $instructions[] = "Circadian search:       [journal search]pulse:0-300 | {$exQuery}[/journal]";
+            $instructions[] = "Night-owl (across midnight): [journal search]pulse:800-200 | {$exQuery}[/journal]";
+            $instructions[] = "Pulse + date combined:  [journal search]pulse:0-300 | {$yesterday} | {$exQuery}[/journal]";
+            $instructions[] = "Pulse-only listing:     [journal search]pulse:0-300[/journal]";
+        }
+
+        $instructions[] = 'Delete entry:           [journal delete]42[/journal]';
+        $instructions[] = 'Clear all:              [journal clear][/journal]';
+
+        // Date keywords reference — helps the agent discover what date expressions work
+        $keywordList = $this->buildKeywordListLine($lang);
+        if ($keywordList !== null) {
+            $instructions[] = 'Date keywords available: ' . $keywordList;
+            $instructions[] = 'Date ISO formats also accepted: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY';
+        }
+
+        // Pulse orientation note — only when circadian search is enabled.
+        if ($pulseEnabled) {
+            $instructions[] = 'Pulse range — circadian position in the day (0..999, where 0 is midnight, 250 ≈ morning, 500 ≈ noon, 750 ≈ evening). Range syntax: pulse:N-M. Open-ended: pulse:N- or pulse:-M. When N > M the range wraps midnight (e.g. pulse:800-200 = late evening through early morning). Combine freely with date filters.';
+        }
 
         $warning = $this->buildLanguageWarning($config, 'journal_language', 'journal entries');
         if ($warning) {
@@ -93,8 +127,26 @@ class JournalPlugin implements CommandPluginInterface
      */
     public function getToolSchema(array $config = []): array
     {
-
         $langInstruction = $this->buildLanguageInstruction($config, 'journal_language');
+        $lang            = $config['journal_language'] ?? 'auto';
+        $pulseEnabled    = !empty($config['pulse_search_enabled']);
+
+        $sampleKeyword  = $this->localisedKeyword('yesterday', $lang);
+        $sampleSemantic = $this->exampleSemantic($lang);
+
+        // Build the search-argument description, conditionally including pulse.
+        $searchDesc = 'search: query string, optionally prefixed with a date filter and "|" separator. '
+            . 'Date filter accepts ISO formats (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM, YYYY) '
+            . 'and keywords (today, yesterday, this/last week/month/year — and their localised forms). ';
+
+        if ($pulseEnabled) {
+            $searchDesc .= 'Also accepts a "pulse:N-M | ..." prefix that filters by circadian position '
+                . 'in the day (0..999, wraps midnight when N > M); combine freely with the date filter. '
+                . "Example: \"{$sampleKeyword} | {$sampleSemantic}\", \"pulse:0-300 | {$sampleSemantic}\", "
+                . "or \"2024-03-15 | memory\".";
+        } else {
+            $searchDesc .= "Example: \"{$sampleKeyword} | {$sampleSemantic}\" or \"2024-03-15 | memory\".";
+        }
 
         return [
             'name'        => 'journal',
@@ -121,7 +173,7 @@ class JournalPlugin implements CommandPluginInterface
                             'Types: action, decision, interaction, error, observation, event.',
                             'Example: "interaction | Eugeny introduced himself as viking | told me his name | outcome:success".',
                             'recent: number of entries to return (default 10).',
-                            'search: query string, optionally prefixed with date: "yesterday | errors" or "2024-03-15 | memory".',
+                            $searchDesc,
                             'show/delete: numeric entry ID.',
                             'clear: leave empty.',
                         ]),
@@ -145,6 +197,16 @@ class JournalPlugin implements CommandPluginInterface
                 'Journal Language',
                 'Force language for journal entries.'
             ),
+            'pulse_search_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Enable pulse (circadian) search',
+                'description' => 'Adds pulse:N-M filter syntax to journal search instructions — lets the agent '
+                    . 'query entries by position in the day (subjective time). Only useful if the agent '
+                    . 'operates with pulse/subjective time. Pairs with the preset\'s "pulse_dates" setting. '
+                    . 'Off by default.',
+                'value'       => false,
+                'required'    => false,
+            ],
             'default_limit' => [
                 'type'        => 'number',
                 'label'       => 'Default entries limit',
@@ -181,8 +243,9 @@ class JournalPlugin implements CommandPluginInterface
     {
         return array_merge(
             [
-                'enabled'       => false,
-                'default_limit' => 10,
+                'enabled'              => false,
+                'pulse_search_enabled' => false,
+                'default_limit'        => 10,
             ],
             $this->getDefaultLanguageConfig('journal_language')
         );
@@ -251,6 +314,7 @@ class JournalPlugin implements CommandPluginInterface
      * [journal search]query[/journal]
      * [journal search]2024-03-15 | query[/journal]
      * [journal search]yesterday | query[/journal]
+     * [journal search]pulse:0-300 | query[/journal]
      * [journal search]today[/journal]
      */
     public function search(string $content, PluginExecutionContext $context): string
@@ -323,4 +387,10 @@ class JournalPlugin implements CommandPluginInterface
     {
         // Journal doesn't inject into context automatically —
     }
+
+    public function allowsCrossPresetExecution(): bool
+    {
+        return true;
+    }
+
 }

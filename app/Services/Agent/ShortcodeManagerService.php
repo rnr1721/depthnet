@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
+use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Models\AiPreset;
@@ -15,7 +16,8 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         protected PlaceholderServiceInterface $placeholderService,
         protected ShortcodeScopeResolverServiceInterface $scopeResolver,
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
-        protected EnvironmentInfoServiceInterface $environmentInfoService
+        protected EnvironmentInfoServiceInterface $environmentInfoService,
+        protected PulseServiceInterface $pulseService,
     ) {
     }
 
@@ -24,24 +26,34 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
      */
     public function setDefaultShortcodes(AiPreset $preset): void
     {
-        $this->setDateTime();
-        $this->setCommandBuilderInstructions($preset);
+        $this->setDateTime($preset->getPulseDates());
+        if ($preset->getAgentResultMode() !== 'tool_calls') {
+            $this->setCommandBuilderInstructions($preset);
+            $this->setPreCommandResults();
+            $this->setAgentCommandResults();
+        }
         $this->setEnvironmentInfo();
         $this->setRagContext();
+        $this->setMainRagContext();
         $this->setInnerVoice();
-        $this->setAgentCommandResults();
-        $this->setWorkspace();
         $this->setKnownSources();
-        $this->setPreCommandResults();
     }
 
     /**
      * Register current date and time shortcode
      *
+     * @param bool $pulseDates Whether to use pulse-based dates (agent "time" that can be manipulated) or real current date and time.
      * @return void
      */
-    private function setDateTime(): void
+    private function setDateTime(bool $pulseDates): void
     {
+        $this->placeholderService->registerDynamic('current_pulse', 'Current pulse in the day (0-1000)', function () use ($pulseDates) {
+            if (!$pulseDates) {
+                return '';
+            }
+            return 'pulse ' . $this->pulseService->currentPulse() . '/' . PulseServiceInterface::PULSES_PER_DAY;
+        });
+
         $this->placeholderService->registerDynamic('current_datetime', 'Current date and time', function () {
             return date('Y-m-d H:i:s');
         });
@@ -89,6 +101,23 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     }
 
     /**
+     * Register main_rag_context placeholder stub (global).
+     * Actual content is forwarded per-voice-preset by InnerVoiceEnricher and
+     * CyclePromptEnricher from the main preset's rag_context scope.
+     * Available in voice preset system prompts as [[main_rag_context]].
+     *
+     * @return void
+     */
+    private function setMainRagContext(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'main_rag_context',
+            'RAG context from the main preset, available inside inner voice prompts',
+            fn () => ''
+        );
+    }
+
+    /**
      * Register inner voice placeholder stub (global).
      * Actual content is injected per-preset when the preset has inner voice enabled.
      *
@@ -99,21 +128,6 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'inner_voice',
             'Inner voice: advice, doubt or intuition from a dedicated preset (requires Voice preset to be configured)',
-            fn () => ''
-        );
-    }
-
-    /**
-     * Register the [[workspace]] placeholder stub (global).
-     * The real implementation is provided per-preset by WorkspacePlugin::pluginReady().
-     *
-     * @return void
-     */
-    private function setWorkspace(): void
-    {
-        $this->placeholderService->registerDynamic(
-            'workspace',
-            'Persistent key-value scratchpad contents for this preset. Updated each cycle via [workspace] commands.',
             fn () => ''
         );
     }
@@ -257,6 +271,20 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
     {
         $this->placeholderService->clear(
             $this->scopeResolver->preset($presetId)
+        );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function copyPresetShortcodes(int $fromPresetId, int $toPresetId): void
+    {
+        if ($fromPresetId === $toPresetId) {
+            return;
+        }
+        $this->placeholderService->copyScope(
+            $this->scopeResolver->preset($fromPresetId),
+            $this->scopeResolver->preset($toPresetId),
         );
     }
 }

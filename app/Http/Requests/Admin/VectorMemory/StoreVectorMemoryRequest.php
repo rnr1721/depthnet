@@ -12,9 +12,13 @@ class StoreVectorMemoryRequest extends BaseVectorMemoryRequest
      */
     public function rules(): array
     {
-        return array_merge($this->presetValidationRules(), [
-            'content' => 'required|string|min:1|max:5000',
-        ]);
+        return array_merge(
+            $this->presetValidationRules(),
+            $this->optionalDomainRules('domain'),
+            [
+                'content' => 'required|string|min:1|max:5000',
+            ],
+        );
     }
 
     /**
@@ -42,5 +46,14 @@ class StoreVectorMemoryRequest extends BaseVectorMemoryRequest
         }
 
         return trim($content);
+    }
+
+    /**
+     * Get normalised domain name (lowercased, trimmed) or null if not provided.
+     * Null means "let the service use the configured default_domain".
+     */
+    public function getValidatedDomain(): ?string
+    {
+        return $this->readDomain('domain');
     }
 }

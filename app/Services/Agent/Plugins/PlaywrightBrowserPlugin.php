@@ -2,22 +2,27 @@
 
 namespace App\Services\Agent\Plugins;
 
+use App\Contracts\Agent\Browser\BrowserServiceInterface;
 use App\Contracts\Agent\CommandPluginInterface;
+use App\Services\Agent\Browser\BrowserServiceFactory;
+use App\Services\Agent\Browser\DTO\BrowserResult;
+use App\Services\Agent\Browser\DTO\BrowserSnapshot;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
-use Illuminate\Support\Facades\Http;
 use Psr\Log\LoggerInterface;
 
 /**
  * PlaywrightBrowserPlugin
  *
- * Gives agents a persistent, stateful browser backed by a dedicated
- * Playwright service running in Docker. Each preset gets its own browser
- * session that survives across thinking cycles.
+ * Thin command-layer over the browser-service. Responsibilities kept here:
+ *   - plugin identity, config fields, instructions, tool schema
+ *   - domain allow/block policy (a per-preset config concern)
+ *   - rendering a BrowserSnapshot into agent-facing text
  *
- * Requires the browser-service container to be running (profile: browser).
+ * All browser mechanics live in BrowserService. The plugin stays stateless;
+ * a per-preset service is built on demand from the execution context.
  */
 class PlaywrightBrowserPlugin implements CommandPluginInterface
 {
@@ -33,7 +38,8 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     ];
 
     public function __construct(
-        protected LoggerInterface $logger
+        protected LoggerInterface $logger,
+        protected BrowserServiceFactory $serviceFactory,
     ) {
     }
 
@@ -51,70 +57,78 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
 
     public function getInstructions(array $config = []): array
     {
-
+        $searchEnabled = (bool) ($config['enable_search'] ?? false);
         $engine = self::SEARCH_ENGINES[$config['search_engine'] ?? 'google']['label'] ?? 'Google';
 
-        return [
+        $instructions = [
+            'The browser returns a numbered snapshot. Each input, button and link has a number in [brackets].',
+            'Act on elements BY THEIR NUMBER — this is the reliable way. Example: [browser click]3[/browser] clicks element [3].',
+            'You may also use a CSS selector or text= if you must, but numbers are preferred and survive page changes.',
+            '',
             'Open page:          [browser open]https://example.com[/browser]',
-            'Search ' . $engine . ':   [browser search]best php frameworks 2026[/browser]',
+        ];
+
+        if ($searchEnabled) {
+            $instructions[] = 'Search ' . $engine . ':   [browser search]best php frameworks 2026[/browser]';
+        }
+
+        return array_merge($instructions, [
             'Page snapshot:      [browser snapshot][/browser]',
-            'Click element:      [browser click]text=Submit[/browser]',
-            'Type in field:      [browser type]{"selector":"input[name=q]","text":"hello"}[/browser]',
+            'Click element:      [browser click]3[/browser]   (number from the snapshot)',
+            'Type into field:    [browser type]2 | your text here[/browser]   (number | text)',
+            'Type and submit:    [browser type]2 | your text | submit[/browser]   (adds Enter)',
             'Press key:          [browser press]Enter[/browser]',
             'Scroll down:        [browser scroll]500[/browser]',
             'Go back:            [browser back][/browser]',
             'Close session:      [browser close][/browser]',
-        ];
+            '',
+            'Tip: to log in, type into the email field, then the password field, then add | submit to the last one (or press Enter).',
+        ]);
     }
 
-    /**
-     * Tool schema for tool_calls mode.
-     *
-     * Playwright-based persistent browser with session memory.
-     * Sessions survive across thinking cycles — open a page, come back later.
-     *
-     * @return array OpenAI-compatible function descriptor
-     */
     public function getToolSchema(array $config = []): array
     {
+        $searchEnabled = (bool) ($config['enable_search'] ?? false);
         $engine = self::SEARCH_ENGINES[$config['search_engine'] ?? 'google']['label'] ?? 'Google';
+
+        $methods = ['open', 'snapshot', 'click', 'type', 'press', 'scroll', 'back', 'close'];
+        if ($searchEnabled) {
+            // place 'search' right after 'open'
+            array_splice($methods, 1, 0, 'search');
+        }
+
+        $contentParts = [
+            'Argument depends on method.',
+            'open: full URL, e.g. "https://example.com".',
+        ];
+        if ($searchEnabled) {
+            $contentParts[] = 'search: query string via ' . $engine . '.';
+        }
+        $contentParts = array_merge($contentParts, [
+            'snapshot: leave empty — returns the numbered page structure.',
+            'click: element NUMBER from the snapshot (preferred), e.g. "3". CSS selector or "text=..." also accepted.',
+            'type: "NUMBER | text" or "NUMBER | text | submit" to press Enter after. NUMBER is the input number from the snapshot.',
+            'press: key name, e.g. "Enter" or "Tab".',
+            'scroll: pixels to scroll, e.g. "500".',
+            'back/close: leave empty.',
+        ]);
+
         return [
             'name'        => 'browser',
             'description' => 'Persistent Playwright browser with session memory. '
-                . 'Sessions survive across thinking cycles — open a page, reason about it, return later. '
-                . 'Each preset gets its own session. '
-                . 'Use for interactive sites, SPAs, and pages requiring JavaScript.',
+                . 'Sessions survive across thinking cycles. Each preset gets its own session. '
+                . 'The page is returned as a numbered snapshot — act on elements by their number.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method' => [
                         'type'        => 'string',
                         'description' => 'Browser operation to perform',
-                        'enum'        => [
-                            'open',       // open a URL
-                            'search',     // search the web
-                            'snapshot',   // get structured page snapshot
-                            'click',      // click element
-                            'type',       // type into input
-                            'press',      // press keyboard key
-                            'scroll',     // scroll page
-                            'back',       // go back
-                            'close',      // close session
-                        ],
+                        'enum'        => $methods,
                     ],
                     'content' => [
                         'type'        => 'string',
-                        'description' => implode(' ', [
-                            'Argument depends on method.',
-                            'open: full URL, e.g. "https://example.com".',
-                            'search: search query string via ' . $engine . ', e.g. "best PHP frameworks 2026".',
-                            'snapshot: leave empty — returns structured page with links, inputs, buttons.',
-                            'click: element selector or text, e.g. "text=Submit" or "#login-btn".',
-                            'type: JSON {"selector":"input[name=q]","text":"hello"} .',
-                            'press: key name, e.g. "Enter" or "Tab".',
-                            'scroll: pixels to scroll, e.g. "500".',
-                            'back/close: leave empty.',
-                        ]),
+                        'description' => implode(' ', $contentParts),
                     ],
                 ],
                 'required'   => ['method'],
@@ -147,6 +161,16 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
         return ['snapshot', 'back', 'close'];
     }
 
+    /**
+     * Each snapshot already contains the full current page state, so when the
+     * agent fires several browser commands in one cycle, only the last result
+     * body needs to be shown. Headers still appear so the model sees each ran.
+     */
+    public function collapseOutput(): bool
+    {
+        return true;
+    }
+
     // ── Config ───────────────────────────────────────────────────────────────
 
     public function getConfigFields(): array
@@ -156,6 +180,14 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
                 'type'        => 'checkbox',
                 'label'       => 'Enable Browser Plugin',
                 'description' => 'Requires browser-service container (Docker profile: browser)',
+                'required'    => false,
+            ],
+            'enable_search' => [
+                'type'        => 'checkbox',
+                'label'       => 'Enable direct search method',
+                'description' => 'Direct search-by-URL often trips captchas and confuses the agent. '
+                    . 'When off, the agent opens the search engine as a normal page instead, which works more reliably.',
+                'value'       => false,
                 'required'    => false,
             ],
             'service_url' => [
@@ -202,6 +234,7 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
     {
         return [
             'enabled'         => false,
+            'enable_search'   => false,
             'service_url'     => env('BROWSER_SERVICE_URL', 'http://browser-service:3001'),
             'request_timeout' => 60,
             'allowed_domains' => '',
@@ -223,16 +256,13 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
 
     public function registerShortcodes(PluginExecutionContext $context): void
     {
-        // Nothing to prepare — the browser-service manages its own state
+        // Nothing to prepare — the browser-service manages its own state.
     }
 
     // ── Command dispatch ─────────────────────────────────────────────────────
 
     /**
-     * Main entry point called by CommandExecutor.
-     *
-     * The $content arrives as "<subcommand> <payload>" or just "<subcommand>".
-     * For the default tag [browser]url[/browser] the subcommand is treated as "open".
+     * Default tag [browser]url[/browser] → treat as "open".
      */
     public function execute(string $content, PluginExecutionContext $context): string
     {
@@ -243,22 +273,18 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
         $content = trim($content);
 
         if (empty($content)) {
-            return $this->helpText();
+            return $this->helpText($context);
         }
 
-        // If it looks like a plain URL → treat as "open"
         if (filter_var($content, FILTER_VALIDATE_URL)) {
-            return $this->dispatchAction($context, 'open', ['url' => $content]);
+            return $this->open($content, $context);
         }
 
-        return 'Error: Use correct syntax to navigate. ' . $this->helpText();
+        return 'Error: Use correct syntax to navigate. ' . $this->helpText($context);
     }
 
-    // ── Sub-command handlers (called via PluginMethodTrait magic) ────────────
+    // ── Sub-command handlers ─────────────────────────────────────────────────
 
-    /**
-     * [browser open]https://example.com[/browser]
-     */
     public function open(string $content, PluginExecutionContext $context): string
     {
         $url = trim($content);
@@ -271,17 +297,18 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return 'Error: Domain not allowed by security policy.';
         }
 
-        return $this->dispatchAction($context, 'open', ['url' => $url]);
+        return $this->render($this->service($context)->open($this->sessionId($context), $url));
     }
 
-    /**
-     * [browser search]query[/browser]
-     * Convenience: opens Google and searches.
-     */
     public function search(string $content, PluginExecutionContext $context): string
     {
-        $query = trim($content);
+        if (!$context->get('enable_search', false)) {
+            return 'Error: direct search is disabled. Open the search engine as a normal page instead, e.g. '
+                . '[browser open]https://www.google.com[/browser], then type your query into the search box. '
+                . 'This avoids captchas.';
+        }
 
+        $query = trim($content);
         if (empty($query)) {
             return 'Error: search query cannot be empty.';
         }
@@ -290,272 +317,248 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             ?? self::SEARCH_ENGINES['google']['url'];
         $url = $base . urlencode($query);
 
-        return $this->dispatchAction($context, 'open', ['url' => $url]);
+        return $this->render($this->service($context)->open($this->sessionId($context), $url));
     }
 
-    /**
-     * [browser snapshot][/browser]
-     * Returns structured view of the current page.
-     */
     public function snapshot(string $content, PluginExecutionContext $context): string
     {
-        return $this->dispatchAction($context, 'snapshot');
+        return $this->render($this->service($context)->snapshot($this->sessionId($context)));
     }
 
-    /**
-     * [browser click]text=Submit[/browser]
-     * or [browser click]#my-button[/browser]
-     */
     public function click(string $content, PluginExecutionContext $context): string
     {
-        $selector = trim($content);
-
-        if (empty($selector)) {
-            return 'Error: selector cannot be empty.';
+        $target = trim($content);
+        if (empty($target)) {
+            return 'Error: nothing to click. Provide the element number from the snapshot, e.g. 3.';
         }
 
-        return $this->dispatchAction($context, 'click', ['selector' => $selector]);
+        return $this->render($this->service($context)->click($this->sessionId($context), $target));
     }
 
     /**
-     * [browser type]{"selector":"input[name=q]","text":"hello"}[/browser]
+     * Accepts the model-friendly pipe syntax:
+     *   "2 | hello world"            → type into element 2
+     *   "2 | hello world | submit"   → type, then press Enter
+     * Also tolerates the legacy JSON form {"selector":"...","text":"..."}.
      */
     public function type(string $content, PluginExecutionContext $context): string
     {
-        $data = json_decode(trim($content), true);
+        $content = trim($content);
 
-        if (!$data || !isset($data['selector'], $data['text'])) {
-            return 'Error: expected JSON {"selector":"...","text":"..."}';
+        [$target, $text, $submit] = $this->parseTypeArgs($content);
+
+        if ($target === null || $text === null) {
+            return 'Error: expected "NUMBER | text" (optionally "| submit"), e.g. 2 | john@mail.com | submit';
         }
 
-        return $this->dispatchAction($context, 'type', [
-            'selector' => $data['selector'],
-            'text'     => $data['text'],
-        ]);
+        return $this->render(
+            $this->service($context)->type($this->sessionId($context), $target, $text, $submit)
+        );
     }
 
-    /**
-     * [browser press]Enter[/browser]
-     */
     public function press(string $content, PluginExecutionContext $context): string
     {
         $key = trim($content);
-
         if (empty($key)) {
             return 'Error: key name cannot be empty (e.g. Enter, Tab, Escape).';
         }
 
-        return $this->dispatchAction($context, 'press', ['key' => $key]);
+        return $this->render($this->service($context)->press($this->sessionId($context), $key));
     }
 
-    /**
-     * [browser scroll]500[/browser]
-     */
     public function scroll(string $content, PluginExecutionContext $context): string
     {
-        $pixels = (int) trim($content) ?: 500;
+        $content = trim($content);
+        $pixels = $content === '' ? 500 : (int) $content;
 
-        return $this->dispatchAction($context, 'scroll', ['pixels' => $pixels]);
+        return $this->render($this->service($context)->scroll($this->sessionId($context), $pixels));
     }
 
-    /**
-     * [browser back][/browser]
-     */
     public function back(string $content, PluginExecutionContext $context): string
     {
-        return $this->dispatchAction($context, 'back');
+        return $this->render($this->service($context)->back($this->sessionId($context)));
     }
 
-    /**
-     * [browser close][/browser]
-     */
     public function close(string $content, PluginExecutionContext $context): string
     {
-        return $this->dispatchAction($context, 'close');
+        return $this->render($this->service($context)->close($this->sessionId($context)));
     }
 
-    // ── Internal helpers ─────────────────────────────────────────────────────
+    // ── Type argument parsing ─────────────────────────────────────────────────
 
     /**
-     * Send an action request to the browser-service and format the response.
+     * Parse the type command argument into [target, text, submit].
+     * Returns [null, null, false] when unparseable.
      *
-     * @param  PluginExecutionContext $context
-     * @param  string    $action
-     * @param  array     $args
-     * @return string
+     * @return array{0: ?string, 1: ?string, 2: bool}
      */
-    private function dispatchAction(PluginExecutionContext $context, string $action, array $args = []): string
+    private function parseTypeArgs(string $content): array
     {
-        try {
-            $response = Http::timeout($context->get('request_timeout', 60))
-                ->post($this->serviceUrl($context) . '/action', [
-                    'sessionId' => $this->sessionId($context),
-                    'action'    => $action,
-                    'args'      => $args,
-                ]);
-
-            $data = $response->json();
-
-            if (!($data['ok'] ?? false)) {
-                return 'Browser error: ' . ($data['error'] ?? 'unknown error');
+        // Legacy JSON form: {"selector":"...","text":"...","submit":true}
+        if (str_starts_with($content, '{')) {
+            $data = json_decode($content, true);
+            if (is_array($data) && isset($data['selector'], $data['text'])) {
+                return [(string) $data['selector'], (string) $data['text'], (bool) ($data['submit'] ?? false)];
             }
-
-            return $this->formatResult($action, $data);
-        } catch (\Throwable $e) {
-            $this->logger->error('PlaywrightBrowserPlugin::dispatchAction error: ' . $e->getMessage());
-            return 'Browser service unavailable: ' . $e->getMessage();
+            return [null, null, false];
         }
+
+        // Pipe form: "NUMBER | text" or "NUMBER | text | submit"
+        $parts = array_map('trim', explode('|', $content));
+        if (count($parts) < 2) {
+            return [null, null, false];
+        }
+
+        $target = $parts[0];
+        $submit = false;
+
+        // A trailing "submit" flag
+        if (count($parts) >= 3 && strtolower(end($parts)) === 'submit') {
+            $submit = true;
+            array_pop($parts);
+        }
+
+        // Everything between the target and the (optional) submit flag is the text.
+        // Rejoin with "|" so the user's text may itself contain pipes.
+        $text = implode(' | ', array_slice($parts, 1));
+
+        return [$target, $text, $submit];
     }
 
-    /**
-     * Format the raw service response into a readable string for the agent.
-     *
-     * @param  string  $action
-     * @param  array   $data
-     * @return string
-     */
-    private function formatResult(string $action, array $data): string
+    // ── Rendering BrowserResult → agent text ──────────────────────────────────
+
+    private function render(BrowserResult $result): string
     {
-        // Actions that return a page snapshot (open / snapshot / search)
-        if (in_array($action, ['open', 'snapshot']) || isset($data['title'])) {
-            return $this->formatSnapshot($data);
+        if (!$result->ok) {
+            return 'Browser error: ' . ($result->error ?? 'unknown error');
         }
 
-        // Simple confirmation actions
-        return match (true) {
-            isset($data['clicked'])   => "Clicked: {$data['clicked']}",
-            isset($data['typed'])     => "Typed \"{$data['typed']}\" into {$data['into']}",
-            isset($data['pressed'])   => "Pressed: {$data['pressed']}",
-            isset($data['scrolled'])  => "Scrolled {$data['scrolled']}px",
-            isset($data['navigated']) => "Navigated {$data['navigated']}. Now at: {$data['url']}",
-            isset($data['closed'])    => 'Browser session closed.',
-            isset($data['pong'])      => 'Browser service is online.',
-            default                   => json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
-        };
+        if ($result->hasSnapshot()) {
+            $snapshot = $this->formatSnapshot($result->snapshot);
+            if (!$result->confirmation) {
+                return $snapshot;
+            }
+            // A blocked click is reported as a non-fatal notice, not a success.
+            $prefix = str_starts_with($result->confirmation, 'Could not') ? '⚠️ ' : '✓ ';
+            return $prefix . $result->confirmation . "\n\n" . $snapshot;
+        }
+
+        return $result->confirmation ?? 'Done.';
     }
 
-    /**
-     * Convert a snapshot payload into a compact, agent-friendly text block.
-     *
-     * @param  array  $data
-     * @return string
-     */
-    private function formatSnapshot(array $data): string
+    private function formatSnapshot(BrowserSnapshot $s): string
     {
         $lines = [];
 
-        $lines[] = '📄 ' . ($data['title'] ?? '[no title]');
-        $lines[] = '🔗 ' . ($data['url']   ?? '[unknown url]');
+        $lines[] = '📄 ' . $s->title;
+        $lines[] = '🔗 ' . $s->url;
 
-        if (!empty($data['text'])) {
+        if ($s->modalOpen) {
+            $lines[] = '⚠️  A dialog/modal is open. The elements below are inside it — act on them, or close the dialog to return to the page.';
+        }
+
+        if ($s->text !== '') {
             $lines[] = '';
             $lines[] = '── Content ──';
-            $lines[] = $data['text'];
+            $lines[] = $s->text;
+            if ($s->textTruncated) {
+                $lines[] = '… (text truncated)';
+            }
         }
 
-        if (!empty($data['inputs'])) {
+        if (!empty($s->inputs)) {
             $lines[] = '';
             $lines[] = '── Inputs ──';
-            foreach ($data['inputs'] as $input) {
-                $hint = $input['placeholder'] ? " ({$input['placeholder']})" : '';
-                $lines[] = "  [{$input['type']}] {$input['name']}{$hint}  selector: {$input['selector']}";
+            foreach ($s->inputs as $input) {
+                $hint  = $input->placeholder ? " ({$input->placeholder})" : '';
+                $value = $input->value !== null ? "  = \"{$input->value}\"" : '';
+                $name  = $input->label !== '' ? ' ' . $input->label : '';
+                $lines[] = "  [{$input->ref}] {$input->type}{$name}{$hint}{$value}";
             }
         }
 
-        if (!empty($data['buttons'])) {
+        if (!empty($s->buttons)) {
             $lines[] = '';
             $lines[] = '── Buttons ──';
-            foreach ($data['buttons'] as $btn) {
-                $lines[] = "  [{$btn['text']}]  selector: {$btn['selector']}";
+            foreach ($s->buttons as $btn) {
+                $lines[] = "  [{$btn->ref}] {$btn->label}";
             }
         }
 
-        if (!empty($data['links'])) {
+        if (!empty($s->links)) {
             $lines[] = '';
             $lines[] = '── Links ──';
-            foreach ($data['links'] as $link) {
-                $lines[] = "  {$link['text']}  →  {$link['url']}";
+            foreach ($s->links as $link) {
+                $lines[] = "  [{$link->ref}] {$link->label}  →  {$link->url}";
             }
+        }
+
+        if ($s->isScrollable()) {
+            $more = $s->hasMoreBelow() ? ', more below ↓' : ', end of page';
+            $lines[] = '';
+            $lines[] = "── Scroll: {$s->scrollPercent()}%{$more} ──";
         }
 
         return implode("\n", $lines);
     }
 
-    /**
-     * Stable session ID scoped to the preset.
-     * Uses preset ID so the session persists across thinking cycles.
-     *
-     * @param  PluginExecutionContext $context
-     * @return string
-     */
+    // ── Internal helpers ─────────────────────────────────────────────────────
+
+    private function service(PluginExecutionContext $context): BrowserServiceInterface
+    {
+        return $this->serviceFactory->fromContext($context);
+    }
+
     private function sessionId(PluginExecutionContext $context): string
     {
         return 'preset_' . $context->preset->getId();
     }
 
-    /**
-     * Base URL of the browser-service, with no trailing slash.
-     *
-     * @return string
-     */
-    private function serviceUrl(PluginExecutionContext $context): string
-    {
-        return rtrim($context->get('service_url', env('BROWSER_SERVICE_URL', 'http://browser-service:3001')), '/');
-    }
-
-    /**
-     * Resolve a domain list from config (comma-separated string → array).
-     *
-     * @param  string  $key
-     * @return array
-     */
     private function getDomainList(PluginExecutionContext $context, string $key): array
     {
         $raw = $context->get($key, '');
         if (empty($raw)) {
             return [];
         }
-        return array_map('trim', explode(',', $raw));
+        return array_filter(array_map('trim', explode(',', $raw)));
     }
 
-    /**
-     * Check whether a URL's domain is permitted by plugin config.
-     *
-     * @param  string  $url
-     * @return bool
-     */
     private function isDomainAllowed(PluginExecutionContext $context, string $url): bool
     {
         $domain = parse_url($url, PHP_URL_HOST);
 
-        if (in_array($domain, $this->getDomainList($context, 'blocked_domains'))) {
+        if (in_array($domain, $this->getDomainList($context, 'blocked_domains'), true)) {
             return false;
         }
 
         $allowed = $this->getDomainList($context, 'allowed_domains');
         if (!empty($allowed)) {
-            return in_array($domain, $allowed);
+            return in_array($domain, $allowed, true);
         }
 
         return true;
     }
 
-    /**
-     * Short help string shown when the agent uses the tag incorrectly.
-     *
-     * @return string
-     */
-    private function helpText(): string
+    private function helpText(PluginExecutionContext $context): string
     {
-        return "Browser commands:\n"
-            . "  browser open https://...\n"
-            . "  browser search query\n"
-            . "  browser snapshot\n"
-            . "  browser click selector or text\n"
-            . '  browser type {"selector":"...","text":"..."}' . "\n"
-            . "  browser press Enter\n"
-            . "  browser scroll 500\n"
-            . "  browser back\n"
-            . "  browser close";
+        $lines = [
+            'Browser commands (act on elements by their snapshot number):',
+            '  browser open https://...',
+        ];
+
+        if ($context->get('enable_search', false)) {
+            $lines[] = '  browser search query';
+        }
+
+        return implode("\n", array_merge($lines, [
+            '  browser snapshot',
+            '  browser click 3            (number from snapshot)',
+            '  browser type 2 | text      (number | text)',
+            '  browser type 2 | text | submit',
+            '  browser press Enter',
+            '  browser scroll 500',
+            '  browser back',
+            '  browser close',
+        ]));
     }
 }

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AgentController;
 use App\Http\Controllers\Admin\AgentTaskController;
+use App\Http\Controllers\Admin\ContractController;
 use App\Http\Controllers\Admin\EngineController;
 use App\Http\Controllers\Admin\FileController;
 use App\Http\Controllers\Admin\GoalController;
@@ -355,6 +356,26 @@ Route::middleware('auth')->group(function () {
             Route::post('/clear', [OntologyController::class, 'clear'])       ->name('clear');
         });
 
+        // Contract (metabolism) management routes
+        Route::prefix('contracts')->name('contracts.')->group(function () {
+            Route::get('/', [ContractController::class, 'index'])->name('index');
+            Route::post('/', [ContractController::class, 'store'])->name('store');
+            Route::delete('/{name}', [ContractController::class, 'destroy'])
+                ->name('destroy')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Lifecycle
+            Route::post('/{name}/promote', [ContractController::class, 'promote'])
+                ->name('promote')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/suspend', [ContractController::class, 'suspend'])
+                ->name('suspend')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/resume', [ContractController::class, 'resume'])
+                ->name('resume')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/revoke', [ContractController::class, 'revoke'])
+                ->name('revoke')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Debug: tick the engine now (respects enablement + locks)
+            Route::post('/tick/now', [ContractController::class, 'tick'])->name('tick');
+        });
 
         if (config('sandbox.enabled', false)) {
             // Sandbox Management routes

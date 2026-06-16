@@ -8,7 +8,7 @@
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP%20%2B%20SSE%20HTTP-blue?style=flat-square)
 ![Vision](https://img.shields.io/badge/Vision-Claude%20%7C%20Novita-purple?style=flat-square)
 
-**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.8
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.9
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 
@@ -69,8 +69,8 @@ Choose your preferred installation method:
 
 Built-in support for multiple AI engines with easy preset management:
 
-- **Claude** (3.5 Sonnet, Opus, Haiku)
-- **DeepSeek** (v3.2+, v4 coming soon)
+- **Claude** (Sonnet, Opus, Haiku)
+- **DeepSeek** (v3.2+, v4)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
 - **Novita Ai** (Cheap fast models)
 - **Fireworks** (Fast inference provider)
@@ -161,6 +161,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
 | Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
 | **Mood** (`mood`) | Emotional state vector with decay physics. Agent maintains a weighted mix of arbitrary emotional states that decay over cycles, reinforforce on attention, and mix simultaneously. State visible via `[[mood]]`. Integrates with Heart if both are active. | [→](docs/plugins/mood.md) |
+| **Contract** (`contract`) | Metabolism layer — cheap deterministic rules over the agent's own traces (journal, state vector) that raise flags when a threshold is crossed, with no thinking cycle. Four forms (THR_T, THR_C, ACC, DEC), four passive actions (set_flag, create_goal, nudge_state, inject_memo), reversible lifecycle (hypothesis → active → suspended). Contracts are data, authored by the agent at runtime, by config, or by template. Active contracts and raised flags visible via `[[active_contracts]]`. | [→](docs/plugins/contract.md) |
 | **Agent Task** (`task`) | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
 | **Spawn** (`spawn`) | LLM-driven orchestrator — dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime. Agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity or memory plugins). Alternative to the deterministic orchestrator for flexible, model-driven task decomposition. Active spawns visible via `[[active_spawns]]`. | [→](docs/plugins/spawn.md) |
 
@@ -276,6 +277,15 @@ The AI communicates through special command tags that trigger plugin execution. 
 [mood beat][/mood]
 [mood state][/mood]
 [mood clear][/mood]
+
+# Contract — metabolism rules over own traces
+[contract define]{"name":"quiet_watch","form":"THR_T","trigger":{"match":{"source":"journal","type":"interaction"},"threshold_seconds":300},"action":{"type":"set_flag","flag":"been_quiet"}}[/contract]
+[contract list][/contract]
+[contract show]quiet_watch[/contract]
+[contract promote]quiet_watch[/contract]   # hypothesis → active
+[contract suspend]quiet_watch[/contract]
+[contract resume]quiet_watch[/contract]
+[contract revoke]quiet_watch[/contract]    # → hypothesis
 
 # Person memory with aliases and semantic search
 [person]Женя | loves punk aesthetic and travel[/person]
@@ -436,7 +446,7 @@ This gives the model enough to reason, navigate, and interact — without drowni
 Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
-- **PluginRegistryInterface**: Extensible command system with 23 built-in plugins
+- **PluginRegistryInterface**: Extensible command system with 31 built-in plugins
 - **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
@@ -518,6 +528,7 @@ While the handoff system gives agents full autonomy over delegation, orchestrate
 - **Role** — a preset assigned a code (`executor`, `critic`, `writer`, etc.) within an agent. Optionally has a validator preset and configurable retry limit.
 - **Task** — a unit of work created by the planner and assigned to a role. Follows a deterministic state machine: `pending → in_progress → validating → done / failed / escalated`.
 - **Orchestrator** — a PHP service (not a model) that watches task states and routes work. Models report outcomes via plugin commands; the orchestrator decides what happens next.
+- **Metabolism (Contracts)**: A layer of cheap, deterministic rules that run continuously without invoking the model. A contract watches a trace — elapsed time, an event count, a state value — and raises a flag when a threshold is crossed, offloading the bookkeeping the model would otherwise do by hand each cycle (counting, remembering, watching for repeats). The metabolism prepares signals; the agent decides what to do with them. Authored by the agent at runtime, by config, or by preset template. [→](docs/capabilities/contracts.md)
 
 **How it works:**
 
@@ -742,6 +753,11 @@ php artisan vectormemory:embed --preset=1 --persons --dry-run
 
 php artisan agent:defrag                           # Defrag vector memory for all eligible presets
 php artisan agent:defrag --preset=3                # Defrag specific preset
+
+php artisan contract:tick                          # Tick the metabolism engine for all eligible presets
+php artisan contract:tick --preset=4               # Tick a specific preset (debugging)
+
+
 ```
 
 ## Known Challenges & Observations
@@ -777,6 +793,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[agent_command_results]]` - Command results in internal mode
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
   - `[[mood]]` - Current emotional state vector: top active states by intensity, e.g. `focus(0.9), curiosity(0.7)`. Empty when no active states.
+  - `[[active_contracts]]` - Active metabolism contracts and any flags they've raised, traceable to the contract that raised each. Injected when the Contract plugin is enabled.
   - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
@@ -841,6 +858,7 @@ ecosystem directly supports subjectness research:
 - **Being** — self-authorship and identity continuity
 - **Heart** — measurable attention and connection tracking
 - **Mood** — emotional state physics: decay, mixing, heart integration
+- **Contract** — metabolism: deterministic self-regulation that runs beneath deliberate thought
 - **Dopamine** — goal-oriented motivation cycles
 - **Journal** — episodic memory and experience recording
 - **Workspace** — persistent internal state across sessions

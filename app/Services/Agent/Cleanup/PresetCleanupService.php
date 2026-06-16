@@ -3,6 +3,7 @@
 namespace App\Services\Agent\Cleanup;
 
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
+use App\Contracts\Agent\Contract\ContractServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
@@ -38,6 +39,7 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         protected OntologyServiceInterface $ontologyService,
         protected HeartServiceInterface $heartService,
         protected PresetServiceInterface $presetService,
+        protected ContractServiceInterface $contractService,
         protected LoggerInterface $logger
     ) {
     }
@@ -98,6 +100,11 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         if ($this->option($options, 'clear_ontology')) {
             $this->ontologyService->clear($preset);
             $cleared[] = 'ontology';
+        }
+
+        if ($this->option($options, 'clear_contracts')) {
+            $this->contractService->clear($preset);
+            $cleared[] = 'contracts';
         }
 
         $this->logger->info('PresetCleanupService: cleared preset', [

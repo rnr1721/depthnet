@@ -392,6 +392,7 @@ async function handleClearHistory(options) {
     if (options.clearHeart) requestData.clear_heart = true;
     if (options.clearOntology) requestData.clear_ontology = true;
     if (options.clearJournal) requestData.clear_journal = true;
+    if (options.clearContracts) requestData.clear_contracts = true;
     if (options.clearAgent) requestData.clear_agent = true;
 
     await router.post(route('chat.clear'), requestData, {

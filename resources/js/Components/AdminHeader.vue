@@ -377,6 +377,7 @@ const goalsLink = computed(() => routeWithPreset(route('admin.goals.index')));
 const personLink = computed(() => routeWithPreset(route('admin.person-memory.index')));
 const journalLink = computed(() => routeWithPreset(route('admin.journal.index')));
 const ontologyLink = computed(() => routeWithPreset(route('admin.ontology.index')));
+const contractsLink = computed(() => routeWithPreset(route('admin.contracts.index')));
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
 const capabilitiesLink = computed(() => routeWithPresetParam('admin.capabilities.index'));
 const knownSourcesLink = computed(() => routeWithPreset(route('admin.known-sources.index')));
@@ -400,6 +401,7 @@ const taskManagementItems = computed(() => [
   { label: 'goals', href: goalsLink.value },
   { label: 'agent_tasks', href: agentTasksLink.value },
   { label: 'journal', href: journalLink.value },
+  { label: 'contract_manager', href: contractsLink.value },
 ]);
 
 const agentItems = computed(() => [

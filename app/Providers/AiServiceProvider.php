@@ -28,6 +28,9 @@ use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\Contract\ContractRuntimeServiceInterface;
+use App\Contracts\Agent\Contract\ContractServiceInterface;
+use App\Contracts\Agent\Contract\StateVectorInterface;
 use App\Contracts\Agent\Enricher\CyclePromptEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
@@ -121,6 +124,12 @@ use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
+use App\Services\Agent\Contract\ContractRuntimeService;
+use App\Services\Agent\Contract\ContractService;
+use App\Services\Agent\Contract\JournalTraceReader;
+use App\Services\Agent\Contract\MoodStateVectorAdapter;
+use App\Services\Agent\Contract\NullStateVector;
+use App\Services\Agent\Contract\TraceReaderRegistry;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\Enricher\CyclePromptEnricher;
 use App\Services\Agent\Enricher\EnricherFactory;
@@ -172,6 +181,7 @@ use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
 use App\Services\Agent\Plugins\CodePlugin;
+use App\Services\Agent\Plugins\ContractPlugin;
 use App\Services\Agent\Plugins\DocumentManagerPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
@@ -490,6 +500,45 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(BrowserServiceInterface::class, BrowserService::class);
 
+        // --- core services -------------------------------------------------------
+        $this->app->bind(ContractServiceInterface::class, ContractService::class);
+        $this->app->bind(ContractRuntimeServiceInterface::class, ContractRuntimeService::class);
+
+        // --- state vector: mood adapter if the mood plugin exists in the system,
+        //     else a null vector -------------------------------------------------
+        // MoodPlugin is registered unconditionally (see getBuiltInPlugins), so in a
+        // standard build this always resolves to the adapter. NullStateVector is the
+        // fallback for a build where the mood plugin is removed entirely. Per-preset
+        // "mood disabled" is NOT handled here — that case surfaces as an empty vector
+        // inside the adapter (no stored states → ACC/DEC contracts unsatisfiable),
+        // which is the same observable result one level down.
+        $this->app->bind(StateVectorInterface::class, function ($app) {
+            $registry = $app->make(\App\Contracts\Agent\PluginRegistryInterface::class); // VERIFY name
+            $mood = $registry->get('mood');
+            return $mood !== null
+                ? $app->make(MoodStateVectorAdapter::class)
+                : $app->make(NullStateVector::class);
+        });
+
+        // --- trace readers (tagged) ----------------------------------------------
+        // Add one more reader to the tag to support a new source later; nothing else
+        // changes.
+        $this->app->tag([JournalTraceReader::class], 'contract.trace_readers');
+        $this->app->bind(TraceReaderRegistry::class, function ($app) {
+            return new TraceReaderRegistry($app->tagged('contract.trace_readers'));
+        });
+
+        // --- memo writer: intentionally NOT bound yet ----------------------------
+        // ContractEngine's constructor param is `?ContractMemoWriterInterface = null`,
+        // so leaving it unbound makes the container pass null (inject_memo degrades to
+        // a logged warning). Bind a real implementation when the memo sink is ready.
+
+        // ContractEngine itself is a concrete class — autowired from the above. No
+        // explicit binding needed unless you want it as a singleton:
+        // $this->app->singleton(\App\Services\Agent\Contract\ContractEngine::class);
+
+
+
     }
 
     /**
@@ -559,6 +608,7 @@ class AiServiceProvider extends ServiceProvider
             RagQueryPlugin::class,
             OntologyPlugin::class,
             PersonPlugin::class,
+            ContractPlugin::class,
             SandboxPlugin::class,
             CodePlugin::class,
             ProjectMapPlugin::class,

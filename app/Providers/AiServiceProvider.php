@@ -28,6 +28,7 @@ use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\Contract\ContractMemoWriterInterface;
 use App\Contracts\Agent\Contract\ContractRuntimeServiceInterface;
 use App\Contracts\Agent\Contract\ContractServiceInterface;
 use App\Contracts\Agent\Contract\StateVectorInterface;
@@ -124,12 +125,14 @@ use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
+use App\Services\Agent\Contract\ContractMemoWriter;
 use App\Services\Agent\Contract\ContractRuntimeService;
 use App\Services\Agent\Contract\ContractService;
 use App\Services\Agent\Contract\JournalTraceReader;
 use App\Services\Agent\Contract\MoodStateVectorAdapter;
 use App\Services\Agent\Contract\NullStateVector;
 use App\Services\Agent\Contract\TraceReaderRegistry;
+use App\Services\Agent\Contract\VectorMemoryTraceReader;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\Enricher\CyclePromptEnricher;
 use App\Services\Agent\Enricher\EnricherFactory;
@@ -523,21 +526,19 @@ class AiServiceProvider extends ServiceProvider
         // --- trace readers (tagged) ----------------------------------------------
         // Add one more reader to the tag to support a new source later; nothing else
         // changes.
-        $this->app->tag([JournalTraceReader::class], 'contract.trace_readers');
+        $this->app->tag([
+            JournalTraceReader::class,
+            VectorMemoryTraceReader::class,
+        ], 'contract.trace_readers');
+
         $this->app->bind(TraceReaderRegistry::class, function ($app) {
             return new TraceReaderRegistry($app->tagged('contract.trace_readers'));
         });
 
-        // --- memo writer: intentionally NOT bound yet ----------------------------
-        // ContractEngine's constructor param is `?ContractMemoWriterInterface = null`,
-        // so leaving it unbound makes the container pass null (inject_memo degrades to
-        // a logged warning). Bind a real implementation when the memo sink is ready.
-
-        // ContractEngine itself is a concrete class — autowired from the above. No
-        // explicit binding needed unless you want it as a singleton:
-        // $this->app->singleton(\App\Services\Agent\Contract\ContractEngine::class);
-
-
+        // --- memo writer: append-to-memo sink for inject_memo --------------------
+        // Wired to the SelfNote (memo) plugin's metadata slot. Appends rather than
+        // overwrites, so contract-injected lines coexist with the agent's own note.
+        $this->app->bind(ContractMemoWriterInterface::class, ContractMemoWriter::class);
 
     }
 

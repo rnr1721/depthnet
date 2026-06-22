@@ -10,6 +10,7 @@ use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
@@ -60,6 +61,7 @@ class Agent implements AgentInterface
         protected PluginMetadataServiceInterface $pluginMetadataService,
         protected CommandResultPoolInterface $commandResultPool,
         protected ToolSchemaBuilderInterface $toolSchemaBuilder,
+        protected ContextModeResolverInterface $contextModeResolver,
     ) {
     }
 
@@ -165,6 +167,13 @@ class Agent implements AgentInterface
                 fn () => $this->commandResultPool->getFormatted($preset)
             );
         }
+
+        $this->shortcodeManagerService->registerShortcodeForPreset(
+            $preset->getId(),
+            'context_mode',
+            'Current cognitive context mode: normal or extended',
+            fn () => $this->contextModeResolver->activeMode($preset)
+        );
 
         $memo = $this->pluginMetadataService->get($preset, 'memo', 'self_system_note', null);
         if ($memo && is_string($memo)) {

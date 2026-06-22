@@ -106,6 +106,7 @@ DepthNet enables autonomous AI agents through:
 - **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
 - **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
 - **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
+**Context Modes**: Per-preset dual context profiles — normal (short context, full RAG; reflection and conversation) and extended (long procedural context, filtered RAG; sustained work with stateful plugins like browser, terminal, sandbox). The agent switches automatically via a hysteresis detector: cycles that invoke stateful plugins build a work-streak that flips the profile after sustained activity and reverts it once work stops. RAG configs are tagged per-mode (normal/extended/both) so heavy associative retrieval can be silenced during task execution. Off by default — set an extended context limit to enable. Current mode visible via [[context_mode]].
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
@@ -804,6 +805,7 @@ php artisan contract:tick --preset=4               # Tick a specific preset (deb
   - `[[active_switch]]` - Content of the currently active prompt block (Switch plugin). Empty if no block is active.
   - `[[active_switch_code]]` - Code of the currently active prompt block. Useful for agent self-awareness.
   - `[[available_switches]]` - All available switch variants
+  - `[[context_mode]]` — Current cognitive context mode (normal/extended).Lets  the agent know whether it's in reflective or sustained-work mode this cycle.
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**

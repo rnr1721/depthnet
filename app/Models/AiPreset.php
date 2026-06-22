@@ -42,6 +42,7 @@ class AiPreset extends Model
         'metadata',
         'loop_interval',
         'max_context_limit',
+        'max_context_limit_extended',
         'agent_result_mode',
         'error_behavior',
         'allow_handoff_to',
@@ -58,29 +59,30 @@ class AiPreset extends Model
 
 
     protected $casts = [
-        'target_preset_id'         => 'integer',
-        'parent_preset_id'         => 'integer',
-        'is_spawned'               => 'boolean',
-        'pool_relative_dates'      => 'boolean',
-        'pulse_dates'              => 'boolean',
-        'engine_config'            => 'array',
-        'metadata'                 => 'array',
-        'loop_interval'            => 'integer',
-        'active_prompt_id'         => 'integer',
-        'defrag_enabled'           => 'boolean',
-        'defrag_keep_per_day'      => 'integer',
-        'cycle_prompt_preset_id'   => 'integer',
-        'cp_context_limit'         => 'integer',
-        'max_context_limit'        => 'integer',
-        'before_execution_wait'    => 'integer',
-        'allow_handoff_to'         => 'boolean',
-        'allow_handoff_from'       => 'boolean',
-        'rhasspy_enabled'          => 'boolean',
-        'rhasspy_incoming_enabled' => 'boolean',
-        'is_active'                => 'boolean',
-        'is_default'               => 'boolean',
-        'created_at'               => 'datetime',
-        'updated_at'               => 'datetime',
+        'target_preset_id'           => 'integer',
+        'parent_preset_id'           => 'integer',
+        'is_spawned'                 => 'boolean',
+        'pool_relative_dates'        => 'boolean',
+        'pulse_dates'                => 'boolean',
+        'engine_config'              => 'array',
+        'metadata'                   => 'array',
+        'loop_interval'              => 'integer',
+        'active_prompt_id'           => 'integer',
+        'defrag_enabled'             => 'boolean',
+        'defrag_keep_per_day'        => 'integer',
+        'cycle_prompt_preset_id'     => 'integer',
+        'cp_context_limit'           => 'integer',
+        'max_context_limit'          => 'integer',
+        'max_context_limit_extended' => 'integer',
+        'before_execution_wait'      => 'integer',
+        'allow_handoff_to'           => 'boolean',
+        'allow_handoff_from'         => 'boolean',
+        'rhasspy_enabled'            => 'boolean',
+        'rhasspy_incoming_enabled'   => 'boolean',
+        'is_active'                  => 'boolean',
+        'is_default'                 => 'boolean',
+        'created_at'                 => 'datetime',
+        'updated_at'                 => 'datetime',
     ];
 
 
@@ -468,6 +470,17 @@ class AiPreset extends Model
     public function getMaxContextLimit(): int
     {
         return $this->max_context_limit;
+    }
+
+    /**
+     * Context limit for extended (work) mode.
+     * Null means the feature is off — resolver falls back to max_context_limit.
+     *
+     * @return int|null
+     */
+    public function getMaxContextLimitExtended(): ?int
+    {
+        return $this->max_context_limit_extended;
     }
 
     /**

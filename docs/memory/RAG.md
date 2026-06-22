@@ -271,6 +271,24 @@ about communication or interpersonal skills.
 
 ---
 
+## Context modes
+
+Each RAG config has a **context mode** controlling in which cognitive profile it's active:
+
+| Mode | Active when |
+|---|---|
+| `both` (default) | Always — in any mode |
+| `normal` | Only in normal mode (reflection, conversation) |
+| `extended` | Only in extended mode (sustained work with stateful plugins) |
+
+The agent switches between normal and extended modes automatically based on its activity — when it works through stateful plugins (browser, terminal, sandbox, code, shell, spawn, project map) for several cycles, it enters extended mode; when work stops, it reverts.
+
+The typical use: tag heavy associative memory retrieval as `normal`, so it's silenced while the agent is deep in a task — where reflective recall pulls it off-track — and runs only during conversation and reflection. A lightweight procedural config can be tagged `extended` to provide just task-relevant retrieval during work.
+
+**This only takes effect if the preset has an extended context limit configured** (Agent Settings → extended context limit). Without it, the agent is always in normal mode, so `extended`-tagged configs never activate and `normal`-tagged ones always do. Configs left at `both` are unaffected either way.
+
+---
+
 ## System prompt placement
 
 Place `[[rag_context]]` in your main agent's system prompt where it makes most sense for your use case. Common patterns:

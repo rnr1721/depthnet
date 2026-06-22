@@ -8,7 +8,8 @@ class CommandExecutionResult
         public readonly array $results,
         public readonly string $formattedMessage,
         public readonly bool $hasErrors,
-        public readonly array $pluginExecutionMeta = []
+        public readonly array $pluginExecutionMeta = [],
+        public readonly bool $containedLongContextPlugin = false,
     ) {
     }
 }

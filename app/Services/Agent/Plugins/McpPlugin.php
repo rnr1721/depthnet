@@ -539,4 +539,13 @@ class McpPlugin implements CommandPluginInterface
 
         return $result !== '' ? $result : '(empty tool result)';
     }
+
+    /**
+     * When working with MCPs, a lot of context may be required.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

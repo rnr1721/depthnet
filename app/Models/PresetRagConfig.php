@@ -48,6 +48,7 @@ class PresetRagConfig extends Model
         'rag_preset_id',
         'sort_order',
         'is_primary',
+        'context_mode',
         'sources',
         'rag_mode',
         'rag_engine',
@@ -76,6 +77,7 @@ class PresetRagConfig extends Model
     protected $attributes = [
         'sort_order'                 => 0,
         'is_primary'                 => false,
+        'context_mode'               => 'both',
         'rag_mode'                   => 'flat',
         'rag_engine'                 => 'tfidf',
         'rag_context_limit'          => 5,
@@ -208,5 +210,26 @@ class PresetRagConfig extends Model
     public function scopePrimary($query)
     {
         return $query->where('is_primary', true);
+    }
+
+    public function getContextMode(): string
+    {
+        return $this->context_mode ?? 'both';
+    }
+
+    /**
+     * Whether this config is active in the given cognitive context mode.
+     * 'both' is always active; otherwise the config's mode must match the
+     * agent's current mode (extended vs normal).
+     */
+    public function activeInMode(bool $extended): bool
+    {
+        $mode = $this->getContextMode();
+
+        if ($mode === 'both') {
+            return true;
+        }
+
+        return $extended ? ($mode === 'extended') : ($mode === 'normal');
     }
 }

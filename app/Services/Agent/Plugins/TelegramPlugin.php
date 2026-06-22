@@ -326,4 +326,13 @@ class TelegramPlugin implements CommandPluginInterface
     {
         return ['unread', 'me'];
     }
+
+    /**
+     * If there are a lot of actions in Telegram, then a lot of context may be required.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

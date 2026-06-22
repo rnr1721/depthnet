@@ -561,4 +561,14 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             '  browser close',
         ]));
     }
+
+    /**
+     * Browser session lives outside the model. Without procedural continuity
+     * the agent forgets which page it's on and what it already did.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

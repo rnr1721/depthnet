@@ -3,6 +3,7 @@
 namespace App\Services\Agent;
 
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Models\PresetCommandResult;
@@ -14,7 +15,8 @@ class CommandResultPoolService implements CommandResultPoolInterface
 
     public function __construct(
         protected PresetCommandResult $model,
-        protected Message $messageModel
+        protected Message $messageModel,
+        protected ContextModeResolverInterface $contextModeResolver,
     ) {
     }
 
@@ -86,7 +88,7 @@ class CommandResultPoolService implements CommandResultPoolInterface
      */
     private function prune(AiPreset $preset): void
     {
-        $contextLimit = $preset->getMaxContextLimit() ?: self::DEFAULT_CONTEXT_LIMIT;
+        $contextLimit = $this->contextModeResolver->activeContextLimit($preset) ?: self::DEFAULT_CONTEXT_LIMIT;
 
         $contextMessageIds = $this->messageModel
             ->forPreset($preset->getId())

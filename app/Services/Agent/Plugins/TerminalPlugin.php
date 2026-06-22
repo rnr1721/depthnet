@@ -599,4 +599,12 @@ class TerminalPlugin implements CommandPluginInterface
         return true;
     }
 
+    /**
+     * Terminal screen state lives outside the model; short context blinds it.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

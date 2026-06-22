@@ -202,6 +202,7 @@ const form = ref({
     engine_config: props.preset?.engine_config || {},
     loop_interval: props.preset?.loop_interval || 15,
     max_context_limit: props.preset?.max_context_limit || 8,
+    max_context_limit_extended: props.preset?.max_context_limit_extended ?? null,
     agent_result_mode: props.preset?.agent_result_mode || 'tool_calls',
     error_behavior: props.preset?.error_behavior || 'stop',
     allow_handoff_to: props.preset?.allow_handoff_to ?? true,

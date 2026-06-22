@@ -90,6 +90,9 @@
                         </span>
                         <span :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
                             {{ config.rag_mode }} · {{ config.rag_engine }} · {{ formatSources(config.sources) }}
+                            <template v-if="(config.context_mode ?? 'both') !== 'both'">
+                                · <span class="text-amber-500">{{ config.context_mode }}</span>
+                            </template>
                         </span>
                     </div>
 
@@ -144,7 +147,7 @@
                         </div>
 
                         <!-- Mode + Engine -->
-                        <div class="grid grid-cols-2 gap-3">
+                        <div class="grid grid-cols-3 gap-3">
                             <div>
                                 <label :class="labelClass">{{ t('rag_mode') }}</label>
                                 <select :value="config.rag_mode"
@@ -161,6 +164,20 @@
                                     <option value="tfidf">TF-IDF</option>
                                     <option value="embedding">Embedding</option>
                                 </select>
+                            </div>
+                            <div>
+                                <label :class="labelClass">{{ t('rag_context_mode') }}</label>
+                                <select :value="config.context_mode ?? 'both'"
+                                    @change="updateField(config, 'context_mode', $event.target.value)"
+                                    :class="selectClass">
+                                    <option value="both">{{ t('rag_context_mode_both') }}</option>
+                                    <option value="normal">{{ t('rag_context_mode_normal') }}</option>
+                                    <option value="extended">{{ t('rag_context_mode_extended') }}</option>
+                                </select>
+                                <p v-if="(config.context_mode ?? 'both') !== 'both'"
+                                    :class="['text-xs mt-1', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                    {{ t('rag_context_mode_hint') }}
+                                </p>
                             </div>
                         </div>
 

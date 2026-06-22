@@ -79,4 +79,12 @@ interface AiActionsResponseInterface
      * @return boolean
      */
     public function hasTurn(): bool;
+
+    /**
+     * Whether any plugin executed this cycle declared itself as requiring
+     * procedural continuity (needsLongContext). Read by the work-mode detector.
+     *
+     * @return boolean
+     */
+    public function containedLongContextPlugin(): bool;
 }

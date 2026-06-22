@@ -436,4 +436,13 @@ class ShellPlugin implements CommandPluginInterface
 
         return false;
     }
+
+    /**
+     * Executes against the host shell — external state, procedural continuity required.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

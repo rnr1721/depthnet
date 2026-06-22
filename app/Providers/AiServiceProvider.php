@@ -28,6 +28,7 @@ use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Contract\ContractMemoWriterInterface;
 use App\Contracts\Agent\Contract\ContractRuntimeServiceInterface;
 use App\Contracts\Agent\Contract\ContractServiceInterface;
@@ -125,6 +126,7 @@ use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
+use App\Services\Agent\ContextModeResolver;
 use App\Services\Agent\Contract\ContractMemoWriter;
 use App\Services\Agent\Contract\ContractRuntimeService;
 use App\Services\Agent\Contract\ContractService;
@@ -429,6 +431,7 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(PresetMetadataServiceInterface::class, PresetMetadataService::class);
         $this->app->bind(PluginMetadataServiceInterface::class, PluginMetadataService::class);
+        $this->app->bind(ContextModeResolverInterface::class, ContextModeResolver::class);
 
         $this->app->singleton(PluginExecutionContextBuilderInterface::class, PluginExecutionContextBuilder::class);
         $this->app->singleton(PluginManagerInterface::class, PluginManager::class);

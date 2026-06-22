@@ -52,12 +52,29 @@
                 </label>
                 <input :value="modelValue.max_context_limit"
                     @input="updateField('max_context_limit', parseNumber($event.target.value))" type="number" min="1"
-                    max="50" step="1" :class="inputClass" :placeholder="t('p_modal_max_context_placeholder')" />
+                    max="100" step="1" :class="inputClass" :placeholder="t('p_modal_max_context_placeholder')" />
                 <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
                     {{ t('p_modal_max_context_limit_desc') }}
                 </p>
                 <div v-if="errors.max_context_limit" class="text-red-500 text-xs mt-1">
                     {{ errors.max_context_limit }}
+                </div>
+            </div>
+
+            <!-- Max Context Limit Extended -->
+            <div>
+                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                    {{ t('p_modal_max_context_limit_extended') }}
+                </label>
+                <input :value="modelValue.max_context_limit_extended"
+                    @input="updateField('max_context_limit_extended', $event.target.value === '' ? null : parseNumber($event.target.value))"
+                    type="number" min="1" max="100" step="1" :class="inputClass"
+                    :placeholder="t('p_modal_max_context_extended_placeholder')" />
+                <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                    {{ t('p_modal_max_context_limit_extended_desc') }}
+                </p>
+                <div v-if="errors.max_context_limit_extended" class="text-red-500 text-xs mt-1">
+                    {{ errors.max_context_limit_extended }}
                 </div>
             </div>
 

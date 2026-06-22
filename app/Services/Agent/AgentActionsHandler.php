@@ -10,6 +10,7 @@ use App\Contracts\Agent\AiActionsResponseInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\AiModelResponseInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
@@ -54,7 +55,8 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected PresetServiceInterface $presetService,
         protected ChatStatusService $chatStatusService,
         protected Cache $cache,
-        protected LoggerInterface $logger
+        protected LoggerInterface $logger,
+        protected ContextModeResolverInterface $contextModeResolver,
     ) {
     }
 
@@ -180,6 +182,15 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         $output        = $response->getResponse();
 
         $actionsResult = $this->agentActions->runActions($output, $preset, $mainPreset);
+
+        // Advance the context-mode hysteresis by one completed cycle.
+        // Done here (successful path only) so a model/provider error freezes the
+        // streak rather than pulling the agent out of work mode on a transient
+        // failure. No-op when the feature is off (extended_limit unset).
+        $this->contextModeResolver->updateStreak(
+            $preset,
+            $actionsResult->containedLongContextPlugin(),
+        );
 
         $hasSystemMessage = !empty(trim((string) $actionsResult->getSystemMessage()));
 

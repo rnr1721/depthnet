@@ -14,6 +14,7 @@ class UpdateRagConfigRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'context_mode'               => 'nullable|in:normal,extended,both',
             'sources'                    => 'sometimes|nullable|array',
             'sources.*'                  => 'string|in:vector_memory,journal,skills,persons,files,ontology',
             'rag_mode'                   => 'sometimes|in:flat,associative',

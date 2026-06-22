@@ -199,6 +199,7 @@ class AgentActions implements AgentActionsInterface
 
         $handoff = $executionResult?->pluginExecutionMeta['handoff'] ?? null;
         $turn = (bool) ($executionResult?->pluginExecutionMeta['turn'] ?? false);
+        $containedLongContext = $executionResult?->containedLongContextPlugin ?? false;
 
         return new ActionsResponseDTO(
             $output,
@@ -208,7 +209,8 @@ class AgentActions implements AgentActionsInterface
             $systemMessage,
             $handoff,
             $executionResult?->results ?? [],
-            $turn
+            $turn,
+            $containedLongContext,
         );
     }
 

@@ -564,4 +564,13 @@ class SpawnPlugin implements CommandPluginInterface
 
         return $overrides;
     }
+
+    /**
+     * Orchestrating spawned children requires remembering who was created and why.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

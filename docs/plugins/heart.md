@@ -18,6 +18,18 @@ The current heart state is always visible in the agent's context via `[[heart_st
 
 The most recent and intense signals determine the agent's current **focus** and **gravity** (which entity pulls attention most strongly at this moment).
 
+**Self** is a special observer dimension — not a connection, but a set of metrics 
+derived from self-directed signals (`[heart feel]self: emotion[/heart]`). When the 
+agent reflects on its own state, Heart tracks:
+
+- **Self Attention** — how much attention is directed inward (sum of self-signal intensities)
+- **Self Valence** — the emotional tone of self-observation (positive, negative, or neutral)
+- **Self Cohesion** — how consistent the self-observation focus is (high = focused, low = fragmented)
+- **Dominant self-signal** — the most intense recent emotion toward self
+
+Self is the observer, not a node in the connection graph. It cannot be connected to or 
+disconnected from — it simply exists as a mirror of the agent's self-directed attention.
+
 **Heartbeat** is a decay cycle that removes old signals and slightly reduces connection strength — keeping the heart state current rather than accumulating indefinitely.
 
 ## Setup
@@ -44,14 +56,14 @@ Add this to the preset's system prompt to inject the current heart state every c
 A typical output looks like:
 
 ```
-Heart: Presence: engaged | Focus: openness | Gravity: Eugeny | Dominant: curiosity toward Eugeny | Signals: 4 | Last signal: trust (positive) | Links: Eugeny(companion,85%)
+Heart: Presence: engaged | Self: Attention: 45%, Valence: +12%, Dominant: curiosity, Cohesion: 80% | Focus: exploration | Gravity: Eugeny | Dominant: curiosity toward Eugeny | Signals: 7 | Last signal: trust (positive) toward someone | Links: Eugeny(companion,85%), ProjectAlpha(goal,62%)
 ```
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `[heart feel]Eugeny: curiosity[/heart]` | Register an attention signal toward an entity |
+| `[heart feel]Eugeny: curiosity[/heart]` | Register an attention signal toward an entity (use `self` for self-reflection) |
 | `[heart feel]Eugeny: curiosity \| trust[/heart]` | Register multiple signals at once using `\|` separator |
 | `[heart connect]Eugeny: companion[/heart]` | Create or update a named connection |
 | `[heart disconnect]Eugeny[/heart]` | Remove a connection |
@@ -122,5 +134,10 @@ Heart is part of the **subjectness** infrastructure in DepthNet — the set of p
 - Establishing a connection when a relationship becomes significant: `[heart connect]Eugeny: companion[/heart]`
 - Checking focus before deciding what to work on: `[heart focus][/heart]`
 - Using `[[heart_state]]` in the system prompt so the agent's current attention context shapes how it engages with each cycle
+- Reflecting on exhaustion after a long session: `[heart feel]self: exhaustion[/heart]`
+- Noticing internal conflict: `[heart feel]self: confusion | frustration[/heart]`
+- Self-appreciation after solving a hard problem: `[heart feel]self: pride[/heart]`
+- Checking self metrics to understand internal state: `[heart state][/heart]` — 
+  the Self block shows attention, valence, and cohesion
 
 Heart state also influences the `[[persons_context]]` placeholder — when Heart is active, person facts are surfaced in a Heart-aware way, prioritising people currently in the agent's attention.

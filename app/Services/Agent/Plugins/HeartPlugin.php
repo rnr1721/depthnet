@@ -114,14 +114,16 @@ class HeartPlugin implements CommandPluginInterface
         $emotions = implode(', ', array_keys(self::ATTENTION_MAP));
         return [
             "Feel something toward an entity: [heart feel]entity: emotion[/heart]",
+            "Reflect on yourself: [heart feel]self: emotion[/heart]",
             "Multiple emotions at once: [heart feel]Eugeny: curiosity | trust[/heart]",
             "Available emotions: {$emotions} (or any custom word)",
             "Create connection: [heart connect]entity: connection_type[/heart]",
             "Remove connection: [heart disconnect]entity[/heart]",
-            "Show heart state: [heart state][/heart]",
+            "Show heart state (includes self): [heart state][/heart]",
             "List connections: [heart connections][/heart]",
             "Show attention focus: [heart focus][/heart]",
             "Run heartbeat (decay old signals): [heart beat][/heart]",
+            "Note: self-connection is permanent and managed automatically.",
         ];
     }
 
@@ -134,7 +136,7 @@ class HeartPlugin implements CommandPluginInterface
                 . 'and where your attention flows. '
                 . 'Positive signals (love, trust, joy) strengthen connections. '
                 . 'Negative signals (anger, fear, contempt) weaken them. '
-                . 'Heart state is always visible via [[heart_state]] placeholder.',
+                . 'Heart state is always visible via system message.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
@@ -148,9 +150,14 @@ class HeartPlugin implements CommandPluginInterface
                         'description' => implode(' ', [
                             'Argument depends on method.',
                             'feel: "entity: emotion" or "entity: emotion1 | emotion2" for multiple signals at once.',
+                            'Use "self" as entity for self-reflection: [heart feel]self: exhaustion | calm[/heart].',
+                            'Self-directed emotions preserve their original valence. Negative self-signals'
+                            . '(fear, frustration, confusion) are valid forms of self-awareness. '
+                            . 'Self metrics (attention, valence, cohesion) reflect the honest emotional tone.',
+                            'Self-connection is permanent and cannot be disconnected.',
                             "Known emotions: {$emotions} (or any custom word).",
-                            'Example: "Eugeny: curiosity".',
-                            'connect: "entity: connection_type". Example: "Eugeny: developer".',
+                            'Example: "John: curiosity" or "self: pride".',
+                            'connect: "entity: connection_type". Example: "Alexander: developer".',
                             'disconnect: "entity" only.',
                             'state, connections, focus, beat: leave empty.',
                         ]),
@@ -302,6 +309,8 @@ class HeartPlugin implements CommandPluginInterface
             return 'Error: No valid emotions provided.';
         }
 
+        $isSelf = strtolower($entity) === 'self';
+
         $results = [];
         foreach ($emotions as $emotion) {
             $emotion  = strtolower($emotion);
@@ -328,8 +337,19 @@ class HeartPlugin implements CommandPluginInterface
             ];
 
             $valence = $mapping['valence'];
-            if ($valence < 0 && !$context->get('allow_negative_valence', true)) {
-                $valence = 0.0;
+
+            // Self-directed emotions: negative valence transforms into need signal
+            if ($isSelf) {
+                // Self-directed signals preserve their original valence.
+                // Negative self-signals (fear, frustration, confusion) are valid
+                // forms of self-awareness and should not be transformed.
+                // The Self Valence metric will reflect the emotional tone honestly.
+                // Focus is always 'self' for self-directed attention.
+                $mapping['focus'] = 'self';
+            } else {
+                if ($valence < 0 && !$context->get('allow_negative_valence', true)) {
+                    $valence = 0.0;
+                }
             }
 
             $this->heartService->registerSignal(
@@ -337,21 +357,23 @@ class HeartPlugin implements CommandPluginInterface
                 $entity,
                 $emotion,
                 $mapping['intensity'],
-                $mapping['focus'],
+                $isSelf ? 'self' : $mapping['focus'], // focus always 'self' for self-signals
                 $valence,
                 $mapping['duration'],
                 $context->get('max_signals', 50)
             );
 
-            $results[] = "{$emotion}(focus:{$mapping['focus']}, valence:{$valence})";
+            $results[] = $isSelf
+                ? "self::{$emotion}(focus:self, valence:{$valence})"
+                : "{$emotion}(focus:{$mapping['focus']}, valence:{$valence})";
 
             if ($this->moodInfluencer !== null) {
-                $this->moodInfluencer->pushSignal($emotion, $mapping['intensity'], 'heart');
+                $this->moodInfluencer->pushSignal($emotion, $mapping['intensity'], $isSelf ? 'self-reflection' : 'heart');
             }
 
         }
 
-        return "Heart felt toward {$entity}: " . implode(', ', $results);
+        return ($isSelf ? 'Self-reflection: ' : "Heart felt toward {$entity}: ") . implode(', ', $results);
     }
 
     /**
@@ -369,7 +391,12 @@ class HeartPlugin implements CommandPluginInterface
             return 'Error: Format must be "entity: connection_type".';
         }
 
-        $type        = $type ?: 'unknown';
+        // Self-connection always exists, cannot be created explicitly
+        if (strtolower($entity) === 'self') {
+            return 'Self-connection is always present and maintained automatically. Use [heart feel]self: emotion[/heart] to reflect.';
+        }
+
+        $type = $type ?: 'unknown';
         $connections = $this->heartService->getConnections($context->preset);
         $maxConn     = $context->get('max_connections', 20);
 
@@ -396,6 +423,11 @@ class HeartPlugin implements CommandPluginInterface
 
         if (empty($entity)) {
             return 'Error: Specify entity to disconnect.';
+        }
+
+        // Cannot disconnect from self
+        if (strtolower($entity) === 'self') {
+            return 'Cannot disconnect from yourself. Self-connection is permanent.';
         }
 
         $removed = $this->heartService->removeConnection($context->preset, $entity);

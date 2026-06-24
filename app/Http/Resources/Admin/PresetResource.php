@@ -30,6 +30,8 @@ class PresetResource extends JsonResource
             'loop_interval' => $this->loop_interval,
             'max_context_limit' => $this->max_context_limit,
             'max_context_limit_extended' => $this->max_context_limit_extended,
+            'pre_pass_enabled'           => $this->pre_pass_enabled,
+            'pre_pass_instruction'       => $this->pre_pass_instruction,
             'agent_result_mode' => $this->agent_result_mode,
             'preset_code_next' => $this->preset_code_next,
             'pre_run_commands' => $this->pre_run_commands,

@@ -30,6 +30,8 @@ class CreatePresetRequest extends FormRequest
             'loop_interval' => ['required','integer','min:1','max:3600'],
             'max_context_limit' => ['required','integer','min:0','max:100'],
             'max_context_limit_extended' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'pre_pass_enabled'           => ['boolean'],
+            'pre_pass_instruction'       => ['nullable', 'string', 'max:5000'],
             'agent_result_mode' => ['required','string'],
             'preset_code_next' => ['nullable', 'string', 'max:50'],
             'pre_run_commands' => ['nullable', 'string'],

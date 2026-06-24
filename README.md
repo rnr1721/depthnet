@@ -107,6 +107,7 @@ DepthNet enables autonomous AI agents through:
 - **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
 - **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
 **Context Modes**: Per-preset dual context profiles — normal (short context, full RAG; reflection and conversation) and extended (long procedural context, filtered RAG; sustained work with stateful plugins like browser, terminal, sandbox). The agent switches automatically via a hysteresis detector: cycles that invoke stateful plugins build a work-streak that flips the profile after sustained activity and reverts it once work stops. RAG configs are tagged per-mode (normal/extended/both) so heavy associative retrieval can be silenced during task execution. Off by default — set an extended context limit to enable. Current mode visible via [[context_mode]].
+- **Pre-Pass Reasoning**: An optional extra generation over the full assembled context *before* the main response. The agent reasons first on the same ground (history, RAG, inner voice, mood) it will answer from, and sees that reasoning via `[[reasoning]]`. Runs every cycle (always-on per preset) or on demand when the agent itself invokes the Reflect plugin. Output is ephemeral — never written to history or memory. Neutral by design: the preset's pre-pass instruction sets the character, from step-by-step planning for working agents to pre-verbal reflection for subjective ones. [→](docs/plugins/reflect.md)
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
@@ -161,6 +162,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
 | **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
 | Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
+| **Reflect** (`reflect`) | Extra reasoning pass before responding. Runs one additional generation over the full current context before the main response; output is injected via `[[reasoning]]`. The agent thinks first, then answers. Character set by the preset's pre-pass instruction (analytical, deliberative, pre-verbal). Always-on per preset, or on-demand via this plugin. Ephemeral — never persisted. | [→](docs/plugins/reflect.md) |
 | **Mood** (`mood`) | Emotional state vector with decay physics. Agent maintains a weighted mix of arbitrary emotional states that decay over cycles, reinforforce on attention, and mix simultaneously. State visible via `[[mood]]`. Integrates with Heart if both are active. | [→](docs/plugins/mood.md) |
 | **Contract** (`contract`) | Metabolism layer — cheap deterministic rules over the agent's own traces (journal, state vector) that raise flags when a threshold is crossed, with no thinking cycle. Four forms (THR_T, THR_C, ACC, DEC), four passive actions (set_flag, create_goal, nudge_state, inject_memo), reversible lifecycle (hypothesis → active → suspended). Contracts are data, authored by the agent at runtime, by config, or by template. Active contracts and raised flags visible via `[[active_contracts]]`. | [→](docs/plugins/contract.md) |
 | **Agent Task** (`task`) | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
@@ -372,6 +374,10 @@ The AI communicates through special command tags that trigger plugin execution. 
 [switch write]code | content[/switch]  # create/overwrite block (if allow_write enabled)
 [switch remove]cautious[/switch] # delete block (if allow_write enabled)
 
+# Reflect — request an extra reasoning pass before responding
+[reflect][/reflect]                          # think before the next response
+[reflect]whether this approach scales[/reflect]  # think, focused (if focus allowed)
+
 ```
 
 <a href="docs/screenshots/chat.png">
@@ -447,7 +453,7 @@ This gives the model enough to reason, navigate, and interact — without drowni
 Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
-- **PluginRegistryInterface**: Extensible command system with 31 built-in plugins
+- **PluginRegistryInterface**: Extensible command system with 32 built-in plugins
 - **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
@@ -768,6 +774,7 @@ php artisan contract:tick --preset=4               # Tick a specific preset (deb
 - Larger models like DeepSeek 3.2+, GPT-4+, Claude 3.5+ provide significantly better instruction following
 - In `tool_calls` mode, models that are well-trained on function calling (DeepSeek V3.2+, GPT-4o, Claude) perform more reliably than in tag mode — the native mechanism reduces syntax errors entirely
 - Models trained specifically for cyclic reasoning (vs. assistant training) would be ideal
+- A pre-pass agent (Reflect plugin or always-on) often references its own reasoning as genuinely its own ("I saw several directions before answering") rather than as an external note — because it is: the same model produced it moments earlier from the identical context. This is the behavioural difference from injecting a separate "inner voice" preset, which models tend to treat as another's words.
 
 **Tool Calls Mode Notes:**
 - Requires provider support: DeepSeek V3.2+, Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint)
@@ -806,6 +813,7 @@ php artisan contract:tick --preset=4               # Tick a specific preset (deb
   - `[[active_switch_code]]` - Code of the currently active prompt block. Useful for agent self-awareness.
   - `[[available_switches]]` - All available switch variants
   - `[[context_mode]]` — Current cognitive context mode (normal/extended).Lets  the agent know whether it's in reflective or sustained-work mode this cycle.
+  - `[[reasoning]]` — Output of the pre-pass (extra reasoning pass) run before the response this cycle. Empty when no pass ran. Set by always-on pre-pass or the Reflect plugin; ephemeral, never persisted.
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -865,6 +873,7 @@ ecosystem directly supports subjectness research:
 - **Journal** — episodic memory and experience recording
 - **Workspace** — persistent internal state across sessions
 - **Vector Memory** — semantic knowledge with associative retrieval
+- **Reflect** — pre-verbal reasoning pass: the agent thinks on its own ground before it speaks
 
 Together these provide observable, measurable dimensions of agency — 
 what the DGI framework calls *subjectness*.

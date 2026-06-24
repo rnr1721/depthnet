@@ -202,6 +202,7 @@ use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
 use App\Services\Agent\Plugins\ProjectMapPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\RagQueryPlugin;
+use App\Services\Agent\Plugins\ReflectPlugin;
 use App\Services\Agent\Plugins\Related\PluginData\PresetPluginDataService;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
@@ -627,6 +628,7 @@ class AiServiceProvider extends ServiceProvider
             MoodPlugin::class,
             MyselfPlugin::class,
             SelfNotePlugin::class,
+            ReflectPlugin::class,
             PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,

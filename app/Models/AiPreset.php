@@ -43,6 +43,8 @@ class AiPreset extends Model
         'loop_interval',
         'max_context_limit',
         'max_context_limit_extended',
+        'pre_pass_enabled',
+        'pre_pass_instruction',
         'agent_result_mode',
         'error_behavior',
         'allow_handoff_to',
@@ -74,6 +76,7 @@ class AiPreset extends Model
         'cp_context_limit'           => 'integer',
         'max_context_limit'          => 'integer',
         'max_context_limit_extended' => 'integer',
+        'pre_pass_enabled'           => 'boolean',
         'before_execution_wait'      => 'integer',
         'allow_handoff_to'           => 'boolean',
         'allow_handoff_from'         => 'boolean',
@@ -110,6 +113,7 @@ class AiPreset extends Model
         'turn_trigger'             => 'no_speak',
         'rhasspy_enabled'          => false,
         'rhasspy_incoming_enabled' => false,
+        'pre_pass_enabled'         => false,
     ];
 
     /**
@@ -744,6 +748,27 @@ class AiPreset extends Model
     public function getRhasspyIncomingToken(): ?string
     {
         return $this->rhasspy_incoming_token;
+    }
+
+    /**
+     * Whether the pre-pass ("reasoning"/"beneath") is enabled for this preset.
+     * When true, generateResponse() runs one extra pass over the full context
+     * before the speaking pass, exposing its output via [[reasoning]].
+     */
+    public function getPrePassEnabled(): bool
+    {
+        return $this->pre_pass_enabled ?? false;
+    }
+
+    /**
+     * The user-turn instruction injected at the tail of the context for the
+     * pre-pass. This is the only thing that differs between the pre-pass and the
+     * speaking pass. Null/empty means the feature is effectively inert even if
+     * the flag is on — generateResponse() should guard against that.
+     */
+    public function getPrePassInstruction(): ?string
+    {
+        return $this->pre_pass_instruction;
     }
 
 }

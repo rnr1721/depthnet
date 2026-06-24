@@ -40,6 +40,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setInnerVoice();
         $this->setKnownSources();
         $this->setContextMode($preset);
+        $this->setReasoning();
     }
 
     /**
@@ -209,6 +210,24 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
                     ? 'extended — sustained work mode; procedural continuity active, associative RAG reduced'
                     : 'normal';
             }
+        );
+    }
+
+    /**
+     * Register reasoning placeholder stub (global).
+     * Actual content is injected per-preset by Agent::generateResponse() when
+     * pre-pass is enabled — the agent's own pre-verbal pass over the full context
+     * before speaking. Empty by default, so the placeholder is harmless on presets
+     * that don't use pre-pass.
+     *
+     * @return void
+     */
+    private function setReasoning(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'reasoning',
+            'The agent\'s own pre-verbal pass over the full context, generated just before speaking (requires pre-pass to be enabled)',
+            fn () => ''
         );
     }
 

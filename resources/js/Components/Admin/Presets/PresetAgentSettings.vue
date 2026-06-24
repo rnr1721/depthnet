@@ -78,6 +78,51 @@
                 </div>
             </div>
 
+            <!-- ────────────────────────────────────────────────────────── -->
+            <!-- Pre-pass (reasoning)                                       -->
+            <!-- ────────────────────────────────────────────────────────── -->
+            <div :class="[
+                'rounded-xl border p-4 space-y-4',
+                isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'
+            ]">
+                <div>
+                    <h5 :class="['text-sm font-semibold mb-0.5', isDark ? 'text-white' : 'text-gray-900']">
+                        {{ t('p_modal_pre_pass_title') }}
+                    </h5>
+                    <p :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        {{ t('p_modal_pre_pass_desc') }}
+                    </p>
+                </div>
+
+                <!-- Always-on toggle -->
+                <label :class="['flex items-center space-x-3 cursor-pointer', isDark ? 'text-white' : 'text-gray-900']">
+                    <input :checked="modelValue.pre_pass_enabled"
+                        @change="updateField('pre_pass_enabled', $event.target.checked)" type="checkbox"
+                        class="w-4 h-4 rounded text-indigo-600" />
+                    <span class="text-sm font-medium">{{ t('p_modal_pre_pass_enabled') }}</span>
+                </label>
+                <p :class="['text-xs -mt-2 ml-7', isDark ? 'text-gray-500' : 'text-gray-400']">
+                    {{ t('p_modal_pre_pass_enabled_desc') }}
+                </p>
+
+                <!-- Instruction — always available: used both by always-on mode
+                     and by the on-demand Reflect plugin trigger. -->
+                <div>
+                    <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">
+                        {{ t('p_modal_pre_pass_instruction') }}
+                    </label>
+                    <textarea :value="modelValue.pre_pass_instruction"
+                        @input="updateField('pre_pass_instruction', $event.target.value)" rows="4" :class="inputClass"
+                        :placeholder="t('p_modal_pre_pass_instruction_ph')"></textarea>
+                    <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        {{ t('p_modal_pre_pass_instruction_desc') }}
+                    </p>
+                    <div v-if="errors.pre_pass_instruction" class="text-red-500 text-xs mt-1">
+                        {{ errors.pre_pass_instruction }}
+                    </div>
+                </div>
+            </div>
+
             <!-- Loop Interval -->
             <div>
                 <label :class="['block text-sm font-medium mb-2', isDark ? 'text-white' : 'text-gray-900']">

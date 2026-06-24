@@ -373,6 +373,56 @@ class AgentTaskService implements AgentTaskServiceInterface
         return $role?->agent()->where('is_active', true)->first();
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function hasActiveTaskForPreset(AiPreset $preset): bool
+    {
+        $agent = $this->findAgentForPreset($preset);
+        if (!$agent) {
+            return false;
+        }
+
+        // Executor path: this preset is the assigned_role of an IN_PROGRESS task.
+        // A preset may back more than one role code, so collect them all.
+        $roleCodes = $this->agentRoleModel
+            ->where('agent_id', $agent->id)
+            ->where('preset_id', $preset->id)
+            ->pluck('code')
+            ->all();
+
+        if (!empty($roleCodes)) {
+            $hasInProgress = $this->agentTaskModel
+                ->where('agent_id', $agent->id)
+                ->whereIn('assigned_role', $roleCodes)
+                ->where('status', AgentTask::STATUS_IN_PROGRESS)
+                ->exists();
+
+            if ($hasInProgress) {
+                return true;
+            }
+        }
+
+        // Validator path: this preset is the validator of a VALIDATING task.
+        // Resolved by role rows where this preset sits as validator_preset_id,
+        // mapped back to the tasks awaiting their verdict via assigned_role.
+        $validatedRoleCodes = $this->agentRoleModel
+            ->where('agent_id', $agent->id)
+            ->where('validator_preset_id', $preset->id)
+            ->pluck('code')
+            ->all();
+
+        if (!empty($validatedRoleCodes)) {
+            return $this->agentTaskModel
+                ->where('agent_id', $agent->id)
+                ->whereIn('assigned_role', $validatedRoleCodes)
+                ->where('status', AgentTask::STATUS_VALIDATING)
+                ->exists();
+        }
+
+        return false;
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------

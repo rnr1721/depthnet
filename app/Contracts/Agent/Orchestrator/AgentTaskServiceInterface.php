@@ -127,4 +127,25 @@ interface AgentTaskServiceInterface
      * @return Agent|null
      */
     public function findAgentForPreset(AiPreset $preset): ?Agent;
+
+    /**
+     * Whether this preset currently has active work in an orchestrated pipeline.
+     *
+     * True when the preset is, within its agent, either:
+     *   - the assigned_role of a task in IN_PROGRESS (executor still working), or
+     *   - the validator_preset of a task in VALIDATING (validator still reviewing).
+     *
+     * Read-only. Used by AgentActionsHandler::determineTurnNeed() to decide
+     * whether an orchestrated cycle should self-continue. A terminal action
+     * (task done/fail/approve/reject) moves the task out of these states, which
+     * makes this return false and stops the self-continue loop naturally.
+     *
+     * Returns false for presets that are not part of any active agent, and for
+     * planner presets (planners are reactive — woken per event by the
+     * orchestrator, never self-continuing).
+     *
+     * @param AiPreset $preset
+     * @return bool
+     */
+    public function hasActiveTaskForPreset(AiPreset $preset): bool;
 }

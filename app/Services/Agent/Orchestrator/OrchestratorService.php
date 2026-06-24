@@ -28,6 +28,13 @@ use Psr\Log\LoggerInterface;
  * Planner is notified by writing a user-role message directly to its preset history,
  * then triggering a single thinking cycle. Models treat user-role messages as
  * authoritative external input, which produces better planner responses.
+ *
+ * All orchestrator→preset messages are tagged metadata['source'] = orchestrator
+ * (see writeUserMessage). AgentActionsHandler reads this marker to run the woken
+ * cycle in pipeline mode — a role self-continues until its task leaves IN_PROGRESS,
+ * independent of the preset's turn_trigger. This is what lets the same preset be
+ * debugged directly in chat (normal turn_trigger) yet behave as a pipeline worker
+ * when the orchestrator drives it.
  */
 class OrchestratorService implements OrchestratorInterface
 {
@@ -257,6 +264,11 @@ class OrchestratorService implements OrchestratorInterface
     /**
      * Write a user-role message to any preset's history.
      * Central method — all orchestrator→preset communication goes through here.
+     *
+     * Tags the message metadata['source'] = orchestrator so the woken cycle runs
+     * in pipeline mode (see AgentActionsHandler::determineTurnNeed). This is the
+     * single gate that distinguishes an orchestrator-driven cycle from the same
+     * preset being run manually in chat.
      */
     private function writeUserMessage(int $presetId, string $content): void
     {
@@ -266,6 +278,7 @@ class OrchestratorService implements OrchestratorInterface
             'from_user_id'       => null,
             'preset_id'          => $presetId,
             'is_visible_to_user' => true,
+            'metadata'           => ['source' => Message::SOURCE_ORCHESTRATOR],
         ]);
     }
 

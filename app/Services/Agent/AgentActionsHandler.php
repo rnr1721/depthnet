@@ -12,6 +12,7 @@ use App\Contracts\Agent\AiModelResponseInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -42,6 +43,14 @@ use Illuminate\Contracts\Cache\Repository as Cache;
  *
  * Note: "inline" mode has been removed. It caused models to hallucinate
  * command results as part of their own output in subsequent cycles.
+ *
+ * Orchestrated pipeline mode:
+ *   When the cycle was woken by the orchestrator (initiating message carries
+ *   metadata['source'] = orchestrator), the role self-continues until its task
+ *   leaves IN_PROGRESS — see determineTurnNeed(). The orchestrated marker is
+ *   inherited onto the self-continue "Continue" message so the next cycle stays
+ *   in pipeline mode. This is independent of the preset's turn_trigger, which
+ *   keeps normal (chat/voice/api) behaviour intact for the same preset.
  */
 class AgentActionsHandler implements AgentActionsHandlerInterface
 {
@@ -57,6 +66,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected Cache $cache,
         protected LoggerInterface $logger,
         protected ContextModeResolverInterface $contextModeResolver,
+        protected AgentTaskServiceInterface $agentTaskService,
     ) {
     }
 
@@ -77,6 +87,11 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         AiPreset $preset,
         ?AiPreset $mainPreset = null,
     ): AiAgentResponseInterface {
+        // Read the cycle's origin BEFORE any service messages (Continue, pool
+        // remnants) are written below — otherwise "last user message" would point
+        // at our own bookkeeping, not at what actually woke this cycle.
+        $orchestrated = $this->cycleWasOrchestrated($preset);
+
         if ($response->isError()) {
             $errorMessage = $this->createSystemMessage(
                 $response->getResponse(),
@@ -96,13 +111,24 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
 
         $actionsResult = $result['actionsResult'];
 
-        $turn = $this->determineTurnNeed($preset, $actionsResult);
+        $turn = $this->determineTurnNeed($preset, $actionsResult, $orchestrated);
 
         if ($turn) {
             if ($this->inputPoolService->isEnabled($preset)) {
+                // Pool-mode presets are not used in orchestrated pipelines (the
+                // orchestrator writes directly to history, bypassing the pool),
+                // so no source inheritance is needed on this branch.
                 $this->inputPoolService->add($preset->getId(), 'system', 'Continue');
             } else {
-                $this->createUserMessage('Continue', $preset->getId());
+                // Inherit the orchestrated marker onto the self-continue message so
+                // the next cycle re-enters pipeline mode. Without this, the next
+                // cycle's initiating message would be an unmarked "Continue" and the
+                // role would fall out of the pipeline on its second step.
+                $this->createUserMessage(
+                    'Continue',
+                    $preset->getId(),
+                    $orchestrated ? ['source' => Message::SOURCE_ORCHESTRATOR] : []
+                );
             }
         }
 
@@ -122,11 +148,58 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         return new AgentResponseDTO($result['message'], $result['actionsResult'], false);
     }
 
-    private function determineTurnNeed(AiPreset $preset, AiActionsResponseInterface $actionsResult): bool
+    /**
+     * Whether the cycle now being handled was woken by the orchestrator.
+     *
+     * Reads the most recent user-role message for this preset and checks its
+     * source marker. Called at the very start of handleResponse, before any
+     * service messages are written, so "most recent user message" reliably means
+     * "the message that initiated this cycle".
+     *
+     * The marker is set by OrchestratorService::writeUserMessage on the first
+     * cycle, and inherited onto the self-continue "Continue" message on subsequent
+     * cycles, so it stays true for the whole pipeline run until the role reports.
+     */
+    private function cycleWasOrchestrated(AiPreset $preset): bool
     {
+        $lastUser = $this->messageModel
+            ->forPreset($preset->getId())
+            ->where('role', 'user')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        return $lastUser?->getSource() === Message::SOURCE_ORCHESTRATOR;
+    }
+
+    /**
+     * Decide whether the cycle should run again.
+     *
+     * Order matters for cost: the cheap checks (status flag, origin marker) gate
+     * the only DB-touching check (hasActiveTaskForPreset), so non-orchestrated
+     * presets — the common case, including Ada and any free-running preset —
+     * never pay for a task lookup.
+     *
+     *   1. Background loop active → the loop schedules itself, no turn needed.
+     *   2. Orchestrated cycle → self-continue while the role's task is still
+     *      IN_PROGRESS (executor) or VALIDATING (validator). A terminal task
+     *      action (done/fail/approve/reject) moves the task out of those states
+     *      and stops the loop naturally. turn_trigger is intentionally ignored
+     *      here — pipeline correctness must not depend on per-preset settings.
+     *   3. Normal mode (chat debugging, voice, api) → turn_trigger as configured.
+     */
+    private function determineTurnNeed(
+        AiPreset $preset,
+        AiActionsResponseInterface $actionsResult,
+        bool $orchestrated
+    ): bool {
         if ($this->chatStatusService->getPresetStatus($preset->getId())) {
             return false;
         }
+
+        if ($orchestrated) {
+            return $this->agentTaskService->hasActiveTaskForPreset($preset);
+        }
+
         if ($preset->getTurnTrigger() === 'no_speak' && empty($actionsResult->getSystemMessage())) {
             return true;
         }

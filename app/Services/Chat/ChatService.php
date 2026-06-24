@@ -188,6 +188,7 @@ class ChatService implements ChatServiceInterface
                     'from_user_id'       => $user->id,
                     'preset_id'          => $presetId,
                     'is_visible_to_user' => false,
+                    'metadata'           => ['source' => Message::SOURCE_WEB],
                 ]);
             }
 
@@ -231,7 +232,7 @@ class ChatService implements ChatServiceInterface
                 throw new \RuntimeException("Pool was empty after flush — this should not happen.");
             }
 
-            return $this->createMessage($user, $presetId, $formattedContent);
+            return $this->createMessage($user, $presetId, $formattedContent, Message::SOURCE_API);
         }
 
         // Not dispatching — return pool metadata so the caller knows what's waiting
@@ -286,10 +287,15 @@ class ChatService implements ChatServiceInterface
      * @param User $user
      * @param int $presetId
      * @param string $content
+     * @param string $source   Origin marker for the message (web by default).
      * @return Message
      */
-    protected function createMessage(User $user, int $presetId, string $content): Message
-    {
+    protected function createMessage(
+        User $user,
+        int $presetId,
+        string $content,
+        string $source = Message::SOURCE_WEB
+    ): Message {
         $finalContent = null;
         if ($this->optionsService->get('user_can_run_commands', false)) {
             $finalContent = $user->is_admin ? $this->runCommands($content, $presetId) : null;
@@ -301,6 +307,7 @@ class ChatService implements ChatServiceInterface
             'from_user_id'       => $user->id,
             'preset_id'          => $presetId,
             'is_visible_to_user' => true,
+            'metadata'           => ['source' => $source],
         ]);
 
         $isActive = $this->chatStatusService->getPresetStatus($presetId);

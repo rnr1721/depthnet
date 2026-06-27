@@ -13,6 +13,7 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ActionsResponseDTO;
+use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 use Psr\Log\LoggerInterface;
 
@@ -201,6 +202,10 @@ class AgentActions implements AgentActionsInterface
         $turn = (bool) ($executionResult?->pluginExecutionMeta['turn'] ?? false);
         $containedLongContext = $executionResult?->containedLongContextPlugin ?? false;
 
+        // Planner pipeline signals (see AgentTaskPlugin / determineTurnNeed).
+        $createdTask = (bool) ($executionResult?->pluginExecutionMeta[AgentTaskPlugin::META_TASK_CREATED] ?? false);
+        $plannerCommitted = (bool) ($executionResult?->pluginExecutionMeta[AgentTaskPlugin::META_COMMITTED] ?? false);
+
         return new ActionsResponseDTO(
             $output,
             $role,
@@ -211,6 +216,8 @@ class AgentActions implements AgentActionsInterface
             $executionResult?->results ?? [],
             $turn,
             $containedLongContext,
+            $createdTask,
+            $plannerCommitted,
         );
     }
 

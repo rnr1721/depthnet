@@ -423,6 +423,17 @@ class AgentTaskService implements AgentTaskServiceInterface
         return false;
     }
 
+    /**
+     * @inheritDoc
+     */
+    public function isPlanner(AiPreset $preset): bool
+    {
+        return $this->agentModel
+            ->where('planner_preset_id', $preset->id)
+            ->where('is_active', true)
+            ->exists();
+    }
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------

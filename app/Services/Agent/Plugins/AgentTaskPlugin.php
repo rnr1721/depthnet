@@ -22,6 +22,7 @@ use Psr\Log\LoggerInterface;
  *   [task]title | role: executor | Detailed description[/task]   — create & assign
  *   [task list][/task]                                           — active tasks
  *   [task show]42[/task]                                         — task details
+ *   [task commit][/task]                                         — finish this planning round
  *
  * Role (executor):
  *   [task done]42 | result here[/task]     — mark completed with result
@@ -30,6 +31,14 @@ use Psr\Log\LoggerInterface;
  * Validator:
  *   [task approve]42 | looks good[/task]   — approve result
  *   [task reject]42 | needs more[/task]    — reject with feedback
+ *
+ * Execution-meta signals (read by AgentActionsHandler::determineTurnNeed to
+ * drive the orchestrated self-continue loop):
+ *   task_created     — a task was created this cycle (planner is productive;
+ *                      resets the planner stall counter, does NOT stop the loop —
+ *                      the planner may create several tasks before committing)
+ *   planner_committed — the planner explicitly ended its planning round via
+ *                      [task commit]; stops the planner's self-continue loop.
  */
 class AgentTaskPlugin implements CommandPluginInterface
 {
@@ -37,6 +46,10 @@ class AgentTaskPlugin implements CommandPluginInterface
     use PluginConfigTrait;
     use PluginExecutionMetaTrait;
     use PluginHasLanguageSettingsTrait;
+
+    /** Execution-meta keys consumed by AgentActionsHandler. */
+    public const META_TASK_CREATED = 'task_created';
+    public const META_COMMITTED    = 'planner_committed';
 
     public function __construct(
         protected AgentTaskServiceInterface $agentTaskService,
@@ -53,7 +66,7 @@ class AgentTaskPlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        return 'Orchestrated task management. Planner creates and assigns tasks to roles. Roles complete or fail them. Validators approve or reject results. Orchestrator handles routing automatically.';
+        return 'Orchestrated task management. Planner creates and assigns tasks to roles, then commits the round. Roles complete or fail them. Validators approve or reject results. Orchestrator handles routing automatically.';
     }
 
     public function getInstructions(array $config = []): array
@@ -65,6 +78,7 @@ class AgentTaskPlugin implements CommandPluginInterface
             'List active tasks: [task list][/task]',
             'List all tasks: [task list]all[/task]',
             'Show task details: [task show]42[/task]',
+            'Finish planning round: [task commit][/task] — call this when you have created all tasks you intend to dispatch for now. The orchestrator will wake you again when results arrive. Without commit you keep thinking; use it to go idle and wait.',
             '— ROLE (executor) —',
             'Mark done: [task done]42 | The summary is ready: ...[/task]',
             'Report failure: [task fail]42 | Could not access the data source[/task]',
@@ -91,17 +105,18 @@ class AgentTaskPlugin implements CommandPluginInterface
         return [
             'name'        => 'task',
             'description' => 'Task management for orchestrated agent workflows. '
-                . 'Planner creates and assigns tasks to roles. Roles complete or fail them. '
-                . 'Validators approve or reject results. Orchestrator handles routing automatically. '
+                . 'Planner creates and assigns tasks to roles, then commits the round with method=commit. '
+                . 'Roles complete or fail them. Validators approve or reject results. '
+                . 'Orchestrator handles routing automatically. '
                 . $langInstruction
-                . 'Active tasks are always visible via [[agent_tasks]] placeholder.',
+                . 'Active tasks are always visible in system message.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
                     'method' => [
                         'type'        => 'string',
                         'description' => 'Operation to perform',
-                        'enum'        => ['execute', 'done', 'fail', 'approve', 'reject', 'list', 'show'],
+                        'enum'        => ['execute', 'commit', 'done', 'fail', 'approve', 'reject', 'list', 'show'],
                     ],
                     'content' => [
                         'type'        => 'string',
@@ -109,6 +124,7 @@ class AgentTaskPlugin implements CommandPluginInterface
                             'Argument depends on method.',
                             'execute (create task): "title" or "title | role: roleCode | description".',
                             'Example: "Write market summary | role: writer | Focus on Q1 2025 data".',
+                            'commit (end planning round): no argument needed. Call when all tasks for this round are created.',
                             'done (complete task): "taskId | result text".',
                             'Example: "42 | Summary written: Q1 growth was 15%".',
                             'fail (report failure): "taskId | reason".',
@@ -187,7 +203,7 @@ class AgentTaskPlugin implements CommandPluginInterface
 
     public function getSelfClosingTags(): array
     {
-        return ['list'];
+        return ['list', 'commit'];
     }
 
     /**
@@ -196,6 +212,10 @@ class AgentTaskPlugin implements CommandPluginInterface
      * Format: "title | role: roleCode | description"
      * Or:     "title | description"
      * Or:     "title"
+     *
+     * Emits task_created execution-meta so the planner's self-continue loop
+     * resets its stall counter — creating a task is productive work. It does NOT
+     * stop the loop: a planner may create several tasks before [task commit].
      */
     public function execute(string $content, PluginExecutionContext $context): string
     {
@@ -233,7 +253,39 @@ class AgentTaskPlugin implements CommandPluginInterface
             createdByRole: 'planner'
         );
 
+        if ($result['success']) {
+            $this->setPluginExecutionMeta(self::META_TASK_CREATED, true);
+        }
+
         return $result['message'];
+    }
+
+    /**
+     * Commit — end the current planning round.
+     *
+     * The planner calls this when it has created all the tasks it intends to
+     * dispatch for now. Emits planner_committed execution-meta, which tells
+     * AgentActionsHandler::determineTurnNeed to stop the planner's self-continue
+     * loop and let it go idle until the orchestrator wakes it with a result.
+     *
+     * Carries no state of its own — it neither creates nor launches anything
+     * (tasks are dispatched at creation time in world A). It is purely the
+     * planner's terminal signal, the planner-side analogue of [task done].
+     */
+    public function commit(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return 'Error: Task plugin is disabled.';
+        }
+
+        $agent = $this->agentTaskService->findAgentForPreset($context->preset);
+        if (!$agent) {
+            return 'Error: This preset is not part of any active agent.';
+        }
+
+        $this->setPluginExecutionMeta(self::META_COMMITTED, true);
+
+        return 'Planning round committed. Going idle until results arrive.';
     }
 
     /**
@@ -405,5 +457,4 @@ class AgentTaskPlugin implements CommandPluginInterface
     {
         return (int) preg_replace('/\D/', '', $raw);
     }
-
 }

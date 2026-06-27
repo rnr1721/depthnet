@@ -13,6 +13,7 @@ use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
+use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -38,22 +39,43 @@ use Illuminate\Contracts\Cache\Repository as Cache;
  *   "tool_calls" — full tool_calls pipeline: ToolCallParser parses the response,
  *                  tools array is sent to the provider API, history is stored in
  *                  assistant/tool turn format required by provider APIs.
- *                  This mode is enforced automatically — the protocol dictates
- *                  the storage structure, it is not a free choice.
  *
  * Note: "inline" mode has been removed. It caused models to hallucinate
  * command results as part of their own output in subsequent cycles.
  *
- * Orchestrated pipeline mode:
- *   When the cycle was woken by the orchestrator (initiating message carries
- *   metadata['source'] = orchestrator), the role self-continues until its task
- *   leaves IN_PROGRESS — see determineTurnNeed(). The orchestrated marker is
- *   inherited onto the self-continue "Continue" message so the next cycle stays
- *   in pipeline mode. This is independent of the preset's turn_trigger, which
- *   keeps normal (chat/voice/api) behaviour intact for the same preset.
+ * Orchestrated pipeline mode (determineTurnNeed):
+ *   A single rule governs every orchestrated participant — each self-continues
+ *   until it emits its own terminal signal:
+ *     role/executor → task leaves IN_PROGRESS (via [task done]/[task fail])
+ *     validator     → task leaves VALIDATING (via [task approve]/[task reject])
+ *     planner       → [task commit], or it speaks to the user, or it stalls
+ *   The orchestrated marker (metadata['source'] = orchestrator) is set on the
+ *   first cycle by the orchestrator and inherited onto the self-continue
+ *   "Continue" message so the whole run stays in pipeline mode. turn_trigger is
+ *   ignored while orchestrated, keeping normal chat/voice/api behaviour intact
+ *   for the same preset (e.g. when debugged directly in chat).
+ *
+ *   Planner stall guard: a planner that self-continues without any productive
+ *   action (task creation, commit, or speaking) for PLANNER_STALL_LIMIT cycles
+ *   is stopped with a warning rather than looping forever. Productive actions
+ *   reset the counter; a normal terminal (commit/speak) clears it.
  */
 class AgentActionsHandler implements AgentActionsHandlerInterface
 {
+    /**
+     * Plugin-metadata namespace and key for the planner stall counter.
+     * Stored per planner preset, counts consecutive orchestrated self-continue
+     * cycles with no productive action.
+     */
+    private const PLANNER_META_PLUGIN   = 'orchestrator_planner';
+    private const PLANNER_ITER_KEY      = 'idle_iterations';
+
+    /**
+     * Maximum orchestrated self-continue cycles a planner may run without a
+     * productive action before it is force-stopped as stalled.
+     */
+    private const PLANNER_STALL_LIMIT = 8;
+
     public function __construct(
         protected Message $messageModel,
         protected AgentJobServiceFactoryInterface $agentJobFactory,
@@ -67,6 +89,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected LoggerInterface $logger,
         protected ContextModeResolverInterface $contextModeResolver,
         protected AgentTaskServiceInterface $agentTaskService,
+        protected PluginMetadataServiceInterface $pluginMetadataService,
     ) {
     }
 
@@ -123,7 +146,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                 // Inherit the orchestrated marker onto the self-continue message so
                 // the next cycle re-enters pipeline mode. Without this, the next
                 // cycle's initiating message would be an unmarked "Continue" and the
-                // role would fall out of the pipeline on its second step.
+                // participant would fall out of the pipeline on its second step.
                 $this->createUserMessage(
                     'Continue',
                     $preset->getId(),
@@ -155,10 +178,6 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
      * source marker. Called at the very start of handleResponse, before any
      * service messages are written, so "most recent user message" reliably means
      * "the message that initiated this cycle".
-     *
-     * The marker is set by OrchestratorService::writeUserMessage on the first
-     * cycle, and inherited onto the self-continue "Continue" message on subsequent
-     * cycles, so it stays true for the whole pipeline run until the role reports.
      */
     private function cycleWasOrchestrated(AiPreset $preset): bool
     {
@@ -174,18 +193,20 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
     /**
      * Decide whether the cycle should run again.
      *
-     * Order matters for cost: the cheap checks (status flag, origin marker) gate
-     * the only DB-touching check (hasActiveTaskForPreset), so non-orchestrated
-     * presets — the common case, including Ada and any free-running preset —
+     * Single rule for every orchestrated participant: self-continue until your
+     * own terminal signal. Non-orchestrated cycles fall through to turn_trigger,
+     * preserving normal chat/voice/api behaviour (including in-chat debugging of
+     * the very same preset).
+     *
+     * Cost ordering: the cheap checks (background flag, orchestrated marker) gate
+     * the DB-touching role/planner checks, so free-running presets (Ada, etc.)
      * never pay for a task lookup.
      *
-     *   1. Background loop active → the loop schedules itself, no turn needed.
-     *   2. Orchestrated cycle → self-continue while the role's task is still
-     *      IN_PROGRESS (executor) or VALIDATING (validator). A terminal task
-     *      action (done/fail/approve/reject) moves the task out of those states
-     *      and stops the loop naturally. turn_trigger is intentionally ignored
-     *      here — pipeline correctness must not depend on per-preset settings.
-     *   3. Normal mode (chat debugging, voice, api) → turn_trigger as configured.
+     *   1. Background loop active → loop schedules itself, no turn.
+     *   2. Orchestrated:
+     *        role/validator (has active task) → continue while IN_PROGRESS/VALIDATING.
+     *        planner                          → continue until commit / speak / stall.
+     *   3. Normal mode → turn_trigger as configured.
      */
     private function determineTurnNeed(
         AiPreset $preset,
@@ -197,7 +218,21 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         }
 
         if ($orchestrated) {
-            return $this->agentTaskService->hasActiveTaskForPreset($preset);
+            // Role / validator: bound to task lifecycle state.
+            if ($this->agentTaskService->hasActiveTaskForPreset($preset)) {
+                return true;
+            }
+
+            // Planner: reactive, self-continues until it ends its round.
+            if ($this->agentTaskService->isPlanner($preset)) {
+                return $this->determinePlannerTurn($preset, $actionsResult);
+            }
+
+            // Orchestrated but neither an active worker nor a planner — nothing to
+            // self-continue for (e.g. validator whose task already left VALIDATING,
+            // or a role whose task is done). Go idle; the orchestrator re-wakes on
+            // the next event.
+            return false;
         }
 
         if ($preset->getTurnTrigger() === 'no_speak' && empty($actionsResult->getSystemMessage())) {
@@ -207,6 +242,78 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             return true;
         }
         return false;
+    }
+
+    /**
+     * Planner self-continue decision with stall guard.
+     *
+     * Terminal (stop, counter cleared):
+     *   - spoke to the user (system message present)
+     *   - committed the round ([task commit])
+     * Productive but not terminal (continue, counter reset):
+     *   - created a task this cycle — planner may create several before committing
+     * Stall guard (stop + warning, counter cleared):
+     *   - PLANNER_STALL_LIMIT consecutive cycles with no productive action
+     * Otherwise:
+     *   - continue, counter incremented
+     */
+    private function determinePlannerTurn(AiPreset $preset, AiActionsResponseInterface $actionsResult): bool
+    {
+        $spoke     = !empty(trim((string) $actionsResult->getSystemMessage()));
+        $committed = $actionsResult->plannerCommitted();
+        $created   = $actionsResult->createdTask();
+
+        // Terminal signals: planner ends its round and goes idle.
+        if ($spoke || $committed) {
+            $this->resetPlannerCounter($preset);
+            return false;
+        }
+
+        // Productive (task created) — not terminal, but resets the stall counter:
+        // an actively-dispatching planner is not stalling even across many cycles.
+        if ($created) {
+            $this->resetPlannerCounter($preset);
+            return true;
+        }
+
+        // No productive action this cycle — advance the stall counter.
+        $iterations = (int) $this->pluginMetadataService->get(
+            $preset,
+            self::PLANNER_META_PLUGIN,
+            self::PLANNER_ITER_KEY,
+            0
+        );
+        $iterations++;
+
+        if ($iterations >= self::PLANNER_STALL_LIMIT) {
+            $this->logger->warning('AgentActionsHandler: planner stalled — forcing idle', [
+                'preset_id'  => $preset->getId(),
+                'iterations' => $iterations,
+                'limit'      => self::PLANNER_STALL_LIMIT,
+            ]);
+            // Clear so the next round (woken by orchestrator/user) starts fresh.
+            $this->resetPlannerCounter($preset);
+            return false;
+        }
+
+        $this->pluginMetadataService->set(
+            $preset,
+            self::PLANNER_META_PLUGIN,
+            self::PLANNER_ITER_KEY,
+            $iterations
+        );
+
+        return true;
+    }
+
+    /**
+     * Clear the planner stall counter (round ended or reset on productive action).
+     */
+    private function resetPlannerCounter(AiPreset $preset): void
+    {
+        if ($this->pluginMetadataService->has($preset, self::PLANNER_META_PLUGIN, self::PLANNER_ITER_KEY)) {
+            $this->pluginMetadataService->remove($preset, self::PLANNER_META_PLUGIN, self::PLANNER_ITER_KEY);
+        }
     }
 
     /**

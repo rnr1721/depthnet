@@ -148,4 +148,15 @@ interface AgentTaskServiceInterface
      * @return bool
      */
     public function hasActiveTaskForPreset(AiPreset $preset): bool;
+
+    /**
+     * Whether this preset is the planner of an active agent.
+     *
+     * Cheap existence check used by AgentActionsHandler::determineTurnNeed to
+     * route an orchestrated cycle into planner self-continue logic.
+     *
+     * @param AiPreset $preset
+     * @return bool
+     */
+    public function isPlanner(AiPreset $preset): bool;
 }

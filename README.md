@@ -529,26 +529,43 @@ This creates **emergent AI workflows** where specialized agents collaborate with
 
 While the handoff system gives agents full autonomy over delegation, orchestrated mode provides a structured alternative — useful when you need predictable, observable, multi-step workflows.
 
+> **Setting up role presets — read this first.** Pipeline role presets need specific settings; the general preset defaults are wrong for them and cause silent stalls:
+> - **`input_mode` must not be `pool`** — pool mode breaks inheritance of the orchestration marker onto the self-continue message, so a role drops out of pipeline mode after its first cycle and stops mid-task.
+> - **`auto_proceed` must be `false`** for reactive pipelines (see below).
+>
+> If a pipeline just stops with nothing in the worker log, check these two first. Full setup and troubleshooting: [Pipeline guide → docs/pipelines/orchestrator.md](docs/pipelines/orchestrator.md).
+
 **Core concepts:**
 
 - **Agent** — a named configuration entity with a planner preset and a set of typed roles. Does not have its own chat; users interact with the planner preset directly.
 - **Role** — a preset assigned a code (`executor`, `critic`, `writer`, etc.) within an agent. Optionally has a validator preset and configurable retry limit.
 - **Task** — a unit of work created by the planner and assigned to a role. Follows a deterministic state machine: `pending → in_progress → validating → done / failed / escalated`.
 - **Orchestrator** — a PHP service (not a model) that watches task states and routes work. Models report outcomes via plugin commands; the orchestrator decides what happens next.
-- **Metabolism (Contracts)**: A layer of cheap, deterministic rules that run continuously without invoking the model. A contract watches a trace — elapsed time, an event count, a state value — and raises a flag when a threshold is crossed, offloading the bookkeeping the model would otherwise do by hand each cycle (counting, remembering, watching for repeats). The metabolism prepares signals; the agent decides what to do with them. Authored by the agent at runtime, by config, or by preset template. [→](docs/capabilities/contracts.md)
+
+**The terminal-signal model.** Every orchestrated participant keeps thinking (self-continuing cycle after cycle) until it emits the terminal signal for its role, then goes idle until woken again:
+
+- **Executor** — works until it calls `done` / `fail` (task leaves `in_progress`).
+- **Validator** — works until it calls `approve` / `reject` (task leaves `validating`).
+- **Planner** — works until it calls **`commit`** (ends the planning round and goes idle) or delivers a final reply to the user.
+
+This is why the planner needs `commit`: after creating the tasks for a round, it calls `commit` to sleep until results arrive. Without `commit` the planner keeps thinking and, after several unproductive cycles, is force-stopped with a `planner stalled` warning.
 
 **How it works:**
 
-1. User sends a message to the planner preset as usual
-2. Planner creates tasks via `[task]title | role: executor | description[/task]`
-3. Orchestrator dispatches tasks to role presets as `user`-role messages (models treat these as authoritative external input)
-4. Role preset executes and reports: `[task done]42 | result[/task]` or `[task fail]42 | reason[/task]`
-5. If a validator is configured for the role, orchestrator sends result to validator preset
-6. Validator approves (`[task approve]`) or rejects (`[task reject]`) with feedback
-7. On rejection: task retries up to `max_attempts`, then escalates to planner
-8. On approval (or no validator): planner is notified with result and creates next tasks
+1. User sends a message to the planner preset as usual.
+2. Planner creates tasks via `[task]title | role: executor | description[/task]` (or the `execute` method in tool_calls mode).
+3. Planner calls `[task commit]` to end the round and go idle.
+4. Orchestrator dispatches tasks to role presets as `user`-role messages (models treat these as authoritative external input).
+5. Role preset executes and reports: `[task done]42 | result[/task]` or `[task fail]42 | reason[/task]`.
+6. If a validator is configured for the role, orchestrator sends the result to the validator preset, which approves (`[task approve]`) or rejects (`[task reject]`) with feedback. On rejection the task retries up to `max_attempts`, then escalates to the planner.
+7. On approval (or no validator) the planner is woken with the result and creates the next task — **pasting the previous result verbatim into the new task's description**, because roles do not share memory (an analyst cannot see the scraper's output unless the planner carries it across). It then commits again.
+8. When all work is done, the planner delivers the final answer to the user.
 
-**`auto_proceed` flag** — when set on a role, the orchestrator skips planner notification after task completion and immediately dispatches the next pending task. Useful for linear pipelines where the order is fixed and the planner doesn't need to review intermediate results.
+**Reactive ordering.** The planner works in rounds: it creates the next task *after* seeing the previous result, so dependent steps (scraper → analyst) are ordered naturally without any queue. The planner is the data bridge between roles.
+
+**`auto_proceed` flag** — when set on a role, the orchestrator skips planner notification after task completion and immediately dispatches the next *pending* task. This only makes sense when tasks are queued ahead of time (a fixed linear pipeline where the planner doesn't review intermediate results).
+
+> ⚠️ In the reactive model above — where the planner creates each next task after seeing the previous result — `auto_proceed` **must be `false`**. With it on, the orchestrator skips the planner and looks for a next pending task that doesn't exist yet (the planner hasn't been woken to create it), and the chain stops silently. `auto_proceed = true` and a reactive planner are incompatible.
 
 **Example orchestrated workflow:**
 
@@ -557,16 +574,18 @@ User: "Research and write a report on AI trends"
 
 Planner creates:
   Task #1 [researcher] — Gather data on AI trends 2025
-  Task #2 [writer]     — Write report based on research     ← created after #1 done
+  [task commit]                              ← planner goes idle, waits for the result
 
 Orchestrator → researcher preset: [Task #1] Gather data on AI trends 2025
 Researcher:    [task done]1 | Found 5 key trends: ...[/task]
-Orchestrator → validator preset: [Validate Task #1] ...
-Validator:     [task approve]1 | Data is accurate and complete[/task]
 Orchestrator → planner: Task #1 completed. Result: Found 5 key trends: ...
-Planner:       [task]Write report | role: writer | Use these trends: ...[/task]
+Planner:       [task]Write report | role: writer | Here is the research to use
+               verbatim: <pastes full researcher result>. Write the report.[/task]
+               [task commit]                 ← idle again
 Orchestrator → writer preset: [Task #2] Write report...
-...
+Writer:        [task done]2 | Report: ...[/task]
+Orchestrator → planner: Task #2 completed...
+Planner:       <delivers final report to the user>
 ```
 
 **Compared to free-form handoff:**
@@ -580,6 +599,8 @@ Orchestrator → writer preset: [Task #2] Write report...
 | Best for | Open-ended autonomous agents | Reliable multi-step pipelines |
 
 Both modes can coexist — an autonomous agent like Adalia can use handoff for her own reasoning while also spinning up an orchestrated agent to delegate structured subtasks.
+
+**[Full pipeline guide, role setup, and ready-to-use prompts → docs/pipelines/orchestrator.md](docs/pipelines/orchestrator.md)**
 
 ## Security Considerations
 

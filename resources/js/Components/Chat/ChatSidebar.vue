@@ -79,6 +79,7 @@
               <Link :href="journalLink" :class="linkClass">{{ t('journal') }}</Link>
               <Link :href="ontologyLink" :class="linkClass">{{ t('ontology') }}</Link>
               <Link :href="contractsLink" :class="linkClass">{{ t('contract_manager') }}</Link>
+              <Link :href="patternsLink" :class="linkClass">{{ t('behavior_manager') }}</Link>
               <Link :href="personLink" :class="linkClass">{{ t('person_memory') }}</Link>
               <Link :href="skillsLink" :class="linkClass">{{ t('skills') }}</Link>
               <Link :href="goalsLink" :class="linkClass">{{ t('goals') }}</Link>
@@ -272,6 +273,9 @@ const ontologyLink = computed(() =>
 );
 const contractsLink = computed(() =>
   routeWithPreset(route('admin.contracts.index'), props.currentPresetId)
+);
+const patternsLink = computed(() =>
+  routeWithPreset(route('admin.behavior.index'), props.currentPresetId)
 );
 const personLink = computed(() =>
   routeWithPreset(route('admin.person-memory.index'), props.currentPresetId)

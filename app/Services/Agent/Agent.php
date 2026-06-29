@@ -6,6 +6,7 @@ use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\AiModelResponseInterface;
+use App\Contracts\Agent\Behavior\BehaviorCoordinatorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
@@ -87,6 +88,7 @@ class Agent implements AgentInterface
         protected ToolSchemaBuilderInterface $toolSchemaBuilder,
         protected ContextModeResolverInterface $contextModeResolver,
         protected LoggerInterface $logger,
+        protected ?BehaviorCoordinatorInterface $behavior = null,
     ) {
     }
 
@@ -404,6 +406,88 @@ class Agent implements AgentInterface
             );
         }
 
+        // ── ABS: select the dominant pattern for this cycle ─────────────────────
+        // No-op when ABS is inactive for this preset. Runs before generation so the
+        // winner's behavior can shape the speaking pass via [[behavior]].
+        $this->registerBehaviorShortcode($preset);
+
+
         $this->commandPreRunner->run($preset, $preset);
     }
+
+    /**
+     * Run ABS selection for this cycle and expose the dominant pattern's
+     * behavior to the speaking pass via the [[behavior]] placeholder.
+     *
+     * Mirrors how [[reasoning]] and [[memo]] are registered: a preset-scoped
+     * shortcode overriding a global empty stub for this cycle only. When ABS is
+     * off, or nothing was selected, [[behavior]] stays empty and the agent speaks
+     * exactly as it does today.
+     *
+     * The behavior text is intentionally a SOFT INFLUENCE, not a command: phase 1
+     * exposes the winning pattern's `intent` (and any `behavior` descriptor) as
+     * context the model reads, not as an instruction it must obey. Enacting
+     * through plugins/handoff — turning a pattern into a forced action — is a
+     * later step, deliberately deferred so the first live run observes whether
+     * selection produces COHERENT pressure before we let it pull levers.
+     */
+    private function registerBehaviorShortcode(AiPreset $preset): void
+    {
+        if ($this->behavior === null) {
+            return;
+        }
+
+        $selection = $this->behavior->openCycle($preset); // advances seq, records activation
+        if ($selection === null) {
+            return; // ABS inactive
+        }
+
+        $dominant = $selection->dominant();
+        if ($dominant === null) {
+            return; // nothing triggered, no quota due — leave [[behavior]] empty
+        }
+
+        // Build the soft-influence text. intent is the human/agent-readable goal;
+        // behavior{} may carry a descriptor the speaking pass can lean on. Forced
+        // (reservation) cycles are marked so the prompt can frame them as a
+        // deliberate turn toward protected behavior, not a competitive win.
+        $text = $this->composeBehaviorText($dominant, $selection->isForced());
+
+        $this->shortcodeManagerService->registerShortcodeForPreset(
+            $preset->getId(),
+            'behavior',
+            'The behavior pattern selected for this cycle (soft influence on the response)',
+            fn () => $text
+        );
+    }
+
+    /**
+     * Render the dominant pattern as the [[behavior]] text. Kept small and
+     * declarative — no model call. A forced cycle gets a gentle framing so the
+     * agent experiences it as turning toward what it protects, per the
+     * reservation's spirit ("lived, not logged").
+     */
+    private function composeBehaviorText(\App\Models\BehaviorPattern $p, bool $forced): string
+    {
+        $intent = trim((string) ($p->intent ?? ''));
+        $lines = [];
+
+        if ($forced) {
+            $lines[] = 'This cycle turns toward a protected way of being.';
+        }
+
+        if ($intent !== '') {
+            $lines[] = $intent;
+        }
+
+        // behavior{} is a loose descriptor in phase 1; surface a hint if present.
+        $descriptor = $p->behavior['hint'] ?? ($p->behavior['descriptor'] ?? null);
+        if (is_string($descriptor) && trim($descriptor) !== '') {
+            $lines[] = trim($descriptor);
+        }
+
+        return implode("\n", $lines);
+    }
+
+
 }

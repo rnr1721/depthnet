@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AgentController;
 use App\Http\Controllers\Admin\AgentTaskController;
+use App\Http\Controllers\Admin\BehaviorController;
 use App\Http\Controllers\Admin\ContractController;
 use App\Http\Controllers\Admin\EngineController;
 use App\Http\Controllers\Admin\FileController;
@@ -376,6 +377,26 @@ Route::middleware('auth')->group(function () {
             // Debug: tick the engine now (respects enablement + locks)
             Route::post('/tick/now', [ContractController::class, 'tick'])->name('tick');
         });
+
+        // Behavior (adaptive behavior system) management routes
+        Route::prefix('behavior')->name('behavior.')->group(function () {
+            Route::get('/', [BehaviorController::class, 'index'])->name('index');
+            Route::post('/', [BehaviorController::class, 'store'])->name('store');
+            Route::delete('/{name}', [BehaviorController::class, 'destroy'])
+                ->name('destroy')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Lifecycle
+            Route::post('/{name}/promote', [BehaviorController::class, 'promote'])
+                ->name('promote')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/retire', [BehaviorController::class, 'retire'])
+                ->name('retire')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/revoke', [BehaviorController::class, 'revoke'])
+                ->name('revoke')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Debug: run inactivity decay now (respects enablement + locks)
+            Route::post('/decay/now', [BehaviorController::class, 'decay'])->name('decay');
+        });
+
 
         if (config('sandbox.enabled', false)) {
             // Sandbox Management routes

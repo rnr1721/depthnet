@@ -184,6 +184,7 @@ use App\Services\Agent\PluginMetadataService;
 use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\AgentTaskPlugin;
+use App\Services\Agent\Plugins\BehaviorPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
 use App\Services\Agent\Plugins\CodePlugin;
 use App\Services\Agent\Plugins\ContractPlugin;
@@ -614,6 +615,7 @@ class AiServiceProvider extends ServiceProvider
             OntologyPlugin::class,
             PersonPlugin::class,
             ContractPlugin::class,
+            BehaviorPlugin::class,
             SandboxPlugin::class,
             CodePlugin::class,
             ProjectMapPlugin::class,

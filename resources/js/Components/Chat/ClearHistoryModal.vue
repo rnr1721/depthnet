@@ -227,6 +227,23 @@
                             </span>
                         </label>
 
+                        <!-- Clear patterns -->
+                        <label class="flex items-center space-x-3 cursor-pointer">
+                            <input type="checkbox" v-model="clearPatterns" :class="[
+                                'w-4 h-4 rounded border-2 transition-colors',
+                                'focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                                isDark
+                                    ? 'bg-gray-700 border-gray-600 text-indigo-600 focus:ring-offset-gray-800'
+                                    : 'bg-white border-gray-300 text-indigo-600'
+                            ]">
+                            <span :class="[
+                                'text-sm font-medium',
+                                isDark ? 'text-gray-200' : 'text-gray-700'
+                            ]">
+                                {{ t('chat_clear_patterns') || 'Clear patterns' }}
+                            </span>
+                        </label>
+
                         <!-- Clear entire agent — only shown when preset belongs to an agent -->
                         <template v-if="agentName">
                             <div :class="['mt-2 pt-3 border-t', isDark ? 'border-gray-600' : 'border-gray-200']"></div>
@@ -344,12 +361,13 @@ const clearHeart = ref(true);
 const clearOntology = ref(true);
 const clearJournal = ref(true);
 const clearContracts = ref(true);
+const clearPatterns = ref(true);
 const clearAgent = ref(false);
 
 const hasAnySelected = computed(() =>
     clearMessages.value || clearMemory.value || clearVectorMemory.value ||
     clearWorkspace.value || clearGoals.value || clearSkills.value ||
-    clearPerson.value || clearHeart.value || clearOntology.value || clearJournal.value || clearContracts.value
+    clearPerson.value || clearHeart.value || clearOntology.value || clearJournal.value || clearContracts.value || clearPatterns.value
 );
 
 function closeModal() {
@@ -365,6 +383,8 @@ function closeModal() {
         clearHeart.value = true;
         clearOntology.value = true;
         clearJournal.value = true;
+        clearContracts.value = true;
+        clearPatterns.value = true;
         clearAgent.value = false;
     }, 300);
 }
@@ -384,6 +404,7 @@ function confirmClear() {
         clearOntology: clearOntology.value,
         clearJournal: clearJournal.value,
         clearContracts: clearContracts.value,
+        clearPatterns: clearPatterns.value,
         // Only send clear_agent when checkbox is checked and agent exists
         clearAgent: props.agentName ? clearAgent.value : false,
     });

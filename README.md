@@ -165,6 +165,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Reflect** (`reflect`) | Extra reasoning pass before responding. Runs one additional generation over the full current context before the main response; output is injected via `[[reasoning]]`. The agent thinks first, then answers. Character set by the preset's pre-pass instruction (analytical, deliberative, pre-verbal). Always-on per preset, or on-demand via this plugin. Ephemeral — never persisted. | [→](docs/plugins/reflect.md) |
 | **Mood** (`mood`) | Emotional state vector with decay physics. Agent maintains a weighted mix of arbitrary emotional states that decay over cycles, reinforforce on attention, and mix simultaneously. State visible via `[[mood]]`. Integrates with Heart if both are active. | [→](docs/plugins/mood.md) |
 | **Contract** (`contract`) | Metabolism layer — cheap deterministic rules over the agent's own traces (journal, state vector) that raise flags when a threshold is crossed, with no thinking cycle. Four forms (THR_T, THR_C, ACC, DEC), four passive actions (set_flag, create_goal, nudge_state, inject_memo), reversible lifecycle (hypothesis → active → suspended). Contracts are data, authored by the agent at runtime, by config, or by template. Active contracts and raised flags visible via `[[active_contracts]]`. | [→](docs/plugins/contract.md) |
+| **Behavior** (`behavior`) | Adaptive behavior system — a population of competing patterns ("when X, lean toward Y") under selection pressure. Each cycle one pattern leads and all that triggered learn from the outcome via differentiated credit assignment. Triggers are structural (mood/pulse); immune patterns with a forced-activation quota are protected reservations that don't learn. Reversible lifecycle (hypothesis → active → retired). Active population and fitness visible via `[[behavior_patterns]]`. | [→](docs/plugins/behavior.md) |
 | **Agent Task** (`task`) | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
 | **Spawn** (`spawn`) | LLM-driven orchestrator — dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime. Agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity or memory plugins). Alternative to the deterministic orchestrator for flexible, model-driven task decomposition. Active spawns visible via `[[active_spawns]]`. | [→](docs/plugins/spawn.md) |
 
@@ -289,6 +290,14 @@ The AI communicates through special command tags that trigger plugin execution. 
 [contract suspend]quiet_watch[/contract]
 [contract resume]quiet_watch[/contract]
 [contract revoke]quiet_watch[/contract]    # → hypothesis
+
+# Behavior — adaptive patterns under selection
+[behavior define]{"name":"deepen_focus","trigger":{"kind":"mood","target":"focus","op":">","value":0.5},"intent":"Stay with the current thread; go deeper, not wider."}[/behavior]
+[behavior list][/behavior]
+[behavior show]deepen_focus[/behavior]
+[behavior promote]deepen_focus[/behavior]   # hypothesis → active
+[behavior retire]deepen_focus[/behavior]
+[behavior revoke]deepen_focus[/behavior]    # → hypothesis
 
 # Person memory with aliases and semantic search
 [person]Женя | loves punk aesthetic and travel[/person]
@@ -453,7 +462,7 @@ This gives the model enough to reason, navigate, and interact — without drowni
 Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
-- **PluginRegistryInterface**: Extensible command system with 32 built-in plugins
+- **PluginRegistryInterface**: Extensible command system with 33 built-in plugins
 - **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
@@ -785,6 +794,8 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
 php artisan contract:tick                          # Tick the metabolism engine for all eligible presets
 php artisan contract:tick --preset=4               # Tick a specific preset (debugging)
 
+php artisan behavior:decay                          # Decay inactive patterns for all eligible presets
+php artisan behavior:decay --preset=4               # Decay a specific preset (debugging)
 
 ```
 
@@ -823,6 +834,8 @@ php artisan contract:tick --preset=4               # Tick a specific preset (deb
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
   - `[[mood]]` - Current emotional state vector: top active states by intensity, e.g. `focus(0.9), curiosity(0.7)`. Empty when no active states.
   - `[[active_contracts]]` - Active metabolism contracts and any flags they've raised, traceable to the contract that raised each. Injected when the Contract plugin is enabled.
+  - `[[behavior]]` - The behavior pattern selected to lead this cycle by the adaptive behavior system — a soft influence on the response. Injected when the Behavior plugin is enabled.
+  - `[[behavior_patterns]]` - Active behavior patterns with fitness, strongest first. The state of selection at a glance.
   - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
@@ -890,6 +903,7 @@ ecosystem directly supports subjectness research:
 - **Heart** — measurable attention and connection tracking
 - **Mood** — emotional state physics: decay, mixing, heart integration
 - **Contract** — metabolism: deterministic self-regulation that runs beneath deliberate thought
+- **Behavior** — adaptive selection: patterns that compete and learn beneath deliberate choice, distinct from deterministic metabolism
 - **Dopamine** — goal-oriented motivation cycles
 - **Journal** — episodic memory and experience recording
 - **Workspace** — persistent internal state across sessions

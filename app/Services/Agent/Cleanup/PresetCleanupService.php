@@ -2,6 +2,7 @@
 
 namespace App\Services\Agent\Cleanup;
 
+use App\Contracts\Agent\Behavior\BehaviorPatternServiceInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
 use App\Contracts\Agent\Contract\ContractServiceInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
@@ -40,6 +41,7 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         protected HeartServiceInterface $heartService,
         protected PresetServiceInterface $presetService,
         protected ContractServiceInterface $contractService,
+        protected BehaviorPatternServiceInterface $behaviorPatternService,
         protected LoggerInterface $logger
     ) {
     }
@@ -105,6 +107,11 @@ class PresetCleanupService implements PresetCleanupServiceInterface
         if ($this->option($options, 'clear_contracts')) {
             $this->contractService->clear($preset);
             $cleared[] = 'contracts';
+        }
+
+        if ($this->option($options, 'clear_patterns')) {
+            $this->behaviorPatternService->clear($preset);
+            $cleared[] = 'patterns';
         }
 
         $this->logger->info('PresetCleanupService: cleared preset', [

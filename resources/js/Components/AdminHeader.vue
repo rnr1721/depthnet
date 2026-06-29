@@ -164,7 +164,7 @@
             <div>
               <p :class="['font-medium', isDark ? 'text-white' : 'text-gray-900']">{{ $page.props.auth.user.name }}</p>
               <p :class="['text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">{{ isAdmin ? $t('admin') : $t('user')
-              }}
+                }}
               </p>
             </div>
           </div>
@@ -378,6 +378,7 @@ const personLink = computed(() => routeWithPreset(route('admin.person-memory.ind
 const journalLink = computed(() => routeWithPreset(route('admin.journal.index')));
 const ontologyLink = computed(() => routeWithPreset(route('admin.ontology.index')));
 const contractsLink = computed(() => routeWithPreset(route('admin.contracts.index')));
+const patternsLink = computed(() => routeWithPreset(route('admin.behavior.index')));
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
 const capabilitiesLink = computed(() => routeWithPresetParam('admin.capabilities.index'));
 const knownSourcesLink = computed(() => routeWithPreset(route('admin.known-sources.index')));
@@ -402,6 +403,7 @@ const taskManagementItems = computed(() => [
   { label: 'agent_tasks', href: agentTasksLink.value },
   { label: 'journal', href: journalLink.value },
   { label: 'contract_manager', href: contractsLink.value },
+  { label: 'pattern_manager', href: patternsLink.value },
 ]);
 
 const agentItems = computed(() => [

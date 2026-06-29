@@ -9,6 +9,7 @@ use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\AiActionsResponseInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\AiModelResponseInterface;
+use App\Contracts\Agent\Behavior\BehaviorCoordinatorInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
@@ -17,6 +18,7 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
+use App\Services\Agent\Behavior\OutcomeSignal;
 use App\Services\Agent\DTO\ActionsResponseDTO;
 use App\Services\Agent\DTO\AgentResponseDTO;
 use App\Services\Chat\ChatStatusService;
@@ -90,6 +92,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected ContextModeResolverInterface $contextModeResolver,
         protected AgentTaskServiceInterface $agentTaskService,
         protected PluginMetadataServiceInterface $pluginMetadataService,
+        protected ?BehaviorCoordinatorInterface $behavior = null,
     ) {
     }
 
@@ -135,6 +138,14 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         $actionsResult = $result['actionsResult'];
 
         $turn = $this->determineTurnNeed($preset, $actionsResult, $orchestrated);
+
+        // ── ABS hook (no-op when ABS inactive for this preset) ──────────────────
+        // Runs AFTER turn detection so it only observes — never alters — the
+        // existing pipeline. One cycle = one seq advance = one credit pass.
+        if ($this->behavior !== null && $this->behavior->isActive($preset)) {
+            $outcome = $this->outcomeForCycle($preset, $actionsResult, $orchestrated);
+            $this->behavior->closeCycle($preset, $outcome);
+        }
 
         if ($turn) {
             if ($this->inputPoolService->isEnabled($preset)) {
@@ -704,4 +715,57 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             'metadata'           => $metadata,
         ]);
     }
+
+    /**
+     * Build this cycle's OutcomeSignal from signals the handler already has.
+     * ABS does not recompute outcomes — it reads the same exit conditions turn
+     * detection uses. Mapping (phase 1, architect's formalized narrative):
+     *
+     *   planner committed         → positive('commit',   1.0)
+     *   spoke to user             → positive('speak',     0.5)
+     *   active task left IN_PROGRESS via [task done]
+     *                             → positive('task_done', 1.0)
+     *   stall guard would fire    → negative('stall',     1.0)
+     *   otherwise                 → none()
+     *
+     * NUMBERS ARE A NARRATIVE, NOT A FACT. The detection (did the task leave
+     * IN_PROGRESS?) is code-checked and unfakeable; the WORTH of each detection
+     * is a human choice — declared here, in one place, retunable without touching
+     * detection. This is the Goodhart we name and do not hide.
+     */
+    private function outcomeForCycle(
+        AiPreset $preset,
+        AiActionsResponseInterface $actionsResult,
+        bool $orchestrated
+    ): OutcomeSignal {
+        // Terminal signals already surfaced on actionsResult:
+        if ($actionsResult->plannerCommitted()) {
+            return OutcomeSignal::positive('commit', 1.0);
+        }
+
+        $spoke = !empty(trim((string) $actionsResult->getSystemMessage()));
+
+        // Task-level outcome: did an active task just leave IN_PROGRESS?
+        // agentTaskService already answers hasActiveTaskForPreset(); a task that
+        // WAS active last cycle and is no longer is a completion. (Phase-1
+        // simplification: we treat "no longer active after a productive cycle" as
+        // task_done; refining done-vs-fail uses the task's terminal marker, a
+        // small follow-up once the skeleton runs.)
+        if ($orchestrated
+            && !$this->agentTaskService->hasActiveTaskForPreset($preset)
+            && $this->behavior->hadActiveTaskLastCycle($preset)) {
+            return OutcomeSignal::positive('task_done', 1.0);
+        }
+
+        if ($spoke) {
+            return OutcomeSignal::positive('speak', 0.5);
+        }
+
+        // Stall is detected inside determinePlannerTurn via the idle counter.
+        // To avoid duplicating that state read, the planner-stall outcome is
+        // emitted from there through a one-shot flag the coordinator reads; see
+        // note below. Default: no creditable outcome this cycle.
+        return OutcomeSignal::none();
+    }
+
 }

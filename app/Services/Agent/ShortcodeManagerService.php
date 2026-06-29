@@ -41,6 +41,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setKnownSources();
         $this->setContextMode($preset);
         $this->setReasoning();
+        $this->setBehavior();
     }
 
     /**
@@ -227,6 +228,24 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'reasoning',
             'The agent\'s own pre-verbal pass over the full context, generated just before speaking (requires pre-pass to be enabled)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register behavior placeholder stub (global).
+     * Actual content is injected per-preset by Agent::setupPresetEnvironment()
+     * when ABS is enabled — the dominant behavior pattern selected for this cycle,
+     * exposed as a soft influence on the response. Empty by default, so the
+     * placeholder is harmless on presets that don't use ABS.
+     *
+     * @return void
+     */
+    private function setBehavior(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'behavior',
+            'The behavior pattern selected for this cycle by the adaptive behavior system (soft influence on the response; requires ABS to be enabled)',
             fn () => ''
         );
     }

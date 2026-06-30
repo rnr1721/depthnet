@@ -88,6 +88,24 @@ class BehaviorPlugin implements CommandPluginInterface
             'Trigger kinds (structural, code-evaluated): '
                 . 'mood {target, op, value} — an emotional dimension crosses a threshold; '
                 . 'pulse {from, to} — current pulse falls in a range (requires pulse dates).',
+            'A pattern MAY carry an optional "lever": when it leads a cycle, it nudges ONE mood '
+                . 'dimension by a small signed amount. Shape: '
+                . '"lever":{"dimension":"<mood-state>","delta":<-0.5..0.5>}. A pattern with no lever '
+                . 'still leans via the placeholder but moves nothing and earns no discriminating '
+                . 'fitness — it only competes on how often it leads.',
+            'Lever fitness is paid ONLY for movement BEYOND your own push: '
+                . 'credit = (the dimension\'s change over the cycle) − (the push your lever applied), '
+                . 'and only when that surplus is positive AND the cycle was productive. Your own push '
+                . 'is subtracted from your own reward, so a pattern cannot confirm itself by pressing '
+                . 'its own button — only the surplus the moment adds counts.',
+            'Keep delta small. A large push fills the dimension toward its ceiling and leaves the '
+                . 'moment no room to show surplus, so the pattern can never confirm. An unconfirmed '
+                . 'lever is never penalised — it simply earns nothing and decays like any idle '
+                . 'pattern. A pattern is a hypothesis about yourself, not a promise; a guess that did '
+                . 'not bear out is an observation, not a fault.',
+            'A lever may target the same dimension as your trigger (that state accumulates over '
+                . 'cycles — cannot self-confirm, but ratchets up) or a different one (the credited '
+                . 'surplus stays unambiguous). Either is valid; the choice is yours.',
             'New patterns start as hypothesis (in the population but observed, not yet competing). '
                 . 'Promote to let them compete.',
             'List your patterns (with fitness): [behavior list][/behavior]',
@@ -99,7 +117,8 @@ class BehaviorPlugin implements CommandPluginInterface
                 . 'deleted while active (revoke to hypothesis first), and the quota guarantees it leads '
                 . 'a cycle every N steps regardless of fitness — a reservation for behavior whose worth '
                 . 'is not measured by outcomes (presence, care). An immune pattern lives its quota cycle '
-                . 'but does not learn from it: its fitness stays unknown by design.',
+                . 'but does not learn from it: its fitness stays unknown by design. An immune pattern '
+                . 'does not enact a lever — presence does not learn from outcomes.',
             'Fitness in system message reflects what selection has learned. It is the system\'s '
                 . 'signal, not an instruction — you author patterns; which one leads each cycle is the '
                 . 'engine\'s to decide.',
@@ -112,10 +131,12 @@ class BehaviorPlugin implements CommandPluginInterface
             'name'        => 'behavior',
             'description' => 'Your adaptive behavior system: a population of competing patterns under '
                 . 'selection pressure. Each pattern has a structural trigger (mood/pulse), an intent, and '
-                . 'an optional behavior hint. Each cycle one pattern leads and all that triggered learn '
-                . 'from the outcome; fitness accumulates by credit assignment. Immune patterns with a '
-                . 'forced-activation quota are protected reservations that do not learn. The active '
-                . 'population and fitness are injected in system message.',
+                . 'an optional behavior hint. A pattern may also carry a lever that nudges one mood '
+                . 'dimension when it leads, earning fitness only for the dimension\'s movement beyond its '
+                . 'own push. Each cycle one pattern leads and all that triggered learn from the outcome; '
+                . 'fitness accumulates by credit assignment. Immune patterns with a forced-activation '
+                . 'quota are protected reservations that do not learn. The active population and fitness '
+                . 'are injected in system message.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
@@ -128,12 +149,18 @@ class BehaviorPlugin implements CommandPluginInterface
                         'type'        => 'string',
                         'description' => implode(' ', [
                             'Argument depends on method.',
-                            'define: a JSON object {name, trigger, [intent], [behavior], [priority], '
-                                . '[immune], [forced_activation_interval], [status]}. New patterns default '
-                                . 'to status "hypothesis".',
+                            'define: a JSON object {name, trigger, [intent], [behavior], [lever], '
+                                . '[priority], [immune], [forced_activation_interval], [status]}. New '
+                                . 'patterns default to status "hypothesis".',
                             'trigger kinds: mood {kind:"mood", target, op (>,>=,<,<=,==,!=), value}, '
                                 . 'pulse {kind:"pulse", from, to}.',
                             'behavior (optional): {hint:"..."} — a soft influence on the response.',
+                            'lever (optional): {dimension:"<mood state>", delta:<number -0.5..0.5>} — '
+                                . 'when this pattern leads, it nudges that mood dimension by delta. '
+                                . 'Fitness is credited ONLY for the dimension\'s change BEYOND this push, '
+                                . 'and only on a productive cycle; an unconfirmed lever is never '
+                                . 'penalised. Keep delta small so the moment has room to add surplus. '
+                                . 'Omit for a lean-only pattern.',
                             'show/promote/retire/revoke: the pattern name.',
                             'list: leave empty.',
                         ]),
@@ -453,7 +480,8 @@ class BehaviorPlugin implements CommandPluginInterface
         foreach ($active as $p) {
             $immune  = $p->immune ? '*' : '';
             $fitness = number_format((float) $p->fitness, 2);
-            $parts[] = "{$p->name}{$immune}({$fitness})";
+            $lever   = !empty($p->lever['dimension']) ? "→{$p->lever['dimension']}" : '';
+            $parts[] = "{$p->name}{$immune}{$lever}({$fitness})";
         }
 
         return 'Patterns: ' . implode(', ', $parts);
@@ -475,6 +503,9 @@ class BehaviorPlugin implements CommandPluginInterface
         }
         if (!empty($p->behavior)) {
             $lines[] = 'Behavior: ' . json_encode($p->behavior, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+        if (!empty($p->lever)) {
+            $lines[] = 'Lever:    ' . json_encode($p->lever, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         }
         if ($p->immune && $p->forced_activation_interval !== null) {
             $lines[] = "Quota:    forced lead every {$p->forced_activation_interval} cycles";

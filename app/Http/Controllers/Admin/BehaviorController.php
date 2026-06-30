@@ -13,6 +13,7 @@ use App\Http\Requests\Admin\Behavior\{
     DeleteBehaviorRequest,
 };
 use App\Models\BehaviorPattern;
+use App\Services\Agent\Plugins\MoodPlugin;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -97,7 +98,15 @@ class BehaviorController extends Controller
             'filterStatus' => $filterStatus,
             'kinds'        => ['mood', 'pulse'],
             'statuses'     => ['hypothesis', 'active', 'retired'],
+            // Phase 2a: known mood dimensions for the lever select. Sourced from
+            // MoodPlugin so the list tracks the mood vocabulary automatically. The
+            // agent can still author a lever on a dimension not in this list via
+            // raw JSON / [behavior define]; this select just covers the common case
+            // and prevents the typo that would silently desync lever from
+            // discriminator (tendernes vs tenderness).
+            'dimensions'   => MoodPlugin::knownDimensions(),
         ]);
+
     }
 
     public function store(StoreBehaviorRequest $request)
@@ -200,6 +209,7 @@ class BehaviorController extends Controller
             'intent'                     => $p->intent,
             'behavior'                   => $p->behavior,
             'constraints'                => $p->constraints,
+            'lever'                      => $p->lever, // phase 2a: {dimension, delta} | null
             'forced_activation_interval' => $p->forced_activation_interval,
             'activation_count'           => (int) $p->activation_count,
             'last_activation_seq'        => $p->last_activation_seq,

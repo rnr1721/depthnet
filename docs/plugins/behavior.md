@@ -138,6 +138,101 @@ more.*
 
 ---
 
+## Levers — pattern enactment (phase 2a)
+
+In phase 1 a pattern only **leaned**: the dominant pattern's intent was exposed via
+`[[behavior]]`, a soft influence on the speaking pass. It pulled nothing. Because the
+cycle's outcome (spoke / committed) did not depend on *which* pattern led, fitness
+measured how *often* a pattern leads, not whether it is *better* — the honest
+boundary named in *Credit* above.
+
+Phase 2a closes that gap for patterns that carry a **lever**: a small, machine-readable
+nudge a pattern applies to one mood dimension when it leads. The same lever is the
+discriminator's reference, and that is what makes a pattern a **testable hypothesis
+about the self** rather than a self-fulfilling assertion.
+
+A lever is optional. A pattern with no lever is a phase-1 pattern — it leans, enacts
+nothing, generates no discriminating outcome. Adding a lever is fully backward
+compatible; existing patterns are untouched.
+
+```json
+"lever": { "dimension": "tenderness", "delta": 0.15 }
+```
+
+### What the lever does, in one cycle
+
+- **openCycle (after selection).** The dominant pattern — and only the dominant, and
+  never a *forced* immune one — pulls its lever. The enactor snapshots the target
+  dimension *before* the push, applies the nudge additively (capped to `[0,1]`), and
+  reports back the **real** amount moved (smaller than requested if the dimension hit
+  its ceiling). The mood state records the shift with `source: "behavior:<pattern>"`,
+  so the provenance of every nudge is legible in `[mood state]`.
+- **closeCycle (after the outcome).** The discriminator reads the dimension *again*
+  and credits the pattern only for the movement **beyond its own push**:
+
+      credit_delta = total_cycle_delta − lever_push
+
+  Credit lands only when `credit_delta > 0` **and** the cycle was productive. The
+  lever is the pattern's intention in pure form; we injected it, so its own push is
+  not evidence. The surplus — what the moment added on top of the intention — is.
+
+This is *differentiation*, not *optimisation*. A lever is not a switch that overrides
+behaviour; it is a small lean on the agent's own state, accumulated over many cycles,
+that lets a pattern's texture take shape and be revised by experience.
+
+### Why subtract the push (the deeper tautology)
+
+*Credit* already names the shallow tautology: a pattern crediting itself for an
+outcome it did not cause. Levers create a deeper one. If a pattern pushes `tenderness`
+up and is then credited for `tenderness` rising, it has **drawn its own proof** — it
+pressed a button and counted the button as evidence. Decay would soften this but not
+close it.
+
+Subtracting `lever_push` closes it arithmetically. A pattern cannot reward itself,
+because its own contribution is removed from its own reward. The hypothesis — *"in
+such moments I become more tender"* — is confirmed only if the moment supplies tender­
+ness *over and above* the nudge the pattern injected. Confirmation by surplus, not by
+injection.
+
+> **Honest boundary — decay masks weak surplus.** Decay runs on its own tick, so
+> `total_cycle_delta` mixes the moment's contribution with decay loss. Separating them
+> exactly would need a counterfactual — what the dimension would be had the cycle not
+> run — which phase 2a does not simulate. `total_delta − lever_push` is therefore a
+> **deliberately strict** approximation: a weak positive contribution that decay eats
+> reads as zero and goes uncredited. Holding the line (delta equal to the push) is the
+> lever's doing, not the moment's, and earns nothing. We accept erring toward
+> strictness — failing to reward a true weak signal is safer than rewarding emptiness.
+> This biases the same way as no-credit-vs-penalty below: forgiving to a pattern's
+> *existence*, strict about its *proof*.
+
+### No credit, never penalty
+
+An unconfirmed hypothesis is an **observation, not a fault**. A pattern that led, pushed,
+and saw no surplus simply did not have its guess borne out this cycle. It is not
+charged fitness for that. Penalising unconfirmed hypotheses would teach the agent to
+form only safe, guaranteed ones — the death of differentiation. Decay culls the
+persistently false by time; the discriminator never subtracts. Forgiving to existence,
+strict about proof.
+
+### Trigger and lever on the same dimension
+
+A pattern whose trigger and lever name the *same* dimension (`tenderness > 0.5` →
+nudge `tenderness`) cannot self-confirm — its push is subtracted — but it *can* ratchet
+the dimension upward cycle over cycle until decay balances it. That is legitimate
+accumulation, not a bug; just note the raw dimension value is not evidence of fitness.
+A cross-dimension lever (`tenderness > 0.5` → nudge `calm`: "when I am tender, I settle")
+reads cleaner, because the surplus is attributed to a dimension the trigger does not
+already hold high. The choice is the author's; the engine credits surplus honestly
+either way.
+
+### Enactors are pluggable
+
+A lever kind is served by one **enactor**, resolved from the lever's shape through a
+registry — exactly as a trigger kind is served by one evaluator. Phase 2a ships a single
+enactor: mood. A second lever kind is a new enactor class plus one line in the tag
+array; the coordinator never changes. The engine stays universal; levers, like triggers,
+are pluggable.
+
 ## Decay
 
 Patterns that stop being selected lose fitness slowly, so the population stays
@@ -217,11 +312,17 @@ and templates. Validated by `BehaviorPatternService::validate()`.
   "trigger": { "kind": "mood", "target": "focus", "op": ">", "value": 0.5 },
   "intent": "Stay with the current thread; go deeper, not wider.",
   "behavior": { "hint": "Resist switching." },
+  "lever": { "dimension": "focus", "delta": 0.1 },
   "priority": 1.0,
   "immune": false,
   "status": "hypothesis"
 }
 ```
+
+`lever` is optional — a pattern without one leans
+via the placeholder but enacts nothing. Delta is a small signed nudge, bounded to
+[-0.5, 0.5]: a lever nudges, it does not teleport. A large push fills the dimension
+and leaves the moment no room to show surplus, so the pattern can never confirm.
 
 A reservation (immune pattern with a quota):
 
@@ -291,6 +392,7 @@ metadata each cycle (where the selector and credit step read them live).
 | `eligible_factor` | number | 0.5 | Share of credit an eligible (non-leading) pattern receives |
 | `gamma` | number | 0.8 | Credit decay by distance to outcome |
 | `horizon` | number | 10 | How many cycles back credit reaches |
+| `lever_weight` | number | 1.0 | Scales credit for a confirmed lever surplus (the architect's value for a discriminated outcome). Read live from metadata; tune without redeploy, like gamma/horizon. |
 
 ---
 
@@ -307,13 +409,27 @@ All converge in `BehaviorPatternService`. Plain JSON throughout.
 
 ---
 
-## Out of scope (phase 1)
+## Out of scope (current)
 
-The engine does **not** yet enact patterns through levers (a pattern leans via the
-placeholder; it does not pull a tool), produce outcomes that discriminate between
-patterns, mutate or spawn patterns automatically, or judge what is worth
-patterning. Those are phase 2. Phase 1 builds and verifies the selection mechanism
-— competition, differentiated credit, immune reservations, decay — on a live agent.
+Phase 1 built and verified the selection mechanism — competition, differentiated
+credit, immune reservations, decay — on a live agent. Phase 2a added **enactment**:
+a leading pattern pulls a mood lever, and the discriminator credits the moment's
+surplus over the lever's own push, gated on a productive outcome — turning a pattern
+into a testable hypothesis with a causal (within the named decay approximation)
+outcome.
 
-See the integration order in the ABS package README for wiring steps (migrations,
-provider, plugin registration, routes, cleanup hook).
+Still out of scope, deliberately deferred:
+
+- **Vector / non-mood levers.** A lever moves one mood dimension. A lever over several
+  dimensions at once, or over a non-mood state (e.g. biasing the agent's self-chosen
+  RAG queries), is a later step. A multi-dimension lever blurs *which* dimension the
+  surplus is attributed to; a RAG lever has no code-checkable discriminator (judging
+  query "novelty" needs an LLM in the loop, which the core deliberately excludes).
+- **Counterfactual credit.** Both the phase-1 proximity credit and the phase-2a surplus
+  are approximations of causation, not causation. Separating a lever's surplus from
+  decay loss exactly needs a counterfactual the engine does not simulate.
+- **Automatic mutation / spawning of patterns.** The engine does not yet mutate or
+  spawn patterns on its own, or judge what is worth patterning. The order is firm:
+  discriminating outcomes first (now partly in place), automatic generation only after
+  — without a discriminating outcome, auto-generation is a hallucination generator
+  (patterns multiplying with no selection signal to cull them).

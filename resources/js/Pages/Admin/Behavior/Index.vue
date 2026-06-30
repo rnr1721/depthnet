@@ -43,7 +43,7 @@
                         <div class="flex-1">
                             <label
                                 :class="['block text-sm font-medium mb-2', isDark ? 'text-gray-300' : 'text-gray-700']">{{
-                                t('select_preset') }}</label>
+                                    t('select_preset') }}</label>
                             <select v-model="selectedPresetId" @change="changePreset"
                                 :class="['w-full lg:w-64 rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-violet-500 transition-all px-4 py-3', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-gray-50 text-gray-900 ring-gray-300']">
                                 <option v-for="preset in presets" :key="preset.id" :value="preset.id">
@@ -111,7 +111,7 @@
                                 <div class="flex items-start gap-3 flex-1 min-w-0">
                                     <span
                                         :class="['inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-mono font-medium flex-shrink-0 mt-0.5', kindBadge(p.trigger && p.trigger.kind)]">{{
-                                        p.trigger && p.trigger.kind }}</span>
+                                            p.trigger && p.trigger.kind }}</span>
                                     <div class="flex-1 min-w-0">
                                         <div class="flex items-center gap-2 flex-wrap">
                                             <p
@@ -123,6 +123,12 @@
                                         <p
                                             :class="['mt-1 text-xs break-words font-mono', isDark ? 'text-gray-400' : 'text-gray-500']">
                                             {{ describeTrigger(p.trigger) }}</p>
+                                        <p v-if="p.lever"
+                                            :class="['mt-1 text-xs break-words font-mono flex items-center gap-1', isDark ? 'text-fuchsia-300' : 'text-fuchsia-600']">
+                                            <span
+                                                :class="['inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide', isDark ? 'bg-fuchsia-900 text-fuchsia-200' : 'bg-fuchsia-100 text-fuchsia-700']">lever</span>
+                                            {{ describeLever(p.lever) }}
+                                        </p>
                                         <p v-if="p.intent"
                                             :class="['mt-1 text-xs break-words italic', isDark ? 'text-gray-500' : 'text-gray-400']">
                                             {{ p.intent }}</p>
@@ -139,7 +145,7 @@
                                     </div>
                                     <span
                                         :class="['inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium', statusBadge(p.status)]">{{
-                                        p.status }}</span>
+                                            p.status }}</span>
                                     <button @click="toggleExpand(p.name)"
                                         :class="['p-1.5 rounded-lg transition-colors', isDark ? 'text-gray-400 hover:text-violet-400 hover:bg-gray-700' : 'text-gray-400 hover:text-violet-500 hover:bg-gray-100']"
                                         :title="t('behavior_details')">
@@ -189,11 +195,13 @@
                                             :class="codeCls">{{ JSON.stringify(p.behavior) }}</code></div>
                                     <div v-if="p.constraints"><span :class="labelCls">constraints:</span> <code
                                             :class="codeCls">{{ JSON.stringify(p.constraints) }}</code></div>
+                                    <div v-if="p.lever"><span :class="labelCls">lever:</span> <code
+                                            :class="codeCls">{{ JSON.stringify(p.lever) }}</code></div>
                                     <div class="grid grid-cols-2 gap-2">
                                         <div><span :class="labelCls">confidence:</span> <span class="font-mono">{{
-                                                p.confidence }}</span></div>
+                                            p.confidence }}</span></div>
                                         <div><span :class="labelCls">plasticity:</span> <span class="font-mono">{{
-                                                p.plasticity }}</span></div>
+                                            p.plasticity }}</span></div>
                                         <div><span :class="labelCls">last activation seq:</span> <span
                                                 class="font-mono">{{ p.last_activation_seq ?? '—' }}</span></div>
                                         <div v-if="p.immune"><span :class="labelCls">quota interval:</span> <span
@@ -245,10 +253,10 @@
                         <div class="flex gap-1 mb-4 p-1 rounded-xl" :class="isDark ? 'bg-gray-900' : 'bg-gray-100'">
                             <button @click="rawMode = false"
                                 :class="['flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all', !rawMode ? (isDark ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow') : (isDark ? 'text-gray-400' : 'text-gray-500')]">{{
-                                t('behavior_guided') }}</button>
+                                    t('behavior_guided') }}</button>
                             <button @click="rawMode = true"
                                 :class="['flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all', rawMode ? (isDark ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow') : (isDark ? 'text-gray-400' : 'text-gray-500')]">{{
-                                t('behavior_raw_json') }}</button>
+                                    t('behavior_raw_json') }}</button>
                         </div>
 
                         <!-- Guided form -->
@@ -313,6 +321,35 @@
                                     placeholder="Stay with the current thread. Resist switching." />
                             </div>
 
+                            <!-- lever (phase 2a) -->
+                            <div :class="['pt-3 mt-1 border-t', isDark ? 'border-gray-700' : 'border-gray-200']">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label :class="fieldLabel">{{ t('behavior_lever_label') }}</label>
+                                    <button v-if="form.lever_dimension" type="button" @click="clearLever"
+                                        :class="['text-[11px] underline', isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600']">
+                                        {{ t('behavior_lever_clear') }}
+                                    </button>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label :class="fieldLabel">dimension</label>
+                                        <select v-model="form.lever_dimension" :class="fieldInput">
+                                            <option value="">{{ t('behavior_lever_none') }}</option>
+                                            <option v-for="d in dimensions" :key="d" :value="d">{{ d }}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label :class="fieldLabel">delta</label>
+                                        <input v-model.number="form.lever_delta" type="number" step="0.05" min="-0.5"
+                                            max="0.5" :class="fieldInput" placeholder="0.15"
+                                            :disabled="!form.lever_dimension" />
+                                    </div>
+                                </div>
+                                <p :class="['mt-1 text-[11px]', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                    {{ t('behavior_lever_hint') }}
+                                </p>
+                            </div>
+
                             <!-- immune + quota -->
                             <div class="grid grid-cols-2 gap-3">
                                 <div class="flex items-end pb-2">
@@ -352,10 +389,10 @@
                         <div class="flex justify-end gap-3 mt-5">
                             <button @click="showAddModal = false"
                                 :class="['px-4 py-2 rounded-xl text-sm font-medium', isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']">{{
-                                t('cancel') }}</button>
+                                    t('cancel') }}</button>
                             <button @click="submitPattern"
                                 :class="['px-4 py-2 rounded-xl text-sm font-medium text-white bg-violet-600 hover:bg-violet-700']">{{
-                                t('save')
+                                    t('save')
                                 }}</button>
                         </div>
                     </div>
@@ -383,6 +420,7 @@ const props = defineProps({
     filterStatus: String,
     kinds: Array,
     statuses: Array,
+    dimensions: { type: Array, default: () => [] },   // phase 2a: lever select source
 });
 
 const isDark = ref(false);
@@ -401,6 +439,8 @@ const blankForm = () => ({
     mood_target: '', mood_op: '>', mood_value: null,
     pulse_from: null, pulse_to: null,
     behavior_hint: '',
+    // phase 2a — lever (optional). Empty dimension = no lever (phase-1 pattern).
+    lever_dimension: '', lever_delta: null,
     immune: false, forced_activation_interval: null,
     promote: false,
 });
@@ -435,12 +475,30 @@ const buildDefinition = () => {
     const def = { name: f.name, trigger, priority: f.priority };
     if (f.intent) def.intent = f.intent;
     if (f.behavior_hint) def.behavior = { hint: f.behavior_hint };
+
+    // phase 2a — lever, only when a dimension is chosen AND a delta is given.
+    // A dimension without a delta is an incomplete lever → omit (no half-lever).
+    if (f.lever_dimension && f.lever_delta !== null && f.lever_delta !== '' && Number(f.lever_delta) !== 0) {
+        def.lever = { dimension: f.lever_dimension, delta: Number(f.lever_delta) };
+    }
+
     if (f.immune) {
         def.immune = true;
         if (f.forced_activation_interval) def.forced_activation_interval = f.forced_activation_interval;
     }
     if (f.promote) def.status = 'active';
     return def;
+};
+
+const clearLever = () => {
+    form.value.lever_dimension = '';
+    form.value.lever_delta = null;
+};
+
+const describeLever = (lv) => {
+    if (!lv || !lv.dimension) return '';
+    const sign = lv.delta > 0 ? '+' : '';
+    return `${lv.dimension} ${sign}${lv.delta}`;
 };
 
 const submitPattern = () => {

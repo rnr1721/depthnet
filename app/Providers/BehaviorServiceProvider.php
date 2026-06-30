@@ -10,9 +10,13 @@ use App\Contracts\Agent\Behavior\CreditAssignerInterface;
 use App\Contracts\Agent\Behavior\PatternSelectorInterface;
 use App\Services\Agent\Behavior\BehaviorCoordinator;
 use App\Services\Agent\Behavior\BehaviorDecayRunner;
+use App\Services\Agent\Behavior\BehaviorEnactorRegistry;
 use App\Services\Agent\Behavior\BehaviorPatternService;
 use App\Services\Agent\Behavior\BehaviorRuntimeService;
 use App\Services\Agent\Behavior\CreditAssigner;
+use App\Services\Agent\Behavior\Enactors\MoodEnactor;
+use App\Services\Agent\Behavior\Enactors\MoodVectorService;
+use App\Services\Agent\Behavior\LeverOutcomeDiscriminator;
 use App\Services\Agent\Behavior\PatternSelector;
 use App\Services\Agent\Behavior\TriggerEvaluatorRegistry;
 use App\Services\Agent\Behavior\Triggers\MoodTriggerEvaluator;
@@ -50,6 +54,11 @@ class BehaviorServiceProvider extends ServiceProvider
         PulseTriggerEvaluator::class,
     ];
 
+    /** Lever enactor implementations, collected into the registry by tag. */
+    private const ENACTORS = [
+        MoodEnactor::class,
+    ];
+
     public function register(): void
     {
         // ── Tagged trigger evaluators → registry ─────────────────────────────
@@ -63,6 +72,23 @@ class BehaviorServiceProvider extends ServiceProvider
                 $app->tagged('behavior.trigger_evaluators')
             );
         });
+
+        $this->app->singleton(MoodVectorService::class);
+
+        // ── Tagged lever enactors → registry (mirrors trigger evaluators) ─────
+        foreach (self::ENACTORS as $class) {
+            $this->app->singleton($class);
+        }
+        $this->app->tag(self::ENACTORS, 'behavior.enactors');
+
+        $this->app->singleton(BehaviorEnactorRegistry::class, function ($app) {
+            return new BehaviorEnactorRegistry(
+                $app->tagged('behavior.enactors')
+            );
+        });
+
+        // ── Discriminator (concrete; explicit singleton for parity) ──────────
+        $this->app->singleton(LeverOutcomeDiscriminator::class);
 
         // ── Core services: interface → implementation (singletons) ───────────
         $this->app->singleton(BehaviorRuntimeServiceInterface::class, BehaviorRuntimeService::class);

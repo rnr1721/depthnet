@@ -22,6 +22,10 @@ use Psr\Log\LoggerInterface;
  */
 class BehaviorPatternService implements BehaviorPatternServiceInterface
 {
+    /** Lever delta bounds: a lever NUDGES, it does not teleport. See validate(). */
+    private const LEVER_DELTA_MIN = -0.5;
+    private const LEVER_DELTA_MAX = 0.5;
+
     /**
      * Legal status transitions. Applies to all patterns (immune included); the
      * immune interlock guards definition edits/deletes, not transitions, because
@@ -222,7 +226,6 @@ class BehaviorPatternService implements BehaviorPatternServiceInterface
 
     /**
      * Cross-field validation. Returns human-readable errors; empty = valid.
-     * Kept separate from persistence so the plugin can parse-then-report.
      *
      * @param array $d
      * @return string[]
@@ -236,8 +239,7 @@ class BehaviorPatternService implements BehaviorPatternServiceInterface
             $errors[] = 'Pattern name is required.';
         }
 
-        // Trigger must be an object carrying a "kind" — the selector resolves the
-        // evaluator by kind; a kind-less trigger can never activate.
+        // Trigger must be an object carrying a "kind".
         $trigger = $d['trigger'] ?? null;
         if (!is_array($trigger) || $trigger === []) {
             $errors[] = 'trigger is required (a JSON object with a "kind").';
@@ -247,7 +249,7 @@ class BehaviorPatternService implements BehaviorPatternServiceInterface
 
         // Status, if supplied, must be legal.
         if (isset($d['status']) && !in_array((string) $d['status'], self::VALID_STATUSES, true)) {
-            $errors[] = "status must be one of: " . implode(', ', self::VALID_STATUSES) . '.';
+            $errors[] = 'status must be one of: ' . implode(', ', self::VALID_STATUSES) . '.';
         }
 
         // Quota sanity: a forced interval only makes sense on an immune pattern.
@@ -262,14 +264,48 @@ class BehaviorPatternService implements BehaviorPatternServiceInterface
             }
         }
 
+        // ── Lever (phase 2a) ─────────────────────────────────────────────────
+        // Optional. If present it must be a well-formed nudge: a non-empty target
+        // dimension and a signed delta within bounds. A lever that is malformed
+        // would enact nothing AND generate no discriminating outcome silently —
+        // so we reject it up front rather than let it pretend to be a lever.
+        $lever = $d['lever'] ?? null;
+        if ($lever !== null) {
+            if (!is_array($lever) || $lever === []) {
+                $errors[] = 'lever, if present, must be a JSON object { "dimension": "...", "delta": n }.';
+            } else {
+                $dimension = trim((string) ($lever['dimension'] ?? ''));
+                if ($dimension === '') {
+                    $errors[] = 'lever.dimension is required (the mood dimension the pattern nudges, e.g. "tenderness").';
+                }
+
+                if (!isset($lever['delta']) || !is_numeric($lever['delta'])) {
+                    $errors[] = 'lever.delta is required and must be numeric.';
+                } else {
+                    $delta = (float) $lever['delta'];
+                    if ($delta === 0.0) {
+                        $errors[] = 'lever.delta must be non-zero (a zero nudge moves nothing).';
+                    } elseif ($delta < self::LEVER_DELTA_MIN || $delta > self::LEVER_DELTA_MAX) {
+                        $errors[] = sprintf(
+                            'lever.delta must be within [%g, %g] — a lever nudges, it does not teleport. '
+                            . 'A large push fills the dimension and leaves the moment no room to show surplus, '
+                            . 'so the hypothesis can never confirm.',
+                            self::LEVER_DELTA_MIN,
+                            self::LEVER_DELTA_MAX,
+                        );
+                    }
+                }
+            }
+        }
+
         return $errors;
     }
 
+
     /**
      * Flatten a definition array into model columns. On UPDATE we only touch the
-     * authoring fields — never the hot selection state (fitness, activation_count,
-     * last_activation_seq), which belongs to the runtime service. A new pattern
-     * gets sane defaults for those via the migration.
+     * authoring fields — never the hot selection state. A new pattern gets sane
+     * defaults for those via the migration.
      *
      * @param BehaviorPattern|null $existing
      */
@@ -282,6 +318,10 @@ class BehaviorPatternService implements BehaviorPatternServiceInterface
             'intent'      => isset($d['intent']) ? (string) $d['intent'] : null,
             'behavior'    => $d['behavior'] ?? null,
             'constraints' => $d['constraints'] ?? null,
+            // Phase 2a: the enactment lever. Normalized to {dimension, delta} or
+            // null. A null lever is a phase-1 cosmetic pattern (leans, enacts
+            // nothing) — fully backward compatible.
+            'lever'       => $this->normalizeLeverForStorage($d['lever'] ?? null),
             'provenance'  => isset($d['provenance']) ? (string) $d['provenance'] : 'agent',
             'priority'    => isset($d['priority']) ? (float) $d['priority'] : 1.0,
             'immune'      => (bool) ($d['immune'] ?? false),
@@ -291,9 +331,6 @@ class BehaviorPatternService implements BehaviorPatternServiceInterface
             'status'      => isset($d['status']) ? (string) $d['status'] : 'hypothesis',
         ];
 
-        // On create only, seed the selection-state columns explicitly so a row is
-        // well-formed even if migration defaults change. On update, leave them be
-        // — they're the runtime's, not ours.
         if (!$existing) {
             $cols['fitness']             = 0.0;
             $cols['confidence']          = 0.0;
@@ -304,4 +341,27 @@ class BehaviorPatternService implements BehaviorPatternServiceInterface
 
         return $cols;
     }
+
+    /**
+     * Normalize a lever definition to the canonical stored shape or null. Keeps the
+     * column clean: a present lever is always exactly {dimension:string, delta:float}.
+     */
+    private function normalizeLeverForStorage(mixed $lever): ?array
+    {
+        if (!is_array($lever) || $lever === []) {
+            return null;
+        }
+
+        $dimension = trim((string) ($lever['dimension'] ?? ''));
+        if ($dimension === '' || !isset($lever['delta']) || !is_numeric($lever['delta'])) {
+            return null;
+        }
+
+        return [
+            'dimension' => $dimension,
+            'delta'     => (float) $lever['delta'],
+        ];
+    }
+
+
 }

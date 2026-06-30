@@ -20,7 +20,7 @@ class BehaviorPattern extends Model
 
     protected $fillable = [
         'preset_id', 'name', 'trigger', 'intent', 'behavior', 'constraints',
-        'provenance', 'priority', 'fitness', 'confidence', 'plasticity',
+        'lever', 'provenance', 'priority', 'fitness', 'confidence', 'plasticity',
         'immune', 'forced_activation_interval', 'status',
         'activation_count', 'last_activation_seq',
     ];
@@ -29,6 +29,7 @@ class BehaviorPattern extends Model
         'trigger'                    => 'array',
         'behavior'                   => 'array',
         'constraints'                => 'array',
+        'lever'                      => 'array',
         'priority'                   => 'float',
         'fitness'                    => 'float',
         'confidence'                 => 'float',

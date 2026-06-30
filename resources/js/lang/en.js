@@ -1484,4 +1484,8 @@ export default {
   behavior_quota: 'Forced activation interval',
   behavior_pulse_hint: 'Pulse range 0–999. If from > to, the range wraps past midnight.',
   behavior_create_active: 'Create as active (skip hypothesis)',
+  behavior_lever_label: "Lever (optional)",
+  behavior_lever_none: "— no lever (leans only) —",
+  behavior_lever_clear: "clear",
+  behavior_lever_hint: "When this pattern leads, it nudges this mood dimension. Keep it small — the pattern earns fitness only for movement BEYOND its own push, so a large nudge leaves no room to prove itself.",
 }

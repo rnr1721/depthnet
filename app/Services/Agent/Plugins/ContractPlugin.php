@@ -68,7 +68,7 @@ class ContractPlugin implements CommandPluginInterface
         return 'Contracts — your metabolism. Cheap deterministic rules that watch your own '
             . 'traces (journal, state) and raise flags when a threshold is crossed, without a '
             . 'thinking cycle. You author them; they free you from counting and remembering. '
-            . 'Active contracts and raised flags are visible via [[active_contracts]].';
+            . 'Active contracts and raised flags are visible via system message.';
     }
 
     public function getInstructions(array $config = []): array
@@ -94,7 +94,7 @@ class ContractPlugin implements CommandPluginInterface
                 . '(a goal-candidate flag you then turn into a goal), '
                 . 'nudge_state {target, delta} (shift a state value), '
                 . 'inject_memo {text} (the line written to your next memo — without text, nothing is written).',
-            'Flags shown in [[active_contracts]] mean a condition is currently met. '
+            'Flags shown in system message mean a condition is currently met. '
                 . 'What you do about a flag is yours to decide — a flag is a signal, not an instruction.',
             'A contract marked "vital" can be revoked to hypothesis but not edited or deleted '
                 . 'while active — revoke it first, then change it. This is a deliberate safeguard, not a lock.',
@@ -110,7 +110,7 @@ class ContractPlugin implements CommandPluginInterface
                 . 'THR_C (count of matching traces in a window), ACC (value accumulates, capped), '
                 . 'DEC (value decays per tick, floored). Actions: set_flag, create_goal, nudge_state, '
                 . 'inject_memo. A flag means a condition is met; deciding what to do about it is yours. '
-                . 'Active contracts and raised flags are visible via [[active_contracts]].',
+                . 'Active contracts and raised flags are visible via system message.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [

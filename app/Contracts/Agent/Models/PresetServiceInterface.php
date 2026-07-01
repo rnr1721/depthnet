@@ -149,6 +149,14 @@ interface PresetServiceInterface
     public function searchPresets(string $query): Collection;
 
     /**
+     * Get handoff targets (presets that can be used for handoff)
+     *
+     * @param AiPreset $excludePreset Preset to exclude from results
+     * @return Collection<AiPreset> Handoff targets
+     */
+    public function getHandoffTargets(AiPreset $excludePreset): Collection;
+
+    /**
      * Set a preset as the default
      *
      * @param int $id Preset ID

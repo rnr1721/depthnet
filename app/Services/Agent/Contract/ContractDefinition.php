@@ -153,6 +153,35 @@ final class ContractDefinition
 
         if (!isset($this->action['type'])) {
             $errors[] = 'action.type is required.';
+        } else {
+            // Action-specific payload — mirror StoreContractRequest::after() so the
+            // agent-authored path ([contract define]) is guarded the same as the
+            // admin form. Without this, an action with no payload is a silent no-op:
+            // it fires every rising edge and does nothing.
+            switch ($this->action['type']) {
+                case 'inject_memo':
+                    if (trim((string) ($this->action['text'] ?? '')) === '') {
+                        $errors[] = 'inject_memo requires non-empty action.text '
+                            . '(otherwise the contract fires but writes nothing).';
+                    }
+                    break;
+
+                case 'set_flag':
+                case 'create_goal':
+                    if (trim((string) ($this->action['flag'] ?? '')) === '') {
+                        $errors[] = "{$this->action['type']} requires action.flag.";
+                    }
+                    break;
+
+                case 'nudge_state':
+                    if (trim((string) ($this->action['target'] ?? '')) === '') {
+                        $errors[] = 'nudge_state requires action.target (a state dimension).';
+                    }
+                    if (!isset($this->action['delta']) || !is_numeric($this->action['delta'])) {
+                        $errors[] = 'nudge_state requires a numeric action.delta.';
+                    }
+                    break;
+            }
         }
 
         // Vital eligibility — the central safety rule.

@@ -250,6 +250,13 @@ class ContractEngine
 
             case 'inject_memo':
                 $text = (string) ($c->action['text'] ?? '');
+                if ($text === '') {
+                    // No explicit text: a contract whose purpose is the SIGNAL, not a
+                    // specific message, still injects something legible rather than a
+                    // silent no-op. Mirrors the "nothing is lost silently" discipline
+                    // already applied to the missing-writer branch below.
+                    $text = "Contract '{$c->name}' triggered.";
+                }
                 if ($this->memo !== null) {
                     $this->memo->write($preset, $text);
                 } else {

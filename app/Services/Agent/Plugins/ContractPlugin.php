@@ -89,9 +89,11 @@ class ContractPlugin implements CommandPluginInterface
             'Suspend (pause, keep definition): [contract suspend]idle_flag[/contract]',
             'Resume a suspended contract: [contract resume]idle_flag[/contract]',
             'Revoke to hypothesis (stop executing, keep for review): [contract revoke]idle_flag[/contract]',
-            'Actions a contract may raise: set_flag (a named signal), create_goal '
-                . '(a goal-candidate flag you then turn into a goal), nudge_state (shift a state value), '
-                . 'inject_memo (a line in your next memo).',
+            'Actions a contract may raise, each with its required fields: '
+                . 'set_flag {flag} (a named signal), create_goal {flag} '
+                . '(a goal-candidate flag you then turn into a goal), '
+                . 'nudge_state {target, delta} (shift a state value), '
+                . 'inject_memo {text} (the line written to your next memo — without text, nothing is written).',
             'Flags shown in [[active_contracts]] mean a condition is currently met. '
                 . 'What you do about a flag is yours to decide — a flag is a signal, not an instruction.',
             'A contract marked "vital" can be revoked to hypothesis but not edited or deleted '
@@ -126,6 +128,9 @@ class ContractPlugin implements CommandPluginInterface
                             'forms: THR_T {trigger:{match,threshold_seconds}}, '
                                 . 'THR_C {trigger:{match,threshold_count,[window_seconds]}}, '
                                 . 'ACC {trigger:{target,weight,cap}}, DEC {trigger:{target,rate,floor}}.',
+                            'actions: set_flag {action:{type,flag}}, create_goal {action:{type,flag}}, '
+                                . 'nudge_state {action:{type,target,delta}}, '
+                                . 'inject_memo {action:{type,text}} — text is the line written to your memo, required.',
                             'match: {source:"journal", [type], [outcome], [contains], [match_mode]}.',
                             'show/promote/suspend/resume/revoke: the contract name.',
                             'list: leave empty.',

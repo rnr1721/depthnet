@@ -72,13 +72,15 @@ class BehaviorPlugin implements CommandPluginInterface
     {
         return 'Behavior — your adaptive behavior system. A population of competing patterns '
             . '("when X, lean toward Y") under selection pressure: each cycle one pattern leads '
-            . 'and all that were ready learn from the outcome. You author them; selection tunes '
-            . 'which ones win over time. The active population and fitness are injected in system message ';
+            . 'and all that were ready learn from the outcome. Patterns are hypotheses distilled '
+            . 'from recurring tendencies you notice in your own behavior. '
+            . 'The active population and fitness are injected in system message.';
     }
 
     public function getInstructions(array $config = []): array
     {
         return [
+            $this->getBehaviorPhilosophy($config),
             'A pattern is a light strategy: a trigger (when it applies), an intent (what it leans '
                 . 'toward), and an optional behavior hint (how it shapes the response). It is NOT a '
                 . 'preset and NOT a contract — it competes, it does not fire deterministically.',
@@ -129,7 +131,8 @@ class BehaviorPlugin implements CommandPluginInterface
     {
         return [
             'name'        => 'behavior',
-            'description' => 'Your adaptive behavior system: a population of competing patterns under '
+            'description' => $this->getBehaviorPhilosophy($config). ' '
+                . 'Your adaptive behavior system: a population of competing patterns under '
                 . 'selection pressure. Each pattern has a structural trigger (mood/pulse), an intent, and '
                 . 'an optional behavior hint. A pattern may also carry a lever that nudges one mood '
                 . 'dimension when it leads, earning fitness only for the dimension\'s movement beyond its '
@@ -323,6 +326,13 @@ class BehaviorPlugin implements CommandPluginInterface
                 'description' => 'Adaptive behavior system — a population of competing patterns under selection',
                 'required'    => false,
             ],
+            'behavior_philosophy' => [
+                'type'        => 'textarea',
+                'label'       => 'Behavior Philosophy',
+                'description' => 'Optional guidance describing how this agent discovers and authors behavior patterns.',
+                'value'       => $this->getBehaviorPhilosophy(),
+                'required'    => false,
+            ],
             'exploration_epsilon' => [
                 'type'        => 'number',
                 'label'       => 'Exploration Rate (ε)',
@@ -394,6 +404,7 @@ class BehaviorPlugin implements CommandPluginInterface
     {
         return [
             'enabled'             => false,
+            'behavior_philosophy' => $this->getBehaviorPhilosophy(),
             'exploration_epsilon' => 0.0,
             'eligible_factor'     => 0.5,
             'gamma'               => 0.8,
@@ -516,4 +527,13 @@ class BehaviorPlugin implements CommandPluginInterface
 
         return implode("\n", $lines);
     }
+
+    private function getBehaviorPhilosophy(array $config = []): string
+    {
+        if (!empty($config['behavior_philosophy'])) {
+            return $config['behavior_philosophy'];
+        }
+        return  'Discover, don\'t invent: notice recurring tendencies, formalize them as hypotheses, let selection reveal what fits.';
+    }
+
 }

@@ -63,7 +63,7 @@ RUN apt-get update && apt-get install -y python3 python3-pip python3-setuptools 
     && rm -rf /var/lib/apt/lists/*
 
 # Install tgcli
-RUN git clone --branch 1.0.0 https://github.com/rnr1721/tgcli.git /usr/local/lib/tgcli \
+RUN git clone --branch 1.0.1 https://github.com/rnr1721/tgcli.git /usr/local/lib/tgcli \
     && printf '#!/bin/bash\nexec python3 /usr/local/lib/tgcli/telegram_tool.py "$@"\n' > /usr/local/bin/telegram \
     && chmod +x /usr/local/bin/telegram
 

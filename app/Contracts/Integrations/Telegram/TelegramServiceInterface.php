@@ -144,6 +144,23 @@ interface TelegramServiceInterface
     public function me(int $presetId): string;
 
     /**
+     * List contacts.
+     *
+     * @param int $presetId
+     * @return string
+     */
+    public function contacts(int $presetId): string;
+
+    /**
+     * Resolve a username to numeric id.
+     *
+     * @param int    $presetId
+     * @param string $query  @username or numeric id
+     * @return string
+     */
+    public function resolve(int $presetId, string $query): string;
+
+    /**
      * Run a raw tgcli command string.
      * Use for commands not covered by dedicated methods.
      *

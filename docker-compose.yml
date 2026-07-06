@@ -121,6 +121,24 @@ services:
     privileged: true                               # We need to control Docker
     restart: unless-stopped
 
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - depthnet
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
   browser-service:
     profiles: ["browser", "full"]
     build:
@@ -146,6 +164,7 @@ services:
 volumes:
   mysql_data:
   sandbox_shared:
+  redis_data:
 
 networks:
   depthnet:

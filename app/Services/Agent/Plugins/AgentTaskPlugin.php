@@ -445,7 +445,9 @@ class AgentTaskPlugin implements CommandPluginInterface
             function () use ($agent) {
                 return $this->agentTaskService->getTasksForContext($agent);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

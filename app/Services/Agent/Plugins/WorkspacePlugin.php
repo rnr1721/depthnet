@@ -188,7 +188,9 @@ class WorkspacePlugin implements CommandPluginInterface
             'workspace',
             'Current workspace — all persistent key-value entries for this preset',
             fn () => $this->workspaceService->getFormatted($context->preset),
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

@@ -353,7 +353,9 @@ class RhythmPlugin implements CommandPluginInterface
                 $now = Carbon::now($tz);
                 return $this->buildSnapshot($context, $now, includeLive: true);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
 
         // Temporal self-description — the agent's relationship to its own

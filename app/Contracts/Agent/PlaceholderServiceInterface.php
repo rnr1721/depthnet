@@ -110,6 +110,10 @@ interface PlaceholderServiceInterface
      *                   Use for plugins that declare a placeholder's existence
      *                   (for frontend discovery) but defer the actual value
      *                   to a downstream consumer.
+     * @param string|null $owner Owner identifier — the plugin's name (getName()).
+     *                   Used by cross-preset visibility to filter which inherited
+     *                   placeholders a guest preset sees, via target_plugins_whitelist.
+     *                   Null for non-plugin (global default) placeholders.
      * @return self
      */
     public function registerDynamic(
@@ -117,7 +121,8 @@ interface PlaceholderServiceInterface
         string $description,
         callable $contentProvider,
         string $scope = 'global',
-        bool $stub = false
+        bool $stub = false,
+        ?string $owner = null
     ): self;
 
     /**
@@ -133,9 +138,16 @@ interface PlaceholderServiceInterface
      * Copy all placeholders from one scope to another.
      * Existing entries in the target scope are NOT overwritten.
      *
+     * When $onlyOwners is provided, only entries whose 'owner' is in that list
+     * are copied. Entries with no owner (null) are never copied under a filter —
+     * a filtered copy is for cross-preset plugin visibility, and unowned
+     * placeholders (global defaults) are not plugin-scoped. When $onlyOwners is
+     * null the whole scope is copied (original behavior).
+     *
      * @param string $from
      * @param string $to
+     * @param array|null $onlyOwners If provided, only copy placeholders whose 'owner' is in this list
      * @return self
      */
-    public function copyScope(string $from, string $to): self;
+    public function copyScope(string $from, string $to, ?array $onlyOwners = null): self;
 }

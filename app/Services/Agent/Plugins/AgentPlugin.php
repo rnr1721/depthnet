@@ -420,7 +420,7 @@ class AgentPlugin implements CommandPluginInterface
         $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
         $this->placeholderService->registerDynamic('agent', 'Agent status', function () use ($context) {
             return $this->status('', $context);
-        }, $scope);
+        }, $scope, false, $this->getName());
     }
 
     public function getSelfClosingTags(): array

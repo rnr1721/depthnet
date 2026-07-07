@@ -200,7 +200,8 @@ class PlaceholderService implements PlaceholderServiceInterface
         string $description,
         callable $contentProvider,
         string $scope = 'global',
-        bool $stub = false
+        bool $stub = false,
+        ?string $owner = null
     ): self {
         $key = '[[' . $name . ']]';
 
@@ -210,10 +211,11 @@ class PlaceholderService implements PlaceholderServiceInterface
         }
 
         $this->scopes[$scope][$key] = [
-            'content' => $contentProvider,
+            'content'     => $contentProvider,
             'description' => $description,
-            'dynamic' => true,
-            'stub' => $stub,
+            'dynamic'     => true,
+            'stub'        => $stub,
+            'owner'       => $owner,
         ];
 
         return $this;
@@ -248,13 +250,20 @@ class PlaceholderService implements PlaceholderServiceInterface
     /**
      * @inheritDoc
      */
-    public function copyScope(string $from, string $to): self
+    public function copyScope(string $from, string $to, ?array $onlyOwners = null): self
     {
         if (!isset($this->scopes[$from])) {
             return $this;
         }
 
         foreach ($this->scopes[$from] as $key => $entry) {
+            if ($onlyOwners !== null) {
+                $owner = $entry['owner'] ?? null;
+                if ($owner === null || !in_array($owner, $onlyOwners, true)) {
+                    continue;
+                }
+            }
+
             if (!isset($this->scopes[$to][$key])) {
                 $this->scopes[$to][$key] = $entry;
             }

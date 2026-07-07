@@ -319,7 +319,9 @@ class TerminalPlugin implements CommandPluginInterface
 
                 return "[TERMINAL SCREEN]\n{$screen}\n[END TERMINAL SCREEN]";
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

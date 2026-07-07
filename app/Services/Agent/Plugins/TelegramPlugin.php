@@ -179,7 +179,9 @@ class TelegramPlugin implements CommandPluginInterface
 
                 return $account . "\n\n" . 'Recent unread:' . "\n" . $unread;
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

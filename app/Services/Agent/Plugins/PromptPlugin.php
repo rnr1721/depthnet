@@ -230,7 +230,9 @@ class PromptPlugin implements CommandPluginInterface
             function () use ($context) {
                 return $this->currentCode($context);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

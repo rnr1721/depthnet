@@ -523,7 +523,9 @@ class HeartPlugin implements CommandPluginInterface
             'heart_state',
             'Current heart state: presence, focus, gravity, connections',
             fn () => $this->heartService->buildStateString($context->preset),
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

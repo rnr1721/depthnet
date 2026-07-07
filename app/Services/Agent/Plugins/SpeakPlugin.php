@@ -273,7 +273,9 @@ class SpeakPlugin implements CommandPluginInterface
             function () use ($context) {
                 return $this->buildSpeakTargetsBlock($context);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

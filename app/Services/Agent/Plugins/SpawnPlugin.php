@@ -222,7 +222,9 @@ class SpawnPlugin implements CommandPluginInterface
                     ->map(fn ($s) => "• {$s->preset_code} — {$s->name}")
                     ->implode("\n");
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

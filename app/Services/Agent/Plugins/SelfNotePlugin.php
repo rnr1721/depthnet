@@ -342,7 +342,8 @@ class SelfNotePlugin implements CommandPluginInterface
             'SelfNotePlugin — write a note to yourself for the next thinking cycle.',
             fn () => '',
             $scope,
-            true
+            true,
+            $this->getName()
         );
     }
 }

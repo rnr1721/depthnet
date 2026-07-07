@@ -108,29 +108,41 @@ class PluginRegistry implements PluginRegistryInterface
     {
         $this->setDisabledForNow($preset->getPluginsDisabled());
 
-        $sourcePreset = $this->resolveSourcePreset($preset);
-
+        // 1. Register this preset's OWN plugin shortcodes under its own scope.
+        //    Context and enabled-state both come from $preset — the preset that
+        //    is actually thinking. Its [[telegram_account]] must show ITS telegram.
+        //    The plugin name is passed as owner so cross-preset visibility can
+        //    later filter inherited placeholders by the guest's whitelist.
         foreach ($this->allRegistered() as $plugin) {
             if (!method_exists($plugin, self::REGISTER_SHORTCODES_METHOD)) {
                 continue;
             }
 
-            $context = $this->contextBuilder->build($plugin, $sourcePreset);
+            $context = $this->contextBuilder->build($plugin, $preset);
 
-            // Skip disabled plugins — no point in registering their
-            // shortcodes if they can't be invoked anyway.
             if (!$context->enabled) {
                 continue;
             }
 
             $plugin->{self::REGISTER_SHORTCODES_METHOD}($context);
-
         }
-        if ($preset->getId() !== $sourcePreset->getId()) {
-            $this->placeholderService->copyScope(
-                $this->scopeResolver->preset($sourcePreset->getId()),
-                $this->scopeResolver->preset($preset->getId()),
-            );
+
+        // 2. Cross-preset visibility: a guest preset inherits placeholders from
+        //    its source preset — but ONLY for the plugins the user made pass-through
+        //    via target_plugins_whitelist. The same whitelist that governs command
+        //    execution governs placeholder visibility: one knob, one predictable
+        //    meaning. copyScope keeps existing keys, so own placeholders always win.
+        $sourcePreset = $this->resolveSourcePreset($preset);
+        if ($sourcePreset->getId() !== $preset->getId()) {
+            $whitelist = $preset->getTargetPluginsWhitelistArray();
+
+            if (!empty($whitelist)) {
+                $this->placeholderService->copyScope(
+                    $this->scopeResolver->preset($sourcePreset->getId()),
+                    $this->scopeResolver->preset($preset->getId()),
+                    $whitelist,
+                );
+            }
         }
     }
 

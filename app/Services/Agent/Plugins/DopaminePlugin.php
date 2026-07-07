@@ -429,7 +429,7 @@ class DopaminePlugin implements CommandPluginInterface
         $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
         $this->placeholderService->registerDynamic('dopamine_level', 'Level of model dopamine', function () use ($context) {
             return $this->getCurrentLevel($context);
-        }, $scope);
+        }, $scope, false, $this->getName());
     }
 
     private function setCurrentLevel(PluginExecutionContext $context, int $newLevel): void

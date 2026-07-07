@@ -311,7 +311,9 @@ class BehaviorPlugin implements CommandPluginInterface
             'behavior_patterns',
             'Active behavior patterns with fitness (the state of selection)',
             fn () => $this->renderActivePatterns($context),
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

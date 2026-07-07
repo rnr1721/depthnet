@@ -285,7 +285,9 @@ class ContractPlugin implements CommandPluginInterface
             'active_contracts',
             'Active contracts and currently raised flags',
             fn () => $this->renderActiveContracts($context->preset),
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

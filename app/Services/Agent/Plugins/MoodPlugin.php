@@ -434,7 +434,9 @@ class MoodPlugin implements CommandPluginInterface, MoodInfluencerInterface
                     $top
                 ));
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

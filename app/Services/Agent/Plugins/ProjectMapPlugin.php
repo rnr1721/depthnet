@@ -211,7 +211,9 @@ class ProjectMapPlugin implements CommandPluginInterface
             'project_map',
             'File tree of the current workspace',
             fn () => $this->renderMap($context),
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

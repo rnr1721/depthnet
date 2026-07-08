@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Models\AiPreset;
 use App\Models\PresetPrompt;
+use App\Models\PresetPromptVersion;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
@@ -17,6 +18,18 @@ use Psr\Log\LoggerInterface;
  *  - Deleting the last prompt is forbidden.
  *  - Deleting the active prompt automatically promotes the first remaining one.
  *  - Codes are unique per preset (enforced at DB level too).
+ *
+ * Versioning:
+ *  - Every content-changing write appends an immutable snapshot to
+ *    preset_prompt_versions (see PresetPromptVersion).
+ *  - v1 is written at prompt creation (the original state).
+ *  - update() snapshots ONLY when content actually changes — metadata-only
+ *    edits (code/description) don't create versions.
+ *  - revertToVersion() never mutates history; it appends a NEW version whose
+ *    content equals the reverted-to version.
+ *  - Actor (edited_by / editor_user_id) is passed from the caller: the plugin
+ *    passes 'agent', the controller passes 'human' + the user id, seeding/
+ *    automation defaults to 'system'.
  */
 class PresetPromptService implements PresetPromptServiceInterface
 {
@@ -68,14 +81,42 @@ class PresetPromptService implements PresetPromptServiceInterface
         return $preset->prompts()->orderBy('created_at')->first();
     }
 
+    // ─── Version reads ─────────────────────────────────────────────────────────
+
+    /**
+     * @inheritDoc
+     */
+    public function getHistory(AiPreset $preset, int $promptId): Collection
+    {
+        $prompt = $this->findOrFail($preset, $promptId);
+
+        // Newest first (relation is already ordered desc, but be explicit).
+        return $prompt->versions()->orderByDesc('version')->get();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getVersion(AiPreset $preset, int $promptId, int $version): ?PresetPromptVersion
+    {
+        $prompt = $this->findOrFail($preset, $promptId);
+
+        return $prompt->versions()->where('version', $version)->first();
+    }
+
     // ─── Write ────────────────────────────────────────────────────────────────
 
     /**
      * @inheritDoc
      */
-    public function create(AiPreset $preset, array $data, bool $setAsActive = false): PresetPrompt
-    {
-        return $this->db->transaction(function () use ($preset, $data, $setAsActive) {
+    public function create(
+        AiPreset $preset,
+        array $data,
+        bool $setAsActive = false,
+        string $editedBy = PresetPromptVersion::BY_SYSTEM,
+        ?int $editorUserId = null
+    ): PresetPrompt {
+        return $this->db->transaction(function () use ($preset, $data, $setAsActive, $editedBy, $editorUserId) {
             $this->assertCodeUnique($preset, $data['code']);
 
             /** @var PresetPrompt $prompt */
@@ -93,11 +134,21 @@ class PresetPromptService implements PresetPromptServiceInterface
                 $preset->save();
             }
 
+            // v1 — the prompt's original state. Enables revert back to birth.
+            $this->snapshot(
+                $prompt,
+                $prompt->getContent(),
+                'Initial version',
+                $editedBy,
+                $editorUserId
+            );
+
             $this->logger->info('PresetPromptService: Prompt created', [
                 'preset_id'  => $preset->id,
                 'prompt_id'  => $prompt->id,
                 'code'       => $prompt->code,
                 'set_active' => $setAsActive || $isFirst,
+                'edited_by'  => $editedBy,
             ]);
 
             return $prompt;
@@ -107,14 +158,24 @@ class PresetPromptService implements PresetPromptServiceInterface
     /**
      * @inheritDoc
      */
-    public function update(AiPreset $preset, int $promptId, array $data): PresetPrompt
-    {
-        return $this->db->transaction(function () use ($preset, $promptId, $data) {
+    public function update(
+        AiPreset $preset,
+        int $promptId,
+        array $data,
+        string $editedBy = PresetPromptVersion::BY_SYSTEM,
+        ?int $editorUserId = null
+    ): PresetPrompt {
+        return $this->db->transaction(function () use ($preset, $promptId, $data, $editedBy, $editorUserId) {
             $prompt = $this->findOrFail($preset, $promptId);
 
             if (isset($data['code']) && $data['code'] !== $prompt->code) {
                 $this->assertCodeUnique($preset, $data['code']);
             }
+
+            // Capture content before the update to detect a real change.
+            $contentBefore = $prompt->getContent();
+            $contentGiven  = array_key_exists('content', $data) && $data['content'] !== null;
+            $contentAfter  = $contentGiven ? $data['content'] : $contentBefore;
 
             $prompt->update(array_filter([
                 'code'        => $data['code']        ?? null,
@@ -122,9 +183,75 @@ class PresetPromptService implements PresetPromptServiceInterface
                 'description' => $data['description'] ?? null,
             ], fn ($v) => $v !== null));
 
+            // Snapshot ONLY when content actually changed. Metadata-only edits
+            // (code/description) don't pollute history with empty versions.
+            if ($contentGiven && $contentAfter !== $contentBefore) {
+                $this->snapshot(
+                    $prompt,
+                    $contentAfter,
+                    $data['edit_summary'] ?? null,
+                    $editedBy,
+                    $editorUserId
+                );
+            }
+
             $this->logger->info('PresetPromptService: Prompt updated', [
-                'preset_id' => $preset->id,
-                'prompt_id' => $prompt->id,
+                'preset_id'       => $preset->id,
+                'prompt_id'       => $prompt->id,
+                'content_changed' => $contentGiven && $contentAfter !== $contentBefore,
+                'edited_by'       => $editedBy,
+            ]);
+
+            return $prompt->fresh();
+        });
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function revertToVersion(
+        AiPreset $preset,
+        int $promptId,
+        int $targetVersion,
+        string $editedBy = PresetPromptVersion::BY_SYSTEM,
+        ?int $editorUserId = null
+    ): PresetPrompt {
+        return $this->db->transaction(function () use ($preset, $promptId, $targetVersion, $editedBy, $editorUserId) {
+            $prompt = $this->findOrFail($preset, $promptId);
+
+            $target = $prompt->versions()->where('version', $targetVersion)->first();
+
+            if (!$target) {
+                throw new \RuntimeException(
+                    "Version {$targetVersion} not found for prompt #{$promptId}."
+                );
+            }
+
+            // No-op guard: reverting to content identical to current is pointless.
+            if ($prompt->getContent() === $target->getContent()) {
+                throw new \RuntimeException(
+                    "Prompt is already at the content of version {$targetVersion}."
+                );
+            }
+
+            // Restore content onto the head…
+            $prompt->update(['content' => $target->getContent()]);
+
+            // …and append a NEW version. History stays monotonic and the revert
+            // itself is visible as its own version — no history rewriting.
+            $this->snapshot(
+                $prompt,
+                $target->getContent(),
+                "Reverted to v{$targetVersion}",
+                $editedBy,
+                $editorUserId
+            );
+
+            $this->logger->info('PresetPromptService: Prompt reverted', [
+                'preset_id'      => $preset->id,
+                'prompt_id'      => $prompt->id,
+                'target_version' => $targetVersion,
+                'edited_by'      => $editedBy,
             ]);
 
             return $prompt->fresh();
@@ -150,6 +277,7 @@ class PresetPromptService implements PresetPromptServiceInterface
 
             $isActive = $preset->active_prompt_id === $prompt->getId();
 
+            // Versions cascade-delete with the prompt at the DB level.
             $prompt->delete();
 
             if ($isActive) {
@@ -228,6 +356,8 @@ class PresetPromptService implements PresetPromptServiceInterface
 
         $newCode = $this->generateUniqueCode($preset, $source->code . '_copy');
 
+        // A duplicate is a brand-new prompt; its history starts fresh at v1
+        // with the copied content. create() handles the v1 snapshot.
         return $this->create($preset, [
             'code'        => $newCode,
             'content'     => $source->getContent(),
@@ -238,6 +368,39 @@ class PresetPromptService implements PresetPromptServiceInterface
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    /**
+     * Append an immutable version snapshot for a prompt.
+     *
+     * Single point of version writes: computes the next monotonic version
+     * number (MAX+1) under a row lock to stay race-safe, then inserts.
+     * Assumes it runs inside an outer transaction (all callers wrap it).
+     */
+    protected function snapshot(
+        PresetPrompt $prompt,
+        string $content,
+        ?string $editSummary,
+        string $editedBy,
+        ?int $editorUserId
+    ): PresetPromptVersion {
+        // Lock the prompt row so concurrent edits can't compute the same
+        // MAX(version)+1. Practically impossible in this app's usage, but the
+        // guard is cheap and removes the question entirely.
+        $prompt->newQuery()
+            ->whereKey($prompt->getKey())
+            ->lockForUpdate()
+            ->first();
+
+        $next = (int) $prompt->versions()->max('version') + 1;
+
+        return $prompt->versions()->create([
+            'version'        => $next,
+            'content'        => $content,
+            'edit_summary'   => $editSummary,
+            'edited_by'      => $editedBy,
+            'editor_user_id' => $editorUserId,
+        ]);
+    }
 
     /**
      * Find prompt or throw if not found / doesn't belong to preset.
@@ -275,10 +438,6 @@ class PresetPromptService implements PresetPromptServiceInterface
 
     /**
      * Generate a unique code within a preset by appending _1, _2, … as needed.
-     *
-     * @param AiPreset $preset
-     * @param string $base
-     * @return string
      */
     protected function generateUniqueCode(AiPreset $preset, string $base): string
     {

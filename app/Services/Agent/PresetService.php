@@ -6,9 +6,11 @@ use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginManagerFactoryInterface;
+use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\AiPreset;
 use App\Exceptions\PresetException;
+use App\Models\PresetPromptVersion;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Factory as ValidatorFactory;
@@ -30,7 +32,8 @@ class PresetService implements PresetServiceInterface
         protected AiPreset $aiPresetModel,
         protected LoggerInterface $logger,
         protected CacheManager $cacheManager,
-        protected PluginManagerFactoryInterface $pluginManagerFactory
+        protected PluginManagerFactoryInterface $pluginManagerFactory,
+        protected PresetPromptServiceInterface $promptService
     ) {
     }
 
@@ -668,51 +671,57 @@ class PresetService implements PresetServiceInterface
     /**
      * Sync prompts for a preset from request data.
      *
-     * Accepts two formats from the frontend:
-     *   - $data['prompts']  — array of {id?, code, content, description, is_active?}
-     *   - legacy $data['system_prompt'] — plain string (backward compat for importRecommendedPreset etc.)
+     * Accepts:
+     *   - $data['prompts']  array of {id?, code, content, description, is_active?}
+     *   - legacy $data['system_prompt'] plain string (backward compat).
      *
-     * Rules:
-     *   - Prompts present in the array are upserted (update if id exists, insert if not).
-     *   - Prompts NOT in the array but belonging to the preset are left untouched
-     *     (deletion is only via the dedicated PresetPromptController).
-     *   - After sync, active_prompt_id is set to the prompt marked is_active,
-     *     or falls back to the current active_prompt_id, or the first prompt.
+     * Prompt writes are delegated to PresetPromptService so every content change is
+     * versioned (PresetPromptVersion). Edits are attributed to the acting admin:
+     * edited_by = 'human' + current user id.
+     *
+     * The prompt service snapshots ONLY when content actually changes, so re-saving
+     * the preset form (which always sends every prompt) does not create spurious
+     * versions for prompts the user didn't touch.
      */
     protected function syncPrompts(AiPreset $preset, array $data): void
     {
-        $promptsData = $data['prompts'] ?? null;
+        $promptsData  = $data['prompts'] ?? null;
+        $editorUserId = $this->authService->getCurrentUserId();
 
-        // Legacy path: no prompts array but system_prompt string provided
+        // Legacy path: no prompts array but a system_prompt string was provided.
         if ($promptsData === null) {
             $legacyContent = $data['system_prompt'] ?? null;
 
-            // For a brand-new preset with no prompts yet, always create a default prompt
             if ($preset->prompts()->count() === 0) {
-                $prompt = $preset->prompts()->create([
-                    'code'    => 'default',
-                    'content' => $legacyContent ?? '',
-                ]);
-                $preset->active_prompt_id = $prompt->id;
-                $preset->saveQuietly();
+                $this->promptService->create(
+                    $preset,
+                    ['code' => 'default', 'content' => $legacyContent ?? ''],
+                    true, // setAsActive - first prompt
+                    PresetPromptVersion::BY_HUMAN,
+                    $editorUserId
+                );
+                $preset->refresh();
             }
             return;
         }
 
-        // Delete prompts explicitly removed by the user
+        // Delete prompts explicitly removed by the user (guard against emptying).
         $deletedIds = $data['deleted_prompt_ids'] ?? [];
         if (!empty($deletedIds)) {
-            // Safety: only delete prompts that belong to this preset and are not the last one
             $remaining = $preset->prompts()->count() - count($deletedIds);
             if ($remaining >= 1) {
-                $preset->prompts()
-                    ->whereIn('id', $deletedIds)
-                    ->delete();
-
-                // If active prompt was deleted, will be resolved below
-                if (in_array($preset->active_prompt_id, $deletedIds)) {
-                    $preset->active_prompt_id = null;
+                foreach ($deletedIds as $deletedId) {
+                    try {
+                        $this->promptService->delete($preset, (int) $deletedId);
+                    } catch (\RuntimeException $e) {
+                        $this->logger->warning('syncPrompts: skipped prompt deletion', [
+                            'preset_id' => $preset->id,
+                            'prompt_id' => $deletedId,
+                            'reason'    => $e->getMessage(),
+                        ]);
+                    }
                 }
+                $preset->refresh();
             }
         }
 
@@ -725,36 +734,55 @@ class PresetService implements PresetServiceInterface
 
         foreach ($promptsData as $promptData) {
             if (!empty($promptData['id'])) {
-                // Update existing prompt that belongs to this preset
-                $prompt = $preset->prompts()->find($promptData['id']);
-                if ($prompt) {
-                    $prompt->update([
-                        'code'        => $promptData['code']        ?? $prompt->code,
-                        'content'     => $promptData['content']     ?? $prompt->content,
-                        'description' => $promptData['description'] ?? $prompt->description,
-                    ]);
+                $existing = $this->promptService->findById($preset, (int) $promptData['id']);
+                if (!$existing) {
+                    continue; // id given but not in this preset - skip
                 }
+                $prompt = $this->promptService->update(
+                    $preset,
+                    (int) $promptData['id'],
+                    [
+                        'code'         => $promptData['code']        ?? $existing->code,
+                        'content'      => $promptData['content']     ?? $existing->content,
+                        'description'  => $promptData['description'] ?? $existing->description,
+                        'edit_summary' => $promptData['edit_summary'] ?? null,
+                    ],
+                    PresetPromptVersion::BY_HUMAN,
+                    $editorUserId
+                );
             } else {
-                // Create new prompt
-                $prompt = $preset->prompts()->create([
-                    'code'        => $promptData['code']        ?? 'default',
-                    'content'     => $promptData['content']     ?? '',
-                    'description' => $promptData['description'] ?? null,
-                ]);
+                $prompt = $this->promptService->create(
+                    $preset,
+                    [
+                        'code'        => $promptData['code']        ?? 'default',
+                        'content'     => $promptData['content']     ?? '',
+                        'description' => $promptData['description'] ?? null,
+                    ],
+                    false,
+                    PresetPromptVersion::BY_HUMAN,
+                    $editorUserId
+                );
             }
 
             if (!empty($promptData['is_active'])) {
-                $newActiveId = $prompt->id;
+                $newActiveId = $prompt->getId();
             }
         }
 
-        // Ensure preset always has at least one prompt
+        // Ensure the preset always has at least one prompt.
         if ($preset->prompts()->count() === 0) {
-            $prompt = $preset->prompts()->create(['code' => 'default', 'content' => '']);
-            $newActiveId = $prompt->id;
+            $prompt = $this->promptService->create(
+                $preset,
+                ['code' => 'default', 'content' => ''],
+                true,
+                PresetPromptVersion::BY_HUMAN,
+                $editorUserId
+            );
+            $newActiveId = $prompt->getId();
         }
 
-        // Update active_prompt_id if needed
+        // Resolve active prompt: explicit is_active -> previous active -> first.
+        $preset->refresh();
         $resolvedActiveId = $newActiveId
             ?? $activePromptId
             ?? $preset->prompts()->orderBy('created_at')->value('id');
@@ -764,6 +792,7 @@ class PresetService implements PresetServiceInterface
             $preset->saveQuietly();
         }
     }
+
 
     /**
      * Validate preset data

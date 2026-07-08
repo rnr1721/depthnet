@@ -165,6 +165,13 @@ Route::middleware('auth')->group(function () {
                 Route::delete('/{promptId}', [PresetPromptController::class, 'destroy'])->name('destroy');
                 Route::patch('/{promptId}/activate', [PresetPromptController::class, 'activate'])->name('activate');
                 Route::post('/{promptId}/duplicate', [PresetPromptController::class, 'duplicate'])->name('duplicate');
+
+                // ── Version history ──────────────────────────────────────────────────────
+                Route::get('/{promptId}/versions', [PresetPromptController::class, 'versions'])->name('versions');
+                Route::get('/{promptId}/versions/{version}', [PresetPromptController::class, 'version'])
+                    ->name('version')->where('version', '[0-9]+');
+                Route::post('/{promptId}/versions/{version}/revert', [PresetPromptController::class, 'revert'])
+                    ->name('version.revert')->where('version', '[0-9]+');
             });
 
             // Plugin Data — universal key-value storage for plugins

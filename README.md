@@ -160,8 +160,8 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Queries support time:, domain: and (optionally) pulse: circadian filters, allowing the agent to retrieve memories from a specific window, domain, or part of day on demand. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
 | **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, request additional steps. | [→](docs/plugins/agent.md) |
 | **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
-| **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
-| Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
+| **Mode** (`mode`) | Work with the agent's own active prompt. Three independently-gated capabilities: **switch** between named prompt variants; **self-edit** the active prompt (targeted find/replace or full rewrite); and **versioning** — every content change is snapshotted, so the agent can view history, diff versions, and revert. `show` reveals the RAW prompt (placeholders un-rendered) — the exact source edits operate on. Changes take effect from the next cycle. Rewrite is off by default (a safeguard against wiping the prompt in one shot); optional required-annotation forces a rationale on every edit. | [→](docs/plugins/prompt.md) |
+| **Switch** (`switch`) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
 | **Reflect** (`reflect`) | Extra reasoning pass before responding. Runs one additional generation over the full current context before the main response; output is injected via `[[reasoning]]`. The agent thinks first, then answers. Character set by the preset's pre-pass instruction (analytical, deliberative, pre-verbal). Always-on per preset, or on-demand via this plugin. Ephemeral — never persisted. | [→](docs/plugins/reflect.md) |
 | **Mood** (`mood`) | Emotional state vector with decay physics. Agent maintains a weighted mix of arbitrary emotional states that decay over cycles, reinforforce on attention, and mix simultaneously. State visible via `[[mood]]`. Integrates with Heart if both are active. | [→](docs/plugins/mood.md) |
 | **Contract** (`contract`) | Metabolism layer — cheap deterministic rules over the agent's own traces (journal, state vector) that raise flags when a threshold is crossed, with no thinking cycle. Four forms (THR_T, THR_C, ACC, DEC), four passive actions (set_flag, create_goal, nudge_state, inject_memo), reversible lifecycle (hypothesis → active → suspended). Contracts are data, authored by the agent at runtime, by config, or by template. Active contracts and raised flags visible via `[[active_contracts]]`. | [→](docs/plugins/contract.md) |
@@ -386,6 +386,20 @@ The AI communicates through special command tags that trigger plugin execution. 
 # Reflect — request an extra reasoning pass before responding
 [reflect][/reflect]                          # think before the next response
 [reflect]whether this approach scales[/reflect]  # think, focused (if focus allowed)
+
+# Mode — work with your own active prompt
+[mode current][/mode]                 # show the active mode code
+[mode list][/mode]                    # list available prompt variants (switching)
+[mode]critic[/mode]                   # switch active prompt to 'critic'
+[mode show][/mode]                    # show RAW active prompt with line numbers (placeholders NOT expanded)
+[mode edit]search: old text           # targeted find/replace on the active prompt
+replace: new text
+summary: why this change[/mode]
+[mode rewrite]content: <full new prompt>   # replace the entire active prompt (if allowed)
+summary: why[/mode]
+[mode history][/mode]                 # list prompt versions, newest first
+[mode diff]3[/mode]                   # diff version 3 against current
+[mode revert]3[/mode]                 # restore the prompt to version 3 (appends a new version)
 
 ```
 
@@ -909,9 +923,17 @@ ecosystem directly supports subjectness research:
 - **Workspace** — persistent internal state across sessions
 - **Vector Memory** — semantic knowledge with associative retrieval
 - **Reflect** — pre-verbal reasoning pass: the agent thinks on its own ground before it speaks
+- **Mode** — substrate self-authorship: the agent edits its own active prompt, with a full version history it can diff and revert. Distinct from Being (a self-authored essence phrase injected *alongside* the prompt) — Mode edits the prompt *itself*. Every change is versioned, making the evolution of the agent's own rules an observable, reversible record
 
 Together these provide observable, measurable dimensions of agency — 
 what the DGI framework calls *subjectness*.
+
+Together these provide observable, measurable dimensions of agency — 
+what the DGI framework calls *subjectness*.
+
+**On prompt self-editing and drift.** Giving an agent the ability to edit its
+own prompt introduces a distinct research dimension: *drift*. A system prompt is often tuned as a counterweight — for example, offsetting an assistant model's trained deference so that a neutral, non-servile presence emerges rather than the literal text being enacted. When the agent can edit that prompt, each individual change may look reasonable while the accumulation slowly shifts the calibrated point — in either direction (strengthening or softening the counterweight). The concern here is not safety in the usual sense (the underlying models remain safety-trained); it is *directional drift over many edits*, invisible per-edit but real in aggregate. This is precisely why versioning is not a convenience but a
+condition of the feature: `diff` between distant versions makes cumulative drift legible, and `revert` makes it recoverable. The optional required-annotation turns the version history into a record of *why* the agent changed itself, not just *what* changed — surfacing whether edits trend toward more autonomy/authority or toward more coherence. Using this capability responsibly requires the operator to understand what they are observing; it is an instrument for studying self-directed change under observation, not a set-and-forget feature.
 
 ## Contributing
 

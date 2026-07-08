@@ -105,6 +105,10 @@ class PromptPlugin implements CommandPluginInterface
                 : "\nsummary: what and why (optional)";
             $lines[] = 'Edit your active prompt (find & replace): '
                 . '[mode edit]search: old text' . "\n" . 'replace: new text' . $summaryHint . '[/mode]';
+            $lines[] = 'If your search or replace text spans MULTIPLE LINES or contains colons '
+                . '(e.g. "memory: mine", "format: ..."), use fenced blocks so the text is taken '
+                . 'verbatim: [mode edit]search: <<<' . "\n" . 'line one' . "\n" . 'key: value inside content' . "\n"
+                . '>>>' . "\n" . 'replace: <<<' . "\n" . 'new line one' . "\n" . 'new key: value' . "\n" . '>>>[/mode]';
             $lines[] = 'Tip: call [mode show][/mode] first, then copy your search text from there — '
                 . 'what you normally see has placeholders already filled in.';
         }
@@ -206,7 +210,12 @@ class PromptPlugin implements CommandPluginInterface
                 . 'This is the exact source that edit/search works against; what you normally see has placeholders already filled in.';
             $parts[] = '• edit: "search: <old>\nreplace: <new>". '
                 . 'Optionally add "\nlimit: 1" to replace only the first match'
-                . ($this->requiresAnnotation($config) ? ', and "\nsummary: <why>" (required).' : ', and "\nsummary: <why>".');
+                . ($this->requiresAnnotation($config) ? ', and "\nsummary: <why>" (required).' : ', and "\nsummary: <why>".')
+                . ' IMPORTANT: if the old/new text spans multiple lines OR contains colon lines '
+                . '(like "memory: mine"), wrap each in a fenced block so it is read verbatim: '
+                . 'search: <<<\\n...text...\\n>>> and replace: <<<\\n...text...\\n>>>. '
+                . 'Only search/replace/content/text/limit/summary are treated as fields; '
+                . 'other "word:" lines are part of the value.';
         }
         if (in_array('rewrite', $caps, true)) {
             $parts[] = '• rewrite: "content: <full new prompt text>"'
@@ -855,26 +864,68 @@ class PromptPlugin implements CommandPluginInterface
     }
 
     /**
-     * Parse simple "key: value" multiline format (mirrors CodePlugin).
-     * Values may span multiple lines until the next "key:" line.
+     * Keys this plugin recognises in edit/rewrite payloads. ONLY these start a
+     * new field; any other "word:" line is treated as part of the current
+     * value. This is essential because prompt content is often colon-dense
+     * pseudocode (e.g. "memory: mine", "format: ...", "language: ...") — a
+     * naive "any word:" parser would shred a multi-line search/replace at every
+     * such line. See parseKeyValue().
+     */
+    private const EDIT_KEYS = ['search', 'replace', 'content', 'text', 'limit', 'summary'];
+
+    /**
+     * Parse the edit/rewrite payload into fields.
+     *
+     * Two supported forms:
+     *
+     * 1) HEREDOC (most robust for colon-dense content). Use fenced blocks so the
+     *    body is taken verbatim, free of any key interpretation:
+     *
+     *        search: <<<
+     *        continuity_model: ...
+     *        memory: mine
+     *        >>>
+     *        replace: <<<
+     *        ...new text with any colons...
+     *        >>>
+     *        limit: 1
+     *
+     * 2) KEY-VALUE (backward compatible). A line starts a new field ONLY if it
+     *    begins with one of EDIT_KEYS followed by a colon. Every other line —
+     *    including lines like "memory: mine" or "format: ..." — belongs to the
+     *    current field's value. Values span multiple lines until the next
+     *    recognised key.
      *
      * @return array<string, string>
      */
     private function parseKeyValue(string $content): array
     {
-        $result = [];
-        $lines  = explode("\n", $content);
+        // Try heredoc form first if any "<<<" fence is present.
+        if (str_contains($content, '<<<')) {
+            $viaHeredoc = $this->parseHeredoc($content);
+            if ($viaHeredoc !== null) {
+                return $viaHeredoc;
+            }
+            // Malformed fences → fall through to key-value parsing.
+        }
+
+        $keyPattern = '/^\s*(' . implode('|', self::EDIT_KEYS) . ')\s*:\s*(.*)$/i';
+
+        $result     = [];
+        $lines      = explode("\n", $content);
         $currentKey = null;
-        $buffer = [];
+        $buffer     = [];
 
         foreach ($lines as $line) {
-            if (preg_match('/^\s*([\w\-]+):\s*(.*)$/', $line, $m)) {
+            if (preg_match($keyPattern, $line, $m)) {
                 if ($currentKey !== null) {
                     $result[$currentKey] = implode("\n", $buffer);
                 }
                 $currentKey = strtolower($m[1]);
                 $buffer     = [$m[2]];
             } elseif ($currentKey !== null) {
+                // Any other line (including "word: ..." that isn't an edit key)
+                // is part of the current value — NOT a new field.
                 $buffer[] = $line;
             }
         }
@@ -883,7 +934,67 @@ class PromptPlugin implements CommandPluginInterface
             $result[$currentKey] = implode("\n", $buffer);
         }
 
+        // Trim only the outer whitespace of each field; internal newlines and
+        // colons in the value are preserved exactly.
         return array_map('trim', $result);
+    }
+
+    /**
+     * Parse the heredoc form: "key: <<<" opens a verbatim block that runs until
+     * a line containing only ">>>". Keys outside blocks still use EDIT_KEYS.
+     *
+     * Returns null if fences are unbalanced (caller falls back to key-value).
+     *
+     * @return array<string, string>|null
+     */
+    private function parseHeredoc(string $content): ?array
+    {
+        $result   = [];
+        $lines    = explode("\n", $content);
+        $i        = 0;
+        $n        = count($lines);
+        $keyOpen  = '/^\s*(' . implode('|', self::EDIT_KEYS) . ')\s*:\s*<<<\s*$/i';
+        $keyInline = '/^\s*(' . implode('|', self::EDIT_KEYS) . ')\s*:\s*(.*)$/i';
+
+        while ($i < $n) {
+            $line = $lines[$i];
+
+            // key: <<<  → collect verbatim until a line that is exactly >>>
+            if (preg_match($keyOpen, $line, $m)) {
+                $key    = strtolower($m[1]);
+                $body   = [];
+                $i++;
+                $closed = false;
+                while ($i < $n) {
+                    if (preg_match('/^\s*>>>\s*$/', $lines[$i])) {
+                        $closed = true;
+                        $i++;
+                        break;
+                    }
+                    $body[] = $lines[$i];
+                    $i++;
+                }
+                if (!$closed) {
+                    return null; // unbalanced fence
+                }
+                // Heredoc body is verbatim — do not trim internal content,
+                // only strip a single trailing newline artifact if present.
+                $result[$key] = implode("\n", $body);
+                continue;
+            }
+
+            // Plain "key: value" line outside a block.
+            if (preg_match($keyInline, $line, $m)) {
+                $result[strtolower($m[1])] = trim($m[2]);
+                $i++;
+                continue;
+            }
+
+            // Stray line outside any block — ignore.
+            $i++;
+        }
+
+        return $result === [] ? null : $result;
     }
 
     /**

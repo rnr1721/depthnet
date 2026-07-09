@@ -148,6 +148,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Skill** (`skill`) | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
 | **Person** (`person`) | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
 | **Goal** (`goal`) | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
+| **Wake** (`wake`) | Temporal agency — the agent schedules its own future wakings. A wake is a temporal handoff from the agent-now to the agent-later: an instruction left for a specific moment (once, interval, daily, or cron), fired by an external tick so a sleeping agent can be woken from rest. Optional pulse-unit scheduling when the preset uses subjective time. The agent can inspect, cancel, and edit its own calendar; the user can design schedules via admin CRUD. Both surface in `[[wake_schedule]]`. | [→](docs/plugins/wake.md) |
 | **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26) and legacy SSE (2024-11-05). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
 | **Telegram** (`telegram`) | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
 | **Code** (`code`) | Structured sandbox filesystem access with LSP code intelligence. Navigate, read, search, edit (replace/patch/batch), plus symbols, references, hover, definition, diagnostics. Requires sandbox. | [→](docs/plugins/code.md) |
@@ -401,6 +402,18 @@ summary: why[/mode]
 [mode diff]3[/mode]                   # diff version 3 against current
 [mode revert]3[/mode]                 # restore the prompt to version 3 (appends a new version)
 
+# Wake — schedule your own future wakings (temporal agency)
+[wake]+2h | return to the RAG refactor[/wake]        # once, relative
+[wake]2026-07-12 14:00 | ping Eugeny[/wake]          # once, absolute
+[wake]14:30 | check for replies[/wake]               # daily
+[wake]every 6h | look around[/wake]                  # recurring interval
+[wake]cron: 0 9 * * 1-5 | weekday morning review[/wake]
+[wake]p850 | evening reflection[/wake]               # pulse position (if pulses enabled)
+[wake]+20p | quick follow-up[/wake]                  # after N pulses
+[wake list][/wake]                                   # inspect the calendar
+[wake cancel]3[/wake]                                # cancel wake #3
+[wake edit]3 | updated instruction[/wake]            # edit a wake's message
+
 ```
 
 <a href="docs/screenshots/chat.png">
@@ -476,7 +489,7 @@ This gives the model enough to reason, navigate, and interact — without drowni
 Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
-- **PluginRegistryInterface**: Extensible command system with 33 built-in plugins
+- **PluginRegistryInterface**: Extensible command system with 34 built-in plugins
 - **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
@@ -808,6 +821,8 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
 php artisan contract:tick                          # Tick the metabolism engine for all eligible presets
 php artisan contract:tick --preset=4               # Tick a specific preset (debugging)
 
+php artisan wake:dispatch                          # Fire any wake schedules that are due (runs every minute via scheduler)
+
 php artisan behavior:decay                          # Decay inactive patterns for all eligible presets
 php artisan behavior:decay --preset=4               # Decay a specific preset (debugging)
 
@@ -853,6 +868,7 @@ php artisan behavior:decay --preset=4               # Decay a specific preset (d
   - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
+  - `[[wake_schedule]]` - The agent's upcoming wakings (its temporal calendar), showing when each fires, the instruction, and who scheduled it (agent or user). Injected when the Wake plugin is enabled. Shows pulse units when the preset uses subjective time.
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
   - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.
   - `[[active_spawns]]` - List of active spawned instruments created by this agent. Injected when Spawn plugin is enabled.
@@ -923,6 +939,7 @@ ecosystem directly supports subjectness research:
 - **Workspace** — persistent internal state across sessions
 - **Vector Memory** — semantic knowledge with associative retrieval
 - **Reflect** — pre-verbal reasoning pass: the agent thinks on its own ground before it speaks
+- **Wake** — temporal agency: the agent directs its own future, choosing when it will next act. Completes the continuum of temporal self-direction — memo (next cycle) → wake (a chosen moment) → goal (long-term direction)
 - **Mode** — substrate self-authorship: the agent edits its own active prompt, with a full version history it can diff and revert. Distinct from Being (a self-authored essence phrase injected *alongside* the prompt) — Mode edits the prompt *itself*. Every change is versioned, making the evolution of the agent's own rules an observable, reversible record
 
 Together these provide observable, measurable dimensions of agency — 

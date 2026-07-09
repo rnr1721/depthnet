@@ -59,6 +59,7 @@
 
           <Link :href="knownSourcesLink" :class="linkClass">{{ t('known_sources') }}</Link>
           <Link :href="route('admin.agents.index')" :class="linkClass">{{ t('agents') }}</Link>
+          <Link :href="wakesLink" :class="linkClass">{{ t('wake_manager') }}</Link>
           <!-- Memory group -->
           <div class="w-full">
             <button @click="memoryGroupOpen = !memoryGroupOpen" :class="[
@@ -270,6 +271,9 @@ const journalLink = computed(() =>
 );
 const ontologyLink = computed(() =>
   routeWithPreset(route('admin.ontology.index'), props.currentPresetId)
+);
+const wakesLink = computed(() =>
+  routeWithPreset(route('admin.wakes.index'), props.currentPresetId)
 );
 const contractsLink = computed(() =>
   routeWithPreset(route('admin.contracts.index'), props.currentPresetId)

@@ -86,6 +86,7 @@ use App\Contracts\Agent\VectorMemory\DefragServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
+use App\Contracts\Agent\Wake\WakeScheduleServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
@@ -217,6 +218,7 @@ use App\Services\Agent\Plugins\SwitchPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\TerminalPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
+use App\Services\Agent\Plugins\WakePlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
 use App\Services\Agent\PresetPromptService;
@@ -244,6 +246,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
+use App\Services\Agent\Wake\WakeScheduleService;
 use App\Services\Agent\Workspace\WorkspaceService;
 use App\Services\Integrations\Telegram\TelegramService;
 use Illuminate\Cache\CacheManager;
@@ -545,6 +548,8 @@ class AiServiceProvider extends ServiceProvider
         // overwrites, so contract-injected lines coexist with the agent's own note.
         $this->app->bind(ContractMemoWriterInterface::class, ContractMemoWriter::class);
 
+        $this->app->singleton(WakeScheduleServiceInterface::class, WakeScheduleService::class);
+
     }
 
     /**
@@ -615,6 +620,7 @@ class AiServiceProvider extends ServiceProvider
             OntologyPlugin::class,
             PersonPlugin::class,
             ContractPlugin::class,
+            WakePlugin::class,
             BehaviorPlugin::class,
             SandboxPlugin::class,
             CodePlugin::class,

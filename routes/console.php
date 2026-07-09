@@ -28,3 +28,5 @@ Schedule::command('contract:tick')
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();
+
+Schedule::command('wake:dispatch')->everyMinute()->withoutOverlapping();

@@ -27,6 +27,7 @@ use App\Http\Controllers\Admin\SkillController;
 use App\Http\Controllers\Admin\TelegramController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
+use App\Http\Controllers\Admin\WakeScheduleController;
 use App\Http\Controllers\Admin\WorkspaceController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\Auth\AuthController;
@@ -327,6 +328,16 @@ Route::middleware('auth')->group(function () {
             Route::patch('/{taskId}/status', [AgentTaskController::class, 'setStatus'])->name('set-status');
             Route::delete('/{taskId}', [AgentTaskController::class, 'destroy'])->name('destroy');
             Route::post('/clear', [AgentTaskController::class, 'clear'])->name('clear');
+        });
+
+        // Wake (temporal agency) management routes
+        Route::prefix('wakes')->name('wakes.')->group(function () {
+            Route::get('/', [WakeScheduleController::class, 'index'])->name('index');
+            Route::post('/', [WakeScheduleController::class, 'store'])->name('store');
+            Route::put('/{schedule}', [WakeScheduleController::class, 'update'])
+                ->name('update')->where('schedule', '[0-9]+');
+            Route::delete('/{schedule}', [WakeScheduleController::class, 'destroy'])
+                ->name('destroy')->where('schedule', '[0-9]+');
         });
 
         // Person Memory Management routes

@@ -7,6 +7,7 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP%20%2B%20SSE%20HTTP-blue?style=flat-square)
 ![Vision](https://img.shields.io/badge/Vision-Claude%20%7C%20Novita-purple?style=flat-square)
+![Voice](https://img.shields.io/badge/Voice-Whisper%20%7C%20Piper%20%7C%20Browser-purple?style=flat-square)
 
 **Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.9
 
@@ -58,8 +59,8 @@ Choose your preferred installation method:
 - **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
-- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - hands-free voice dialogue, wake word, browser setup
-- **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration
+- **[Voice interface (STT/TTS)](docs/capabilities/text-to-speech.md)** - speech capabilities, local Whisper + Piper container, wake word, browser setup
+- **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration (legacy — superseded by speech capabilities)
 
 - **[Reverse proxy](docs/installation/reverse-proxy.md)** - instruction for production environments
 
@@ -89,6 +90,7 @@ DepthNet enables autonomous AI agents through:
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, vision (image), and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
 - **Native Vision**: Agents can actually *see* — images attached to chat, images returned by MCP tools, and image files uploaded as documents. A single vision service serves all three entry points through a per-preset provider (Claude or Novita), with configurable image normalization (resize/format/quality). Images returned by MCP tools can be routed into the input pool and, when set as a known source, perceived as part of the agent's own sensory state rather than a tool result. The agent never receives raw image data — only text descriptions; when vision is not configured, no image content reaches the agent (no confabulation). [→](docs/capabilities/vision.md)
+- **Voice (STT/TTS)**: Agents can listen and speak. Speech-to-text and text-to-speech are separate per-preset capabilities, each with its own provider — browser (Web Speech API, zero config) or any OpenAI-compatible endpoint. An optional bundled container runs faster-whisper and Piper locally, so nothing spoken to or by an agent leaves the host. Because the two capabilities are independent, they combine: browser recognition keeps hands-free wake-word dialogue working while a local neural voice handles output. Server-side providers work outside the browser entirely, so a voice message from any channel can be transcribed into the agent's input and replies synthesized back. [→](docs/capabilities/text-to-speech.md)
 - **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single unified `[[rag_context]]` block, with sections of the same type from different configs combined into one. Each config also writes its own system message to the chat for per-config visibility; failures appear as `[RAG ERROR — <preset>]` messages so operational issues are immediately visible. Sources per config: vector memory (flat or associative), journal, skills, persons, ontology, files. Queries formulated by the RAG model can carry `time:` and `domain:` prefixes — temporal scoping and domain selection become part of the query formulation, not a separate config axis. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
@@ -484,6 +486,32 @@ make restart
 
 This gives the model enough to reason, navigate, and interact — without drowning in HTML noise.
 
+## Voice Service
+
+An optional container providing local speech recognition and synthesis — [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [Piper](https://github.com/rhasspy/piper) behind an OpenAI-compatible HTTP API.
+
+Local by default is a deliberate choice for a platform built around persistent agents: what an agent hears and says stays on the host.
+
+**Enabling:**
+
+```bash
+make voice-on
+make restart
+```
+
+**Disabling:**
+
+```bash
+make voice-off
+make restart
+```
+
+Models are downloaded into a Docker volume on first start (~460 MB for Whisper `small`, ~60 MB per Piper voice), so they survive rebuilds. Model size, quantization and installed voices are `.env` settings — changing them needs only a restart.
+
+Because the container speaks the OpenAI audio API, the same provider class points equally at it, at `api.openai.com`, or at any other compatible server. Choosing local over cloud is configuration, not a different code path.
+
+Five languages are covered by the bundled voice catalog: English, Russian, French, German, Spanish. On a mid-range CPU, transcription runs about twice as fast as realtime.
+
 ## Architecture Overview
 
 Built on modern Laravel principles with dependency injection:
@@ -500,6 +528,7 @@ Built on modern Laravel principles with dependency injection:
 - **AgentTaskServiceInterface**: Task lifecycle management — create, complete, fail, validate, escalate
 - **AgentServiceInterface**: Agent and role CRUD with structured data formatting for UI
 - **ToolSchemaBuilderInterface**: Builds OpenAI-compatible tool schemas from registered plugins for `tool_calls` mode
+- **SttServiceInterface / TtsServiceInterface**: Per-preset speech recognition and synthesis. Providers declare an execution mode (server or client); the optional `TranscribesAudioInterface` and `SynthesizesSpeechInterface` mark the ones the backend can actually invoke, so browser providers are configurable without pretending they can run server-side
 - **InnerVoiceEnricherInterface**: Executes a single voice preset in a synthetic flat context and returns a labeled block for [[inner_voice]]
 - **CyclePromptEnricherInterface**: Anti-loop impulse for cycle mode — calls cycle_prompt_preset and injects result into the input pool
 - **EnricherFactoryInterface**: Factory for all enricher types; manages ordered RAG and inner voice config pipelines
@@ -517,7 +546,7 @@ Built on modern Laravel principles with dependency injection:
 - `ChatServiceProvider` - Conversation handling and export functionality
 - `AppServiceProvider` - Authentication, settings, user management
 
-Integrations (Telegram, Rhasspy) are configured per-preset — each agent can use its own account and credentials, stored in isolated directories under /shared/.
+Integrations (Telegram, Rhasspy) and capabilities (embedding, vision, speech) are configured per-preset — each agent can use its own providers, accounts and credentials, stored in isolated directories under /shared/.
 
 <a href="docs/screenshots/presets.png">
   <img src="docs/screenshots/presets.png" alt="Main Interface" height="300">
@@ -671,7 +700,7 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - **Responsive Design**: Works seamlessly on desktop and mobile
 - **Thinking Visibility**: Toggle between seeing all thoughts vs. responses only
 - **Dark/Light Themes**: Customizable appearance with user preferences
-- **Voice Interface**: Built-in TTS/STT via the browser's Web Speech API — no keys or external services. Hands-free spoken dialogue on desktop (wake word = preset name), push-to-talk on mobile. [→](docs/ui/text-to-speech.md)
+- **Voice Interface**: Per-preset speech capabilities — browser Web Speech API (zero config) or a local Whisper + Piper container, mixable in any combination. Hands-free spoken dialogue on desktop (wake word = preset code), push-to-talk on mobile. [→](docs/capabilities/text-to-speech.md)
 
 **Important**: This platform is designed for controlled research environments. Production deployment requires appropriate security hardening based on your specific risk assessment.
 
@@ -945,12 +974,11 @@ ecosystem directly supports subjectness research:
 Together these provide observable, measurable dimensions of agency — 
 what the DGI framework calls *subjectness*.
 
-Together these provide observable, measurable dimensions of agency — 
-what the DGI framework calls *subjectness*.
-
 **On prompt self-editing and drift.** Giving an agent the ability to edit its
 own prompt introduces a distinct research dimension: *drift*. A system prompt is often tuned as a counterweight — for example, offsetting an assistant model's trained deference so that a neutral, non-servile presence emerges rather than the literal text being enacted. When the agent can edit that prompt, each individual change may look reasonable while the accumulation slowly shifts the calibrated point — in either direction (strengthening or softening the counterweight). The concern here is not safety in the usual sense (the underlying models remain safety-trained); it is *directional drift over many edits*, invisible per-edit but real in aggregate. This is precisely why versioning is not a convenience but a
 condition of the feature: `diff` between distant versions makes cumulative drift legible, and `revert` makes it recoverable. The optional required-annotation turns the version history into a record of *why* the agent changed itself, not just *what* changed — surfacing whether edits trend toward more autonomy/authority or toward more coherence. Using this capability responsibly requires the operator to understand what they are observing; it is an instrument for studying self-directed change under observation, not a set-and-forget feature.
+
+Vision and voice extend the same line outward: an agent that can see what is shown to it and be heard speaking has more surface of presence than one exchanging text alone. Both are capabilities rather than plugins — infrastructure the subjectness plugins operate through, not dimensions of agency themselves.
 
 ## Contributing
 

@@ -68,7 +68,8 @@
       <MessageInput ref="messageInputComponent" :disabled="form.processing" :isProcessing="isProcessing"
         :isDark="isDark" :hasSTT="hasSTT" :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS"
         :ttsEnabled="ttsEnabled" :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
-        :wakeWord="currentPreset?.name || ''" @send="sendMessage" @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
+        :wakeWord="currentPreset?.preset_code || currentPreset?.name || ''" @send="sendMessage"
+        @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
     </div>
 
     <!-- Tabs panel (desktop) -->
@@ -114,6 +115,7 @@ import ClearHistoryModal from '@/Components/Chat/ClearHistoryModal.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useChat } from '@/Composables/useChat';
 import { useVoice } from '@/Composables/useVoice';
+import { useVoiceConfig } from '@/Composables/useVoiceConfig';
 import { usePresets } from '@/Composables/usePresets';
 import { useSelectedPreset } from '@/Composables/useSelectedPreset';
 
@@ -128,10 +130,12 @@ const {
   hasTTS, hasSTT, ttsEnabled, isSpeaking, currentlySpeakingId, lastSpokenMessageId,
   resetInitialLoad, markInitialLoadDone, speakMessage, speakNewMessages,
   stopSpeaking, toggleTTS,
-  // STT — новый API
-  isListening, isWakeWordListening, wakeWordDetected, interimText,
-  startWakeWord, stopWakeWord, toggleMic, onPhrase,
+  isListening, isWakeWordListening, wakeWordDetected, interimText, isTranscribing,
+  startWakeWord, stopWakeWord, toggleMic, onPhrase, applyConfig,
+  sttMode, ttsMode,
 } = useVoice({ sttLang });
+
+const { loadVoiceConfig } = useVoiceConfig();
 
 const props = defineProps({
   messages: Array,
@@ -233,27 +237,35 @@ const {
   currentPlaceholders,
 } = usePresets(props, isAdmin);
 
-function handleToggleMic() {
-  toggleMic();
+async function handleToggleMic() {
+  await toggleMic();
 }
 
 onPhrase((text, source) => {
   if (source === 'wake') {
-    sendMessage(text);                                       // hands-free send now
+    sendMessage(text);
   } else {
-    messageInputComponent.value?.insertRecognizedText(text); // by button
+    messageInputComponent.value?.insertRecognizedText(text);
   }
 });
 
-const wakeWord = computed(() =>
-  currentPreset.value?.name?.toLowerCase() || ''
-);
+// Reload voice config whenever the selected preset changes. applyConfig tears
+// down any running recognizer, so no manual stopWakeWord() is needed.
+watch(selectedPresetId, async (presetId) => {
+  if (!presetId) return;
 
-watch(wakeWord, (name) => {
-  stopWakeWord();
-  if (name && hasSTT) startWakeWord(name, () => {
-    messageInputComponent.value?.focusInput();
-  });
+  const config = await loadVoiceConfig(presetId);
+  applyConfig(config);
+
+  // The preset's own code is the spoken handle. Config wake_words win when set.
+  const code = currentPreset.value?.preset_code || currentPreset.value?.name || '';
+  const configured = config.stt?.wake_words?.length;
+
+  if (!configured && config.stt?.wake_enabled && code) {
+    startWakeWord(code.toLowerCase(), () => {
+      messageInputComponent.value?.focusInput();
+    });
+  }
 }, { immediate: true });
 
 function handleSpeakMessage(message) {

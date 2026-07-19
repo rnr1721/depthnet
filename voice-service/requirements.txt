@@ -1,0 +1,16 @@
+# Pinned deliberately: this container is a black box for DepthNet users, and a
+# silent breaking change in a transitive dep is much worse here than a stale
+# minor version. Bump consciously.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# STT — CTranslate2 backend, CPU-friendly with int8 quantization.
+faster-whisper==1.1.1
+
+# TTS — ONNX runtime, no torch needed.
+piper-tts==1.2.0
+
+requests==2.32.3
+huggingface-hub==0.27.1

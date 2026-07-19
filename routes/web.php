@@ -33,6 +33,7 @@ use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\VoiceController;
 use App\Http\Controllers\WelcomeController;
 use App\Http\Middleware\AdminMiddleware;
 use Illuminate\Support\Facades\Route;
@@ -70,6 +71,12 @@ Route::middleware('auth')->group(function () {
         Route::put('preset/{id}', [ChatController::class, 'updatePreset'])->middleware(AdminMiddleware::class)->name('preset.update');
         Route::get('users', [ChatController::class, 'getUsers'])->name('users');
         Route::get('message/{messageId}/system-prompt', [ChatController::class, 'getSystemPrompt'])->middleware(AdminMiddleware::class)->name('message.system-prompt');
+    });
+
+    Route::prefix('voice')->name('voice.')->group(function () {
+        Route::get('config', [VoiceController::class, 'config'])->name('config');
+        Route::post('speak', [VoiceController::class, 'speak'])->name('speak');
+        Route::post('transcribe', [VoiceController::class, 'transcribe'])->name('transcribe');
     });
 
     // Profile routes
@@ -261,6 +268,7 @@ Route::middleware('auth')->group(function () {
             Route::post('/{presetId}/{capability}/test', [PresetCapabilityController::class, 'test'])->name('test');
             // List available models for capabilities that support it (e.g. LLMs)
             Route::get('/{presetId}/{capability}/models', [PresetCapabilityController::class, 'models'])->name('models');
+            Route::get('/{presetId}/{capability}/voices', [PresetCapabilityController::class, 'voices'])->name('voices');
         });
 
         // Skills Management routes

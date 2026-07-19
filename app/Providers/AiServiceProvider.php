@@ -14,6 +14,8 @@ use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Browser\BrowserServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Capabilities\SttServiceInterface;
+use App\Contracts\Agent\Capabilities\TtsServiceInterface;
 use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
@@ -101,6 +103,14 @@ use App\Services\Agent\Browser\BrowserService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
+use App\Services\Agent\Capabilities\Speech\Drivers\BrowserSttProvider;
+use App\Services\Agent\Capabilities\Speech\Drivers\BrowserTtsProvider;
+use App\Services\Agent\Capabilities\Speech\Drivers\OpenAiCompatibleSttProvider;
+use App\Services\Agent\Capabilities\Speech\Drivers\OpenAiCompatibleTtsProvider;
+use App\Services\Agent\Capabilities\Speech\SttRegistry;
+use App\Services\Agent\Capabilities\Speech\SttService;
+use App\Services\Agent\Capabilities\Speech\TtsRegistry;
+use App\Services\Agent\Capabilities\Speech\TtsService;
 use App\Services\Agent\Capabilities\Vision\Drivers\ClaudeVisionProvider;
 use App\Services\Agent\Capabilities\Vision\Drivers\NovitaVisionProvider;
 use App\Services\Agent\Capabilities\Vision\VisionRegistry;
@@ -371,6 +381,44 @@ class AiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(VisionServiceInterface::class, VisionService::class);
+
+        $this->app->singleton(SttRegistry::class, function ($app) {
+            $registry = new SttRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            $registry->register(new BrowserSttProvider());
+            $registry->register(
+                new OpenAiCompatibleSttProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            return $registry;
+        });
+
+        $this->app->singleton(SttServiceInterface::class, SttService::class);
+
+        $this->app->singleton(TtsRegistry::class, function ($app) {
+            $registry = new TtsRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            $registry->register(new BrowserTtsProvider());
+            $registry->register(
+                new OpenAiCompatibleTtsProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            return $registry;
+        });
+
+        $this->app->singleton(TtsServiceInterface::class, TtsService::class);
 
         // VectorMemoryFactory
         $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {

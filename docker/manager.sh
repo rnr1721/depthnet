@@ -102,6 +102,17 @@ detect_browser_mode() {
     fi
 }
 
+# Detect voice mode from .env
+detect_voice_mode() {
+    VOICE_MODE="false"
+    if [ -f "$ENV_FILE" ]; then
+        COMPOSE_PROFILES=$(grep "^COMPOSE_PROFILES=" "$ENV_FILE" | cut -d'=' -f2 2>/dev/null || echo "")
+        if [[ "$COMPOSE_PROFILES" == *"voice"* ]] || [[ "$COMPOSE_PROFILES" == *"full"* ]]; then
+            VOICE_MODE="true"
+        fi
+    fi
+}
+
 # Get resolved port
 get_resolved_port() {
     if [ -x "$SCRIPT_DIR/port-resolver.sh" ] && [ -f "$ENV_FILE" ]; then
@@ -251,16 +262,13 @@ interactive_setup() {
 build_compose_cmd() {
     detect_sandbox_mode
     detect_browser_mode
+    detect_voice_mode
     local profile_arg=""
     local override_arg=""
 
-    if [ "$SANDBOX_MODE" = "true" ] && [ "$BROWSER_MODE" = "true" ]; then
-        profile_arg="--profile sandbox --profile browser"
-    elif [ "$SANDBOX_MODE" = "true" ]; then
-        profile_arg="--profile sandbox"
-    elif [ "$BROWSER_MODE" = "true" ]; then
-        profile_arg="--profile browser"
-    fi
+    [ "$SANDBOX_MODE" = "true" ] && profile_arg="$profile_arg --profile sandbox"
+    [ "$BROWSER_MODE" = "true" ] && profile_arg="$profile_arg --profile browser"
+    [ "$VOICE_MODE"   = "true" ] && profile_arg="$profile_arg --profile voice"
 
     if [ -f "$PROJECT_DIR/docker-compose.override.yml" ]; then
         override_arg="-f docker-compose.override.yml"
@@ -347,6 +355,55 @@ toggle_browser() {
     esac
 }
 
+# Enable/disable voice service
+toggle_voice() {
+    local action="$1"
+
+    if [ ! -f "$ENV_FILE" ]; then
+        log_error ".env file not found! Run setup first."
+        exit 1
+    fi
+
+    local current_profiles=$(grep "^COMPOSE_PROFILES=" "$ENV_FILE" | cut -d'=' -f2 2>/dev/null || echo "")
+
+    case "$action" in
+        "enable")
+            if [[ "$current_profiles" == *"voice"* ]]; then
+                log_warning "Voice service is already enabled."
+                return
+            fi
+            if grep -q "^COMPOSE_PROFILES=" "$ENV_FILE"; then
+                if [ -z "$current_profiles" ]; then
+                    sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=voice/" "$ENV_FILE"
+                else
+                    sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=${current_profiles},voice/" "$ENV_FILE"
+                fi
+            else
+                echo "COMPOSE_PROFILES=voice" >> "$ENV_FILE"
+            fi
+            log_success "Voice service enabled! Restart containers to apply: make restart"
+            log_warning "First start downloads speech models (several hundred MB) — be patient."
+            ;;
+        "disable")
+            if [[ "$current_profiles" != *"voice"* ]]; then
+                log_warning "Voice service is already disabled."
+                return
+            fi
+            local new_profiles=$(echo "$current_profiles" | sed 's/,voice//g; s/voice,//g; s/^voice$//g')
+            if [ -z "$new_profiles" ]; then
+                sed -i "/^COMPOSE_PROFILES=/d" "$ENV_FILE"
+            else
+                sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=${new_profiles}/" "$ENV_FILE"
+            fi
+            log_success "Voice service disabled! Restart containers to apply: make restart"
+            ;;
+        *)
+            log_error "Usage: $0 voice-toggle [enable|disable]"
+            exit 1
+            ;;
+    esac
+}
+
 # Start containers
 start_containers() {
     local resolved_port=$(get_resolved_port)
@@ -358,6 +415,7 @@ start_containers() {
     fi
 
     detect_sandbox_mode
+    detect_voice_mode
 
     log_info "Starting $ENV_TYPE environment..."
     log_info "Using port: $resolved_port (UID:$DOCKER_UID, GID:$DOCKER_GID)"
@@ -383,6 +441,11 @@ start_containers() {
 
     if [ "$BROWSER_MODE" = "true" ]; then
         log_info "Browser service will be started"
+    fi
+
+    if [ "$VOICE_MODE" = "true" ]; then
+        log_info "Voice service will be started"
+        log_warning "On first start, speech models are downloaded — this may take several minutes"
     fi
 
     # Check if already running
@@ -817,6 +880,12 @@ show_help() {
         else
             echo "Browser: Disabled"
         fi
+        detect_voice_mode
+        if [ "$VOICE_MODE" = "true" ]; then
+            echo "Voice: Enabled"
+        else
+            echo "Voice: Disabled"
+        fi
     else
         echo "No .env file found - run setup first"
     fi
@@ -855,6 +924,11 @@ show_help() {
     echo "  $0 browser-toggle     Toggle browser service on/off:"
     echo "    enable                Enable browser service (Playwright)"
     echo "    disable               Disable browser service"
+    echo ""
+    echo "Voice service:"
+    echo "  $0 voice-toggle       Toggle local STT/TTS service on/off:"
+    echo "    enable                Enable voice service (faster-whisper + piper)"
+    echo "    disable               Disable voice service"
     echo ""
     echo "Development tools:"
     echo "  $0 shell              Open shell as depthnet user"
@@ -909,6 +983,9 @@ main() {
             ;;
         "browser-toggle")
             toggle_browser "$2"
+            ;;
+        "voice-toggle")
+            toggle_voice "$2"
             ;;
         "start")
             check_env

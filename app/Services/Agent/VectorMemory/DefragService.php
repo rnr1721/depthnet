@@ -12,6 +12,7 @@ use App\Models\AiPreset;
 use App\Models\VectorMemory;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Psr\Log\LoggerInterface;
 
@@ -40,6 +41,14 @@ class DefragService implements DefragServiceInterface
 {
     private const DEFAULT_PROMPT_PATH = 'data/defrag/default_prompt.txt';
 
+    private const TIME_MAP = [
+        'morning'     => 8,
+        'afternoon'   => 14,
+        'evening'     => 19,
+        'night'       => 22,
+        'late night'  => 23,
+    ];
+
     public function __construct(
         protected PresetRegistryInterface            $presetRegistry,
         protected VectorMemory                       $vectorMemoryModel,
@@ -56,58 +65,79 @@ class DefragService implements DefragServiceInterface
      */
     public function defrag(AiPreset $preset): array
     {
-        $engine     = $this->presetRegistry->createInstance($preset->getId());
-        $keepPerDay = $preset->getDefragKeepPerDay();
-        $prompt     = $this->resolvePrompt($preset, $keepPerDay);
-        $timezone   = config('app.timezone', 'UTC');
+        $lockKey = "defrag_lock:{$preset->id}";
+        $lockTtl = 300; // 5 minutes — maximum time for the preset
 
-        $recordsBefore = $this->vectorMemoryModel
-            ->where('preset_id', $preset->id)
-            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
-            ->count();
-
-        $days = $this->vectorMemoryModel
-            ->where('preset_id', $preset->id)
-            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
-            ->selectRaw("DATE(CONVERT_TZ(created_at, 'UTC', ?)) as day, COUNT(*) as cnt", [$timezone])
-            ->groupBy('day')
-            ->havingRaw('cnt > ?', [$keepPerDay])
-            ->orderBy('day', 'asc')
-            ->pluck('cnt', 'day');
-
-        $daysProcessed = 0;
-
-        foreach ($days as $day => $count) {
-            try {
-                $this->defragDay($engine, $preset, $day, $prompt, $keepPerDay, $timezone);
-                $daysProcessed++;
-            } catch (\Throwable $e) {
-                $this->logger->error('DefragService: failed to defrag day', [
-                    'preset_id' => $preset->id,
-                    'day'       => $day,
-                    'error'     => $e->getMessage(),
-                ]);
-            }
+        // Try to acquire the lock. If already taken — skip.
+        if (!cache()->add($lockKey, true, $lockTtl)) {
+            $this->logger->warning('DefragService: preset already being defragged, skipping', [
+                'preset_id' => $preset->id,
+            ]);
+            return [
+                'days_processed'  => 0,
+                'records_before'  => 0,
+                'records_after'   => 0,
+                'records_removed' => 0,
+            ];
         }
 
-        $recordsAfter = $this->vectorMemoryModel
-            ->where('preset_id', $preset->id)
-            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
-            ->count();
+        try {
+            $engine     = $this->presetRegistry->createInstance($preset->getId());
+            $keepPerDay = $preset->getDefragKeepPerDay();
+            $prompt     = $this->resolvePrompt($preset, $keepPerDay);
+            $timezone   = config('app.timezone', 'UTC');
 
-        $result = [
-            'days_processed'  => $daysProcessed,
-            'records_before'  => $recordsBefore,
-            'records_after'   => $recordsAfter,
-            'records_removed' => $recordsBefore - $recordsAfter,
-        ];
+            $recordsBefore = $this->vectorMemoryModel
+                ->where('preset_id', $preset->id)
+                ->where('domain', VectorMemory::DEFAULT_DOMAIN)
+                ->count();
 
-        $this->logger->info('DefragService: defrag completed', array_merge(
-            ['preset_id' => $preset->id, 'preset_name' => $preset->getName()],
-            $result
-        ));
+            $days = $this->vectorMemoryModel
+                ->where('preset_id', $preset->id)
+                ->where('domain', VectorMemory::DEFAULT_DOMAIN)
+                ->selectRaw("DATE(CONVERT_TZ(created_at, 'UTC', ?)) as day, COUNT(*) as cnt", [$timezone])
+                ->groupBy('day')
+                ->havingRaw('cnt > ?', [$keepPerDay])
+                ->orderBy('day', 'asc')
+                ->pluck('cnt', 'day');
 
-        return $result;
+            $daysProcessed = 0;
+
+            foreach ($days as $day => $count) {
+                try {
+                    $this->defragDay($engine, $preset, $day, $prompt, $keepPerDay, $timezone);
+                    $daysProcessed++;
+                } catch (\Throwable $e) {
+                    $this->logger->error('DefragService: failed to defrag day', [
+                        'preset_id' => $preset->id,
+                        'day'       => $day,
+                        'error'     => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $recordsAfter = $this->vectorMemoryModel
+                ->where('preset_id', $preset->id)
+                ->where('domain', VectorMemory::DEFAULT_DOMAIN)
+                ->count();
+
+            $result = [
+                'days_processed'  => $daysProcessed,
+                'records_before'  => $recordsBefore,
+                'records_after'   => $recordsAfter,
+                'records_removed' => $recordsBefore - $recordsAfter,
+            ];
+
+            $this->logger->info('DefragService: defrag completed', array_merge(
+                ['preset_id' => $preset->id, 'preset_name' => $preset->getName()],
+                $result
+            ));
+
+            return $result;
+        } finally {
+            // We remove the lock in any case
+            cache()->forget($lockKey);
+        }
     }
 
     /**
@@ -133,57 +163,54 @@ class DefragService implements DefragServiceInterface
         int      $keepPerDay,
         string   $timezone,
     ): void {
-        $memories = $this->vectorMemoryModel
-            ->where('preset_id', $preset->id)
-            ->where('domain', VectorMemory::DEFAULT_DOMAIN)
-            ->whereRaw("DATE(CONVERT_TZ(created_at, 'UTC', ?)) = ?", [$timezone, $day])
-            ->orderBy('created_at', 'asc')
-            ->get();
+        DB::transaction(function () use ($engine, $preset, $day, $prompt, $keepPerDay, $timezone) {
+            $memories = $this->vectorMemoryModel
+                ->where('preset_id', $preset->id)
+                ->where('domain', VectorMemory::DEFAULT_DOMAIN)
+                ->whereRaw("DATE(CONVERT_TZ(created_at, 'UTC', ?)) = ?", [$timezone, $day])
+                ->orderBy('created_at', 'asc')
+                ->lockForUpdate()
+                ->get();
 
-        if ($memories->isEmpty()) {
-            return;
-        }
+            if ($memories->isEmpty()) {
+                return;
+            }
 
-        $content = $this->buildDayContent($memories);
+            $content = $this->buildDayContent($memories, $day);
 
-        $request = new ModelRequestDTO(
-            preset:                    $preset,
-            memoryService:             $this->memoryService,
-            commandInstructionBuilder: $this->commandInstructionBuilder,
-            shortcodeManager:          $this->shortcodeManagerService,
-            pluginMetadataService:     $this->pluginMetadataService,
-            context:                   [['role' => 'user', 'content' => $content]],
-            additionalParams:          ['system_prompt_override' => $prompt],
-        );
+            $request = new ModelRequestDTO(
+                preset:                    $preset,
+                memoryService:             $this->memoryService,
+                commandInstructionBuilder: $this->commandInstructionBuilder,
+                shortcodeManager:          $this->shortcodeManagerService,
+                pluginMetadataService:     $this->pluginMetadataService,
+                context:                   [['role' => 'user', 'content' => $content]],
+                additionalParams:          ['system_prompt_override' => $prompt],
+            );
 
-        $response = $engine->generate($request);
+            $response = $engine->generate($request);
 
-        if ($response->isError()) {
-            throw new \RuntimeException('Engine returned error: ' . $response->getResponse());
-        }
+            if ($response->isError()) {
+                throw new \RuntimeException('Engine returned error: ' . $response->getResponse());
+            }
 
-        $distilled = $this->parseResponse($response->getResponse(), $keepPerDay);
+            $distilled = $this->parseResponse($response->getResponse(), $keepPerDay);
 
-        if (empty($distilled)) {
-            $this->logger->warning('DefragService: empty distilled result, skipping day', [
-                'preset_id' => $preset->id,
-                'day'       => $day,
-            ]);
-            return;
-        }
+            if (empty($distilled)) {
+                $this->logger->warning('DefragService: empty distilled result, skipping day', [
+                    'preset_id' => $preset->id,
+                    'day'       => $day,
+                ]);
+                return;
+            }
 
-        $dayTimestamp = Carbon::createFromFormat('Y-m-d', $day, $timezone)
-            ->setTime(12, 0, 0)
-            ->utc();
-
-        $originalIds = $memories->pluck('id')->toArray();
-
-        DB::transaction(function () use ($preset, $distilled, $dayTimestamp, $originalIds) {
             foreach ($distilled as $text) {
                 $text = trim($text);
                 if (empty($text)) {
                     continue;
                 }
+
+                $timestamp = $this->resolveTimestamp($day, $text, $timezone);
 
                 $memory = $this->vectorMemoryModel->newInstance([
                     'preset_id'    => $preset->id,
@@ -194,32 +221,46 @@ class DefragService implements DefragServiceInterface
                     'importance'   => 1.0,
                 ]);
 
-                $memory->withoutTimestamps(function () use ($memory, $dayTimestamp) {
-                    $memory->created_at = $dayTimestamp;
-                    $memory->updated_at = $dayTimestamp;
+                $memory->withoutTimestamps(function () use ($memory, $timestamp) {
+                    $memory->created_at = $timestamp;
+                    $memory->updated_at = $timestamp;
                     $memory->save();
                 });
             }
 
-            $this->vectorMemoryModel->whereIn('id', $originalIds)->delete();
-        });
+            $this->vectorMemoryModel->whereIn('id', $memories->pluck('id')->toArray())->delete();
 
-        $this->logger->info('DefragService: day defragged', [
-            'preset_id' => $preset->id,
-            'day'       => $day,
-            'before'    => count($originalIds),
-            'after'     => count($distilled),
-        ]);
+            $this->logger->info('DefragService: day defragged', [
+                'preset_id' => $preset->id,
+                'day'       => $day,
+                'before'    => $memories->count(),
+                'after'     => count($distilled),
+            ]);
+        });
     }
 
     /**
      * Build numbered list of memory entries for one day.
      */
-    private function buildDayContent(\Illuminate\Support\Collection $memories): string
+    private function buildDayContent(Collection $memories, string $day): string
     {
-        return $memories->values()->map(function (VectorMemory $m, int $i) {
+        $header = "=== {$day} ===\n";
+
+        // Build strings and truncate if too many
+        $maxEntries = 50; // Approximate limit
+
+        $subset = $memories->values()->slice(-$maxEntries); // Take the last N
+
+        $body = $subset->map(function (VectorMemory $m, int $i) use ($subset) {
+            // The numbering is original; if it has been cut off, we add a note.
             return ($i + 1) . '. ' . trim($m->content);
         })->implode("\n");
+
+        if ($memories->count() > $maxEntries) {
+            $body = "[... " . ($memories->count() - $maxEntries) . " earlier entries omitted ...]\n" . $body;
+        }
+
+        return $header . $body;
     }
 
     /**
@@ -291,4 +332,26 @@ class DefragService implements DefragServiceInterface
 
         return trim(implode("\n", $lines));
     }
+
+    /**
+     * Extract time-of-day marker from distilled memory text and resolve to Carbon timestamp.
+     * Expects the memory to start with "Morning:", "Afternoon:", "Evening:", "Night:", or "Late night:".
+     * Falls back to noon (12:00) if no known marker is found.
+     */
+    private function resolveTimestamp(string $day, string $text, string $timezone): Carbon
+    {
+        $hour = 12;
+
+        if (preg_match('/^(morning|afternoon|evening|night|late\s*night)/i', $text, $matches)) {
+            $marker = strtolower(trim($matches[1]));
+            $hour = self::TIME_MAP[$marker] ?? 12;
+        }
+
+        $minute = abs(crc32($text) % 29); // 0 to 28 minutes
+
+        return Carbon::createFromFormat('Y-m-d', $day, $timezone)
+            ->setTime($hour, $minute, 0)
+            ->utc();
+    }
+
 }

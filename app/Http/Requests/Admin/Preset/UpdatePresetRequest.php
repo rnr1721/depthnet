@@ -34,7 +34,7 @@ class UpdatePresetRequest extends FormRequest
             'max_context_limit_extended' => ['nullable', 'integer', 'min:0', 'max:100'],
             'pre_pass_enabled'           => ['boolean'],
             'pre_pass_instruction'       => ['nullable', 'string', 'max:5000'],
-            'agent_result_mode' => ['required','string'],
+            'agent_result_mode' => ['required','in:tool_calls,internal'],
             'preset_code_next' => ['nullable', 'string', 'max:50'],
             'pre_run_commands' => ['nullable', 'string'],
             'turn_trigger' => ['nullable', 'string'],

@@ -84,6 +84,18 @@
                             </svg>
                             {{ t('p_modal_engines') }}
                         </Link>
+                        <Link :href="route('admin.exchange.import.form')" :class="[
+                            'inline-flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2',
+                            isDark
+                                ? 'bg-gray-700 hover:bg-gray-800 text-white focus:ring-gray-500 focus:ring-offset-gray-900'
+                                : 'bg-gray-200 hover:bg-gray-300 text-gray-800 focus:ring-gray-400'
+                        ]">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                            </svg>
+                            {{ t('exchange_import_title') }}
+                        </Link>
                     </div>
                 </div>
 
@@ -149,7 +161,7 @@
                         <div class="px-6 py-4">
                             <div class="flex items-center justify-between space-x-2">
                                 <div class="flex space-x-2">
-                                    <button @click="editPreset(preset)" :class="[
+                                    <button @click="editPreset(preset)" :title="t('presets_edit')" :class="[
                                         'inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium transition-all hover:scale-105',
                                         isDark
                                             ? 'bg-blue-900 bg-opacity-50 text-blue-200 hover:bg-opacity-70'
@@ -160,9 +172,8 @@
                                                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
                                             </path>
                                         </svg>
-                                        {{ t('presets_edit') }}
                                     </button>
-                                    <button @click="duplicatePreset(preset)" :class="[
+                                    <button @click="duplicatePreset(preset)" :title="t('presets_duplicate')" :class="[
                                         'inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium transition-all hover:scale-105',
                                         isDark
                                             ? 'bg-purple-900 bg-opacity-50 text-purple-200 hover:bg-opacity-70'
@@ -173,22 +184,30 @@
                                                 d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z">
                                             </path>
                                         </svg>
-                                        {{ t('presets_duplicate') }}
+                                    </button>
+                                    <button @click="openExport(preset)" :title="t('exchange_action_export')"
+                                        :class="['inline-flex items-center justify-center w-9 h-9 rounded-lg transition-all transform hover:scale-105',
+                                            isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600']">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4">
+                                            </path>
+                                        </svg>
                                     </button>
                                 </div>
                                 <div class="flex space-x-2">
-                                    <button v-if="!preset.is_default" @click="deletePreset(preset)" :class="[
-                                        'inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium transition-all hover:scale-105',
-                                        isDark
-                                            ? 'bg-red-900 bg-opacity-50 text-red-200 hover:bg-opacity-70'
-                                            : 'bg-red-100 text-red-800 hover:bg-red-200'
-                                    ]" :disabled="preset.is_default">
+                                    <button v-if="!preset.is_default" @click="deletePreset(preset)"
+                                        :title="t('presets_delete')" :class="[
+                                            'inline-flex items-center justify-center w-9 h-9 rounded-lg transition-all transform hover:scale-105',
+                                            isDark
+                                                ? 'bg-red-900 bg-opacity-50 text-red-200 hover:bg-opacity-70'
+                                                : 'bg-red-100 text-red-800 hover:bg-red-200'
+                                        ]" :disabled="preset.is_default">
                                         <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
                                             </path>
                                         </svg>
-                                        {{ t('presets_delete') }}
                                     </button>
                                 </div>
                             </div>
@@ -238,6 +257,10 @@
             :placeholders="editingPreset ? presetPlaceholders : placeholders" :preset="editingPreset" :engines="engines"
             @close="closeModal" :available-presets="availablePresets" @save="savePreset" />
     </div>
+
+    <ExportModal :show="exportModal.show" :is-dark="isDark" kind="preset" :item-id="exportModal.id"
+        :item-name="exportModal.name" @close="exportModal.show = false" />
+
 </template>
 
 <script setup>
@@ -247,13 +270,13 @@ import { Link, router } from '@inertiajs/vue3';
 import AdminHeader from '@/Components/AdminHeader.vue';
 import PageTitle from '@/Components/PageTitle.vue';
 import PresetModal from '@/Components/Admin/Presets/PresetModal.vue';
+import ExportModal from '@/Components/Admin/Exchange/ExportModal.vue';
 
 const { t } = useI18n();
 
 const isDark = ref(false);
 const showCreateModal = ref(false);
 const editingPreset = ref(null);
-
 
 const props = defineProps({
     presets: Array,
@@ -264,6 +287,12 @@ const props = defineProps({
         default: () => []
     }
 });
+
+const exportModal = ref({ show: false, id: null, name: '' });
+
+const openExport = (preset) => {
+    exportModal.value = { show: true, id: preset.id, name: preset.name };
+};
 
 const presetPlaceholders = ref(props.placeholders);
 

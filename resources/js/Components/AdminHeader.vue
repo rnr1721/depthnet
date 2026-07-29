@@ -405,7 +405,7 @@ const taskManagementItems = computed(() => [
   { label: 'agent_tasks', href: agentTasksLink.value },
   { label: 'journal', href: journalLink.value },
   { label: 'contract_manager', href: contractsLink.value },
-  { label: 'pattern_manager', href: patternsLink.value },
+  { label: 'behavior_manager', href: patternsLink.value },
 ]);
 
 const agentItems = computed(() => [
@@ -417,6 +417,7 @@ const systemItems = computed(() => [
   { label: 'presets', href: route('admin.presets.index') },
   { label: 'plugins', href: pluginsLink.value },
   { label: 'engines', href: route('admin.engines.index') },
+  { label: 'exchange_import_title', href: route('admin.exchange.import.form') },
   ...(page.props.sandboxEnabled ? [{ label: 'hypervisor', href: route('admin.sandboxes.index') }] : []),
 ]);
 

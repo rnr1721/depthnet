@@ -9,7 +9,7 @@
 ![Vision](https://img.shields.io/badge/Vision-Claude%20%7C%20Novita-purple?style=flat-square)
 ![Voice](https://img.shields.io/badge/Voice-Whisper%20%7C%20Piper%20%7C%20Browser-purple?style=flat-square)
 
-**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.9
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v1.0.0
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 
@@ -110,6 +110,7 @@ DepthNet enables autonomous AI agents through:
 - **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
 **Context Modes**: Per-preset dual context profiles — normal (short context, full RAG; reflection and conversation) and extended (long procedural context, filtered RAG; sustained work with stateful plugins like browser, terminal, sandbox). The agent switches automatically via a hysteresis detector: cycles that invoke stateful plugins build a work-streak that flips the profile after sustained activity and reverts it once work stops. RAG configs are tagged per-mode (normal/extended/both) so heavy associative retrieval can be silenced during task execution. Off by default — set an extended context limit to enable. Current mode visible via [[context_mode]].
 - **Pre-Pass Reasoning**: An optional extra generation over the full assembled context *before* the main response. The agent reasons first on the same ground (history, RAG, inner voice, mood) it will answer from, and sees that reasoning via `[[reasoning]]`. Runs every cycle (always-on per preset) or on demand when the agent itself invokes the Reflect plugin. Output is ephemeral — never written to history or memory. Neutral by design: the preset's pre-pass instruction sets the character, from step-by-step planning for working agents to pre-verbal reflection for subjective ones. [→](docs/plugins/reflect.md)
+- **Preset & Agent Exchange** — portable import/export of complete presets and agents between instances. Secrets are automatically stripped; no lived state (memory, vectors, dialogues) travels. Two-step import with preflight validation ensures integrity. [→](docs/exchange.md)
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 

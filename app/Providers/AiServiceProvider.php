@@ -43,6 +43,8 @@ use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
 use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
 use App\Contracts\Agent\Enricher\Rag\RagSectionRendererRegistryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
+use App\Contracts\Agent\Exchange\PresetExporterInterface;
+use App\Contracts\Agent\Exchange\PresetImporterInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
@@ -168,6 +170,8 @@ use App\Services\Agent\Enricher\Rag\Renderers\SkillsSectionRenderer;
 use App\Services\Agent\Enricher\Services\PresetInnerVoiceConfigService;
 use App\Services\Agent\Enricher\Services\PresetRagConfigService;
 use App\Services\Agent\EnvironmentInfoService;
+use App\Services\Agent\Exchange\PresetExporter;
+use App\Services\Agent\Exchange\PresetImporter;
 use App\Services\Agent\Goals\GoalService;
 use App\Services\Agent\Heart\HeartService;
 use App\Services\Agent\Journal\JournalService;
@@ -279,6 +283,10 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(SearchDateParserInterface::class, SearchDateParser::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
+
+        $this->app->bind(PresetExporterInterface::class, PresetExporter::class);
+        $this->app->bind(PresetImporterInterface::class, PresetImporter::class);
+
         $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
         $this->app->bind(MemoryImporterInterface::class, TextMemoryImporter::class);
         $this->app->bind(VectorMemoryImporterInterface::class, VectorMemoryImporter::class);

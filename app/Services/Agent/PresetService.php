@@ -40,9 +40,9 @@ class PresetService implements PresetServiceInterface
     /**
      * @inheritDoc
      */
-    public function createPreset(array $data): AiPreset
+    public function createPreset(array $data, bool $skipSecretValidation = false): AiPreset
     {
-        $this->validatePresetData($data);
+        $this->validatePresetData($data, null, $skipSecretValidation);
 
         return $this->db->transaction(function () use ($data) {
             $preset = $this->aiPresetModel->create([
@@ -799,9 +799,10 @@ class PresetService implements PresetServiceInterface
      *
      * @param array $data
      * @param integer|null $excludeId
+     * @param boolean $skipSecretValidation
      * @return void
      */
-    protected function validatePresetData(array $data, ?int $excludeId = null): void
+    protected function validatePresetData(array $data, ?int $excludeId = null, bool $skipSecretValidation = false): void
     {
         $rules = [
             'target_preset_id'         => 'nullable|integer|exists:ai_presets,id',
@@ -822,7 +823,7 @@ class PresetService implements PresetServiceInterface
             'max_context_limit_extended' => 'nullable|integer|min:0|max:100',
             'pre_pass_enabled'           => 'boolean',
             'pre_pass_instruction'       => 'nullable|string|max:5000',
-            'agent_result_mode' => 'nullable|string',
+            'agent_result_mode' => 'nullable|in:tool_calls,internal',
             'preset_code_next' => 'nullable|string',
             'pre_run_commands' => 'nullable|string',
             'turn_trigger' => 'nullable|string|in:none,no_speak',
@@ -868,6 +869,11 @@ class PresetService implements PresetServiceInterface
         // Validate engine config if provided
         if (isset($data['engine_config']) && isset($data['engine_name'])) {
             $configErrors = $this->validateEngineConfig($data['engine_name'], $data['engine_config']);
+
+            if ($skipSecretValidation) {
+                $configErrors = $this->filterOutSecretErrors($data['engine_name'], $configErrors);
+            }
+
             if (!empty($configErrors)) {
                 throw new PresetException('Engine configuration validation failed: ' . implode(', ', $configErrors));
             }
@@ -971,4 +977,43 @@ class PresetService implements PresetServiceInterface
             'imported_by' => $this->authService->getCurrentUserId()
         ]);
     }
+
+    /**
+     * Remove engine-config validation errors that belong to secret (password)
+     * fields, keeping every other error intact.
+     *
+     * Used on import, where secrets are intentionally null (stripped at export) and
+     * must be entered by the user afterwards — so a "required api_key" error is not
+     * a real problem, while an out-of-range temperature still is.
+     *
+     * Secret fields are discovered from the engine's own field declaration
+     * (type: password) — the same source the exporter uses to strip them, so the
+     * two sides stay symmetric with zero hardcoding.
+     *
+     * @param  array<string,string> $errors  Errors keyed by field name.
+     * @return array<string,string>          Errors with secret-field entries removed.
+     */
+    protected function filterOutSecretErrors(string $engineName, array $errors): array
+    {
+        $secretFields = [];
+
+        $fields = $this->engineRegistry->getEngineConfigFields($engineName);
+        foreach ($fields as $key => $meta) {
+            if (($meta['type'] ?? '') === 'password') {
+                $secretFields[$key] = true;
+            }
+        }
+
+        if (empty($secretFields)) {
+            return $errors;
+        }
+
+        return array_filter(
+            $errors,
+            fn ($key) => !isset($secretFields[$key]),
+            ARRAY_FILTER_USE_KEY
+        );
+    }
+
+
 }

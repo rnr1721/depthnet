@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AgentTaskController;
 use App\Http\Controllers\Admin\BehaviorController;
 use App\Http\Controllers\Admin\ContractController;
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\ExchangeController;
 use App\Http\Controllers\Admin\FileController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\JournalController;
@@ -191,6 +192,27 @@ Route::middleware('auth')->group(function () {
                 Route::post('/reorder', [PresetPluginDataController::class, 'reorder'])->name('reorder');
             });
 
+        });
+
+        // AI Preset management routes (import and export bundles for agents and presets)
+        Route::prefix('exchange')->name('exchange.')->group(function () {
+
+            // Import page (upload + preview + confirm)
+            Route::get('/import', [ExchangeController::class, 'importForm'])->name('import.form');
+
+            // Import step 1: validate uploaded bundle, return report (writes nothing)
+            Route::post('/import/preflight', [ExchangeController::class, 'preflight'])->name('import.preflight');
+
+            // Import step 2: commit the (already-previewed) bundle
+            Route::post('/import', [ExchangeController::class, 'import'])->name('import');
+
+            // Export a single preset (with its dependency closure) — streams a JSON file
+            Route::get('/export/preset/{id}', [ExchangeController::class, 'exportPreset'])
+                ->name('export.preset')->where('id', '[0-9]+');
+
+            // Export an agent (planner + roles + closure) — streams a JSON file
+            Route::get('/export/agent/{id}', [ExchangeController::class, 'exportAgent'])
+                ->name('export.agent')->where('id', '[0-9]+');
         });
 
         // AI Engines management routes

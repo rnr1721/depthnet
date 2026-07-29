@@ -14,7 +14,7 @@ use Psr\Log\LoggerInterface;
 /**
  * Delivers messages between agent presets.
  *
- * Reply-to tracking uses cache with TTL (default 10 minutes).
+ * Reply-to tracking uses cache with TTL (default 20 minutes).
  * If the target doesn't respond within TTL, the reply-to expires
  * automatically — no stale state left behind.
  *
@@ -25,8 +25,8 @@ class AgentMessageService implements AgentMessageServiceInterface
 {
     private const REPLY_TO_PREFIX = 'handoff_reply_to_';
 
-    /** Reply-to TTL in seconds (10 minutes) */
-    private const REPLY_TO_TTL = 600;
+    /** Reply-to TTL in seconds (20 minutes) */
+    private const REPLY_TO_TTL = 1200;
 
     public function __construct(
         protected InputPoolServiceInterface $inputPoolService,

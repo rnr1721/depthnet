@@ -504,4 +504,12 @@ class SandboxPlugin implements CommandPluginInterface
         return $hints;
     }
 
+    /**
+     * Sandbox filesystem state lives outside the model; needs step continuity.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

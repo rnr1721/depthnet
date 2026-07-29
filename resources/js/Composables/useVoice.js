@@ -1,4 +1,4 @@
-import { ref, onBeforeUnmount } from 'vue';
+import { ref, computed, onBeforeUnmount } from 'vue';
 
 /**
  * useVoice — unified Web Speech composable.
@@ -23,14 +23,133 @@ import { ref, onBeforeUnmount } from 'vue';
  * The browser kills a continuous session after ~60s of silence; we transparently
  * restart it from onend while staying in the same logical state.
  *
- * TTS is unchanged in spirit from the old composable — the bug was never there.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * CONFIGURATION
+ *
+ * Settings no longer live here as constants — they come from the preset's voice
+ * capability config, fetched by the host component and handed over via
+ * applyConfig(). Defaults below are the fallback for when voice capabilities are
+ * not configured at all, so behaviour without any config matches what this file
+ * did before.
+ *
+ * Two execution modes per capability:
+ *   'client' — the browser does the work (SpeechRecognition / speechSynthesis)
+ *   'server' — the backend does it; we record with MediaRecorder and POST, or
+ *              fetch synthesized audio and play it
+ *
+ * The state machine, wake word matching and echo suppression are shared by both
+ * STT modes: only the transcription step differs.
  */
 export function useVoice(options = {}) {
 
     // ─── Capabilities ────────────────────────────────────────────────────────
     const hasTTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
-    const hasSTT = typeof window !== 'undefined' &&
+    const hasNativeSTT = typeof window !== 'undefined' &&
         ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+    const hasRecorder = typeof window !== 'undefined' &&
+        typeof navigator !== 'undefined' &&
+        !!navigator.mediaDevices?.getUserMedia &&
+        typeof window.MediaRecorder !== 'undefined';
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  Provider configuration
+    //
+    //  applyConfig() is called by the host whenever the preset changes. Changing
+    //  providers mid-session means the running recognizer holds stale settings
+    //  (old wake words, old language), so we always tear down and rebuild.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    const sttMode = ref('client');   // 'client' | 'server' | 'off'
+    const ttsMode = ref('client');
+
+    const cfg = {
+        // STT
+        language: options.sttLang || 'ru-RU',
+        interimResults: true,
+        wakeEnabled: false,
+        wakeWords: [],
+        silenceMs: options.silenceMs ?? 1500,
+        echoTailMs: options.echoTailMs ?? 1200,
+        // TTS
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        autoSpeak: true,
+        // server hooks — supplied by the host, see applyConfig()
+        transcribeFn: null,   // async (Blob) => string
+        synthesizeFn: null,   // async (text) => Blob
+    };
+
+    /**
+     * Apply provider config from the backend.
+     *
+     * @param {object} config
+     *   { stt: {execution_mode, language, wake_enabled, wake_words, silence_ms,
+     *           echo_tail_ms, interim_results},
+     *     tts: {execution_mode, rate, pitch, volume, auto_speak},
+     *     transcribeFn, synthesizeFn }
+     */
+    function applyConfig(config = {}) {
+        // Full teardown first — a live recognizer would keep the old settings and
+        // an in-flight utterance would keep the old voice.
+        stopAll();
+        stopSpeaking();
+
+        const stt = config.stt || null;
+        const tts = config.tts || null;
+
+        sttMode.value = stt ? (stt.execution_mode || 'client') : 'off';
+        ttsMode.value = tts ? (tts.execution_mode || 'client') : 'off';
+
+        if (stt) {
+            // The browser recognizer wants a BCP-47 tag ('ru-RU'); server providers
+            // want a bare ISO code ('ru'). Config may carry either, so normalize
+            // per mode rather than forcing one shape on both.
+            cfg.language = stt.language || options.sttLang || 'ru-RU';
+            cfg.interimResults = stt.interim_results !== false;
+            cfg.wakeEnabled = !!stt.wake_enabled;
+            cfg.wakeWords = Array.isArray(stt.wake_words) ? stt.wake_words : [];
+            cfg.silenceMs = Number(stt.silence_ms) || 1500;
+            cfg.echoTailMs = Number(stt.echo_tail_ms ?? 1200);
+        }
+
+        if (tts) {
+            cfg.rate = Number(tts.rate) || 1.0;
+            cfg.pitch = Number(tts.pitch) || 1.0;
+            cfg.volume = tts.volume === undefined ? 1.0 : Number(tts.volume);
+            cfg.autoSpeak = tts.auto_speak !== false;
+        }
+
+        cfg.transcribeFn = config.transcribeFn || null;
+        cfg.synthesizeFn = config.synthesizeFn || null;
+
+        // Rebuild the recognizer so it picks up the new language.
+        recognition = null;
+
+        if (cfg.wakeEnabled && cfg.wakeWords.length && sttAvailable()) {
+            wakeWords = buildWakeVariants(cfg.wakeWords);
+            enterWake();
+        }
+    }
+
+    /** Whether speech input is usable at all with the current mode. */
+    const sttAvailableRef = computed(() => {
+        if (sttMode.value === 'off') return false;
+        if (sttMode.value === 'server') return hasRecorder && !!cfg.transcribeFn;
+        return hasNativeSTT;
+    });
+
+    /** Whether speech output is usable. */
+    const ttsAvailableRef = computed(() => {
+        if (ttsMode.value === 'off') return false;
+        if (ttsMode.value === 'server') return !!cfg.synthesizeFn;
+        return hasTTS;
+    });
+
+    // Function form for internal callers — the composable body reads these in
+    // plain JS where a .value is just noise.
+    function sttAvailable() { return sttAvailableRef.value; }
+    function ttsAvailable() { return ttsAvailableRef.value; }
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  STT — platform-adaptive recognition
@@ -62,6 +181,7 @@ export function useVoice(options = {}) {
     const interimText = ref('');
     const recognizedText = ref('');
     const sttError = ref(null);
+    const isTranscribing = ref(false);       // server round-trip in flight
 
     // Internal machine state — not reactive, single source of truth
     let machineState = STATE.IDLE;
@@ -74,13 +194,9 @@ export function useVoice(options = {}) {
     let dictationSource = 'manual'; // how dictation started: 'wake' | 'manual'
 
     // Echo guard: suppress wake word matching while TTS speaks (+ a short tail).
-    // 1200ms tail is safer for back-and-forth voice dialogue where room acoustics
-    // and speaker lag let the agent's trailing audio reach the mic.
-    const ECHO_TAIL_MS = options.echoTailMs ?? 1200;
     let suppressWakeUntil = 0;
 
     // Silence-based finalization (used in continuous/desktop mode).
-    const SILENCE_MS = options.silenceMs ?? 1500;
     let silenceTimer = null;
     let dictationBuffer = '';
 
@@ -89,9 +205,6 @@ export function useVoice(options = {}) {
     let wakeSkeletons = [];   // consonant skeletons for fuzzy vowel-tolerant matching
     let onWakeCallback = null;
     let onPhraseCallback = null;
-    const sttLang = options.sttLang
-        || (typeof document !== 'undefined' ? document.documentElement.lang : '')
-        || 'ru-RU';
 
     // ─── Wake word normalization (cyrillic ↔ latin) ───────────────────────────
 
@@ -125,8 +238,6 @@ export function useVoice(options = {}) {
      *  "флэш" / "флеш" / "флаш" / "flash" all collapse to the same key. Used as a
      *  fuzzy fallback when exact/translit matching misses on vowel differences. */
     function skeleton(s) {
-        // transliterate latin→cyrillic first so both scripts share an alphabet,
-        // then drop all vowels (latin + cyrillic).
         const cyr = translitLatToCyr(normalize(s));
         return cyr.replace(/[аеёиоуыэюяaeiouy]/gi, '');
     }
@@ -176,9 +287,9 @@ export function useVoice(options = {}) {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         const r = new SR();
         r.continuous = USE_CONTINUOUS;   // desktop: long session; mobile: one phrase
-        r.interimResults = true;
+        r.interimResults = cfg.interimResults;
         r.maxAlternatives = 3;
-        r.lang = sttLang;
+        r.lang = cfg.language;
 
         r.onstart = () => { restarting = false; syncFlags(); };
         r.onresult = handleResult;
@@ -336,7 +447,7 @@ export function useVoice(options = {}) {
 
     function armSilenceTimer() {
         clearSilenceTimer();
-        silenceTimer = setTimeout(finalizeDictation, SILENCE_MS);
+        silenceTimer = setTimeout(finalizeDictation, cfg.silenceMs);
     }
 
     function clearSilenceTimer() {
@@ -367,11 +478,106 @@ export function useVoice(options = {}) {
         finalizing = false;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  Server-side STT — MediaRecorder path
+    //
+    //  Used when the preset's provider runs on the backend. There is no wake word
+    //  here yet: matching it would mean streaming everything to the server
+    //  continuously, which is the opposite of what a wake word is for. Push to
+    //  talk, record, POST, get text.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    let mediaRecorder = null;
+    let mediaStream = null;
+    let recordedChunks = [];
+
+    async function startRecording() {
+        if (!hasRecorder) {
+            sttError.value = 'no-recorder';
+            return false;
+        }
+
+        try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+            });
+        } catch (e) {
+            // Most often a denied permission prompt — surface it rather than
+            // leaving the button silently dead.
+            sttError.value = e.name === 'NotAllowedError' ? 'mic-denied' : 'mic-failed';
+            console.warn('[useVoice] getUserMedia failed:', e);
+            return false;
+        }
+
+        recordedChunks = [];
+        // webm/opus is what Chrome and Firefox produce; Safari gives mp4. ffmpeg
+        // on the server side handles all of them, so we take whatever we get.
+        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus'
+            : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+
+        mediaRecorder = new MediaRecorder(mediaStream, mime ? { mimeType: mime } : undefined);
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+        };
+        mediaRecorder.start();
+
+        machineState = STATE.DICTATING;
+        dictationSource = 'manual';
+        syncFlags();
+        return true;
+    }
+
+    async function stopRecordingAndTranscribe() {
+        if (!mediaRecorder) return;
+
+        const recorder = mediaRecorder;
+        const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+
+        try { recorder.stop(); } catch (e) { /* already stopped */ }
+        await stopped;
+
+        // Release the mic — leaving the stream open keeps the browser's recording
+        // indicator on and, on some systems, blocks other apps.
+        mediaStream?.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+        mediaRecorder = null;
+
+        machineState = STATE.IDLE;
+        syncFlags();
+
+        const blob = new Blob(recordedChunks, { type: recorder.mimeType || 'audio/webm' });
+        recordedChunks = [];
+
+        // Sub-quarter-second blobs are almost always an accidental tap; sending
+        // them wastes a round trip and returns noise.
+        if (blob.size < 1024) return;
+
+        isTranscribing.value = true;
+        try {
+            const text = await cfg.transcribeFn(blob);
+            if (text) {
+                recognizedText.value = text;
+                onPhraseCallback?.(text, 'manual');
+            }
+        } catch (e) {
+            sttError.value = 'transcribe-failed';
+            console.warn('[useVoice] transcription failed:', e);
+        } finally {
+            isTranscribing.value = false;
+        }
+    }
+
     // ─── State transitions ──────────────────────────────────────────────────────
 
     function enterWake() {
-        // Mobile never runs an always-on wake listener.
-        if (!USE_CONTINUOUS) { stopAll(); return; }
+        // Mobile never runs an always-on wake listener, and neither does the
+        // server mode (see the MediaRecorder section above).
+        if (!USE_CONTINUOUS || sttMode.value !== 'client') { stopAll(); return; }
         machineState = STATE.WAKE;
         syncFlags();
         ensureRunning();
@@ -395,7 +601,7 @@ export function useVoice(options = {}) {
     }
 
     function ensureRunning() {
-        if (!hasSTT) return;
+        if (!hasNativeSTT) return;
         wantRunning = true;
         // Mobile: rebuild a fresh recognizer per phrase — cleaner than reusing.
         if (!recognition || !USE_CONTINUOUS) recognition = buildRecognition();
@@ -411,7 +617,7 @@ export function useVoice(options = {}) {
      * the agent's voice nor a premature new phrase can enter results[].
      */
     function pauseRecognition(reason = 'tts') {
-        if (!hasSTT) return;
+        if (sttMode.value !== 'client' || !hasNativeSTT) return;
         if (!USE_CONTINUOUS) return; // only meaningful on desktop's open mic
         pauseReasons.add(reason);
         if (machineState === STATE.IDLE) return; // nothing running to pause
@@ -427,7 +633,7 @@ export function useVoice(options = {}) {
      * Returns the mic to WAKE listening (desktop). Mobile never auto-resumes.
      */
     function resumeRecognition(reason = 'tts') {
-        if (!hasSTT) return;
+        if (sttMode.value !== 'client' || !hasNativeSTT) return;
         pauseReasons.delete(reason);
         if (pauseReasons.size > 0) return; // still paused for another reason
         restarting = false;
@@ -447,8 +653,15 @@ export function useVoice(options = {}) {
 
     // ─── Public STT API ───────────────────────────────────────────────────────
 
+    /**
+     * Start background wake-word listening.
+     *
+     * Kept for hosts that want to set a wake word imperatively; applyConfig()
+     * already does this when the preset config enables it. An explicit call wins
+     * over config, which is what a host passing the preset code expects.
+     */
     function startWakeWord(word, onWake) {
-        if (!hasSTT) return;
+        if (sttMode.value !== 'client' || !hasNativeSTT) return;
         // Mobile: no always-on wake word. Push-to-talk button is the entry point.
         if (!USE_CONTINUOUS) return;
         wakeWords = buildWakeVariants(word);
@@ -463,8 +676,18 @@ export function useVoice(options = {}) {
         if (machineState === STATE.WAKE) stopAll();
     }
 
-    function toggleMic() {
-        if (!hasSTT) return;
+    async function toggleMic() {
+        if (!sttAvailable()) return;
+
+        if (sttMode.value === 'server') {
+            if (machineState === STATE.DICTATING) {
+                await stopRecordingAndTranscribe();
+            } else {
+                await startRecording();
+            }
+            return;
+        }
+
         if (machineState === STATE.DICTATING) {
             finalizeDictation();
         } else {
@@ -482,6 +705,13 @@ export function useVoice(options = {}) {
         if (recognition) {
             try { recognition.stop(); } catch (e) { /* ignore */ }
         }
+        // Server mode may hold an open mic stream.
+        if (mediaRecorder) {
+            try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
+            mediaRecorder = null;
+        }
+        mediaStream?.getTracks().forEach(t => t.stop());
+        mediaStream = null;
     }
 
     function onPhrase(cb) { onPhraseCallback = cb; }
@@ -498,7 +728,12 @@ export function useVoice(options = {}) {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  TTS — carried over from useSpeech (this part worked fine)
+    //  TTS
+    //
+    //  Two paths behind one queue: the browser speaks via speechSynthesis, or the
+    //  server returns audio we play through an <audio> element. Both share the
+    //  echo suppression and mic pausing, since those are about the microphone,
+    //  not about who rendered the sound.
     // ═══════════════════════════════════════════════════════════════════════════
 
     const savedTTS = typeof window !== 'undefined'
@@ -512,6 +747,8 @@ export function useVoice(options = {}) {
     const speakQueue = [];
     let isProcessingQueue = false;
     let voicesCache = [];
+    let serverAudio = null;      // active HTMLAudioElement in server mode
+    let serverAudioUrl = null;   // its blob URL, revoked after playback
 
     function loadVoices() { voicesCache = window.speechSynthesis.getVoices(); }
 
@@ -580,7 +817,7 @@ export function useVoice(options = {}) {
     }
 
     function enqueueSpeak(text, messageId = null) {
-        if (!hasTTS || !text.trim()) return;
+        if (!ttsAvailable() || !text.trim()) return;
         // Close the mic before any audio plays, so the agent's voice can't be
         // recognized. Resumed once the whole queue drains (see resume below).
         pauseRecognition();
@@ -589,7 +826,14 @@ export function useVoice(options = {}) {
     }
 
     function processQueue() {
-        if (isProcessingQueue || !speakQueue.length || !window.speechSynthesis) return;
+        if (isProcessingQueue || !speakQueue.length) return;
+
+        if (ttsMode.value === 'server') {
+            processQueueServer();
+            return;
+        }
+
+        if (!window.speechSynthesis) return;
         if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
         isProcessingQueue = true;
         const { text, messageId } = speakQueue.shift();
@@ -603,7 +847,7 @@ export function useVoice(options = {}) {
                 currentlySpeakingId.value = null;
                 if (messageId) lastSpokenMessageId.value = messageId;
                 // One more tail in case this was the last item in the queue.
-                suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                suppressWakeUntil = Date.now() + cfg.echoTailMs;
                 // If nothing else is queued, the agent is done talking — reopen the
                 // mic after a short tail so trailing speaker audio can fully decay.
                 if (speakQueue.length === 0) {
@@ -611,7 +855,7 @@ export function useVoice(options = {}) {
                         if (speakQueue.length === 0 && !isSpeaking.value) {
                             resumeRecognition();
                         }
-                    }, ECHO_TAIL_MS);
+                    }, cfg.echoTailMs);
                 }
                 processQueue();
                 return;
@@ -619,7 +863,10 @@ export function useVoice(options = {}) {
             const sentence = sentences[i];
             const lang = detectLang(sentence);
             const u = new SpeechSynthesisUtterance(sentence);
-            u.lang = lang; u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+            u.lang = lang;
+            u.rate = cfg.rate;
+            u.pitch = cfg.pitch;
+            u.volume = cfg.volume;
             const v = getBestVoice(lang);
             if (v) u.voice = v;
             u.onstart = () => {
@@ -635,7 +882,7 @@ export function useVoice(options = {}) {
                 const moreSentences = (i + 1) < sentences.length;
                 const moreQueued = speakQueue.length > 0;
                 if (!moreSentences && !moreQueued) {
-                    suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                    suppressWakeUntil = Date.now() + cfg.echoTailMs;
                 }
                 i++; next();
             };
@@ -646,7 +893,7 @@ export function useVoice(options = {}) {
                 const moreSentences = (i + 1) < sentences.length;
                 const moreQueued = speakQueue.length > 0;
                 if (!moreSentences && !moreQueued) {
-                    suppressWakeUntil = Date.now() + ECHO_TAIL_MS;
+                    suppressWakeUntil = Date.now() + cfg.echoTailMs;
                 }
                 i++; next();
             };
@@ -655,8 +902,77 @@ export function useVoice(options = {}) {
         next();
     }
 
+    /**
+     * Server-side queue: one request per message, played whole.
+     *
+     * No sentence splitting here — unlike speechSynthesis, which needs it to stay
+     * responsive, a server round trip per sentence would multiply latency and
+     * produce audible gaps. The provider handles the whole text at once.
+     */
+    async function processQueueServer() {
+        isProcessingQueue = true;
+        const { text, messageId } = speakQueue.shift();
+        currentlySpeakingId.value = messageId;
+
+        // Wide suppression for the whole fetch + playback; narrowed at the end.
+        suppressWakeUntil = Date.now() + 120000;
+
+        try {
+            const blob = await cfg.synthesizeFn(text);
+            if (!blob) throw new Error('no audio returned');
+
+            await playBlob(blob);
+
+            if (messageId) lastSpokenMessageId.value = messageId;
+        } catch (e) {
+            console.warn('[useVoice] server TTS failed:', e);
+        } finally {
+            isSpeaking.value = false;
+            currentlySpeakingId.value = null;
+            isProcessingQueue = false;
+            suppressWakeUntil = Date.now() + cfg.echoTailMs;
+
+            if (speakQueue.length === 0) {
+                setTimeout(() => {
+                    if (speakQueue.length === 0 && !isSpeaking.value) resumeRecognition();
+                }, cfg.echoTailMs);
+            }
+            processQueue();
+        }
+    }
+
+    function playBlob(blob) {
+        return new Promise((resolve, reject) => {
+            releaseServerAudio();
+
+            serverAudioUrl = URL.createObjectURL(blob);
+            serverAudio = new Audio(serverAudioUrl);
+            serverAudio.volume = cfg.volume;
+            // Server providers render at their own rate; playbackRate lets the
+            // browser honour the configured speed without a second round trip.
+            serverAudio.playbackRate = cfg.rate;
+
+            serverAudio.onplay = () => { isSpeaking.value = true; };
+            serverAudio.onended = () => { releaseServerAudio(); resolve(); };
+            serverAudio.onerror = () => { releaseServerAudio(); reject(new Error('playback failed')); };
+
+            serverAudio.play().catch(reject);
+        });
+    }
+
+    function releaseServerAudio() {
+        if (serverAudio) {
+            try { serverAudio.pause(); } catch (e) { /* ignore */ }
+            serverAudio = null;
+        }
+        if (serverAudioUrl) {
+            URL.revokeObjectURL(serverAudioUrl);
+            serverAudioUrl = null;
+        }
+    }
+
     function speakMessage(message) {
-        if (!hasTTS || !shouldSpeak(message)) return;
+        if (!ttsAvailable() || !shouldSpeak(message)) return;
         const text = cleanTextForSpeech(message.content);
         if (!text) return;
         stopSpeaking();
@@ -668,7 +984,8 @@ export function useVoice(options = {}) {
     function resetInitialLoad() { initialLoadDone = false; stopSpeaking(); }
 
     function speakNewMessages(messages) {
-        if (!hasTTS || !ttsEnabled.value || !messages?.length) return;
+        if (!ttsAvailable() || !ttsEnabled.value || !messages?.length) return;
+        if (!cfg.autoSpeak) return;
         if (!initialLoadDone) return;
         if (typeof document !== 'undefined' && document.hidden) return;
         for (const msg of messages) {
@@ -687,6 +1004,7 @@ export function useVoice(options = {}) {
         currentlySpeakingId.value = null;
         suppressWakeUntil = 0; // user stopped TTS — re-enable wake immediately
         if (hasTTS) window.speechSynthesis.cancel();
+        releaseServerAudio();
         // Reopen the mic immediately when the stop is user-initiated (not when we
         // stop just to start a new utterance — that path re-pauses right away).
         if (resumeMic) resumeRecognition();
@@ -712,7 +1030,16 @@ export function useVoice(options = {}) {
 
     // ─── Public API ───────────────────────────────────────────────────────────
     return {
-        hasTTS, hasSTT,
+        // Capability flags. hasSTT/hasTTS are computed from the configured mode,
+        // so the UI hides voice controls when a preset has no voice capability
+        // even if the browser supports it.
+        hasTTS: ttsAvailableRef,
+        hasSTT: sttAvailableRef,
+        hasNativeSTT, hasRecorder,
+        sttMode, ttsMode,
+
+        // Config
+        applyConfig,
 
         // TTS
         ttsEnabled, isSpeaking, currentlySpeakingId, lastSpokenMessageId,
@@ -720,7 +1047,7 @@ export function useVoice(options = {}) {
         stopSpeaking, toggleTTS, cleanTextForSpeech, shouldSpeak,
 
         // STT
-        isListening, isWakeWordListening, wakeWordDetected,
+        isListening, isWakeWordListening, wakeWordDetected, isTranscribing,
         interimText, recognizedText, sttError,
         startWakeWord, stopWakeWord, toggleMic, stopAll, onPhrase, setBusy,
     };

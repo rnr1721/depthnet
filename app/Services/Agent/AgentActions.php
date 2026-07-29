@@ -13,6 +13,7 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ActionsResponseDTO;
+use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 use Psr\Log\LoggerInterface;
 
@@ -199,6 +200,11 @@ class AgentActions implements AgentActionsInterface
 
         $handoff = $executionResult?->pluginExecutionMeta['handoff'] ?? null;
         $turn = (bool) ($executionResult?->pluginExecutionMeta['turn'] ?? false);
+        $containedLongContext = $executionResult?->containedLongContextPlugin ?? false;
+
+        // Planner pipeline signals (see AgentTaskPlugin / determineTurnNeed).
+        $createdTask = (bool) ($executionResult?->pluginExecutionMeta[AgentTaskPlugin::META_TASK_CREATED] ?? false);
+        $plannerCommitted = (bool) ($executionResult?->pluginExecutionMeta[AgentTaskPlugin::META_COMMITTED] ?? false);
 
         return new ActionsResponseDTO(
             $output,
@@ -208,7 +214,10 @@ class AgentActions implements AgentActionsInterface
             $systemMessage,
             $handoff,
             $executionResult?->results ?? [],
-            $turn
+            $turn,
+            $containedLongContext,
+            $createdTask,
+            $plannerCommitted,
         );
     }
 

@@ -417,7 +417,9 @@ class BeingPlugin implements CommandPluginInterface
                 $state = $this->getState($context);
                 return $state['phrase'] ?? ($context->get('default_being', ''));
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
 
         // [[being_history]] — previous N phrases
@@ -451,7 +453,9 @@ class BeingPlugin implements CommandPluginInterface
 
                 return implode("\n", $lines);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

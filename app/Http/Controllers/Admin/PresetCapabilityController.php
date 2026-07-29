@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Capabilities\ListsModelsInterface;
+use App\Contracts\Agent\Capabilities\ListsVoicesInterface;
+use App\Contracts\Agent\Capabilities\SttServiceInterface;
+use App\Contracts\Agent\Capabilities\TtsServiceInterface;
 use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Http\Controllers\Controller;
@@ -11,6 +14,8 @@ use App\Http\Requests\Admin\Capabilities\UpdateCapabilityRequest;
 use App\Models\AiPreset;
 use App\Models\PresetCapabilityConfig;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
+use App\Services\Agent\Capabilities\Speech\SttRegistry;
+use App\Services\Agent\Capabilities\Speech\TtsRegistry;
 use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
 use App\Services\Agent\Capabilities\Vision\VisionRegistry;
 use Illuminate\Http\JsonResponse;
@@ -32,6 +37,10 @@ class PresetCapabilityController extends Controller
         protected EmbeddingServiceInterface $embeddingService,
         protected VisionRegistry $visionRegistry,
         protected VisionServiceInterface $visionService,
+        protected SttRegistry $sttRegistry,
+        protected SttServiceInterface $sttService,
+        protected TtsRegistry $ttsRegistry,
+        protected TtsServiceInterface $ttsService,
         protected PresetRegistryInterface $presetRegistry,
         protected LoggerInterface $logger,
     ) {
@@ -220,6 +229,8 @@ class PresetCapabilityController extends Controller
             $result = match ($capability) {
                 'embedding' => $this->testEmbedding($preset),
                 'vision'    => $this->testVision($preset),
+                'stt' => $this->testStt($preset),
+                'tts' => $this->testTts($preset),
                 default     => ['success' => false, 'message' => "No test available for '{$capability}'."],
             };
 
@@ -275,6 +286,20 @@ class PresetCapabilityController extends Controller
                 registry:      $this->visionRegistry,
                 currentConfig: $existing->get('vision'),
             ),
+            'stt' => $this->buildCapabilityEntry(
+                capability:    'stt',
+                label:         'Speech-to-Text',
+                description:   'Turns spoken audio into text the agent can perceive.',
+                registry:      $this->sttRegistry,
+                currentConfig: $existing->get('stt'),
+            ),
+            'tts' => $this->buildCapabilityEntry(
+                capability:    'tts',
+                label:         'Text-to-Speech',
+                description:   'Gives the agent a voice.',
+                registry:      $this->ttsRegistry,
+                currentConfig: $existing->get('tts'),
+            ),
         ];
     }
 
@@ -296,7 +321,11 @@ class PresetCapabilityController extends Controller
                 'config_fields'  => $provider->getConfigFields(),
                 'default_config' => $provider->getDefaultConfig(),
                 'lists_models'   => $provider instanceof ListsModelsInterface,
-            ];
+                'lists_voices'   => $provider instanceof ListsVoicesInterface,
+                'execution_mode' => method_exists($provider, 'getExecutionMode')
+                    ? $provider->getExecutionMode()
+                    : 'server',
+                ];
         }
 
         return [
@@ -361,6 +390,8 @@ class PresetCapabilityController extends Controller
         return match ($capability) {
             'embedding' => $this->embeddingRegistry,
             'vision'    => $this->visionRegistry,
+            'stt'       => $this->sttRegistry,
+            'tts'       => $this->ttsRegistry,
             default     => abort(404, "Unknown capability '{$capability}'."),
         };
     }
@@ -456,4 +487,142 @@ class PresetCapabilityController extends Controller
             'description' => mb_substr($description, 0, 200),
         ];
     }
+
+    public function voices(Request $request, int $presetId, string $capability): JsonResponse
+    {
+        try {
+            $preset   = $this->resolvePreset($presetId);
+            $registry = $this->resolveRegistry($capability);
+
+            $config = PresetCapabilityConfig::forPreset($preset->id)
+                ->forCapability($capability)
+                ->first();
+
+            if ($config === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Save a configuration first, then load voices.',
+                ], 422);
+            }
+
+            $provider = $registry->makeFromConfig($config);
+
+            if (!$provider instanceof ListsVoicesInterface) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Driver '{$config->driver}' does not support listing voices.",
+                ], 422);
+            }
+
+            $voices = $provider->listVoices($request->query('model'));
+
+            return response()->json([
+                'success' => true,
+                'driver'  => $config->driver,
+                'voices'  => $voices,
+                'count'   => count($voices),
+            ]);
+
+        } catch (\Throwable $e) {
+            $this->logger->error('PresetCapabilityController::voices error', [
+                'preset_id'  => $presetId,
+                'capability' => $capability,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load voices: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Test TTS by synthesizing a short phrase. Client-side providers have
+     * nothing to test on the server, and say so rather than failing.
+     */
+    private function testTts(AiPreset $preset): array
+    {
+        if (!$this->ttsService->isAvailable($preset)) {
+            return [
+                'success' => false,
+                'message' => 'No active TTS configuration for this preset.',
+            ];
+        }
+
+        if (!$this->ttsService->isServerSideAvailable($preset)) {
+            return [
+                'success' => true,
+                'message' => 'This provider speaks in the browser — nothing to test on the server.',
+            ];
+        }
+
+        $result = $this->ttsService->synthesizeResult('Speech synthesis test.', $preset);
+
+        if (!$result->success) {
+            return ['success' => false, 'message' => $result->error];
+        }
+
+        $kb = round($result->audio->sizeBytes() / 1024, 1);
+
+        return [
+            'success' => true,
+            'message' => "Speech synthesis is working correctly ({$kb} KB of audio).",
+        ];
+    }
+
+    /**
+     * Test STT end-to-end: synthesize a phrase with TTS, then transcribe it back.
+     *
+     * A round trip is the only honest test here — STT needs real audio, and a
+     * hardcoded sample would have to ship a file per language. Requires a working
+     * server-side TTS config, which is stated plainly when it is missing.
+     */
+    private function testStt(AiPreset $preset): array
+    {
+        if (!$this->sttService->isAvailable($preset)) {
+            return [
+                'success' => false,
+                'message' => 'No active STT configuration for this preset.',
+            ];
+        }
+
+        if (!$this->sttService->isServerSideAvailable($preset)) {
+            return [
+                'success' => true,
+                'message' => 'This provider listens in the browser — nothing to test on the server.',
+            ];
+        }
+
+        if (!$this->ttsService->isServerSideAvailable($preset)) {
+            return [
+                'success' => false,
+                'message' => 'Automatic testing needs a server-side TTS provider to generate '
+                    . 'a sample. Configure TTS first, or test by speaking in the chat.',
+            ];
+        }
+
+        $phrase = 'Speech recognition test.';
+        $spoken = $this->ttsService->synthesizeResult($phrase, $preset);
+
+        if (!$spoken->success) {
+            return [
+                'success' => false,
+                'message' => 'Could not generate a test sample: ' . $spoken->error,
+            ];
+        }
+
+        $result = $this->sttService->transcribeResult($spoken->audio, $preset);
+
+        if (!$result->success) {
+            return ['success' => false, 'message' => $result->error];
+        }
+
+        return [
+            'success'    => true,
+            'message'    => 'Speech recognition is working correctly.',
+            'recognized' => mb_substr((string) $result->text, 0, 200),
+        ];
+    }
+
 }

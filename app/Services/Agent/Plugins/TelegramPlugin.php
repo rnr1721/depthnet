@@ -26,6 +26,7 @@ class TelegramPlugin implements CommandPluginInterface
     use PluginExecutionMetaTrait;
 
     private const ACCOUNT_CACHE_PREFIX = 'telegram_account_';
+    private const UNREAD_CACHE_PREFIX  = 'telegram_unread_';
 
     public function __construct(
         protected TelegramServiceInterface               $telegram,
@@ -51,6 +52,9 @@ class TelegramPlugin implements CommandPluginInterface
             'List all dialogs: [telegram dialogs][/telegram]',
             'List channels only: [telegram dialogs]50 channels[/telegram]',
             'List groups only: [telegram dialogs]50 groups[/telegram]',
+            'List saved contacts: [telegram contacts][/telegram]',
+            'Find who to write to (people, groups, channels): [telegram resolve]Алёна[/telegram]',
+            'Resolve verifies a target exists before you send: [telegram resolve]@username[/telegram]',
             'Read last messages: [telegram read]@username[/telegram]',
             'Read N messages: [telegram read]@username 30[/telegram]',
             'Read by numeric id: [telegram read]1820894363 10[/telegram]',
@@ -61,6 +65,7 @@ class TelegramPlugin implements CommandPluginInterface
             'Mark as read: [telegram mark_read]@username[/telegram]',
             'My account info: [telegram me][/telegram]',
             'Raw command (fallback): [telegram]dialogs 20 users[/telegram]',
+            $this->getTargetingGuidance($config),
         ];
     }
 
@@ -69,7 +74,12 @@ class TelegramPlugin implements CommandPluginInterface
         return [
             'name'        => 'telegram',
             'description' => 'Access Telegram via a real user account (MTProto). '
-                . 'Read and send messages, browse dialogs, channels and groups, search, get user info.',
+                . 'Read and send messages, browse dialogs, channels and groups, search, get user info. '
+                . 'You may determine who to contact from any context available to you; the tool does '
+                . 'not restrict the source. Before sending to someone, use "resolve" to confirm the '
+                . 'target exists in this account and to obtain its canonical address (@username or id) — '
+                . 'this is how you avoid writing to a target that does not exist. "contacts" lists the '
+                . 'address book; "resolve" searches contacts and all dialogs (people, groups, channels).',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
@@ -77,8 +87,8 @@ class TelegramPlugin implements CommandPluginInterface
                         'type'        => 'string',
                         'description' => 'Telegram operation to perform',
                         'enum'        => [
-                            'dialogs', 'read', 'send', 'unread', 'search',
-                            'info', 'mark_read', 'me', 'execute',
+                            'dialogs', 'contacts', 'resolve', 'read', 'send',
+                            'unread', 'search', 'info', 'mark_read', 'me', 'execute',
                         ],
                     ],
                     'content' => [
@@ -86,6 +96,9 @@ class TelegramPlugin implements CommandPluginInterface
                         'description' => implode(' ', [
                             'Argument depends on method.',
                             'dialogs: optional "[limit] [users|groups|channels]", e.g. "50 channels" or leave empty.',
+                            'contacts: leave empty — lists the saved address book.',
+                            'resolve: "<name, @username or id>" — finds real targets across contacts '
+                                . 'and dialogs, prints candidates with an explicit match count.',
                             'read: "@username" or "@username 30" — target and optional message count.',
                             'send: "@username message text" — target followed by the message, e.g. "@Eugeny Hello!".',
                             'unread: optional limit, e.g. "20" or leave empty.',
@@ -122,11 +135,26 @@ class TelegramPlugin implements CommandPluginInterface
         $cacheMins = (int) $context->get('account_cache_minutes', 60);
         $cacheKey  = self::ACCOUNT_CACHE_PREFIX . $presetId;
 
+        // Unread config — read once here so the closure captures it.
+        $showUnread   = (bool) $context->get('show_unread', true);
+        $unreadCount  = (int) $context->get('unread_count', 5);
+        $unreadTtl    = (int) $context->get('unread_cache_minutes', 3);
+        $unreadKey    = self::UNREAD_CACHE_PREFIX . $presetId;
+
         $this->placeholderService->registerDynamic(
             'telegram_account',
-            'Current Telegram account (username, name, ID)',
-            function () use ($presetId, $cacheKey, $cacheMins) {
-                return $this->cache->remember(
+            'Current Telegram account, plus recent unread messages',
+            function () use (
+                $presetId,
+                $cacheKey,
+                $cacheMins,
+                $showUnread,
+                $unreadCount,
+                $unreadTtl,
+                $unreadKey
+            ) {
+                // -- Account (long TTL) --
+                $account = $this->cache->remember(
                     $cacheKey,
                     now()->addMinutes($cacheMins),
                     function () use ($presetId) {
@@ -137,8 +165,23 @@ class TelegramPlugin implements CommandPluginInterface
                         return 'My current Telegram account:' . "\n" . trim($status['output']);
                     }
                 );
+
+                if (!$showUnread) {
+                    return $account;
+                }
+
+                // -- Unread (short TTL, independent) --
+                $unread = $this->cache->remember(
+                    $unreadKey,
+                    now()->addMinutes($unreadTtl),
+                    fn () => trim($this->telegram->unread($presetId, $unreadCount))
+                );
+
+                return $account . "\n\n" . 'Recent unread:' . "\n" . $unread;
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 
@@ -252,6 +295,20 @@ class TelegramPlugin implements CommandPluginInterface
         return $output;
     }
 
+    public function contacts(string $content, PluginExecutionContext $context): string
+    {
+        return $this->telegram->contacts($context->preset->getId());
+    }
+
+    public function resolve(string $content, PluginExecutionContext $context): string
+    {
+        $query = trim($content);
+        if ($query === '') {
+            return '[ERROR] Query is required. Provide a name, @username or id to look up.';
+        }
+        return $this->telegram->resolve($context->preset->getId(), $query);
+    }
+
     public function getConfigFields(): array
     {
         return [
@@ -279,6 +336,43 @@ class TelegramPlugin implements CommandPluginInterface
                 'value'       => 60,
                 'required'    => false,
             ],
+            'targeting_guidance' => [
+                'type'        => 'textarea',
+                'label'       => 'Targeting guidance',
+                'description' => 'How the agent should decide whom to write to and handle ambiguity. '
+                    . 'Neutral by default (verify before send, resolve ambiguity by any means). '
+                    . 'Override with your own rules if you want stricter behavior, '
+                    . 'e.g. "if unsure, always ask the user which contact you mean".',
+                'value'       => $this->getTargetingGuidance(),
+                'required'    => false,
+            ],
+            'show_unread' => [
+                'type'        => 'checkbox',
+                'label'       => 'Show unread in account placeholder',
+                'description' => 'Inject recent unread messages into [[telegram_account]] so the agent '
+                    . 'passively sees who wrote (with their address) — a substitute for push notifications',
+                'value'       => false,
+                'required'    => false,
+            ],
+            'unread_count' => [
+                'type'        => 'number',
+                'label'       => 'Unread messages to show',
+                'description' => 'How many recent unread dialogs to inject into the placeholder',
+                'min'         => 1,
+                'max'         => 20,
+                'value'       => 5,
+                'required'    => false,
+            ],
+            'unread_cache_minutes' => [
+                'type'        => 'number',
+                'label'       => 'Unread cache (minutes)',
+                'description' => 'How long to cache the unread summary. Keep short — this is a live feed, '
+                    . 'not static info like the account name',
+                'min'         => 1,
+                'max'         => 60,
+                'value'       => 3,
+                'required'    => false,
+            ],
         ];
     }
 
@@ -288,6 +382,10 @@ class TelegramPlugin implements CommandPluginInterface
             'enabled'               => false,
             'default_read_limit'    => 15,
             'account_cache_minutes' => 60,
+            'targeting_guidance'    => $this->getTargetingGuidance(),
+            'show_unread'           => false,
+            'unread_cache_minutes'  => 3,
+            'unread_count'          => 5,
         ];
     }
 
@@ -309,6 +407,20 @@ class TelegramPlugin implements CommandPluginInterface
             }
         }
 
+        if (isset($config['unread_count'])) {
+            $c = (int) $config['unread_count'];
+            if ($c < 1 || $c > 20) {
+                $errors['unread_count'] = 'Unread count must be between 1 and 20.';
+            }
+        }
+
+        if (isset($config['unread_cache_minutes'])) {
+            $u = (int) $config['unread_cache_minutes'];
+            if ($u < 1 || $u > 60) {
+                $errors['unread_cache_minutes'] = 'Unread cache must be between 1 and 60 minutes.';
+            }
+        }
+
         return $errors;
     }
 
@@ -324,6 +436,29 @@ class TelegramPlugin implements CommandPluginInterface
 
     public function getSelfClosingTags(): array
     {
-        return ['unread', 'me'];
+        return ['unread', 'me', 'contacts'];
     }
+
+    /**
+     * If there are a lot of actions in Telegram, then a lot of context may be required.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
+    private function getTargetingGuidance(array $config = []): string
+    {
+        if (!empty($config['targeting_guidance'])) {
+            return $config['targeting_guidance'];
+        }
+
+        return 'You may know who to contact from any context — memory, documents, '
+            . 'the conversation, the task. But before sending, verify the target exists: '
+            . 'run [telegram resolve]<name or @username>[/telegram]. '
+            . 'One match — use it. Several — pick using your context. '
+            . 'Zero — the target does not exist here; report that (the request may rest on '
+            . 'a wrong assumption) instead of guessing an address.';
+    }
+
 }

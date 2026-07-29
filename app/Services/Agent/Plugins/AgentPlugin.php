@@ -42,7 +42,23 @@ class AgentPlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        return 'Control agent lifecycle: pause/resume thinking cycles, check status. Enables self-management.';
+        $parts = ['Control agent lifecycle (thinking cycles).'];
+
+        $available = [];
+        if ($config['allow_pause'] ?? true) {
+            $available[] = 'pause (stop cycles)';
+        }
+        if ($config['allow_resume'] ?? true) {
+            $available[] = 'resume (restart full cycles)';
+        }
+        if ($config['allow_turn'] ?? true) {
+            $available[] = 'turn (single step without full loop)';
+        }
+        $available[] = 'status (check current mode)';
+
+        $parts[] = 'Available commands: ' . implode(', ', $available) . '.';
+
+        return implode(' ', $parts);
     }
 
     public function getInstructions(array $config = []): array
@@ -50,18 +66,18 @@ class AgentPlugin implements CommandPluginInterface
         $instructions = [];
 
         if ($config['allow_pause'] ?? true) {
-            $instructions[] = 'Pause thinking cycles: [agent pause][/agent]';
+            $instructions[] = 'Stop thinking cycles: [agent pause][/agent]';
         }
 
         if ($config['allow_resume'] ?? true) {
-            $instructions[] = 'Resume thinking cycles: [agent resume][/agent]';
+            $instructions[] = 'Restart thinking cycles (continuous loop): [agent resume][/agent]';
         }
 
         if ($config['allow_turn'] ?? true) {
-            $instructions[] = 'Request one additional thinking step without entering a full loop: [agent turn][/agent]';
+            $instructions[] = 'Request one additional thinking step without full loop: [agent turn][/agent]';
         }
 
-        $instructions[] = 'Check agent status: [agent status][/agent]';
+        $instructions[] = 'Check current mode and status: [agent status][/agent]';
 
         return $instructions;
     }
@@ -85,13 +101,13 @@ class AgentPlugin implements CommandPluginInterface
         $descParts = ['Control agent lifecycle.'];
 
         if ($config['allow_pause'] ?? true) {
-            $descParts[] = 'Use pause to stop thinking cycles.';
+            $descParts[] = 'Use pause to stop thinking cycles and wait for external input.';
         }
         if ($config['allow_resume'] ?? true) {
-            $descParts[] = 'Use resume to restart thinking cycles.';
+            $descParts[] = 'Use resume to enter continuous loop — system will keep calling with \'Continue\' after each response, even after speaking.';
         }
         if ($config['allow_turn'] ?? true) {
-            $descParts[] = 'Use turn to request one additional thinking step without entering a full loop.';
+            $descParts[] = 'Use turn to request one additional thinking step in single-response mode (useful when you want to act further after speaking).';
         }
 
         $contentParts = ['Argument depends on method:'];
@@ -404,7 +420,7 @@ class AgentPlugin implements CommandPluginInterface
         $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
         $this->placeholderService->registerDynamic('agent', 'Agent status', function () use ($context) {
             return $this->status('', $context);
-        }, $scope);
+        }, $scope, false, $this->getName());
     }
 
     public function getSelfClosingTags(): array

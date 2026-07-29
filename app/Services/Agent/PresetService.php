@@ -6,9 +6,11 @@ use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginManagerFactoryInterface;
+use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\AiPreset;
 use App\Exceptions\PresetException;
+use App\Models\PresetPromptVersion;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Factory as ValidatorFactory;
@@ -30,16 +32,17 @@ class PresetService implements PresetServiceInterface
         protected AiPreset $aiPresetModel,
         protected LoggerInterface $logger,
         protected CacheManager $cacheManager,
-        protected PluginManagerFactoryInterface $pluginManagerFactory
+        protected PluginManagerFactoryInterface $pluginManagerFactory,
+        protected PresetPromptServiceInterface $promptService
     ) {
     }
 
     /**
      * @inheritDoc
      */
-    public function createPreset(array $data): AiPreset
+    public function createPreset(array $data, bool $skipSecretValidation = false): AiPreset
     {
-        $this->validatePresetData($data);
+        $this->validatePresetData($data, null, $skipSecretValidation);
 
         return $this->db->transaction(function () use ($data) {
             $preset = $this->aiPresetModel->create([
@@ -58,6 +61,9 @@ class PresetService implements PresetServiceInterface
                 'engine_config' => $data['engine_config'] ?? [],
                 'loop_interval' => $data['loop_interval'] ?? 15,
                 'max_context_limit' => $data['max_context_limit'] ?? 8,
+                'max_context_limit_extended' => $data['max_context_limit_extended'] ?? null,
+                'pre_pass_enabled'           => $data['pre_pass_enabled'] ?? false,
+                'pre_pass_instruction'       => $data['pre_pass_instruction'] ?? null,
                 'agent_result_mode' => $data['agent_result_mode'] ?? 'tool_calls',
                 'preset_code_next' => $data['preset_code_next'] ?? '',
                 'pre_run_commands' => $data['pre_run_commands'] ?? '',
@@ -142,6 +148,9 @@ class PresetService implements PresetServiceInterface
                 'engine_config' => $data['engine_config'] ?? $preset->engine_config,
                 'loop_interval' => $data['loop_interval'] ?? $preset->loop_interval,
                 'max_context_limit' => $data['max_context_limit'] ?? $preset->max_context_limit,
+                'max_context_limit_extended' => array_key_exists('max_context_limit_extended', $data) ? $data['max_context_limit_extended'] : $preset->max_context_limit_extended,
+                'pre_pass_enabled'           => array_key_exists('pre_pass_enabled', $data) ? $data['pre_pass_enabled'] : $preset->pre_pass_enabled,
+                'pre_pass_instruction'       => array_key_exists('pre_pass_instruction', $data) ? $data['pre_pass_instruction'] : $preset->pre_pass_instruction,
                 'agent_result_mode' => $data['agent_result_mode'] ?? $preset->agent_result_mode,
                 'preset_code_next' => array_key_exists('preset_code_next', $data) ? $data['preset_code_next'] : $preset->preset_code_next,
                 'pre_run_commands' => array_key_exists('pre_run_commands', $data) ? $data['pre_run_commands'] : $preset->pre_run_commands,
@@ -318,6 +327,9 @@ class PresetService implements PresetServiceInterface
                 // Behaviour
                 'agent_result_mode'  => $originalPreset->agent_result_mode,
                 'max_context_limit'  => $originalPreset->max_context_limit,
+                'max_context_limit_extended' => $originalPreset->max_context_limit_extended,
+                'pre_pass_enabled'           => $originalPreset->pre_pass_enabled,
+                'pre_pass_instruction'       => $originalPreset->pre_pass_instruction,
                 'loop_interval'      => $originalPreset->loop_interval,
                 'before_execution_wait' => $originalPreset->before_execution_wait,
                 'error_behavior'     => $originalPreset->error_behavior,
@@ -659,51 +671,57 @@ class PresetService implements PresetServiceInterface
     /**
      * Sync prompts for a preset from request data.
      *
-     * Accepts two formats from the frontend:
-     *   - $data['prompts']  — array of {id?, code, content, description, is_active?}
-     *   - legacy $data['system_prompt'] — plain string (backward compat for importRecommendedPreset etc.)
+     * Accepts:
+     *   - $data['prompts']  array of {id?, code, content, description, is_active?}
+     *   - legacy $data['system_prompt'] plain string (backward compat).
      *
-     * Rules:
-     *   - Prompts present in the array are upserted (update if id exists, insert if not).
-     *   - Prompts NOT in the array but belonging to the preset are left untouched
-     *     (deletion is only via the dedicated PresetPromptController).
-     *   - After sync, active_prompt_id is set to the prompt marked is_active,
-     *     or falls back to the current active_prompt_id, or the first prompt.
+     * Prompt writes are delegated to PresetPromptService so every content change is
+     * versioned (PresetPromptVersion). Edits are attributed to the acting admin:
+     * edited_by = 'human' + current user id.
+     *
+     * The prompt service snapshots ONLY when content actually changes, so re-saving
+     * the preset form (which always sends every prompt) does not create spurious
+     * versions for prompts the user didn't touch.
      */
     protected function syncPrompts(AiPreset $preset, array $data): void
     {
-        $promptsData = $data['prompts'] ?? null;
+        $promptsData  = $data['prompts'] ?? null;
+        $editorUserId = $this->authService->getCurrentUserId();
 
-        // Legacy path: no prompts array but system_prompt string provided
+        // Legacy path: no prompts array but a system_prompt string was provided.
         if ($promptsData === null) {
             $legacyContent = $data['system_prompt'] ?? null;
 
-            // For a brand-new preset with no prompts yet, always create a default prompt
             if ($preset->prompts()->count() === 0) {
-                $prompt = $preset->prompts()->create([
-                    'code'    => 'default',
-                    'content' => $legacyContent ?? '',
-                ]);
-                $preset->active_prompt_id = $prompt->id;
-                $preset->saveQuietly();
+                $this->promptService->create(
+                    $preset,
+                    ['code' => 'default', 'content' => $legacyContent ?? ''],
+                    true, // setAsActive - first prompt
+                    PresetPromptVersion::BY_HUMAN,
+                    $editorUserId
+                );
+                $preset->refresh();
             }
             return;
         }
 
-        // Delete prompts explicitly removed by the user
+        // Delete prompts explicitly removed by the user (guard against emptying).
         $deletedIds = $data['deleted_prompt_ids'] ?? [];
         if (!empty($deletedIds)) {
-            // Safety: only delete prompts that belong to this preset and are not the last one
             $remaining = $preset->prompts()->count() - count($deletedIds);
             if ($remaining >= 1) {
-                $preset->prompts()
-                    ->whereIn('id', $deletedIds)
-                    ->delete();
-
-                // If active prompt was deleted, will be resolved below
-                if (in_array($preset->active_prompt_id, $deletedIds)) {
-                    $preset->active_prompt_id = null;
+                foreach ($deletedIds as $deletedId) {
+                    try {
+                        $this->promptService->delete($preset, (int) $deletedId);
+                    } catch (\RuntimeException $e) {
+                        $this->logger->warning('syncPrompts: skipped prompt deletion', [
+                            'preset_id' => $preset->id,
+                            'prompt_id' => $deletedId,
+                            'reason'    => $e->getMessage(),
+                        ]);
+                    }
                 }
+                $preset->refresh();
             }
         }
 
@@ -716,36 +734,55 @@ class PresetService implements PresetServiceInterface
 
         foreach ($promptsData as $promptData) {
             if (!empty($promptData['id'])) {
-                // Update existing prompt that belongs to this preset
-                $prompt = $preset->prompts()->find($promptData['id']);
-                if ($prompt) {
-                    $prompt->update([
-                        'code'        => $promptData['code']        ?? $prompt->code,
-                        'content'     => $promptData['content']     ?? $prompt->content,
-                        'description' => $promptData['description'] ?? $prompt->description,
-                    ]);
+                $existing = $this->promptService->findById($preset, (int) $promptData['id']);
+                if (!$existing) {
+                    continue; // id given but not in this preset - skip
                 }
+                $prompt = $this->promptService->update(
+                    $preset,
+                    (int) $promptData['id'],
+                    [
+                        'code'         => $promptData['code']        ?? $existing->code,
+                        'content'      => $promptData['content']     ?? $existing->content,
+                        'description'  => $promptData['description'] ?? $existing->description,
+                        'edit_summary' => $promptData['edit_summary'] ?? null,
+                    ],
+                    PresetPromptVersion::BY_HUMAN,
+                    $editorUserId
+                );
             } else {
-                // Create new prompt
-                $prompt = $preset->prompts()->create([
-                    'code'        => $promptData['code']        ?? 'default',
-                    'content'     => $promptData['content']     ?? '',
-                    'description' => $promptData['description'] ?? null,
-                ]);
+                $prompt = $this->promptService->create(
+                    $preset,
+                    [
+                        'code'        => $promptData['code']        ?? 'default',
+                        'content'     => $promptData['content']     ?? '',
+                        'description' => $promptData['description'] ?? null,
+                    ],
+                    false,
+                    PresetPromptVersion::BY_HUMAN,
+                    $editorUserId
+                );
             }
 
             if (!empty($promptData['is_active'])) {
-                $newActiveId = $prompt->id;
+                $newActiveId = $prompt->getId();
             }
         }
 
-        // Ensure preset always has at least one prompt
+        // Ensure the preset always has at least one prompt.
         if ($preset->prompts()->count() === 0) {
-            $prompt = $preset->prompts()->create(['code' => 'default', 'content' => '']);
-            $newActiveId = $prompt->id;
+            $prompt = $this->promptService->create(
+                $preset,
+                ['code' => 'default', 'content' => ''],
+                true,
+                PresetPromptVersion::BY_HUMAN,
+                $editorUserId
+            );
+            $newActiveId = $prompt->getId();
         }
 
-        // Update active_prompt_id if needed
+        // Resolve active prompt: explicit is_active -> previous active -> first.
+        $preset->refresh();
         $resolvedActiveId = $newActiveId
             ?? $activePromptId
             ?? $preset->prompts()->orderBy('created_at')->value('id');
@@ -756,14 +793,16 @@ class PresetService implements PresetServiceInterface
         }
     }
 
+
     /**
      * Validate preset data
      *
      * @param array $data
      * @param integer|null $excludeId
+     * @param boolean $skipSecretValidation
      * @return void
      */
-    protected function validatePresetData(array $data, ?int $excludeId = null): void
+    protected function validatePresetData(array $data, ?int $excludeId = null, bool $skipSecretValidation = false): void
     {
         $rules = [
             'target_preset_id'         => 'nullable|integer|exists:ai_presets,id',
@@ -780,8 +819,11 @@ class PresetService implements PresetServiceInterface
             'plugins_disabled' => 'nullable|string|max:255',
             'engine_config' => 'array',
             'loop_interval' => 'nullable|integer|min:1|max:3600',
-            'max_context_limit' => 'nullable|integer|min:0|max:50',
-            'agent_result_mode' => 'nullable|string',
+            'max_context_limit' => 'nullable|integer|min:0|max:100',
+            'max_context_limit_extended' => 'nullable|integer|min:0|max:100',
+            'pre_pass_enabled'           => 'boolean',
+            'pre_pass_instruction'       => 'nullable|string|max:5000',
+            'agent_result_mode' => 'nullable|in:tool_calls,internal',
             'preset_code_next' => 'nullable|string',
             'pre_run_commands' => 'nullable|string',
             'turn_trigger' => 'nullable|string|in:none,no_speak',
@@ -792,7 +834,7 @@ class PresetService implements PresetServiceInterface
             'cp_context_limit' => 'required|integer|min:4|max:20',
             'voice_mp_commands' => 'nullable|string',
             'default_call_message' => 'nullable|string',
-            'before_execution_wait' => 'nullable|integer|min:4|max:15',
+            'before_execution_wait' => 'nullable|integer|min:1|max:60',
             'error_behavior' => 'nullable|in:stop,continue,fallback',
             'allow_handoff_to' => 'boolean',
             'allow_handoff_from' => 'boolean',
@@ -827,6 +869,11 @@ class PresetService implements PresetServiceInterface
         // Validate engine config if provided
         if (isset($data['engine_config']) && isset($data['engine_name'])) {
             $configErrors = $this->validateEngineConfig($data['engine_name'], $data['engine_config']);
+
+            if ($skipSecretValidation) {
+                $configErrors = $this->filterOutSecretErrors($data['engine_name'], $configErrors);
+            }
+
             if (!empty($configErrors)) {
                 throw new PresetException('Engine configuration validation failed: ' . implode(', ', $configErrors));
             }
@@ -930,4 +977,43 @@ class PresetService implements PresetServiceInterface
             'imported_by' => $this->authService->getCurrentUserId()
         ]);
     }
+
+    /**
+     * Remove engine-config validation errors that belong to secret (password)
+     * fields, keeping every other error intact.
+     *
+     * Used on import, where secrets are intentionally null (stripped at export) and
+     * must be entered by the user afterwards — so a "required api_key" error is not
+     * a real problem, while an out-of-range temperature still is.
+     *
+     * Secret fields are discovered from the engine's own field declaration
+     * (type: password) — the same source the exporter uses to strip them, so the
+     * two sides stay symmetric with zero hardcoding.
+     *
+     * @param  array<string,string> $errors  Errors keyed by field name.
+     * @return array<string,string>          Errors with secret-field entries removed.
+     */
+    protected function filterOutSecretErrors(string $engineName, array $errors): array
+    {
+        $secretFields = [];
+
+        $fields = $this->engineRegistry->getEngineConfigFields($engineName);
+        foreach ($fields as $key => $meta) {
+            if (($meta['type'] ?? '') === 'password') {
+                $secretFields[$key] = true;
+            }
+        }
+
+        if (empty($secretFields)) {
+            return $errors;
+        }
+
+        return array_filter(
+            $errors,
+            fn ($key) => !isset($secretFields[$key]),
+            ARRAY_FILTER_USE_KEY
+        );
+    }
+
+
 }

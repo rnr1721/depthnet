@@ -397,7 +397,7 @@ class MemoryPlugin implements CommandPluginInterface
         $scope = $this->shortcodeScopeResolver->preset($context->preset->getId());
         $this->placeholderService->registerDynamic('notepad_content', 'Persistent memory content', function () use ($context) {
             return $this->memoryService->getFormattedMemory($context->preset);
-        }, $scope);
+        }, $scope, false, $this->getName());
     }
 
     public function getSelfClosingTags(): array

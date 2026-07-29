@@ -3,6 +3,7 @@
 return [
     App\Providers\AppServiceProvider::class,
     App\Providers\AiServiceProvider::class,
+    App\Providers\BehaviorServiceProvider::class,
     App\Providers\SandboxServiceProvider::class,
     App\Providers\FileStorageServiceProvider::class,
     App\Providers\AuthServiceProvider::class,

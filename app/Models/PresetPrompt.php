@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PresetPrompt extends Model
 {
@@ -58,4 +59,24 @@ class PresetPrompt extends Model
     {
         return $this->description;
     }
+
+    /**
+     * Version history for this prompt, newest first.
+     * Insert-only: each edit appends a snapshot. See PresetPromptVersion.
+     */
+    public function versions(): HasMany
+    {
+        return $this->hasMany(PresetPromptVersion::class, 'prompt_id')
+            ->orderByDesc('version');
+    }
+
+    /**
+     * The latest version number for this prompt, or 0 if none yet.
+     * Used to compute the next version number (MAX+1) when appending.
+     */
+    public function latestVersionNumber(): int
+    {
+        return (int) $this->versions()->max('version');
+    }
+
 }

@@ -200,6 +200,22 @@ class TelegramService implements TelegramServiceInterface
     /**
      * @inheritDoc
      */
+    public function contacts(int $presetId): string
+    {
+        return $this->run($presetId, 'contacts');
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function resolve(int $presetId, string $query): string
+    {
+        return $this->run($presetId, 'resolve ' . escapeshellarg($query));
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function run(int $presetId, string $args): string
     {
         $dataDir = $this->dataDir($presetId);

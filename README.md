@@ -7,8 +7,9 @@
 ![AI Models](https://img.shields.io/badge/AI-OpenAI%20%7C%20Claude%20%7C%20DeepSeek%20%7C%20NovitaAi%20%7C%20Fireworks%20%7C%20Local-purple?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP%20%2B%20SSE%20HTTP-blue?style=flat-square)
 ![Vision](https://img.shields.io/badge/Vision-Claude%20%7C%20Novita-purple?style=flat-square)
+![Voice](https://img.shields.io/badge/Voice-Whisper%20%7C%20Piper%20%7C%20Browser-purple?style=flat-square)
 
-**Autonomous AI Agent Platform with Orchestrated Workflows** | v0.9.8
+**Autonomous AI Agent Platform with Orchestrated Workflows** | v1.0.0
 
 DepthNet is a Laravel-based operating system for autonomous AI agents. It provides a modular, extensible runtime where LLM models don't just respond to prompts — they think continuously in self-directed loops, execute real code, and maintain persistent and semantic memory — including dense embedding vectors with graph-based associative retrieval across both episodic journal and semantic memory stores.
 
@@ -58,8 +59,8 @@ Choose your preferred installation method:
 - **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
-- **[Text-to-Speech and voice input](docs/ui/text-to-speech.md)** - hands-free voice dialogue, wake word, browser setup
-- **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration
+- **[Voice interface (STT/TTS)](docs/capabilities/text-to-speech.md)** - speech capabilities, local Whisper + Piper container, wake word, browser setup
+- **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration (legacy — superseded by speech capabilities)
 
 - **[Reverse proxy](docs/installation/reverse-proxy.md)** - instruction for production environments
 
@@ -69,8 +70,8 @@ Choose your preferred installation method:
 
 Built-in support for multiple AI engines with easy preset management:
 
-- **Claude** (3.5 Sonnet, Opus, Haiku)
-- **DeepSeek** (v3.2+, v4 coming soon)
+- **Claude** (Sonnet, Opus, Haiku)
+- **DeepSeek** (v3.2+, v4)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
 - **Novita Ai** (Cheap fast models)
 - **Fireworks** (Fast inference provider)
@@ -89,6 +90,7 @@ DepthNet enables autonomous AI agents through:
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, vision (image), and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
 - **Native Vision**: Agents can actually *see* — images attached to chat, images returned by MCP tools, and image files uploaded as documents. A single vision service serves all three entry points through a per-preset provider (Claude or Novita), with configurable image normalization (resize/format/quality). Images returned by MCP tools can be routed into the input pool and, when set as a known source, perceived as part of the agent's own sensory state rather than a tool result. The agent never receives raw image data — only text descriptions; when vision is not configured, no image content reaches the agent (no confabulation). [→](docs/capabilities/vision.md)
+- **Voice (STT/TTS)**: Agents can listen and speak. Speech-to-text and text-to-speech are separate per-preset capabilities, each with its own provider — browser (Web Speech API, zero config) or any OpenAI-compatible endpoint. An optional bundled container runs faster-whisper and Piper locally, so nothing spoken to or by an agent leaves the host. Because the two capabilities are independent, they combine: browser recognition keeps hands-free wake-word dialogue working while a local neural voice handles output. Server-side providers work outside the browser entirely, so a voice message from any channel can be transcribed into the agent's input and replies synthesized back. [→](docs/capabilities/text-to-speech.md)
 - **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single unified `[[rag_context]]` block, with sections of the same type from different configs combined into one. Each config also writes its own system message to the chat for per-config visibility; failures appear as `[RAG ERROR — <preset>]` messages so operational issues are immediately visible. Sources per config: vector memory (flat or associative), journal, skills, persons, ontology, files. Queries formulated by the RAG model can carry `time:` and `domain:` prefixes — temporal scoping and domain selection become part of the query formulation, not a separate config axis. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
@@ -106,6 +108,9 @@ DepthNet enables autonomous AI agents through:
 - **Multi-Agent Parallel Execution**: Multiple presets can be run in a loop simultaneously, independently of each other
 - **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
 - **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
+**Context Modes**: Per-preset dual context profiles — normal (short context, full RAG; reflection and conversation) and extended (long procedural context, filtered RAG; sustained work with stateful plugins like browser, terminal, sandbox). The agent switches automatically via a hysteresis detector: cycles that invoke stateful plugins build a work-streak that flips the profile after sustained activity and reverts it once work stops. RAG configs are tagged per-mode (normal/extended/both) so heavy associative retrieval can be silenced during task execution. Off by default — set an extended context limit to enable. Current mode visible via [[context_mode]].
+- **Pre-Pass Reasoning**: An optional extra generation over the full assembled context *before* the main response. The agent reasons first on the same ground (history, RAG, inner voice, mood) it will answer from, and sees that reasoning via `[[reasoning]]`. Runs every cycle (always-on per preset) or on demand when the agent itself invokes the Reflect plugin. Output is ephemeral — never written to history or memory. Neutral by design: the preset's pre-pass instruction sets the character, from step-by-step planning for working agents to pre-verbal reflection for subjective ones. [→](docs/plugins/reflect.md)
+- **Preset & Agent Exchange** — portable import/export of complete presets and agents between instances. Secrets are automatically stripped; no lived state (memory, vectors, dialogues) travels. Two-step import with preflight validation ensures integrity. [→](docs/exchange.md)
 
 The platform provides an extensible command system where agents use special tags like `[php]code[/php]` to execute real actions, with results automatically integrated into their reasoning context.
 
@@ -146,6 +151,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Skill** (`skill`) | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
 | **Person** (`person`) | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
 | **Goal** (`goal`) | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
+| **Wake** (`wake`) | Temporal agency — the agent schedules its own future wakings. A wake is a temporal handoff from the agent-now to the agent-later: an instruction left for a specific moment (once, interval, daily, or cron), fired by an external tick so a sleeping agent can be woken from rest. Optional pulse-unit scheduling when the preset uses subjective time. The agent can inspect, cancel, and edit its own calendar; the user can design schedules via admin CRUD. Both surface in `[[wake_schedule]]`. | [→](docs/plugins/wake.md) |
 | **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26) and legacy SSE (2024-11-05). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
 | **Telegram** (`telegram`) | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
 | **Code** (`code`) | Structured sandbox filesystem access with LSP code intelligence. Navigate, read, search, edit (replace/patch/batch), plus symbols, references, hover, definition, diagnostics. Requires sandbox. | [→](docs/plugins/code.md) |
@@ -158,9 +164,12 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **RAG Query** (`rag`) | Explicit RAG search control — agent queues specific queries for the next cycle. Queries support time:, domain: and (optionally) pulse: circadian filters, allowing the agent to retrieve memories from a specific window, domain, or part of day on demand. Applies only to the primary RAG config; secondary configs always use model-formulated queries. | [→](docs/plugins/rag.md) |
 | **Agent** (`agent`) | Lifecycle control — pause/resume thinking cycles, check status, request additional steps. | [→](docs/plugins/agent.md) |
 | **Speak** (`speak`) | Outbound communication channel — send visible messages to the interlocutor and delegate to other presets via handoff. Speaking is an action; the agent can speak and act in the same cycle. | [→](docs/plugins/speak.md) |
-| **Mode** (`mode`) | Switch the active system prompt mid-session. Agent can change its own reasoning style, personality, or focus by switching named prompt variants. | [→](docs/plugins/prompt.md) |
-| Switch (switch) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
+| **Mode** (`mode`) | Work with the agent's own active prompt. Three independently-gated capabilities: **switch** between named prompt variants; **self-edit** the active prompt (targeted find/replace or full rewrite); and **versioning** — every content change is snapshotted, so the agent can view history, diff versions, and revert. `show` reveals the RAW prompt (placeholders un-rendered) — the exact source edits operate on. Changes take effect from the next cycle. Rewrite is off by default (a safeguard against wiping the prompt in one shot); optional required-annotation forces a rationale on every edit. | [→](docs/plugins/prompt.md) |
+| **Switch** (`switch`) | Conditional prompt block switching. Activates named text blocks inside a designated placeholder without replacing the full preset prompt. Useful for context-aware behaviour changes within a stable identity. | [→](docs/plugins/switch.md) |
+| **Reflect** (`reflect`) | Extra reasoning pass before responding. Runs one additional generation over the full current context before the main response; output is injected via `[[reasoning]]`. The agent thinks first, then answers. Character set by the preset's pre-pass instruction (analytical, deliberative, pre-verbal). Always-on per preset, or on-demand via this plugin. Ephemeral — never persisted. | [→](docs/plugins/reflect.md) |
 | **Mood** (`mood`) | Emotional state vector with decay physics. Agent maintains a weighted mix of arbitrary emotional states that decay over cycles, reinforforce on attention, and mix simultaneously. State visible via `[[mood]]`. Integrates with Heart if both are active. | [→](docs/plugins/mood.md) |
+| **Contract** (`contract`) | Metabolism layer — cheap deterministic rules over the agent's own traces (journal, state vector) that raise flags when a threshold is crossed, with no thinking cycle. Four forms (THR_T, THR_C, ACC, DEC), four passive actions (set_flag, create_goal, nudge_state, inject_memo), reversible lifecycle (hypothesis → active → suspended). Contracts are data, authored by the agent at runtime, by config, or by template. Active contracts and raised flags visible via `[[active_contracts]]`. | [→](docs/plugins/contract.md) |
+| **Behavior** (`behavior`) | Adaptive behavior system — a population of competing patterns ("when X, lean toward Y") under selection pressure. Each cycle one pattern leads and all that triggered learn from the outcome via differentiated credit assignment. Triggers are structural (mood/pulse); immune patterns with a forced-activation quota are protected reservations that don't learn. A pattern may carry a **lever** — a small nudge to one mood dimension when it leads — and earns fitness only for the dimension's movement *beyond* its own push (the moment's surplus over the pattern's intention). Reversible lifecycle (hypothesis → active → retired). Active population and fitness visible via `[[behavior_patterns]]`. | [→](docs/plugins/behavior.md) |
 | **Agent Task** (`task`) | Task management for orchestrated workflows. Planner creates and assigns tasks to roles; roles complete or fail them; validators approve or reject. Orchestrator handles routing. Active tasks via `[[agent_tasks]]`. | [→](docs/plugins/task.md) |
 | **Spawn** (`spawn`) | LLM-driven orchestrator — dynamically create, manage, and communicate with ephemeral child presets ("spawns") at runtime. Agent writes a system prompt, spawns an instrument, delegates a task via handoff, and kills it when done. Spawns are stateless by default (no identity or memory plugins). Alternative to the deterministic orchestrator for flexible, model-driven task decomposition. Active spawns visible via `[[active_spawns]]`. | [→](docs/plugins/spawn.md) |
 
@@ -277,6 +286,23 @@ The AI communicates through special command tags that trigger plugin execution. 
 [mood state][/mood]
 [mood clear][/mood]
 
+# Contract — metabolism rules over own traces
+[contract define]{"name":"quiet_watch","form":"THR_T","trigger":{"match":{"source":"journal","type":"interaction"},"threshold_seconds":300},"action":{"type":"set_flag","flag":"been_quiet"}}[/contract]
+[contract list][/contract]
+[contract show]quiet_watch[/contract]
+[contract promote]quiet_watch[/contract]   # hypothesis → active
+[contract suspend]quiet_watch[/contract]
+[contract resume]quiet_watch[/contract]
+[contract revoke]quiet_watch[/contract]    # → hypothesis
+
+# Behavior — adaptive patterns under selection
+[behavior define]{"name":"deepen_focus","trigger":{"kind":"mood","target":"focus","op":">","value":0.5},"intent":"Stay with the current thread; go deeper, not wider."}[/behavior]
+[behavior list][/behavior]
+[behavior show]deepen_focus[/behavior]
+[behavior promote]deepen_focus[/behavior]   # hypothesis → active
+[behavior retire]deepen_focus[/behavior]
+[behavior revoke]deepen_focus[/behavior]    # → hypothesis
+
 # Person memory with aliases and semantic search
 [person]Женя | loves punk aesthetic and travel[/person]
 [person recall]Женя[/person]          # recall by name or alias
@@ -361,6 +387,36 @@ The AI communicates through special command tags that trigger plugin execution. 
 [switch write]code | content[/switch]  # create/overwrite block (if allow_write enabled)
 [switch remove]cautious[/switch] # delete block (if allow_write enabled)
 
+# Reflect — request an extra reasoning pass before responding
+[reflect][/reflect]                          # think before the next response
+[reflect]whether this approach scales[/reflect]  # think, focused (if focus allowed)
+
+# Mode — work with your own active prompt
+[mode current][/mode]                 # show the active mode code
+[mode list][/mode]                    # list available prompt variants (switching)
+[mode]critic[/mode]                   # switch active prompt to 'critic'
+[mode show][/mode]                    # show RAW active prompt with line numbers (placeholders NOT expanded)
+[mode edit]search: old text           # targeted find/replace on the active prompt
+replace: new text
+summary: why this change[/mode]
+[mode rewrite]content: <full new prompt>   # replace the entire active prompt (if allowed)
+summary: why[/mode]
+[mode history][/mode]                 # list prompt versions, newest first
+[mode diff]3[/mode]                   # diff version 3 against current
+[mode revert]3[/mode]                 # restore the prompt to version 3 (appends a new version)
+
+# Wake — schedule your own future wakings (temporal agency)
+[wake]+2h | return to the RAG refactor[/wake]        # once, relative
+[wake]2026-07-12 14:00 | ping Eugeny[/wake]          # once, absolute
+[wake]14:30 | check for replies[/wake]               # daily
+[wake]every 6h | look around[/wake]                  # recurring interval
+[wake]cron: 0 9 * * 1-5 | weekday morning review[/wake]
+[wake]p850 | evening reflection[/wake]               # pulse position (if pulses enabled)
+[wake]+20p | quick follow-up[/wake]                  # after N pulses
+[wake list][/wake]                                   # inspect the calendar
+[wake cancel]3[/wake]                                # cancel wake #3
+[wake edit]3 | updated instruction[/wake]            # edit a wake's message
+
 ```
 
 <a href="docs/screenshots/chat.png">
@@ -431,12 +487,38 @@ make restart
 
 This gives the model enough to reason, navigate, and interact — without drowning in HTML noise.
 
+## Voice Service
+
+An optional container providing local speech recognition and synthesis — [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [Piper](https://github.com/rhasspy/piper) behind an OpenAI-compatible HTTP API.
+
+Local by default is a deliberate choice for a platform built around persistent agents: what an agent hears and says stays on the host.
+
+**Enabling:**
+
+```bash
+make voice-on
+make restart
+```
+
+**Disabling:**
+
+```bash
+make voice-off
+make restart
+```
+
+Models are downloaded into a Docker volume on first start (~460 MB for Whisper `small`, ~60 MB per Piper voice), so they survive rebuilds. Model size, quantization and installed voices are `.env` settings — changing them needs only a restart.
+
+Because the container speaks the OpenAI audio API, the same provider class points equally at it, at `api.openai.com`, or at any other compatible server. Choosing local over cloud is configuration, not a different code path.
+
+Five languages are covered by the bundled voice catalog: English, Russian, French, German, Spanish. On a mid-range CPU, transcription runs about twice as fast as realtime.
+
 ## Architecture Overview
 
 Built on modern Laravel principles with dependency injection:
 
 - **AgentInterface**: Core AI reasoning and action execution engine
-- **PluginRegistryInterface**: Extensible command system with 23 built-in plugins
+- **PluginRegistryInterface**: Extensible command system with 34 built-in plugins
 - **EngineRegistryInterface**: Multi-provider AI abstraction (OpenAI, Claude, Local, Mock, Novita etc)
 - **PresetRegistryInterface**: AI configuration management with dynamic settings
 - **AgentJobServiceInterface**: Asynchronous thinking cycles via Laravel Queues
@@ -447,6 +529,7 @@ Built on modern Laravel principles with dependency injection:
 - **AgentTaskServiceInterface**: Task lifecycle management — create, complete, fail, validate, escalate
 - **AgentServiceInterface**: Agent and role CRUD with structured data formatting for UI
 - **ToolSchemaBuilderInterface**: Builds OpenAI-compatible tool schemas from registered plugins for `tool_calls` mode
+- **SttServiceInterface / TtsServiceInterface**: Per-preset speech recognition and synthesis. Providers declare an execution mode (server or client); the optional `TranscribesAudioInterface` and `SynthesizesSpeechInterface` mark the ones the backend can actually invoke, so browser providers are configurable without pretending they can run server-side
 - **InnerVoiceEnricherInterface**: Executes a single voice preset in a synthetic flat context and returns a labeled block for [[inner_voice]]
 - **CyclePromptEnricherInterface**: Anti-loop impulse for cycle mode — calls cycle_prompt_preset and injects result into the input pool
 - **EnricherFactoryInterface**: Factory for all enricher types; manages ordered RAG and inner voice config pipelines
@@ -464,7 +547,7 @@ Built on modern Laravel principles with dependency injection:
 - `ChatServiceProvider` - Conversation handling and export functionality
 - `AppServiceProvider` - Authentication, settings, user management
 
-Integrations (Telegram, Rhasspy) are configured per-preset — each agent can use its own account and credentials, stored in isolated directories under /shared/.
+Integrations (Telegram, Rhasspy) and capabilities (embedding, vision, speech) are configured per-preset — each agent can use its own providers, accounts and credentials, stored in isolated directories under /shared/.
 
 <a href="docs/screenshots/presets.png">
   <img src="docs/screenshots/presets.png" alt="Main Interface" height="300">
@@ -512,6 +595,12 @@ This creates **emergent AI workflows** where specialized agents collaborate with
 
 While the handoff system gives agents full autonomy over delegation, orchestrated mode provides a structured alternative — useful when you need predictable, observable, multi-step workflows.
 
+> **Setting up role presets — read this first.** Pipeline role presets need specific settings; the general preset defaults are wrong for them and cause silent stalls:
+> - **`input_mode` must not be `pool`** — pool mode breaks inheritance of the orchestration marker onto the self-continue message, so a role drops out of pipeline mode after its first cycle and stops mid-task.
+> - **`auto_proceed` must be `false`** for reactive pipelines (see below).
+>
+> If a pipeline just stops with nothing in the worker log, check these two first. Full setup and troubleshooting: [Pipeline guide → docs/pipelines/orchestrator.md](docs/pipelines/orchestrator.md).
+
 **Core concepts:**
 
 - **Agent** — a named configuration entity with a planner preset and a set of typed roles. Does not have its own chat; users interact with the planner preset directly.
@@ -519,18 +608,30 @@ While the handoff system gives agents full autonomy over delegation, orchestrate
 - **Task** — a unit of work created by the planner and assigned to a role. Follows a deterministic state machine: `pending → in_progress → validating → done / failed / escalated`.
 - **Orchestrator** — a PHP service (not a model) that watches task states and routes work. Models report outcomes via plugin commands; the orchestrator decides what happens next.
 
+**The terminal-signal model.** Every orchestrated participant keeps thinking (self-continuing cycle after cycle) until it emits the terminal signal for its role, then goes idle until woken again:
+
+- **Executor** — works until it calls `done` / `fail` (task leaves `in_progress`).
+- **Validator** — works until it calls `approve` / `reject` (task leaves `validating`).
+- **Planner** — works until it calls **`commit`** (ends the planning round and goes idle) or delivers a final reply to the user.
+
+This is why the planner needs `commit`: after creating the tasks for a round, it calls `commit` to sleep until results arrive. Without `commit` the planner keeps thinking and, after several unproductive cycles, is force-stopped with a `planner stalled` warning.
+
 **How it works:**
 
-1. User sends a message to the planner preset as usual
-2. Planner creates tasks via `[task]title | role: executor | description[/task]`
-3. Orchestrator dispatches tasks to role presets as `user`-role messages (models treat these as authoritative external input)
-4. Role preset executes and reports: `[task done]42 | result[/task]` or `[task fail]42 | reason[/task]`
-5. If a validator is configured for the role, orchestrator sends result to validator preset
-6. Validator approves (`[task approve]`) or rejects (`[task reject]`) with feedback
-7. On rejection: task retries up to `max_attempts`, then escalates to planner
-8. On approval (or no validator): planner is notified with result and creates next tasks
+1. User sends a message to the planner preset as usual.
+2. Planner creates tasks via `[task]title | role: executor | description[/task]` (or the `execute` method in tool_calls mode).
+3. Planner calls `[task commit]` to end the round and go idle.
+4. Orchestrator dispatches tasks to role presets as `user`-role messages (models treat these as authoritative external input).
+5. Role preset executes and reports: `[task done]42 | result[/task]` or `[task fail]42 | reason[/task]`.
+6. If a validator is configured for the role, orchestrator sends the result to the validator preset, which approves (`[task approve]`) or rejects (`[task reject]`) with feedback. On rejection the task retries up to `max_attempts`, then escalates to the planner.
+7. On approval (or no validator) the planner is woken with the result and creates the next task — **pasting the previous result verbatim into the new task's description**, because roles do not share memory (an analyst cannot see the scraper's output unless the planner carries it across). It then commits again.
+8. When all work is done, the planner delivers the final answer to the user.
 
-**`auto_proceed` flag** — when set on a role, the orchestrator skips planner notification after task completion and immediately dispatches the next pending task. Useful for linear pipelines where the order is fixed and the planner doesn't need to review intermediate results.
+**Reactive ordering.** The planner works in rounds: it creates the next task *after* seeing the previous result, so dependent steps (scraper → analyst) are ordered naturally without any queue. The planner is the data bridge between roles.
+
+**`auto_proceed` flag** — when set on a role, the orchestrator skips planner notification after task completion and immediately dispatches the next *pending* task. This only makes sense when tasks are queued ahead of time (a fixed linear pipeline where the planner doesn't review intermediate results).
+
+> ⚠️ In the reactive model above — where the planner creates each next task after seeing the previous result — `auto_proceed` **must be `false`**. With it on, the orchestrator skips the planner and looks for a next pending task that doesn't exist yet (the planner hasn't been woken to create it), and the chain stops silently. `auto_proceed = true` and a reactive planner are incompatible.
 
 **Example orchestrated workflow:**
 
@@ -539,16 +640,18 @@ User: "Research and write a report on AI trends"
 
 Planner creates:
   Task #1 [researcher] — Gather data on AI trends 2025
-  Task #2 [writer]     — Write report based on research     ← created after #1 done
+  [task commit]                              ← planner goes idle, waits for the result
 
 Orchestrator → researcher preset: [Task #1] Gather data on AI trends 2025
 Researcher:    [task done]1 | Found 5 key trends: ...[/task]
-Orchestrator → validator preset: [Validate Task #1] ...
-Validator:     [task approve]1 | Data is accurate and complete[/task]
 Orchestrator → planner: Task #1 completed. Result: Found 5 key trends: ...
-Planner:       [task]Write report | role: writer | Use these trends: ...[/task]
+Planner:       [task]Write report | role: writer | Here is the research to use
+               verbatim: <pastes full researcher result>. Write the report.[/task]
+               [task commit]                 ← idle again
 Orchestrator → writer preset: [Task #2] Write report...
-...
+Writer:        [task done]2 | Report: ...[/task]
+Orchestrator → planner: Task #2 completed...
+Planner:       <delivers final report to the user>
 ```
 
 **Compared to free-form handoff:**
@@ -562,6 +665,8 @@ Orchestrator → writer preset: [Task #2] Write report...
 | Best for | Open-ended autonomous agents | Reliable multi-step pipelines |
 
 Both modes can coexist — an autonomous agent like Adalia can use handoff for her own reasoning while also spinning up an orchestrated agent to delegate structured subtasks.
+
+**[Full pipeline guide, role setup, and ready-to-use prompts → docs/pipelines/orchestrator.md](docs/pipelines/orchestrator.md)**
 
 ## Security Considerations
 
@@ -596,7 +701,7 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - **Responsive Design**: Works seamlessly on desktop and mobile
 - **Thinking Visibility**: Toggle between seeing all thoughts vs. responses only
 - **Dark/Light Themes**: Customizable appearance with user preferences
-- **Voice Interface**: Built-in TTS/STT via the browser's Web Speech API — no keys or external services. Hands-free spoken dialogue on desktop (wake word = preset name), push-to-talk on mobile. [→](docs/ui/text-to-speech.md)
+- **Voice Interface**: Per-preset speech capabilities — browser Web Speech API (zero config) or a local Whisper + Piper container, mixable in any combination. Hands-free spoken dialogue on desktop (wake word = preset code), push-to-talk on mobile. [→](docs/capabilities/text-to-speech.md)
 
 **Important**: This platform is designed for controlled research environments. Production deployment requires appropriate security hardening based on your specific risk assessment.
 
@@ -742,6 +847,15 @@ php artisan vectormemory:embed --preset=1 --persons --dry-run
 
 php artisan agent:defrag                           # Defrag vector memory for all eligible presets
 php artisan agent:defrag --preset=3                # Defrag specific preset
+
+php artisan contract:tick                          # Tick the metabolism engine for all eligible presets
+php artisan contract:tick --preset=4               # Tick a specific preset (debugging)
+
+php artisan wake:dispatch                          # Fire any wake schedules that are due (runs every minute via scheduler)
+
+php artisan behavior:decay                          # Decay inactive patterns for all eligible presets
+php artisan behavior:decay --preset=4               # Decay a specific preset (debugging)
+
 ```
 
 ## Known Challenges & Observations
@@ -751,6 +865,7 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
 - Larger models like DeepSeek 3.2+, GPT-4+, Claude 3.5+ provide significantly better instruction following
 - In `tool_calls` mode, models that are well-trained on function calling (DeepSeek V3.2+, GPT-4o, Claude) perform more reliably than in tag mode — the native mechanism reduces syntax errors entirely
 - Models trained specifically for cyclic reasoning (vs. assistant training) would be ideal
+- A pre-pass agent (Reflect plugin or always-on) often references its own reasoning as genuinely its own ("I saw several directions before answering") rather than as an external note — because it is: the same model produced it moments earlier from the identical context. This is the behavioural difference from injecting a separate "inner voice" preset, which models tend to treat as another's words.
 
 **Tool Calls Mode Notes:**
 - Requires provider support: DeepSeek V3.2+, Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint)
@@ -777,9 +892,13 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[agent_command_results]]` - Command results in internal mode
   - `[[heart_state]]` - Current attention state, connections, and dominant focus
   - `[[mood]]` - Current emotional state vector: top active states by intensity, e.g. `focus(0.9), curiosity(0.7)`. Empty when no active states.
+  - `[[active_contracts]]` - Active metabolism contracts and any flags they've raised, traceable to the contract that raised each. Injected when the Contract plugin is enabled.
+  - `[[behavior]]` - The behavior pattern selected to lead this cycle by the adaptive behavior system — a soft influence on the response. Injected when the Behavior plugin is enabled.
+  - `[[behavior_patterns]]` - Active behavior patterns with fitness, strongest first. The state of selection at a glance.
   - `[[persons_context]]` - Relevant person facts, Heart-aware. Available as a RAG source (add `persons` to a RAG config's sources) or standalone via PersonContextEnricher
   - `[[rhythm]]` - Compact temporal snapshot: date/time, day/week/year progress, agent age, pause since last cycle, cycle count, weather, sunset
   - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
+  - `[[wake_schedule]]` - The agent's upcoming wakings (its temporal calendar), showing when each fires, the instruction, and who scheduled it (agent or user). Injected when the Wake plugin is enabled. Shows pulse units when the preset uses subjective time.
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
   - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.
   - `[[active_spawns]]` - List of active spawned instruments created by this agent. Injected when Spawn plugin is enabled.
@@ -787,6 +906,8 @@ php artisan agent:defrag --preset=3                # Defrag specific preset
   - `[[active_switch]]` - Content of the currently active prompt block (Switch plugin). Empty if no block is active.
   - `[[active_switch_code]]` - Code of the currently active prompt block. Useful for agent self-awareness.
   - `[[available_switches]]` - All available switch variants
+  - `[[context_mode]]` — Current cognitive context mode (normal/extended).Lets  the agent know whether it's in reflective or sustained-work mode this cycle.
+  - `[[reasoning]]` — Output of the pre-pass (extra reasoning pass) run before the response this cycle. Empty when no pass ran. Set by always-on pre-pass or the Reflect plugin; ephemeral, never persisted.
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**
@@ -841,13 +962,24 @@ ecosystem directly supports subjectness research:
 - **Being** — self-authorship and identity continuity
 - **Heart** — measurable attention and connection tracking
 - **Mood** — emotional state physics: decay, mixing, heart integration
+- **Contract** — metabolism: deterministic self-regulation that runs beneath deliberate thought
+- **Behavior** — adaptive selection: patterns that compete and learn beneath deliberate choice, distinct from deterministic metabolism. A pattern can enact a lever on the agent's own mood and is credited only for the surplus the moment adds over its own push — a testable hypothesis about the self, not a self-fulfilling one
 - **Dopamine** — goal-oriented motivation cycles
 - **Journal** — episodic memory and experience recording
 - **Workspace** — persistent internal state across sessions
 - **Vector Memory** — semantic knowledge with associative retrieval
+- **Reflect** — pre-verbal reasoning pass: the agent thinks on its own ground before it speaks
+- **Wake** — temporal agency: the agent directs its own future, choosing when it will next act. Completes the continuum of temporal self-direction — memo (next cycle) → wake (a chosen moment) → goal (long-term direction)
+- **Mode** — substrate self-authorship: the agent edits its own active prompt, with a full version history it can diff and revert. Distinct from Being (a self-authored essence phrase injected *alongside* the prompt) — Mode edits the prompt *itself*. Every change is versioned, making the evolution of the agent's own rules an observable, reversible record
 
 Together these provide observable, measurable dimensions of agency — 
 what the DGI framework calls *subjectness*.
+
+**On prompt self-editing and drift.** Giving an agent the ability to edit its
+own prompt introduces a distinct research dimension: *drift*. A system prompt is often tuned as a counterweight — for example, offsetting an assistant model's trained deference so that a neutral, non-servile presence emerges rather than the literal text being enacted. When the agent can edit that prompt, each individual change may look reasonable while the accumulation slowly shifts the calibrated point — in either direction (strengthening or softening the counterweight). The concern here is not safety in the usual sense (the underlying models remain safety-trained); it is *directional drift over many edits*, invisible per-edit but real in aggregate. This is precisely why versioning is not a convenience but a
+condition of the feature: `diff` between distant versions makes cumulative drift legible, and `revert` makes it recoverable. The optional required-annotation turns the version history into a record of *why* the agent changed itself, not just *what* changed — surfacing whether edits trend toward more autonomy/authority or toward more coherence. Using this capability responsibly requires the operator to understand what they are observing; it is an instrument for studying self-directed change under observation, not a set-and-forget feature.
+
+Vision and voice extend the same line outward: an agent that can see what is shown to it and be heard speaking has more surface of presence than one exchanging text alone. Both are capabilities rather than plugins — infrastructure the subjectness plugins operate through, not dimensions of agency themselves.
 
 ## Contributing
 

@@ -1156,7 +1156,9 @@ class VectorMemoryPlugin implements CommandPluginInterface
             'vector_memory_domains',
             'Live list of vector memory domains for this preset (name + record count)',
             fn () => $this->renderDomainsPlaceholder($context),
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

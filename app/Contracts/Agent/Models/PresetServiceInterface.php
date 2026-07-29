@@ -14,11 +14,12 @@ interface PresetServiceInterface
      * Create a new preset
      *
      * @param array $data Preset data including name, description, engine_name, engine_config, etc.
+     * @param bool $skipSecretValidation Whether to skip secret validation
      * @return AiPreset The created preset
      * @throws \Illuminate\Validation\ValidationException When validation fails
      * @throws \Exception When engine doesn't exist or config is invalid
      */
-    public function createPreset(array $data): AiPreset;
+    public function createPreset(array $data, bool $skipSecretValidation = false): AiPreset;
 
     /**
      * Update an existing preset
@@ -147,6 +148,14 @@ interface PresetServiceInterface
      * @return Collection<AiPreset> Matching active presets
      */
     public function searchPresets(string $query): Collection;
+
+    /**
+     * Get handoff targets (presets that can be used for handoff)
+     *
+     * @param AiPreset $excludePreset Preset to exclude from results
+     * @return Collection<AiPreset> Handoff targets
+     */
+    public function getHandoffTargets(AiPreset $excludePreset): Collection;
 
     /**
      * Set a preset as the default

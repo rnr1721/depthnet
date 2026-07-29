@@ -42,6 +42,9 @@ class AiPreset extends Model
         'metadata',
         'loop_interval',
         'max_context_limit',
+        'max_context_limit_extended',
+        'pre_pass_enabled',
+        'pre_pass_instruction',
         'agent_result_mode',
         'error_behavior',
         'allow_handoff_to',
@@ -58,29 +61,31 @@ class AiPreset extends Model
 
 
     protected $casts = [
-        'target_preset_id'         => 'integer',
-        'parent_preset_id'         => 'integer',
-        'is_spawned'               => 'boolean',
-        'pool_relative_dates'      => 'boolean',
-        'pulse_dates'              => 'boolean',
-        'engine_config'            => 'array',
-        'metadata'                 => 'array',
-        'loop_interval'            => 'integer',
-        'active_prompt_id'         => 'integer',
-        'defrag_enabled'           => 'boolean',
-        'defrag_keep_per_day'      => 'integer',
-        'cycle_prompt_preset_id'   => 'integer',
-        'cp_context_limit'         => 'integer',
-        'max_context_limit'        => 'integer',
-        'before_execution_wait'    => 'integer',
-        'allow_handoff_to'         => 'boolean',
-        'allow_handoff_from'       => 'boolean',
-        'rhasspy_enabled'          => 'boolean',
-        'rhasspy_incoming_enabled' => 'boolean',
-        'is_active'                => 'boolean',
-        'is_default'               => 'boolean',
-        'created_at'               => 'datetime',
-        'updated_at'               => 'datetime',
+        'target_preset_id'           => 'integer',
+        'parent_preset_id'           => 'integer',
+        'is_spawned'                 => 'boolean',
+        'pool_relative_dates'        => 'boolean',
+        'pulse_dates'                => 'boolean',
+        'engine_config'              => 'array',
+        'metadata'                   => 'array',
+        'loop_interval'              => 'integer',
+        'active_prompt_id'           => 'integer',
+        'defrag_enabled'             => 'boolean',
+        'defrag_keep_per_day'        => 'integer',
+        'cycle_prompt_preset_id'     => 'integer',
+        'cp_context_limit'           => 'integer',
+        'max_context_limit'          => 'integer',
+        'max_context_limit_extended' => 'integer',
+        'pre_pass_enabled'           => 'boolean',
+        'before_execution_wait'      => 'integer',
+        'allow_handoff_to'           => 'boolean',
+        'allow_handoff_from'         => 'boolean',
+        'rhasspy_enabled'            => 'boolean',
+        'rhasspy_incoming_enabled'   => 'boolean',
+        'is_active'                  => 'boolean',
+        'is_default'                 => 'boolean',
+        'created_at'                 => 'datetime',
+        'updated_at'                 => 'datetime',
     ];
 
 
@@ -108,6 +113,7 @@ class AiPreset extends Model
         'turn_trigger'             => 'no_speak',
         'rhasspy_enabled'          => false,
         'rhasspy_incoming_enabled' => false,
+        'pre_pass_enabled'         => false,
     ];
 
     /**
@@ -471,6 +477,17 @@ class AiPreset extends Model
     }
 
     /**
+     * Context limit for extended (work) mode.
+     * Null means the feature is off — resolver falls back to max_context_limit.
+     *
+     * @return int|null
+     */
+    public function getMaxContextLimitExtended(): ?int
+    {
+        return $this->max_context_limit_extended;
+    }
+
+    /**
      * Whether vector memory defragmentation is enabled for this preset.
      *
      * @return bool
@@ -731,6 +748,27 @@ class AiPreset extends Model
     public function getRhasspyIncomingToken(): ?string
     {
         return $this->rhasspy_incoming_token;
+    }
+
+    /**
+     * Whether the pre-pass ("reasoning"/"beneath") is enabled for this preset.
+     * When true, generateResponse() runs one extra pass over the full context
+     * before the speaking pass, exposing its output via [[reasoning]].
+     */
+    public function getPrePassEnabled(): bool
+    {
+        return $this->pre_pass_enabled ?? false;
+    }
+
+    /**
+     * The user-turn instruction injected at the tail of the context for the
+     * pre-pass. This is the only thing that differs between the pre-pass and the
+     * speaking pass. Null/empty means the feature is effectively inert even if
+     * the flag is on — generateResponse() should guard against that.
+     */
+    public function getPrePassInstruction(): ?string
+    {
+        return $this->pre_pass_instruction;
     }
 
 }

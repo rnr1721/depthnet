@@ -14,6 +14,8 @@ use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Browser\BrowserServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Capabilities\SttServiceInterface;
+use App\Contracts\Agent\Capabilities\TtsServiceInterface;
 use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupFactoryInterface;
 use App\Contracts\Agent\Cleanup\PresetCleanupServiceInterface;
@@ -28,6 +30,11 @@ use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
+use App\Contracts\Agent\Contract\ContractMemoWriterInterface;
+use App\Contracts\Agent\Contract\ContractRuntimeServiceInterface;
+use App\Contracts\Agent\Contract\ContractServiceInterface;
+use App\Contracts\Agent\Contract\StateVectorInterface;
 use App\Contracts\Agent\Enricher\CyclePromptEnricherInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
@@ -36,6 +43,8 @@ use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
 use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
 use App\Contracts\Agent\Enricher\Rag\RagSectionRendererRegistryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
+use App\Contracts\Agent\Exchange\PresetExporterInterface;
+use App\Contracts\Agent\Exchange\PresetImporterInterface;
 use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
@@ -81,6 +90,7 @@ use App\Contracts\Agent\VectorMemory\DefragServiceInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryExporterInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
+use App\Contracts\Agent\Wake\WakeScheduleServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
 use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
@@ -95,6 +105,14 @@ use App\Services\Agent\Browser\BrowserService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
+use App\Services\Agent\Capabilities\Speech\Drivers\BrowserSttProvider;
+use App\Services\Agent\Capabilities\Speech\Drivers\BrowserTtsProvider;
+use App\Services\Agent\Capabilities\Speech\Drivers\OpenAiCompatibleSttProvider;
+use App\Services\Agent\Capabilities\Speech\Drivers\OpenAiCompatibleTtsProvider;
+use App\Services\Agent\Capabilities\Speech\SttRegistry;
+use App\Services\Agent\Capabilities\Speech\SttService;
+use App\Services\Agent\Capabilities\Speech\TtsRegistry;
+use App\Services\Agent\Capabilities\Speech\TtsService;
 use App\Services\Agent\Capabilities\Vision\Drivers\ClaudeVisionProvider;
 use App\Services\Agent\Capabilities\Vision\Drivers\NovitaVisionProvider;
 use App\Services\Agent\Capabilities\Vision\VisionRegistry;
@@ -121,6 +139,15 @@ use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
+use App\Services\Agent\ContextModeResolver;
+use App\Services\Agent\Contract\ContractMemoWriter;
+use App\Services\Agent\Contract\ContractRuntimeService;
+use App\Services\Agent\Contract\ContractService;
+use App\Services\Agent\Contract\JournalTraceReader;
+use App\Services\Agent\Contract\MoodStateVectorAdapter;
+use App\Services\Agent\Contract\NullStateVector;
+use App\Services\Agent\Contract\TraceReaderRegistry;
+use App\Services\Agent\Contract\VectorMemoryTraceReader;
 use App\Services\Agent\EngineRegistry;
 use App\Services\Agent\Enricher\CyclePromptEnricher;
 use App\Services\Agent\Enricher\EnricherFactory;
@@ -143,6 +170,8 @@ use App\Services\Agent\Enricher\Rag\Renderers\SkillsSectionRenderer;
 use App\Services\Agent\Enricher\Services\PresetInnerVoiceConfigService;
 use App\Services\Agent\Enricher\Services\PresetRagConfigService;
 use App\Services\Agent\EnvironmentInfoService;
+use App\Services\Agent\Exchange\PresetExporter;
+use App\Services\Agent\Exchange\PresetImporter;
 use App\Services\Agent\Goals\GoalService;
 use App\Services\Agent\Heart\HeartService;
 use App\Services\Agent\Journal\JournalService;
@@ -170,8 +199,10 @@ use App\Services\Agent\PluginMetadataService;
 use App\Services\Agent\PluginRegistry;
 use App\Services\Agent\Plugins\AgentPlugin;
 use App\Services\Agent\Plugins\AgentTaskPlugin;
+use App\Services\Agent\Plugins\BehaviorPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
 use App\Services\Agent\Plugins\CodePlugin;
+use App\Services\Agent\Plugins\ContractPlugin;
 use App\Services\Agent\Plugins\DocumentManagerPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
@@ -187,6 +218,7 @@ use App\Services\Agent\Plugins\PlaywrightBrowserPlugin;
 use App\Services\Agent\Plugins\ProjectMapPlugin;
 use App\Services\Agent\Plugins\PromptPlugin;
 use App\Services\Agent\Plugins\RagQueryPlugin;
+use App\Services\Agent\Plugins\ReflectPlugin;
 use App\Services\Agent\Plugins\Related\PluginData\PresetPluginDataService;
 use App\Services\Agent\Plugins\Related\VectorMemory\TfIdfService;
 use App\Services\Agent\Plugins\RhythmPlugin;
@@ -200,6 +232,7 @@ use App\Services\Agent\Plugins\SwitchPlugin;
 use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\TerminalPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
+use App\Services\Agent\Plugins\WakePlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
 use App\Services\Agent\PresetPromptService;
@@ -227,6 +260,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryExporter;
 use App\Services\Agent\VectorMemory\VectorMemoryFactory;
 use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
+use App\Services\Agent\Wake\WakeScheduleService;
 use App\Services\Agent\Workspace\WorkspaceService;
 use App\Services\Integrations\Telegram\TelegramService;
 use Illuminate\Cache\CacheManager;
@@ -249,6 +283,10 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(SearchDateParserInterface::class, SearchDateParser::class);
 
         $options = $this->app->get(OptionsServiceInterface::class);
+
+        $this->app->bind(PresetExporterInterface::class, PresetExporter::class);
+        $this->app->bind(PresetImporterInterface::class, PresetImporter::class);
+
         $this->app->bind(MemoryExporterInterface::class, TextMemoryExporter::class);
         $this->app->bind(MemoryImporterInterface::class, TextMemoryImporter::class);
         $this->app->bind(VectorMemoryImporterInterface::class, VectorMemoryImporter::class);
@@ -352,6 +390,44 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(VisionServiceInterface::class, VisionService::class);
 
+        $this->app->singleton(SttRegistry::class, function ($app) {
+            $registry = new SttRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            $registry->register(new BrowserSttProvider());
+            $registry->register(
+                new OpenAiCompatibleSttProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            return $registry;
+        });
+
+        $this->app->singleton(SttServiceInterface::class, SttService::class);
+
+        $this->app->singleton(TtsRegistry::class, function ($app) {
+            $registry = new TtsRegistry(
+                $app->make(HttpFactory::class),
+                $app->make(LoggerInterface::class),
+            );
+
+            $registry->register(new BrowserTtsProvider());
+            $registry->register(
+                new OpenAiCompatibleTtsProvider(
+                    $app->make(HttpFactory::class),
+                    $app->make(LoggerInterface::class),
+                )
+            );
+
+            return $registry;
+        });
+
+        $this->app->singleton(TtsServiceInterface::class, TtsService::class);
+
         // VectorMemoryFactory
         $this->app->singleton(VectorMemoryFactoryInterface::class, function ($app) {
             return new VectorMemoryFactory(
@@ -416,6 +492,7 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(PresetMetadataServiceInterface::class, PresetMetadataService::class);
         $this->app->bind(PluginMetadataServiceInterface::class, PluginMetadataService::class);
+        $this->app->bind(ContextModeResolverInterface::class, ContextModeResolver::class);
 
         $this->app->singleton(PluginExecutionContextBuilderInterface::class, PluginExecutionContextBuilder::class);
         $this->app->singleton(PluginManagerInterface::class, PluginManager::class);
@@ -490,6 +567,45 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(BrowserServiceInterface::class, BrowserService::class);
 
+        // --- core services -------------------------------------------------------
+        $this->app->bind(ContractServiceInterface::class, ContractService::class);
+        $this->app->bind(ContractRuntimeServiceInterface::class, ContractRuntimeService::class);
+
+        // --- state vector: mood adapter if the mood plugin exists in the system,
+        //     else a null vector -------------------------------------------------
+        // MoodPlugin is registered unconditionally (see getBuiltInPlugins), so in a
+        // standard build this always resolves to the adapter. NullStateVector is the
+        // fallback for a build where the mood plugin is removed entirely. Per-preset
+        // "mood disabled" is NOT handled here — that case surfaces as an empty vector
+        // inside the adapter (no stored states → ACC/DEC contracts unsatisfiable),
+        // which is the same observable result one level down.
+        $this->app->bind(StateVectorInterface::class, function ($app) {
+            $registry = $app->make(\App\Contracts\Agent\PluginRegistryInterface::class); // VERIFY name
+            $mood = $registry->get('mood');
+            return $mood !== null
+                ? $app->make(MoodStateVectorAdapter::class)
+                : $app->make(NullStateVector::class);
+        });
+
+        // --- trace readers (tagged) ----------------------------------------------
+        // Add one more reader to the tag to support a new source later; nothing else
+        // changes.
+        $this->app->tag([
+            JournalTraceReader::class,
+            VectorMemoryTraceReader::class,
+        ], 'contract.trace_readers');
+
+        $this->app->bind(TraceReaderRegistry::class, function ($app) {
+            return new TraceReaderRegistry($app->tagged('contract.trace_readers'));
+        });
+
+        // --- memo writer: append-to-memo sink for inject_memo --------------------
+        // Wired to the SelfNote (memo) plugin's metadata slot. Appends rather than
+        // overwrites, so contract-injected lines coexist with the agent's own note.
+        $this->app->bind(ContractMemoWriterInterface::class, ContractMemoWriter::class);
+
+        $this->app->singleton(WakeScheduleServiceInterface::class, WakeScheduleService::class);
+
     }
 
     /**
@@ -559,6 +675,9 @@ class AiServiceProvider extends ServiceProvider
             RagQueryPlugin::class,
             OntologyPlugin::class,
             PersonPlugin::class,
+            ContractPlugin::class,
+            WakePlugin::class,
+            BehaviorPlugin::class,
             SandboxPlugin::class,
             CodePlugin::class,
             ProjectMapPlugin::class,
@@ -573,6 +692,7 @@ class AiServiceProvider extends ServiceProvider
             MoodPlugin::class,
             MyselfPlugin::class,
             SelfNotePlugin::class,
+            ReflectPlugin::class,
             PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,

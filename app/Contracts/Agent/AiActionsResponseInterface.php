@@ -79,4 +79,35 @@ interface AiActionsResponseInterface
      * @return boolean
      */
     public function hasTurn(): bool;
+
+    /**
+     * Whether any plugin executed this cycle declared itself as requiring
+     * procedural continuity (needsLongContext). Read by the work-mode detector.
+     *
+     * @return boolean
+     */
+    public function containedLongContextPlugin(): bool;
+
+    /**
+     * Whether a task was created this cycle (planner productive signal).
+     *
+     * Set when AgentTaskPlugin::execute successfully creates a task. Read by
+     * AgentActionsHandler::determineTurnNeed to reset the planner stall counter
+     * — creating tasks is productive and must not count toward a stall. Does not
+     * by itself stop the planner's self-continue loop.
+     *
+     * @return boolean
+     */
+    public function createdTask(): bool;
+
+    /**
+     * Whether the planner committed its planning round this cycle.
+     *
+     * Set when AgentTaskPlugin::commit runs. Read by determineTurnNeed as the
+     * planner's terminal signal — stops the self-continue loop so the planner
+     * goes idle until the orchestrator wakes it with a result.
+     *
+     * @return boolean
+     */
+    public function plannerCommitted(): bool;
 }

@@ -211,7 +211,9 @@ class ProjectMapPlugin implements CommandPluginInterface
             'project_map',
             'File tree of the current workspace',
             fn () => $this->renderMap($context),
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 
@@ -372,4 +374,13 @@ class ProjectMapPlugin implements CommandPluginInterface
 
         return $assignment && ($assignment['sandbox']->status ?? '') === 'running';
     }
+
+    /**
+     * Works in tandem with CodePlugin as part of the same working session.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

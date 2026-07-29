@@ -18,6 +18,10 @@ use App\Contracts\Agent\AiActionsResponseInterface;
  *   isVisibleForUser — true if the result should be shown in the chat UI
  *   systemMessage   — optional text to surface as a visible system message (e.g. speak output)
  *   handoff         — optional inter-agent routing data extracted from AgentPlugin
+ *   turn            — model requested one extra turn
+ *   containedLongContextPlugin — a needsLongContext plugin ran (work-mode detector)
+ *   createdTask     — a task was created this cycle (planner productive signal)
+ *   plannerCommitted — planner ended its planning round via [task commit]
  */
 class ActionsResponseDTO implements AiActionsResponseInterface
 {
@@ -30,6 +34,9 @@ class ActionsResponseDTO implements AiActionsResponseInterface
         private ?array $handoff = null,
         private array $commandResults = [],
         private readonly bool $turn = false,
+        private readonly bool $containedLongContextPlugin = false,
+        private readonly bool $createdTask = false,
+        private readonly bool $plannerCommitted = false,
     ) {
     }
 
@@ -49,6 +56,10 @@ class ActionsResponseDTO implements AiActionsResponseInterface
             $this->systemMessage,
             $this->handoff,
             $this->commandResults,
+            $this->turn,
+            $this->containedLongContextPlugin,
+            $this->createdTask,
+            $this->plannerCommitted,
         );
     }
 
@@ -147,4 +158,28 @@ class ActionsResponseDTO implements AiActionsResponseInterface
         return $this->turn;
     }
 
+    /**
+     * Whether any plugin executed this cycle declared itself as requiring
+     * procedural continuity (needsLongContext). Read by the work-mode detector.
+     */
+    public function containedLongContextPlugin(): bool
+    {
+        return $this->containedLongContextPlugin;
+    }
+
+    /**
+     * Whether a task was created this cycle (planner productive signal).
+     */
+    public function createdTask(): bool
+    {
+        return $this->createdTask;
+    }
+
+    /**
+     * Whether the planner committed its planning round this cycle.
+     */
+    public function plannerCommitted(): bool
+    {
+        return $this->plannerCommitted;
+    }
 }

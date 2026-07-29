@@ -3,6 +3,7 @@
 namespace App\Services\Agent\ContextBuilder;
 
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
 use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
@@ -54,6 +55,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected AuthServiceInterface             $authService,
         protected RagAggregatorServiceInterface    $ragAggregator,
         protected RagContentFormatterInterface     $ragFormatter,
+        protected ContextModeResolverInterface     $contextModeResolver,
     ) {
     }
 
@@ -67,7 +69,7 @@ class CycleContextBuilder implements ContextBuilderInterface
     public function build(AiPreset $preset, ?AiPreset $sourcePreset = null, ?int $maxContextLimit = null): array
     {
         if (!$maxContextLimit) {
-            $maxContextLimit = $preset->getMaxContextLimit();
+            $maxContextLimit = $this->contextModeResolver->activeContextLimit($preset);
         }
 
         $sourcePreset = $sourcePreset ?? $this->resolveSourcePreset($preset);
@@ -87,6 +89,14 @@ class CycleContextBuilder implements ContextBuilderInterface
         // ── Multi-RAG pipeline ────────────────────────────────────────────────
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
         $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
+
+        // Filter RAG configs by the THINKING preset's active context mode.
+        // In extended (work) mode we drop normal-only configs — heavy associative
+        // RAG that pulls the agent into reflection mid-task. In normal mode we drop
+        // extended-only ones. 'both' always passes. Mode is read from $preset (the
+        // agent that thinks), NOT $sourcePreset (the RAG source).
+        $extended   = $this->contextModeResolver->isExtended($preset);
+        $ragConfigs = $ragConfigs->filter(fn ($config) => $config->activeInMode($extended));
 
         $seenIds      = [];
         $ragPayloads  = [];

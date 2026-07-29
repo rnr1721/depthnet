@@ -44,6 +44,7 @@ services:
       - CORS_MAX_AGE=${CORS_MAX_AGE:-0}
       - TZ=${TZ:-UTC}
       - BROWSER_SERVICE_URL=${BROWSER_SERVICE_URL:-http://browser-service:3001}
+      - VOICE_SERVICE_URL=${VOICE_SERVICE_URL:-http://voice-service:3002}
     hostname: depthnet
     depends_on:
       mysql:
@@ -121,6 +122,24 @@ services:
     privileged: true                               # We need to control Docker
     restart: unless-stopped
 
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - depthnet
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
   browser-service:
     profiles: ["browser", "full"]
     build:
@@ -143,9 +162,50 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  voice-service:
+    ports:
+      - "${VOICE_PORT:-3002}:3002"
+    profiles: ["voice", "full"]
+    build:
+      context: ./voice-service
+      dockerfile: Dockerfile
+    environment:
+      - VOICE_SERVICE_PORT=3002
+      - STT_MODEL=${VOICE_STT_MODEL:-small}
+      - STT_COMPUTE=${VOICE_STT_COMPUTE:-int8}
+      - STT_BEAM_SIZE=${VOICE_STT_BEAM_SIZE:-5}
+      - TTS_VOICES=${VOICE_TTS_VOICES:-en_US-lessac-medium}
+      - MAX_AUDIO_MB=${VOICE_MAX_AUDIO_MB:-25}
+      - MAX_TEXT_CHARS=${VOICE_MAX_TEXT_CHARS:-5000}
+    volumes:
+      - voice_models:/models
+    networks:
+      - depthnet
+    restart: unless-stopped
+    healthcheck:
+      # start_period is generous on purpose: the first start downloads the
+      # STT model, which can take minutes on a slow connection.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3002/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+    deploy:
+      resources:
+        limits:
+          # small/int8 ~500MB RSS; medium needs ~2G. Raise if you change the model.
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   mysql_data:
   sandbox_shared:
+  redis_data:
+  voice_models:
 
 networks:
   depthnet:

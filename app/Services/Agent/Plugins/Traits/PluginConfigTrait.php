@@ -77,4 +77,14 @@ trait PluginConfigTrait
         return false; // safe by default
     }
 
+    /**
+     * Default: short context is fine. Override to return true in stateful
+     * plugins whose external state makes the agent blind without procedural
+     * continuity (browser, terminal, sandbox, shell, code, spawn, project map).
+     */
+    public function needsLongContext(): bool
+    {
+        return false;
+    }
+
 }

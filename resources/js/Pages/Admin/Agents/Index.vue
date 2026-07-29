@@ -161,13 +161,13 @@
                                                 <span v-for="(role, i) in agent.roles" :key="role.id">
                                                     <span
                                                         :class="['font-mono', isDark ? 'text-violet-400' : 'text-violet-600']">{{
-                                                        role.code }}</span><span v-if="i < agent.roles.length - 1">,
+                                                            role.code }}</span><span v-if="i < agent.roles.length - 1">,
                                                     </span>
                                                 </span>
                                             </span>
                                             <span v-else
                                                 :class="['text-xs italic', isDark ? 'text-gray-600' : 'text-gray-400']">{{
-                                                t('ag_no_roles') }}</span>
+                                                    t('ag_no_roles') }}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -191,6 +191,13 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
                                             </path>
+                                        </svg>
+                                    </button>
+                                    <button @click="openExport(agent)"
+                                        :class="['p-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500', isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700']">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                         </svg>
                                     </button>
                                     <button @click="deleteAgent(agent)"
@@ -233,9 +240,11 @@
         </main>
 
         <AddAgentModal v-model="showAddModal" :presets="presets" :isDark="isDark" @success="refreshData" />
-        <EditAgentModal v-model="showEditModal" :agent="activeAgent" :agents="agents" :presets="presets" :isDark="isDark"
-            @success="refreshData" />
+        <EditAgentModal v-model="showEditModal" :agent="activeAgent" :agents="agents" :presets="presets"
+            :isDark="isDark" @success="refreshData" />
     </div>
+    <ExportModal :show="exportModal.show" :is-dark="isDark" kind="agent" :item-id="exportModal.id"
+        :item-name="exportModal.name" @close="exportModal.show = false" />
 </template>
 
 <script setup>
@@ -246,6 +255,12 @@ import AdminHeader from '@/Components/AdminHeader.vue';
 import PageTitle from '@/Components/PageTitle.vue';
 import AddAgentModal from '@/Components/Admin/Agents/AddAgentModal.vue';
 import EditAgentModal from '@/Components/Admin/Agents/EditAgentModal.vue';
+import ExportModal from '@/Components/Admin/Exchange/ExportModal.vue';
+
+const exportModal = ref({ show: false, id: null, name: '' });
+const openExport = (agent) => {
+    exportModal.value = { show: true, id: agent.id, name: agent.name };
+};
 
 const { t } = useI18n();
 

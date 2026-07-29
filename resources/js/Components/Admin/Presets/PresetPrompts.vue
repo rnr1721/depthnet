@@ -52,6 +52,16 @@
                             </svg>
                         </button>
 
+                        <!-- History (only for saved prompts) -->
+                        <button v-if="prompt.id" type="button" @click="openHistory(prompt)"
+                            :title="t('p_prompts_history')"
+                            :class="['p-1.5 rounded-lg transition-colors', isDark ? 'text-gray-400 hover:text-amber-300 hover:bg-gray-600' : 'text-gray-500 hover:text-amber-600 hover:bg-amber-50']">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </button>
+
                         <!-- Duplicate -->
                         <button type="button" @click="duplicatePrompt(index)" :title="t('p_prompts_duplicate')"
                             :class="['p-1.5 rounded-lg transition-colors', isDark ? 'text-gray-400 hover:text-blue-300 hover:bg-gray-600' : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50']">
@@ -137,12 +147,18 @@
                 </div>
             </div>
         </div>
+
+        <!-- Version history modal -->
+        <PromptVersionHistory v-if="historyPrompt && presetId" :preset-id="presetId" :prompt-id="historyPrompt.id"
+            :prompt-code="historyPrompt.code" :is-dark="isDark" @close="historyPrompt = null" @reverted="onReverted"
+            @error="msg => emit('error', msg)" />
     </div>
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, computed, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
+import PromptVersionHistory from './PromptVersionHistory.vue';
 
 const { t } = useI18n();
 
@@ -155,6 +171,10 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['update:modelValue', 'success', 'error']);
+
+// The preset id — needed for version history API calls. Only present for
+// already-saved presets; new presets have no id and thus no history yet.
+const presetId = computed(() => props.modelValue?.id ?? null);
 
 // ── Internal prompts state ────────────────────────────────────────────────────
 
@@ -172,7 +192,7 @@ function buildLocal(presetValue) {
         return src.map(p => ({ ...p, _key: makeKey() }));
     }
 
-    // Fallback: no prompts array yet → show one empty editable prompt
+    // Fallback: no prompts array yet -> show one empty editable prompt
     return [{
         _key: makeKey(),
         id: null,
@@ -195,8 +215,16 @@ const activeIndex = ref(resolveActiveIndex(prompts.value));
 const textareaRefs = ref({});
 const deletedIds = ref([]); // IDs of existing prompts removed in this session
 
-// Sync back to form when prompts change
-function emitUpdate() {
+// ── Sync back to form (debounced) ─────────────────────────────────────────────
+//
+// PERF: the deep watcher below fires on every keystroke in a textarea. Doing the
+// full map + emit (which rebuilds the parent form object) synchronously on each
+// character caused visible input lag on large prompts. We debounce the heavy
+// emit so typing stays instant; the parent just receives the update a beat later.
+
+let _emitTimer = null;
+
+function emitUpdateNow() {
     const updated = prompts.value.map((p, i) => ({
         id: p.id ?? undefined,
         code: p.code,
@@ -207,10 +235,38 @@ function emitUpdate() {
     emit('update:modelValue', { ...props.modelValue, prompts: updated, deleted_prompt_ids: deletedIds.value });
 }
 
-watch(prompts, emitUpdate, { deep: true });
+function scheduleEmit() {
+    if (_emitTimer) clearTimeout(_emitTimer);
+    _emitTimer = setTimeout(emitUpdateNow, 250);
+}
 
-// Also watch activeIndex separately
-watch(activeIndex, emitUpdate);
+watch(prompts, scheduleEmit, { deep: true });
+
+// activeIndex changes are cheap and user-driven (a click) — emit immediately so
+// the "active" state is never stale, no need to debounce these.
+watch(activeIndex, emitUpdateNow);
+
+onBeforeUnmount(() => {
+    if (_emitTimer) {
+        clearTimeout(_emitTimer);
+        // Flush any pending change so nothing is lost on close.
+        emitUpdateNow();
+    }
+});
+
+// ── Version history ───────────────────────────────────────────────────────────
+
+const historyPrompt = ref(null);
+
+function openHistory(prompt) {
+    historyPrompt.value = prompt;
+}
+
+// After a revert, the prompt's stored content changed on the server. Signal the
+// parent so it can refresh; we surface a success note for feedback.
+function onReverted() {
+    emit('success', t('p_prompts_reverted'));
+}
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -253,7 +309,15 @@ function duplicatePrompt(index) {
     });
 }
 
-// ── Placeholder insertion (unchanged from original PresetSystemPrompt) ────────
+// ── Placeholder insertion ─────────────────────────────────────────────────────
+
+// PERF: compile the placeholder-matching regex once, rebuilding only when the
+// set of placeholder keys changes — not on every keystroke as before.
+const placeholderRegex = computed(() => {
+    if (!props.placeholders || Object.keys(props.placeholders).length === 0) return null;
+    const keys = Object.keys(props.placeholders);
+    return new RegExp(`\\[\\[(${keys.join('|')})\\]\\]`, 'g');
+});
 
 function insertPlaceholder(placeholder, prompt) {
     const textarea = textareaRefs.value[prompt._key];
@@ -273,11 +337,11 @@ function insertPlaceholder(placeholder, prompt) {
 }
 
 function findPlaceholderAt(text, position) {
-    if (!props.placeholders || Object.keys(props.placeholders).length === 0) return null;
-    const keys = Object.keys(props.placeholders);
-    const regex = new RegExp(`\\[\\[(${keys.join('|')})\\]\\]`, 'g');
+    const re = placeholderRegex.value;
+    if (!re) return null;
+    re.lastIndex = 0; // reset stateful global regex before reuse
     let match;
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = re.exec(text)) !== null) {
         const s = match.index, e = match.index + match[0].length;
         if (position >= s && position <= e) return { start: s, end: e, text: match[0], key: match[1] };
     }

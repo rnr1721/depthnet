@@ -319,7 +319,9 @@ class TerminalPlugin implements CommandPluginInterface
 
                 return "[TERMINAL SCREEN]\n{$screen}\n[END TERMINAL SCREEN]";
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 
@@ -595,6 +597,14 @@ class TerminalPlugin implements CommandPluginInterface
     }
 
     public function collapseOutput(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Terminal screen state lives outside the model; short context blinds it.
+     */
+    public function needsLongContext(): bool
     {
         return true;
     }

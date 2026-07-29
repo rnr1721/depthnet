@@ -189,6 +189,101 @@ BROWSER_SNAPSHOT_TEXT_LIMIT=3000  # max characters of page text returned to agen
 BROWSER_SNAPSHOT_LINKS_LIMIT=30   # max links returned in snapshot
 ```
 
+## Voice Service
+
+The voice service gives agents local speech recognition and synthesis —
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper) for transcription and
+[Piper](https://github.com/rhasspy/piper) for speech, behind an OpenAI-compatible
+HTTP API. Nothing spoken to or by an agent leaves the host.
+
+Voice capabilities are configured per preset in **Admin → Capabilities**. This
+container is one option; the browser's built-in Web Speech API needs no container
+at all, and any OpenAI-compatible endpoint works too. See
+[the voice interface guide](../ui/text-to-speech.md).
+
+### Enable / Disable
+
+```bash
+# Enable voice service
+make voice-on
+# or: ./docker/manager.sh voice-toggle enable
+
+# Disable voice service
+make voice-off
+# or: ./docker/manager.sh voice-toggle disable
+
+# After toggling, restart containers
+make restart
+```
+
+> **First start downloads models.** Whisper `small` is ~460 MB and each Piper
+> voice ~60 MB. On a slow connection this takes several minutes, during which the
+> container reports `health: starting` — that is expected, not a failure. Watch
+> progress with `make logs-service service="voice-service"`.
+
+Models live in a Docker volume, not in the image, so they survive rebuilds and
+adding a voice downloads only that voice.
+
+### Check Voice Status
+
+```bash
+make status  # voice-service appears in the list if enabled
+
+# View voice service logs
+make logs-service service="voice-service"
+```
+
+### Configuration (`.env`)
+
+```bash
+VOICE_SERVICE_URL=http://voice-service:3002  # internal URL (do not change for Docker)
+
+# STT model size — tiny | base | small | medium | large-v3
+#   tiny   ~75MB   fast, weak on Russian
+#   base   ~140MB  usable for English
+#   small  ~460MB  recommended default, decent multilingual
+#   medium ~1.5GB  noticeably better, needs ~2G RAM and a fast CPU
+VOICE_STT_MODEL=small
+
+# Quantization — int8 (CPU, default) | int8_float16 | float16 (GPU)
+VOICE_STT_COMPUTE=int8
+
+# TTS voices to install, comma-separated. First one is the default.
+# Full catalog: voice-service/voices.py
+VOICE_TTS_VOICES=en_US-lessac-medium
+
+# Request guards
+VOICE_MAX_AUDIO_MB=25
+VOICE_MAX_TEXT_CHARS=5000
+```
+
+Changing model or voices needs only `make restart` — new models download on the
+next start, existing ones are kept.
+
+### Resource Requirements
+
+Whisper `small` with `int8` quantization uses roughly 500 MB RAM; `medium` needs
+about 1.5 GB. The container has a 2 GB limit by default — raise it in the compose
+file if you switch to a larger model.
+
+On a mid-range CPU, transcription runs about **twice as fast as realtime** — an
+8-second phrase takes around 4 seconds. Synthesis is much faster and effectively
+instant for chat-length replies. A two-core VPS may drop to around realtime,
+which is noticeable for dictation; `VOICE_STT_MODEL=base` is the fix.
+
+### GPU (optional)
+
+For CUDA, add a `docker-compose.override.yml` reserving the device and set
+`VOICE_STT_COMPUTE=float16`. No code changes are involved — the container picks
+the compute type up from the environment.
+
+### Local vs Cloud
+
+The container speaks the OpenAI audio API, so the same provider configuration
+points equally at it, at `api.openai.com`, or at any other compatible server —
+only `base_url` differs. Running locally is a configuration choice, not a
+separate code path.
+
 ## Two Ways to Use
 
 ### Option 1: Make Commands (Recommended)
@@ -265,6 +360,16 @@ cp .env.example.docker .env
 echo "COMPOSE_PROFILES=sandbox,browser" >> .env
 docker compose --profile sandbox --profile browser up -d --build
 
+# Development (with voice service)
+cp .env.example.docker .env
+echo "COMPOSE_PROFILES=voice" >> .env
+docker compose --profile voice up -d --build
+
+# Development (everything)
+cp .env.example.docker .env
+echo "COMPOSE_PROFILES=sandbox,browser,voice" >> .env
+docker compose --profile sandbox --profile browser --profile voice up -d --build
+
 # Production (no sandbox)
 cp .env.example.docker.prod .env
 # Edit .env file (set APP_URL, passwords, etc.)
@@ -316,6 +421,14 @@ The sandbox manager is only started when `COMPOSE_PROFILES=sandbox` is set in yo
 
 The browser service gives agents a persistent, stateful browser with session memory that survives across thinking cycles. It is only started when `COMPOSE_PROFILES=browser` (or `full`) is set in your `.env` file.
 
+### Optional Services (Voice Profile)
+- **voice-service** - Local speech recognition (faster-whisper) and synthesis (Piper)
+
+The voice service lets agents hear and speak without sending audio to an external
+provider. It is only started when `COMPOSE_PROFILES=voice` (or `full`) is set in
+your `.env` file. Speech capabilities are configured per preset — this container
+is one provider option among several.
+
 ## User Management & Security
 
 The application automatically detects your host UID/GID and creates matching user inside container to prevent permission issues:
@@ -365,6 +478,12 @@ make sandbox-control action="destroy" name="test"     # Destroy sandbox
 ```bash
 make browser-enable     # Enable Playwright browser service
 make browser-disable    # Disable browser service
+```
+
+### Voice Service Management
+```bash
+make voice-on      # Enable local STT/TTS service (faster-whisper + Piper)
+make voice-off     # Disable voice service
 ```
 
 ### Container Management
@@ -445,10 +564,12 @@ The Docker setup uses a **bash manager script** (`docker/manager.sh`) that handl
 - `docker/port-resolver.sh` - Automatic port resolution from APP_URL
 - `Makefile` - Convenient shortcuts that call manager.sh
 
-**Sandbox Architecture:**
-- **Lightweight mode**: Only core services (app, mysql, phpmyadmin)
-- **Full mode**: Core services + sandbox-manager for AI code execution
-- **Profile-based**: Uses `COMPOSE_PROFILES=sandbox` for optional components
+**Profile Architecture:**
+- **Lightweight mode**: Only core services (app, mysql, redis, phpmyadmin)
+- **Optional services**: enabled per profile — `sandbox` (code execution),
+  `browser` (Playwright), `voice` (local STT/TTS)
+- **Profile-based**: `COMPOSE_PROFILES=sandbox,browser,voice` in `.env`, or
+  `full` to enable all of them
 
 ## Deployment Modes
 
@@ -509,7 +630,9 @@ make logs-service service="sandbox-manager"
 - Set strong database passwords
 - Configure proper CORS origins
 - Use lightweight mode unless AI features are required
-- Monitor resource usage if using sandbox mode
+- Monitor resource usage if using sandbox or voice profiles
+- Voice models are downloaded on first start — allow time and disk before the
+  first deployment, or pre-warm the volume
 
 ## 🔐 SSL / HTTPS Configuration
 
@@ -687,6 +810,42 @@ docker exec depthnet-browser-service-1 wget -qO- http://localhost:3001/health
 # Expected: {"ok":true,"sessions":0}
 ```
 
+**Voice service not working:**
+```bash
+# Check if voice service is enabled
+make status  # look for voice-service in the list
+
+# Enable if needed
+make voice-on
+make restart
+
+# Watch startup — first run downloads models and takes minutes
+make logs-service service="voice-service"
+
+# Test directly (the service is not published to the host)
+docker compose exec voice-service curl -s http://localhost:3002/health
+# Expected: {"status":"ok","stt":{"ready":true,...},"tts":{...}}
+
+# See which voices are actually installed
+docker compose exec voice-service curl -s http://localhost:3002/v1/voices
+```
+
+**Voice service stuck at `health: starting`** — models are still downloading.
+Normal on first start; the healthcheck allows 10 minutes for it.
+
+**Voice service restarting repeatedly** — read the traceback in the logs. The
+entrypoint waits 60 seconds before exiting, so the error stays readable instead
+of scrolling past in a restart loop.
+
+**`Unknown TTS voice`** — the name in `VOICE_TTS_VOICES` is not in the catalog.
+Valid names are listed in `voice-service/voices.py`; the container refuses to
+start rather than failing later on the first synthesis request.
+
+**Microphone button missing in chat** — voice capabilities are configured per
+preset in **Admin → Capabilities**, not by the container alone. Also note that
+browsers require a secure context (HTTPS or localhost) for microphone access; see
+[the voice interface guide](../capabilities/text-to-speech.md).
+
 **HTTPS / Vite HMR not connecting:**
 ```bash
 # Accept Vite certificate in browser
@@ -731,6 +890,7 @@ make start   # rebuilds from scratch
 ./docker/manager.sh setup-dev-full
 ./docker/manager.sh sandbox-toggle enable
 ./docker/manager.sh browser-toggle enable
+./docker/manager.sh voice-toggle enable
 ./docker/manager.sh start
 ./docker/manager.sh shell
 ./docker/manager.sh artisan "migrate"
@@ -779,7 +939,8 @@ docker compose --profile sandbox up -d
 | **Lightweight** | ~30s | ~500MB | ~1GB | Web apps, APIs |
 | **Full (sandbox)** | ~2min | ~1.5GB | ~3GB | AI features, code execution |
 | **Full (browser)** | ~45s | ~800MB+ | ~2GB | Agents with web browsing |
-| **Full (all)** | ~2min | ~2GB+ | ~4GB | Everything enabled |
+| **Full (voice)** | ~40s * | ~1GB | ~2GB | Local speech in/out |
+| **Full (all)** | ~2min | ~3GB+ | ~6GB | Everything enabled |
 
 Choose the mode that best fits your needs and available resources.
 

@@ -434,7 +434,9 @@ class MoodPlugin implements CommandPluginInterface, MoodInfluencerInterface
                     $top
                 ));
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 
@@ -716,6 +718,12 @@ class MoodPlugin implements CommandPluginInterface, MoodInfluencerInterface
     public function allowsCrossPresetExecution(): bool
     {
         return true;
+    }
+
+    /** Public read of the known mood dimension names (for admin selects). */
+    public static function knownDimensions(): array
+    {
+        return array_keys(self::KNOWN_DECAY_RATES);
     }
 
 }

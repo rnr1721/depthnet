@@ -28,6 +28,7 @@ class CommandExecutor implements CommandExecutorInterface
         $results = [];
         $hasErrors = false;
         $pluginExecutionMeta = [];
+        $containedLongContextPlugin = false;
 
         $mainPresetCommands = [];
         if ($mainPreset) {
@@ -43,6 +44,17 @@ class CommandExecutor implements CommandExecutorInterface
             $results[] = $result;
             $pluginExecutionMeta = $this->mergeExecutionMetaStrings($pluginExecutionMeta, $result->executionMeta);
 
+            // ── NEW: observe whether any executed plugin needs procedural continuity.
+            // Read-only signal for the work-mode detector. Resolved by plugin name —
+            // needsLongContext() is a static class property, independent of preset,
+            // so cross-preset execution doesn't change it.
+            if (!$containedLongContextPlugin && $result->success) {
+                $plugin = $this->pluginRegistry->get($command->plugin);
+                if ($plugin && $plugin->needsLongContext()) {
+                    $containedLongContextPlugin = true;
+                }
+            }
+
             if (!$result->success) {
                 $hasErrors = true;
             }
@@ -50,7 +62,13 @@ class CommandExecutor implements CommandExecutorInterface
 
         $formattedMessage = $this->formatMessage($results);
 
-        return new CommandExecutionResult($results, $formattedMessage, $hasErrors, $pluginExecutionMeta);
+        return new CommandExecutionResult(
+            $results,
+            $formattedMessage,
+            $hasErrors,
+            $pluginExecutionMeta,
+            $containedLongContextPlugin,
+        );
     }
 
     /**

@@ -135,7 +135,7 @@ class SpeakPlugin implements CommandPluginInterface
             $possibleCode = trim($possibleCode);
 
             // Check if it looks like a preset code (no spaces) and actually exists
-            if (!str_contains($possibleCode, ' ') && $this->presetService->findByCode($possibleCode)) {
+            if (!str_contains($possibleCode, ' ') && $this->presetService->findByCode($possibleCode) && $possibleCode !== $context->preset->getPresetCode()) {
                 return $this->dispatchToPreset($possibleCode, trim($message), $context);
             }
         }
@@ -273,7 +273,9 @@ class SpeakPlugin implements CommandPluginInterface
             function () use ($context) {
                 return $this->buildSpeakTargetsBlock($context);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

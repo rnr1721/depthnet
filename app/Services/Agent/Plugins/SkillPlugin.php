@@ -391,7 +391,9 @@ class SkillPlugin implements CommandPluginInterface
             function () use ($context) {
                 return $this->skillService->getSkillsForContext($context->preset);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

@@ -2,7 +2,10 @@
 
 use App\Http\Controllers\Admin\AgentController;
 use App\Http\Controllers\Admin\AgentTaskController;
+use App\Http\Controllers\Admin\BehaviorController;
+use App\Http\Controllers\Admin\ContractController;
 use App\Http\Controllers\Admin\EngineController;
+use App\Http\Controllers\Admin\ExchangeController;
 use App\Http\Controllers\Admin\FileController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\JournalController;
@@ -25,11 +28,13 @@ use App\Http\Controllers\Admin\SkillController;
 use App\Http\Controllers\Admin\TelegramController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
+use App\Http\Controllers\Admin\WakeScheduleController;
 use App\Http\Controllers\Admin\WorkspaceController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\VoiceController;
 use App\Http\Controllers\WelcomeController;
 use App\Http\Middleware\AdminMiddleware;
 use Illuminate\Support\Facades\Route;
@@ -67,6 +72,12 @@ Route::middleware('auth')->group(function () {
         Route::put('preset/{id}', [ChatController::class, 'updatePreset'])->middleware(AdminMiddleware::class)->name('preset.update');
         Route::get('users', [ChatController::class, 'getUsers'])->name('users');
         Route::get('message/{messageId}/system-prompt', [ChatController::class, 'getSystemPrompt'])->middleware(AdminMiddleware::class)->name('message.system-prompt');
+    });
+
+    Route::prefix('voice')->name('voice.')->group(function () {
+        Route::get('config', [VoiceController::class, 'config'])->name('config');
+        Route::post('speak', [VoiceController::class, 'speak'])->name('speak');
+        Route::post('transcribe', [VoiceController::class, 'transcribe'])->name('transcribe');
     });
 
     // Profile routes
@@ -163,6 +174,13 @@ Route::middleware('auth')->group(function () {
                 Route::delete('/{promptId}', [PresetPromptController::class, 'destroy'])->name('destroy');
                 Route::patch('/{promptId}/activate', [PresetPromptController::class, 'activate'])->name('activate');
                 Route::post('/{promptId}/duplicate', [PresetPromptController::class, 'duplicate'])->name('duplicate');
+
+                // ── Version history ──────────────────────────────────────────────────────
+                Route::get('/{promptId}/versions', [PresetPromptController::class, 'versions'])->name('versions');
+                Route::get('/{promptId}/versions/{version}', [PresetPromptController::class, 'version'])
+                    ->name('version')->where('version', '[0-9]+');
+                Route::post('/{promptId}/versions/{version}/revert', [PresetPromptController::class, 'revert'])
+                    ->name('version.revert')->where('version', '[0-9]+');
             });
 
             // Plugin Data — universal key-value storage for plugins
@@ -174,6 +192,27 @@ Route::middleware('auth')->group(function () {
                 Route::post('/reorder', [PresetPluginDataController::class, 'reorder'])->name('reorder');
             });
 
+        });
+
+        // AI Preset management routes (import and export bundles for agents and presets)
+        Route::prefix('exchange')->name('exchange.')->group(function () {
+
+            // Import page (upload + preview + confirm)
+            Route::get('/import', [ExchangeController::class, 'importForm'])->name('import.form');
+
+            // Import step 1: validate uploaded bundle, return report (writes nothing)
+            Route::post('/import/preflight', [ExchangeController::class, 'preflight'])->name('import.preflight');
+
+            // Import step 2: commit the (already-previewed) bundle
+            Route::post('/import', [ExchangeController::class, 'import'])->name('import');
+
+            // Export a single preset (with its dependency closure) — streams a JSON file
+            Route::get('/export/preset/{id}', [ExchangeController::class, 'exportPreset'])
+                ->name('export.preset')->where('id', '[0-9]+');
+
+            // Export an agent (planner + roles + closure) — streams a JSON file
+            Route::get('/export/agent/{id}', [ExchangeController::class, 'exportAgent'])
+                ->name('export.agent')->where('id', '[0-9]+');
         });
 
         // AI Engines management routes
@@ -251,6 +290,7 @@ Route::middleware('auth')->group(function () {
             Route::post('/{presetId}/{capability}/test', [PresetCapabilityController::class, 'test'])->name('test');
             // List available models for capabilities that support it (e.g. LLMs)
             Route::get('/{presetId}/{capability}/models', [PresetCapabilityController::class, 'models'])->name('models');
+            Route::get('/{presetId}/{capability}/voices', [PresetCapabilityController::class, 'voices'])->name('voices');
         });
 
         // Skills Management routes
@@ -320,6 +360,16 @@ Route::middleware('auth')->group(function () {
             Route::post('/clear', [AgentTaskController::class, 'clear'])->name('clear');
         });
 
+        // Wake (temporal agency) management routes
+        Route::prefix('wakes')->name('wakes.')->group(function () {
+            Route::get('/', [WakeScheduleController::class, 'index'])->name('index');
+            Route::post('/', [WakeScheduleController::class, 'store'])->name('store');
+            Route::put('/{schedule}', [WakeScheduleController::class, 'update'])
+                ->name('update')->where('schedule', '[0-9]+');
+            Route::delete('/{schedule}', [WakeScheduleController::class, 'destroy'])
+                ->name('destroy')->where('schedule', '[0-9]+');
+        });
+
         // Person Memory Management routes
         Route::prefix('person-memory')->name('person-memory.')->group(function () {
             Route::get('/', [PersonController::class, 'index'])       ->name('index');
@@ -353,6 +403,46 @@ Route::middleware('auth')->group(function () {
             Route::delete('/edges/{edgeId}', [OntologyController::class, 'destroyEdge']) ->name('edge.destroy');
             // Bulk
             Route::post('/clear', [OntologyController::class, 'clear'])       ->name('clear');
+        });
+
+        // Contract (metabolism) management routes
+        Route::prefix('contracts')->name('contracts.')->group(function () {
+            Route::get('/', [ContractController::class, 'index'])->name('index');
+            Route::post('/', [ContractController::class, 'store'])->name('store');
+            Route::delete('/{name}', [ContractController::class, 'destroy'])
+                ->name('destroy')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Lifecycle
+            Route::post('/{name}/promote', [ContractController::class, 'promote'])
+                ->name('promote')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/suspend', [ContractController::class, 'suspend'])
+                ->name('suspend')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/resume', [ContractController::class, 'resume'])
+                ->name('resume')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/revoke', [ContractController::class, 'revoke'])
+                ->name('revoke')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Debug: tick the engine now (respects enablement + locks)
+            Route::post('/tick/now', [ContractController::class, 'tick'])->name('tick');
+        });
+
+        // Behavior (adaptive behavior system) management routes
+        Route::prefix('behavior')->name('behavior.')->group(function () {
+            Route::get('/', [BehaviorController::class, 'index'])->name('index');
+            Route::post('/', [BehaviorController::class, 'store'])->name('store');
+            Route::delete('/{name}', [BehaviorController::class, 'destroy'])
+                ->name('destroy')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Lifecycle
+            Route::post('/{name}/promote', [BehaviorController::class, 'promote'])
+                ->name('promote')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/retire', [BehaviorController::class, 'retire'])
+                ->name('retire')->where('name', '[a-zA-Z0-9_\-]+');
+            Route::post('/{name}/revoke', [BehaviorController::class, 'revoke'])
+                ->name('revoke')->where('name', '[a-zA-Z0-9_\-]+');
+
+            // Debug: run inactivity decay now (respects enablement + locks)
+            Route::post('/decay/now', [BehaviorController::class, 'decay'])->name('decay');
         });
 
 

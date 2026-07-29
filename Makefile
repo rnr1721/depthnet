@@ -99,6 +99,12 @@ browser-enable: ## Enable browser service (Playwright)
 browser-disable: ## Disable browser service
 	@$(MANAGER) browser-toggle disable
 
+voice-on:
+	@./docker/manager.sh voice-toggle enable
+
+voice-off:
+	@./docker/manager.sh voice-toggle disable
+
 # Laravel commands
 artisan: ## Run artisan command (use: make artisan cmd="migrate")
 	@$(MANAGER) artisan "$(cmd)"

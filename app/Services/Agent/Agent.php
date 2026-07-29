@@ -6,10 +6,12 @@ use App\Contracts\Agent\AgentActionsHandlerInterface;
 use App\Contracts\Agent\AgentInterface;
 use App\Contracts\Agent\AiAgentResponseInterface;
 use App\Contracts\Agent\AiModelResponseInterface;
+use App\Contracts\Agent\Behavior\BehaviorCoordinatorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
@@ -19,6 +21,8 @@ use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
+use App\Services\Agent\Plugins\ReflectPlugin;
+use Psr\Log\LoggerInterface;
 
 /**
  * Core agent that orchestrates a single thinking cycle.
@@ -41,11 +45,33 @@ use App\Services\Agent\DTO\ModelRequestDTO;
  *       tools array sent to the API, not through tag syntax in the prompt
  *     - ToolCallParser is used instead of CommandParserSmart
  *     - history is stored in assistant/tool turn format
+ *
+ * Pre-pass ("reasoning"):
+ *   An optional extra generation over the SAME assembled context, run BEFORE the
+ *   speaking pass. Same preset, same system prompt, same RAG/inner_voice — only
+ *   the trailing user turn is swapped for the preset's pre_pass_instruction. The
+ *   pre-pass output is exposed to the speaking pass via the [[reasoning]]
+ *   placeholder and is ephemeral: never persisted, regenerated fresh each cycle.
+ *
+ *   Two activation paths (see shouldRunPrePass):
+ *     - always-on: preset->getPrePassEnabled() — think before every utterance.
+ *     - on-demand: ReflectPlugin sets a one-shot flag; the agent decides per cycle.
+ *
+ *   The character of the reasoning is defined entirely by pre_pass_instruction,
+ *   not by this class — analytical, exploratory, deliberative, pre-verbal, etc.
  */
 class Agent implements AgentInterface
 {
     private const MODE_CYCLE  = 'cycle';
     private const MODE_SINGLE = 'single';
+
+    /**
+     * Pause between the pre-pass and the speaking pass, in seconds.
+     * Two back-to-back generations would hit the provider in one tick and risk
+     * a rate-limit on the pass that actually matters. Cheap insurance. Runs in a
+     * queue worker (ProcessAgentThinking), so blocking briefly is acceptable.
+     */
+    private const PRE_PASS_COOLDOWN_SECONDS = 3;
 
     public function __construct(
         protected PresetRegistryInterface $presetRegistry,
@@ -60,6 +86,9 @@ class Agent implements AgentInterface
         protected PluginMetadataServiceInterface $pluginMetadataService,
         protected CommandResultPoolInterface $commandResultPool,
         protected ToolSchemaBuilderInterface $toolSchemaBuilder,
+        protected ContextModeResolverInterface $contextModeResolver,
+        protected LoggerInterface $logger,
+        protected ?BehaviorCoordinatorInterface $behavior = null,
     ) {
     }
 
@@ -110,6 +139,10 @@ class Agent implements AgentInterface
      * In all other modes no tools are attached — the model uses tag syntax
      * described in the system prompt via [[command_instructions]].
      *
+     * When a pre-pass is due (see shouldRunPrePass), it runs FIRST over the same
+     * context, and its output is registered as [[reasoning]] before the speaking
+     * pass below reads it.
+     *
      * @param  array    $context
      * @param  AiPreset $preset
      * @return AiModelResponseInterface
@@ -123,6 +156,10 @@ class Agent implements AgentInterface
             $additionalParams['tools'] = $this->toolSchemaBuilder->buildForPreset($preset);
         }
 
+        if ($this->shouldRunPrePass($preset)) {
+            $this->runPrePass($currentEngine, $context, $preset);
+        }
+
         return $currentEngine->generate(
             new ModelRequestDTO(
                 $preset,
@@ -134,6 +171,185 @@ class Agent implements AgentInterface
                 $additionalParams
             )
         );
+    }
+
+    /**
+     * Decide whether the pre-pass should run this cycle.
+     *
+     * Two independent activation paths:
+     *
+     *   always-on — preset->getPrePassEnabled() is true. The operator opted the
+     *               preset into thinking before every utterance.
+     *
+     *   on-demand — the box is off, but ReflectPlugin set a one-shot flag last
+     *               cycle. Enabling that plugin IS the opt-in: activation
+     *               responsibility sits with the model, which decides per cycle.
+     *               The flag is consumed read-once (memo discipline) so the dive
+     *               happens this cycle and only this cycle.
+     *
+     * @param  AiPreset $preset
+     * @return bool
+     */
+    protected function shouldRunPrePass(AiPreset $preset): bool
+    {
+        // Always-on: think before every utterance.
+        if ($preset->getPrePassEnabled()) {
+            return true;
+        }
+
+        // On-demand: consume the one-shot flag set by ReflectPlugin last cycle.
+        $pending = $this->pluginMetadataService->get(
+            $preset,
+            ReflectPlugin::PLUGIN_NAME,
+            ReflectPlugin::META_PENDING,
+            false
+        );
+
+        if ($pending) {
+            $this->pluginMetadataService->remove(
+                $preset,
+                ReflectPlugin::PLUGIN_NAME,
+                ReflectPlugin::META_PENDING
+            );
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Run the pre-pass and register its output as [[reasoning]] for the
+     * speaking pass.
+     *
+     * The pre-pass sees the identical context except the final user turn, which
+     * is replaced by the preset's pre_pass_instruction (optionally augmented with
+     * an on-demand focus note from ReflectPlugin). No tools are attached — we want
+     * text out of this pass, not tool calls. The result is registered as a
+     * preset-scoped [[reasoning]] shortcode, overriding the global empty stub for
+     * the duration of this cycle's speaking pass.
+     *
+     * Failures are swallowed (logged): a broken pre-pass must never block the
+     * speaking pass. On failure [[reasoning]] stays empty and the agent speaks as
+     * if the pre-pass were off.
+     *
+     * @param  mixed    $engine   The preset's engine instance (AIModelEngineInterface)
+     * @param  array    $context  The fully assembled cycle context
+     * @param  AiPreset $preset
+     * @return void
+     */
+    protected function runPrePass($engine, array $context, AiPreset $preset): void
+    {
+        try {
+            $instruction = trim((string) $preset->getPrePassInstruction());
+
+            // On-demand dives may carry a focus — the content the agent passed to
+            // [reflect]. Appended, not substituted: the base instruction sets the
+            // frame, the focus just points it. Consumed read-once.
+            $focus = $this->pluginMetadataService->get(
+                $preset,
+                ReflectPlugin::PLUGIN_NAME,
+                ReflectPlugin::META_FOCUS,
+                null
+            );
+
+            if (!empty($focus)) {
+                $this->pluginMetadataService->remove(
+                    $preset,
+                    ReflectPlugin::PLUGIN_NAME,
+                    ReflectPlugin::META_FOCUS
+                );
+                $instruction = trim($instruction . "\n\nThis time, focus on: " . trim((string) $focus));
+            }
+
+            // Flag/plugin on but no instruction configured — nothing meaningful to
+            // ask. Skip rather than burn a generation on an empty prompt.
+            if ($instruction === '') {
+                $this->logger->warning('Agent: pre-pass due but instruction is empty — skipping', [
+                    'preset_id' => $preset->getId(),
+                ]);
+                return;
+            }
+
+            $preContext = $this->swapTrailingUserTurn($context, $instruction);
+
+            $response = $engine->generate(
+                new ModelRequestDTO(
+                    $preset,
+                    $this->memoryService,
+                    $this->commandInstructionBuilder,
+                    $this->shortcodeManagerService,
+                    $this->pluginMetadataService,
+                    $preContext,
+                    [] // no tools — pre-pass produces text, not tool calls
+                )
+            );
+
+            if ($response->isError()) {
+                $this->logger->warning('Agent: pre-pass returned an error — speaking without reasoning', [
+                    'preset_id' => $preset->getId(),
+                    'error'     => $response->getResponse(),
+                ]);
+                return;
+            }
+
+            $reasoning = trim($response->getResponse());
+
+            // Override the global empty [[reasoning]] stub for this cycle's
+            // speaking pass. Re-registration overwrites cleanly (PlaceholderService).
+            $this->shortcodeManagerService->registerShortcodeForPreset(
+                $preset->getId(),
+                'reasoning',
+                'The result of the extra reasoning pass run over the full context this cycle',
+                fn () => $reasoning
+            );
+
+            // Breathe before the speaking pass.
+            sleep(self::PRE_PASS_COOLDOWN_SECONDS);
+
+        } catch (\Throwable $e) {
+            $this->logger->error('Agent: pre-pass failed — speaking without reasoning', [
+                'preset_id' => $preset->getId(),
+                'error'     => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+        }
+    }
+
+    /**
+     * Return a copy of $context with the trailing user turn's content replaced by
+     * $instruction. If the last turn is not a user turn (shouldn't happen — the
+     * context builders guarantee a trailing user message), append one instead.
+     *
+     * The original $context is never mutated — the speaking pass must see the real
+     * trailing turn; only the pre-pass sees the instruction.
+     *
+     * @param  array  $context
+     * @param  string $instruction
+     * @return array
+     */
+    protected function swapTrailingUserTurn(array $context, string $instruction): array
+    {
+        if (empty($context)) {
+            return [[
+                'role'         => 'user',
+                'content'      => $instruction,
+                'from_user_id' => null,
+            ]];
+        }
+
+        $lastKey = array_key_last($context);
+
+        if (($context[$lastKey]['role'] ?? null) === 'user') {
+            $context[$lastKey]['content'] = $instruction;
+        } else {
+            $context[] = [
+                'role'         => 'user',
+                'content'      => $instruction,
+                'from_user_id' => null,
+            ];
+        }
+
+        return $context;
     }
 
     /**
@@ -166,6 +382,13 @@ class Agent implements AgentInterface
             );
         }
 
+        $this->shortcodeManagerService->registerShortcodeForPreset(
+            $preset->getId(),
+            'context_mode',
+            'Current cognitive context mode: normal or extended',
+            fn () => $this->contextModeResolver->activeMode($preset)
+        );
+
         $memo = $this->pluginMetadataService->get($preset, 'memo', 'self_system_note', null);
         if ($memo && is_string($memo)) {
             // Consume immediately and deterministically — read once, delete once.
@@ -183,6 +406,88 @@ class Agent implements AgentInterface
             );
         }
 
+        // ── ABS: select the dominant pattern for this cycle ─────────────────────
+        // No-op when ABS is inactive for this preset. Runs before generation so the
+        // winner's behavior can shape the speaking pass via [[behavior]].
+        $this->registerBehaviorShortcode($preset);
+
+
         $this->commandPreRunner->run($preset, $preset);
     }
+
+    /**
+     * Run ABS selection for this cycle and expose the dominant pattern's
+     * behavior to the speaking pass via the [[behavior]] placeholder.
+     *
+     * Mirrors how [[reasoning]] and [[memo]] are registered: a preset-scoped
+     * shortcode overriding a global empty stub for this cycle only. When ABS is
+     * off, or nothing was selected, [[behavior]] stays empty and the agent speaks
+     * exactly as it does today.
+     *
+     * The behavior text is intentionally a SOFT INFLUENCE, not a command: phase 1
+     * exposes the winning pattern's `intent` (and any `behavior` descriptor) as
+     * context the model reads, not as an instruction it must obey. Enacting
+     * through plugins/handoff — turning a pattern into a forced action — is a
+     * later step, deliberately deferred so the first live run observes whether
+     * selection produces COHERENT pressure before we let it pull levers.
+     */
+    private function registerBehaviorShortcode(AiPreset $preset): void
+    {
+        if ($this->behavior === null) {
+            return;
+        }
+
+        $selection = $this->behavior->openCycle($preset); // advances seq, records activation
+        if ($selection === null) {
+            return; // ABS inactive
+        }
+
+        $dominant = $selection->dominant();
+        if ($dominant === null) {
+            return; // nothing triggered, no quota due — leave [[behavior]] empty
+        }
+
+        // Build the soft-influence text. intent is the human/agent-readable goal;
+        // behavior{} may carry a descriptor the speaking pass can lean on. Forced
+        // (reservation) cycles are marked so the prompt can frame them as a
+        // deliberate turn toward protected behavior, not a competitive win.
+        $text = $this->composeBehaviorText($dominant, $selection->isForced());
+
+        $this->shortcodeManagerService->registerShortcodeForPreset(
+            $preset->getId(),
+            'behavior',
+            'The behavior pattern selected for this cycle (soft influence on the response)',
+            fn () => $text
+        );
+    }
+
+    /**
+     * Render the dominant pattern as the [[behavior]] text. Kept small and
+     * declarative — no model call. A forced cycle gets a gentle framing so the
+     * agent experiences it as turning toward what it protects, per the
+     * reservation's spirit ("lived, not logged").
+     */
+    private function composeBehaviorText(\App\Models\BehaviorPattern $p, bool $forced): string
+    {
+        $intent = trim((string) ($p->intent ?? ''));
+        $lines = [];
+
+        if ($forced) {
+            $lines[] = 'This cycle turns toward a protected way of being.';
+        }
+
+        if ($intent !== '') {
+            $lines[] = $intent;
+        }
+
+        // behavior{} is a loose descriptor in phase 1; surface a hint if present.
+        $descriptor = $p->behavior['hint'] ?? ($p->behavior['descriptor'] ?? null);
+        if (is_string($descriptor) && trim($descriptor) !== '') {
+            $lines[] = trim($descriptor);
+        }
+
+        return implode("\n", $lines);
+    }
+
+
 }

@@ -377,9 +377,12 @@ const goalsLink = computed(() => routeWithPreset(route('admin.goals.index')));
 const personLink = computed(() => routeWithPreset(route('admin.person-memory.index')));
 const journalLink = computed(() => routeWithPreset(route('admin.journal.index')));
 const ontologyLink = computed(() => routeWithPreset(route('admin.ontology.index')));
+const contractsLink = computed(() => routeWithPreset(route('admin.contracts.index')));
+const patternsLink = computed(() => routeWithPreset(route('admin.behavior.index')));
 const pluginsLink = computed(() => routeWithPresetParam('admin.plugins.index'));
 const capabilitiesLink = computed(() => routeWithPresetParam('admin.capabilities.index'));
 const knownSourcesLink = computed(() => routeWithPreset(route('admin.known-sources.index')));
+const wakesLink = computed(() => routeWithPreset(route('admin.wakes.index')));
 
 const agentTasksLink = computed(() => {
   const base = route('admin.agent-tasks.index');
@@ -398,8 +401,11 @@ const memoryManagementItems = computed(() => [
 const taskManagementItems = computed(() => [
   { label: 'workspace', href: workspaceLink.value },
   { label: 'goals', href: goalsLink.value },
+  { label: 'wake_manager', href: wakesLink.value },
   { label: 'agent_tasks', href: agentTasksLink.value },
   { label: 'journal', href: journalLink.value },
+  { label: 'contract_manager', href: contractsLink.value },
+  { label: 'behavior_manager', href: patternsLink.value },
 ]);
 
 const agentItems = computed(() => [
@@ -411,6 +417,7 @@ const systemItems = computed(() => [
   { label: 'presets', href: route('admin.presets.index') },
   { label: 'plugins', href: pluginsLink.value },
   { label: 'engines', href: route('admin.engines.index') },
+  { label: 'exchange_import_title', href: route('admin.exchange.import.form') },
   ...(page.props.sandboxEnabled ? [{ label: 'hypervisor', href: route('admin.sandboxes.index') }] : []),
 ]);
 

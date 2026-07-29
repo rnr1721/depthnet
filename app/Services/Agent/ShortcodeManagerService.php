@@ -3,6 +3,7 @@
 namespace App\Services\Agent;
 
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
+use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PulseServiceInterface;
@@ -18,6 +19,7 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         protected CommandInstructionBuilderInterface $commandInstructionBuilder,
         protected EnvironmentInfoServiceInterface $environmentInfoService,
         protected PulseServiceInterface $pulseService,
+        protected ContextModeResolverInterface $contextModeResolver,
     ) {
     }
 
@@ -37,6 +39,9 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->setMainRagContext();
         $this->setInnerVoice();
         $this->setKnownSources();
+        $this->setContextMode($preset);
+        $this->setReasoning();
+        $this->setBehavior();
     }
 
     /**
@@ -178,6 +183,69 @@ class ShortcodeManagerService implements ShortcodeManagerServiceInterface
         $this->placeholderService->registerDynamic(
             'pre_command_results',
             'Results of commands executed before generation (requires pre_run_commands to be configured on the preset)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register the [[context_mode]] placeholder — the agent's current cognitive
+     * context mode. Lets the agent be aware of whether it's in reflective
+     * (normal) or working (extended) mode this cycle.
+     *
+     * Unlike most stubs here, this resolves a real value immediately: the
+     * preset is on hand and the resolver is cheap (reads metadata). When the
+     * feature is off (no extended limit configured) the resolver always
+     * returns 'normal', so the placeholder is harmless on presets that don't
+     * use context modes.
+     *
+     * @param AiPreset $preset
+     * @return void
+     */
+    private function setContextMode(AiPreset $preset): void
+    {
+        $this->placeholderService->registerDynamic(
+            'context_mode',
+            'Current cognitive context mode: normal (short context, full RAG — reflection) or extended (long procedural context, filtered RAG — sustained work with stateful tools)',
+            function () use ($preset) {
+                return $this->contextModeResolver->isExtended($preset)
+                    ? 'extended — sustained work mode; procedural continuity active, associative RAG reduced'
+                    : 'normal';
+            }
+        );
+    }
+
+    /**
+     * Register reasoning placeholder stub (global).
+     * Actual content is injected per-preset by Agent::generateResponse() when
+     * pre-pass is enabled — the agent's own pre-verbal pass over the full context
+     * before speaking. Empty by default, so the placeholder is harmless on presets
+     * that don't use pre-pass.
+     *
+     * @return void
+     */
+    private function setReasoning(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'reasoning',
+            'The agent\'s own pre-verbal pass over the full context, generated just before speaking (requires pre-pass to be enabled)',
+            fn () => ''
+        );
+    }
+
+    /**
+     * Register behavior placeholder stub (global).
+     * Actual content is injected per-preset by Agent::setupPresetEnvironment()
+     * when ABS is enabled — the dominant behavior pattern selected for this cycle,
+     * exposed as a soft influence on the response. Empty by default, so the
+     * placeholder is harmless on presets that don't use ABS.
+     *
+     * @return void
+     */
+    private function setBehavior(): void
+    {
+        $this->placeholderService->registerDynamic(
+            'behavior',
+            'The behavior pattern selected for this cycle by the adaptive behavior system (soft influence on the response; requires ABS to be enabled)',
             fn () => ''
         );
     }

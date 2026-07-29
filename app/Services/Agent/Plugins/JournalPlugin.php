@@ -108,6 +108,12 @@ class JournalPlugin implements CommandPluginInterface
             $instructions[] = 'Pulse range — circadian position in the day (0..999, where 0 is midnight, 250 ≈ morning, 500 ≈ noon, 750 ≈ evening). Range syntax: pulse:N-M. Open-ended: pulse:N- or pulse:-M. When N > M the range wraps midnight (e.g. pulse:800-200 = late evening through early morning). Combine freely with date filters.';
         }
 
+        if (!empty($config['contract_hints_enabled'])) {
+            $instructions[] = 'Note: contracts may watch these entries — an entry of a '
+                . 'given type/outcome can be what a contract counts or times. This does not '
+                . 'change how you journal; it only means your records can raise metabolism flags.';
+        }
+
         $warning = $this->buildLanguageWarning($config, 'journal_language', 'journal entries');
         if ($warning) {
             array_unshift($instructions, $warning);
@@ -216,6 +222,15 @@ class JournalPlugin implements CommandPluginInterface
                 'value'       => 10,
                 'required'    => false,
             ],
+            'contract_hints_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Show contract hints',
+                'description' => 'When the contract engine watches this journal, add a short note to '
+                    . 'journal instructions explaining that entries here may trigger contracts. '
+                    . 'Off by default — leave off if you use the journal on its own.',
+                'value'       => false,
+                'required'    => false,
+            ],
         ];
     }
 
@@ -246,6 +261,7 @@ class JournalPlugin implements CommandPluginInterface
                 'enabled'              => false,
                 'pulse_search_enabled' => false,
                 'default_limit'        => 10,
+                'contract_hints_enabled' => false,
             ],
             $this->getDefaultLanguageConfig('journal_language')
         );

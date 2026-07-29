@@ -347,7 +347,9 @@ class GoalPlugin implements CommandPluginInterface
             function () use ($context) {
                 return $this->goalService->getActiveGoalsForContext($context->preset);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

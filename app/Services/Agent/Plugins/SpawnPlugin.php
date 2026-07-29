@@ -222,7 +222,9 @@ class SpawnPlugin implements CommandPluginInterface
                     ->map(fn ($s) => "• {$s->preset_code} — {$s->name}")
                     ->implode("\n");
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 
@@ -564,4 +566,13 @@ class SpawnPlugin implements CommandPluginInterface
 
         return $overrides;
     }
+
+    /**
+     * Orchestrating spawned children requires remembering who was created and why.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

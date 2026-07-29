@@ -201,7 +201,9 @@ class SwitchPlugin implements CommandPluginInterface
                 $entry = $this->dataService->find($context->preset, self::PLUGIN_CODE, $code);
                 return $entry?->value ?? '';
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
 
         // [[active_switch_code]] — just the code, useful for debugging in prompt
@@ -209,7 +211,9 @@ class SwitchPlugin implements CommandPluginInterface
             'active_switch_code',
             'Code of the currently active prompt switch',
             fn () => $this->activeCode($context) ?? 'none',
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
 
         // [[available_switches]] — comma-separated list of available switch codes
@@ -220,7 +224,9 @@ class SwitchPlugin implements CommandPluginInterface
                 $codes = array_keys($this->dataService->map($context->preset, self::PLUGIN_CODE));
                 return empty($codes) ? 'none' : implode(', ', $codes);
             },
-            $scope
+            $scope,
+            false,
+            $this->getName()
         );
     }
 

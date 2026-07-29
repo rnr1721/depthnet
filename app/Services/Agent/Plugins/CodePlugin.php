@@ -1348,4 +1348,12 @@ class CodePlugin implements CommandPluginInterface
         return $symbol;
     }
 
+    /**
+     * Filesystem navigation state lives outside the model; needs continuity.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

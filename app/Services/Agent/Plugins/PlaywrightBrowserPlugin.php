@@ -70,6 +70,8 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
 
         if ($searchEnabled) {
             $instructions[] = 'Search ' . $engine . ':   [browser search]best php frameworks 2026[/browser]';
+        } else {
+            $instructions[] = 'Search: Search: It\'s best not to use direct links for searching, as search engines often block them. It\'s better to visit the search engine\'s website and search in the usual way.';
         }
 
         return array_merge($instructions, [
@@ -117,7 +119,8 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             'name'        => 'browser',
             'description' => 'Persistent Playwright browser with session memory. '
                 . 'Sessions survive across thinking cycles. Each preset gets its own session. '
-                . 'The page is returned as a numbered snapshot — act on elements by their number.',
+                . 'The page is returned as a numbered snapshot — act on elements by their number.'
+                . $searchEnabled ? '' : ' Direct search is disabled; open the search engine as a normal page instead for searching.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
@@ -561,4 +564,14 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             '  browser close',
         ]));
     }
+
+    /**
+     * Browser session lives outside the model. Without procedural continuity
+     * the agent forgets which page it's on and what it already did.
+     */
+    public function needsLongContext(): bool
+    {
+        return true;
+    }
+
 }

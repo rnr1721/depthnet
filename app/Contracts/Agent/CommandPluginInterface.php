@@ -184,6 +184,27 @@ interface CommandPluginInterface
      */
     public function allowsCrossPresetExecution(): bool;
 
+    /**
+     * Whether this plugin requires long (procedural) context continuity.
+     *
+     * Stateful plugins keep their real state OUTSIDE the model — in a browser
+     * session, a terminal screen, a sandbox filesystem. For these, the model
+     * must remember what it already did and what each tool returned, or it acts
+     * blind. A short associative context (good for subject-mode reflection)
+     * actively breaks them: the previous step scrolls out of the window and the
+     * agent forgets the task mid-execution.
+     *
+     * Returning true marks this plugin as a signal for the work-mode detector
+     * (see ContextModeResolver): cycles that invoke such plugins push the agent
+     * toward the extended-context profile.
+     *
+     * Default false (via PluginConfigTrait) — most plugins return their full
+     * result inline and work fine with short context + RAG.
+     *
+     * @return bool
+     */
+    public function needsLongContext(): bool;
+
     // ── OPTIONAL METHODS (NOT in the interface) ──────────────────────────────
     //
     // These are recognised by the framework via method_exists() — implement

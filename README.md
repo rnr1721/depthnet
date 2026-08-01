@@ -59,6 +59,8 @@ Choose your preferred installation method:
 - **[Composer Installation](docs/installation/composer.md)** - For Laravel developers
 - **[Manual Installation](docs/installation/manual.md)** - Advanced setup
 
+- **[Reference prompts](docs/prompts)** - System message examples
+
 - **[Voice interface (STT/TTS)](docs/capabilities/text-to-speech.md)** - speech capabilities, local Whisper + Piper container, wake word, browser setup
 - **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration (legacy — superseded by speech capabilities)
 

@@ -21,13 +21,15 @@ cd depthnet
 
 ```bash
 chmod +x ./docker/manager.sh
-make setup        # Interactive setup for development
+make setup            # Interactive setup
+make browser-enable   # If need browser
 make start
+make logs             # Not required. After launch, the laravel will take several minutes to build via entrypoint.sh.
 ```
 
 The interactive setup will ask you for:
 - `APP_URL` — your IP/domain and port
-- Timezone
+- Timezone (for example: Europe/Kyiv). Default UTC
 - Database password (optional)
 
 Everything else is configured automatically.
@@ -44,6 +46,7 @@ make setup-prod-full
 # Edit .env and start
 vim .env
 make start
+make logs # optional (You will know when everything is ready.)
 ```
 
 **Lightweight mode (recommended for most production deployments):**

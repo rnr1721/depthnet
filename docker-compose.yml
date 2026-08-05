@@ -35,7 +35,7 @@ services:
       - DB_USERNAME=${DB_USERNAME:-depthnet}
       - DB_PASSWORD=${DB_PASSWORD:-secret}
       - DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-greatsecret}
-      - QUEUE_CONNECTION=database
+      - QUEUE_CONNECTION=${QUEUE_CONNECTION:-database}
       - VITE_DOCKER_ENV=true
       - VITE_HMR_HOST=${VITE_HMR_HOST:-localhost}
       - VITE_HMR_PORT=${VITE_HMR_PORT:-5173}

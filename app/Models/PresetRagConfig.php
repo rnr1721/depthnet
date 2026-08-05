@@ -84,7 +84,7 @@ class PresetRagConfig extends Model
         'rag_results'                => 5,
         'rag_journal_limit'          => 3,
         'rag_skills_limit'           => 3,
-        'rag_content_limit'          => 400,
+        'rag_content_limit'          => 2000,
         'rag_journal_context_window' => 0,
         'rag_relative_dates'         => false,
     ];

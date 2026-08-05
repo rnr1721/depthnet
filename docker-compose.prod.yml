@@ -33,7 +33,7 @@ services:
       - DB_USERNAME=${DB_USERNAME:-depthnet}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
-      - QUEUE_CONNECTION=database
+      - QUEUE_CONNECTION=${QUEUE_CONNECTION:-database}
       - VITE_DOCKER_ENV=false
       - NODE_ENV=production
       - CORS_MAX_AGE=${CORS_MAX_AGE:-0}

@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services\Agent;
+namespace App\Services\Agent\Prompt;
 
-use App\Contracts\Agent\PresetPromptServiceInterface;
+use App\Contracts\Agent\Prompt\PresetPromptServiceInterface;
 use App\Models\AiPreset;
 use App\Models\PresetPrompt;
 use App\Models\PresetPromptVersion;
@@ -121,9 +121,10 @@ class PresetPromptService implements PresetPromptServiceInterface
 
             /** @var PresetPrompt $prompt */
             $prompt = $preset->prompts()->create([
-                'code'        => $data['code'],
-                'content'     => $data['content'],
-                'description' => $data['description'] ?? null,
+                'code'         => $data['code'],
+                'context_mode' => $data['context_mode'] ?? PresetPrompt::MODE_NONE,
+                'content'      => $data['content'],
+                'description'  => $data['description'] ?? null,
             ]);
 
             // First prompt in the preset is always set as active automatically
@@ -359,9 +360,10 @@ class PresetPromptService implements PresetPromptServiceInterface
         // A duplicate is a brand-new prompt; its history starts fresh at v1
         // with the copied content. create() handles the v1 snapshot.
         return $this->create($preset, [
-            'code'        => $newCode,
-            'content'     => $source->getContent(),
-            'description' => $source->getDescription()
+            'code'         => $newCode,
+            'context_mode' => PresetPrompt::MODE_NONE,
+            'content'      => $source->getContent(),
+            'description'  => $source->getDescription()
                 ? $source->getDescription() . ' (copy)'
                 : null,
         ]);

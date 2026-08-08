@@ -6,10 +6,11 @@ use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginManagerFactoryInterface;
-use App\Contracts\Agent\PresetPromptServiceInterface;
+use App\Contracts\Agent\Prompt\PresetPromptServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\AiPreset;
 use App\Exceptions\PresetException;
+use App\Models\PresetPrompt;
 use App\Models\PresetPromptVersion;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Collection;
@@ -735,6 +736,7 @@ class PresetService implements PresetServiceInterface
 
         $activePromptId = $preset->active_prompt_id;
         $newActiveId    = null;
+        $modeAssignments = [];
 
         foreach ($promptsData as $promptData) {
             if (!empty($promptData['id'])) {
@@ -768,6 +770,15 @@ class PresetService implements PresetServiceInterface
                 );
             }
 
+            // collected after $prompt is resolved in either branch
+            if (array_key_exists('context_mode', $promptData)) {
+                $mode = $promptData['context_mode'] ?? PresetPrompt::MODE_NONE;
+                if (!in_array($mode, PresetPrompt::CONTEXT_MODES, true)) {
+                    $mode = PresetPrompt::MODE_NONE;
+                }
+                $modeAssignments[$prompt->getId()] = $mode;
+            }
+
             if (!empty($promptData['is_active'])) {
                 $newActiveId = $prompt->getId();
             }
@@ -783,6 +794,31 @@ class PresetService implements PresetServiceInterface
                 $editorUserId
             );
             $newActiveId = $prompt->getId();
+        }
+
+        // Phase 2: assign context-mode roles now that every prompt exists with a
+        // real id. Done after the loop so exclusivity (one prompt per mode) is
+        // computed against the FULL final set — not against a half-built one where
+        // prompts created later in the same request wouldn't yet be visible.
+        //
+        // Within one sync, LAST assignment of a given mode wins: we walk the
+        // collected assignments, and for each real (non-none) mode clear it from
+        // all others first, then set it here. If the form somehow tagged two
+        // prompts with the same mode, the later one in array order ends up owning
+        // it — deterministic, no error state.
+        if (!empty($modeAssignments)) {
+            foreach ($modeAssignments as $promptId => $mode) {
+                if ($mode !== PresetPrompt::MODE_NONE) {
+                    $preset->prompts()
+                        ->where('id', '!=', $promptId)
+                        ->where('context_mode', $mode)
+                        ->update(['context_mode' => PresetPrompt::MODE_NONE]);
+                }
+
+                $preset->prompts()
+                    ->where('id', $promptId)
+                    ->update(['context_mode' => $mode]);
+            }
         }
 
         // Resolve active prompt: explicit is_active -> previous active -> first.

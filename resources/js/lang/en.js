@@ -1603,4 +1603,10 @@ export default {
   compaction_watchdog_label: 'Watchdog slack',
   compaction_watchdog_hint: 'Safety net: force a compaction once the active window grows this many messages beyond the current mode\'s context limit, even if the agent never calls [compact] itself. The threshold is relative to the active mode — so it scales with normal vs extended context limits and won\'t fold an instrumental agent mid-task. 0 = watchdog off.',
   compaction_requires_compressor: 'Requires a compressor preset first.',
+  prompt_context_mode_label: 'Context mode (auto-switch)',
+  prompt_context_mode_none: 'None — not mode-aware',
+  prompt_context_mode_normal: 'Normal mode',
+  prompt_context_mode_extended: 'Extended (work) mode',
+  prompt_context_mode_hint: 'Automatically activate this prompt when the agent enters the selected context mode. "None" keeps the prompt outside mode switching (the default). Only one prompt per preset can hold each mode — assigning it here removes it from any other prompt.',
+  prompt_context_mode_warning: 'While this prompt is mode-assigned, automatic mode switching controls the active prompt. Manual [mode] switching (Prompt plugin) will be overridden each cycle — use one or the other, not both.',
 }

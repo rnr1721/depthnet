@@ -23,11 +23,12 @@ class PresetDetailResource extends PresetResource
             // Prompts for this preset, ordered by creation date.
             // is_active marks the currently active prompt (matches active_prompt_id).
             'prompts' => $this->prompts->map(fn ($p) => [
-                'id'          => $p->id,
-                'code'        => $p->code,
-                'content'     => $p->content,
-                'description' => $p->description,
-                'is_active'   => $p->id === $this->active_prompt_id,
+                'id'           => $p->id,
+                'code'         => $p->code,
+                'content'      => $p->content,
+                'context_mode' => $p->context_mode,
+                'description'  => $p->description,
+                'is_active'    => $p->id === $this->active_prompt_id,
             ]),
         ]);
     }

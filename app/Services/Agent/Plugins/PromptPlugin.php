@@ -4,7 +4,7 @@ namespace App\Services\Agent\Plugins;
 
 use App\Contracts\Agent\CommandPluginInterface;
 use App\Contracts\Agent\PlaceholderServiceInterface;
-use App\Contracts\Agent\PresetPromptServiceInterface;
+use App\Contracts\Agent\Prompt\PresetPromptServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Models\PresetPromptVersion;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;

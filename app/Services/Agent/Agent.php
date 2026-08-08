@@ -17,6 +17,7 @@ use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\Prompt\ModePromptSwitcherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
@@ -92,6 +93,7 @@ class Agent implements AgentInterface
         protected LoggerInterface $logger,
         protected ?BehaviorCoordinatorInterface $behavior = null,
         protected ?CompactionServiceInterface $compaction = null,
+        protected ?ModePromptSwitcherInterface $modePromptSwitcher = null,
     ) {
     }
 
@@ -504,6 +506,13 @@ class Agent implements AgentInterface
         // winner's behavior can shape the speaking pass via [[behavior]].
         $this->registerBehaviorShortcode($preset);
 
+        // Mode-aware prompt: make the active prompt match the current context
+        // mode (idempotent; inert when no prompt of this preset is mode-tagged).
+        // Runs here so it happens after the mode is resolved and before the
+        // prompt is assembled for generation.
+        if ($this->modePromptSwitcher !== null) {
+            $this->modePromptSwitcher->syncActivePromptForMode($preset);
+        }
 
         $this->commandPreRunner->run($preset, $preset);
     }

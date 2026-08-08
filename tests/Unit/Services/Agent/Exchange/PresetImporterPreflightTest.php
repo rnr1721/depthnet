@@ -7,7 +7,7 @@ use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
 use App\Contracts\Agent\PluginManagerInterface;
-use App\Contracts\Agent\PresetPromptServiceInterface;
+use App\Contracts\Agent\Prompt\PresetPromptServiceInterface;
 use App\Services\Agent\Exchange\PresetImporter;
 use Mockery;
 use PHPUnit\Framework\TestCase;

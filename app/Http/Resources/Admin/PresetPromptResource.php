@@ -16,6 +16,7 @@ class PresetPromptResource extends JsonResource
             'id'          => $this->id,
             'preset_id'   => $this->preset_id,
             'code'        => $this->code,
+            'context_mode' => $this->context_mode ?? 'none',
             'content'     => $this->content,
             'description' => $this->description,
             'created_at'  => $this->created_at?->toISOString(),

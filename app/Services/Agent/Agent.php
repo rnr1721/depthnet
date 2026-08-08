@@ -10,6 +10,7 @@ use App\Contracts\Agent\Behavior\BehaviorCoordinatorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\Compaction\CompactionServiceInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
@@ -21,6 +22,7 @@ use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
+use App\Services\Agent\Plugins\CompactPlugin;
 use App\Services\Agent\Plugins\ReflectPlugin;
 use Psr\Log\LoggerInterface;
 
@@ -89,6 +91,7 @@ class Agent implements AgentInterface
         protected ContextModeResolverInterface $contextModeResolver,
         protected LoggerInterface $logger,
         protected ?BehaviorCoordinatorInterface $behavior = null,
+        protected ?CompactionServiceInterface $compaction = null,
     ) {
     }
 
@@ -103,6 +106,12 @@ class Agent implements AgentInterface
         $presetId = $currentPreset->getId();
         try {
             $this->setupPresetEnvironment($currentPreset);
+
+            // Consolidate BEFORE assembling context: an agent-armed [compact],
+            // or the watchdog when the window has grown too large. Either writes
+            // the recap and folds the range, so buildContext() below sees the
+            // fresh, post-fold window with the recap as its trailing turn.
+            $this->maybeCompact($currentPreset);
 
             $context  = $this->buildContext($currentPreset);
             $response = $this->generateResponse($context, $currentPreset);
@@ -171,6 +180,90 @@ class Agent implements AgentInterface
                 $additionalParams
             )
         );
+    }
+
+    /**
+     * Run a compaction pass this cycle when either trigger fires:
+     *
+     *   agent-driven — CompactPlugin armed a one-shot flag last cycle (the
+     *                  primary, semantic trigger: the agent decided a boundary
+     *                  was reached). Consumed read-once, like the pre-pass flag.
+     *   watchdog     — the active window has grown past the preset's
+     *                  compaction_watchdog_limit (the safety net for when the
+     *                  agent never calls [compact] itself).
+     *
+     * No-op when compaction isn't wired (service absent or no compressor preset).
+     * The agent flag wins over the watchdog — if both would fire, the explicit
+     * agent focus is honoured and the watchdog check is moot (the window shrinks).
+     */
+    protected function maybeCompact(AiPreset $preset): void
+    {
+        if ($this->compaction === null || !$preset->hasCompaction()) {
+            return;
+        }
+
+        // 1) Agent-driven one-shot flag (consume read-once, like the pre-pass).
+        $pending = $this->pluginMetadataService->get(
+            $preset,
+            CompactPlugin::PLUGIN_NAME,
+            CompactPlugin::META_PENDING,
+            false
+        );
+
+        if ($pending) {
+            $this->pluginMetadataService->remove(
+                $preset,
+                CompactPlugin::PLUGIN_NAME,
+                CompactPlugin::META_PENDING
+            );
+
+            $focus = $this->pluginMetadataService->get(
+                $preset,
+                CompactPlugin::PLUGIN_NAME,
+                CompactPlugin::META_FOCUS,
+                null
+            );
+
+            if ($focus !== null) {
+                $this->pluginMetadataService->remove(
+                    $preset,
+                    CompactPlugin::PLUGIN_NAME,
+                    CompactPlugin::META_FOCUS
+                );
+            }
+
+            $this->compaction->compact($preset, is_string($focus) ? $focus : null);
+            return; // agent trigger handled — don't also watchdog this cycle
+        }
+
+        // 2) Watchdog: fold when the active window outgrows the CURRENT MODE's
+        // context limit by more than the configured slack. Critically, the
+        // threshold is relative to the mode's context limit (normal vs extended),
+        // NOT an absolute count — otherwise the watchdog fires in extended (work)
+        // mode before the window ever reaches its larger extended ceiling, folding
+        // an instrumental agent mid-task. compaction_watchdog_limit is read as the
+        // SLACK above the mode limit: fold once activeWindow >= modeLimit + slack.
+        // 0/null slack disables the watchdog (agent-driven [compact] still works).
+        $slack = $preset->getCompactionWatchdogLimit();
+        if ($slack === null) {
+            return; // watchdog off
+        }
+
+        $modeLimit   = $this->contextModeResolver->activeContextLimit($preset);
+        $threshold   = $modeLimit + $slack;
+        $activeCount = $this->compaction->activeWindowCount($preset);
+
+        if ($activeCount >= $threshold) {
+            $this->logger->info('Agent: watchdog compaction triggered', [
+                'preset_id'    => $preset->getId(),
+                'active_count' => $activeCount,
+                'mode_limit'   => $modeLimit,
+                'slack'        => $slack,
+                'threshold'    => $threshold,
+            ]);
+            // No focus — the watchdog fold follows the mode-derived profile.
+            $this->compaction->compact($preset, null);
+        }
     }
 
     /**

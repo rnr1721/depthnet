@@ -40,6 +40,8 @@ class PresetResource extends JsonResource
             'defrag_prompt'       => $this->defrag_prompt,
             'defrag_keep_per_day' => $this->defrag_keep_per_day,
             'cycle_prompt_preset_id' => $this->cycle_prompt_preset_id,
+            'compressor_preset_id'      => $this->compressor_preset_id,
+            'compaction_watchdog_limit' => $this->compaction_watchdog_limit,
             'cp_context_limit' => $this->cp_context_limit,
             'voice_mp_commands' => $this->voice_mp_commands,
             'default_call_message' => $this->default_call_message,

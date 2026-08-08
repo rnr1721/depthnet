@@ -42,6 +42,8 @@ class UpdatePresetRequest extends FormRequest
             'defrag_prompt'       => 'nullable|string',
             'defrag_keep_per_day' => 'nullable|integer|min:1|max:20',
             'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'compressor_preset_id'      => 'nullable|integer|exists:ai_presets,id',
+            'compaction_watchdog_limit' => 'nullable|integer|min:0|max:200',
             'cp_context_limit' => 'required|integer|min:4|max:20',
             'voice_mp_commands' => ['nullable','string'],
             'default_call_message' => ['nullable', 'string', 'max:1000'],

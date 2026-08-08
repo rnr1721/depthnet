@@ -101,6 +101,10 @@
                 <PresetInnerVoiceConfigs :preset="preset" :is-dark="isDark" :available-presets="availablePresets"
                     @success="showNotification" @error="showError" />
 
+                <!-- Context compaction (window consolidation) -->
+                <PresetCompaction v-model="form" :is-dark="isDark" :errors="errors"
+                    :available-presets="availablePresets" />
+
                 <!-- Sandbox Management Component -->
                 <PresetSandboxManager :preset="preset" :is-dark="isDark" @error="showError"
                     @success="showNotification" />
@@ -154,6 +158,7 @@ import PresetAgentSettings from './PresetAgentSettings.vue';
 import PresetIntegrations from './PresetIntegrations.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';
 import PresetDefrag from './PresetDefrag.vue';
+import PresetCompaction from './PresetCompaction.vue';
 
 const { t } = useI18n();
 
@@ -215,6 +220,8 @@ const form = ref({
     parent_preset_id: props.preset?.parent_preset_id ?? null,
     voice_preset_id: props.preset?.voice_preset_id || null,
     cycle_prompt_preset_id: props.preset?.cycle_prompt_preset_id || null,
+    compressor_preset_id: props.preset?.compressor_preset_id ?? null,
+    compaction_watchdog_limit: props.preset?.compaction_watchdog_limit ?? null,
     defrag_enabled: props.preset?.defrag_enabled ?? false,
     defrag_prompt: props.preset?.defrag_prompt ?? null,
     defrag_keep_per_day: props.preset?.defrag_keep_per_day ?? 3,

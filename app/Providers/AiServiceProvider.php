@@ -29,6 +29,7 @@ use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\Compaction\CompactionServiceInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Contract\ContractMemoWriterInterface;
@@ -138,6 +139,7 @@ use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
+use App\Services\Agent\Compaction\CompactionService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\ContextModeResolver;
 use App\Services\Agent\Contract\ContractMemoWriter;
@@ -202,6 +204,7 @@ use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\BehaviorPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
 use App\Services\Agent\Plugins\CodePlugin;
+use App\Services\Agent\Plugins\CompactPlugin;
 use App\Services\Agent\Plugins\ContractPlugin;
 use App\Services\Agent\Plugins\DocumentManagerPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
@@ -338,6 +341,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
 
         $this->app->singleton(JournalServiceInterface::class, JournalService::class);
+
+        $this->app->singleton(CompactionServiceInterface::class, CompactionService::class);
 
         $this->app->singleton(OntologyServiceInterface::class, OntologyService::class);
         $this->app->bind(OntologyQueryServiceInterface::class, OntologyQueryService::class);
@@ -693,6 +698,7 @@ class AiServiceProvider extends ServiceProvider
             MyselfPlugin::class,
             SelfNotePlugin::class,
             ReflectPlugin::class,
+            CompactPlugin::class,
             PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,

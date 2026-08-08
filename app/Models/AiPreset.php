@@ -33,6 +33,8 @@ class AiPreset extends Model
         'defrag_prompt',
         'defrag_keep_per_day',
         'cycle_prompt_preset_id',
+        'compressor_preset_id',
+        'compaction_watchdog_limit',
         'cp_context_limit',
         'voice_mp_commands',
         'default_call_message',
@@ -73,6 +75,8 @@ class AiPreset extends Model
         'defrag_enabled'             => 'boolean',
         'defrag_keep_per_day'        => 'integer',
         'cycle_prompt_preset_id'     => 'integer',
+        'compressor_preset_id'       => 'integer',
+        'compaction_watchdog_limit'  => 'integer',
         'cp_context_limit'           => 'integer',
         'max_context_limit'          => 'integer',
         'max_context_limit_extended' => 'integer',
@@ -668,6 +672,48 @@ class AiPreset extends Model
     public function getCyclePromptPresetId(): ?int
     {
         return $this->cycle_prompt_preset_id;
+    }
+
+    /**
+         * The preset whose system prompt drives compaction summarisation.
+         * Null means compaction is off for this preset — CompactionService
+         * treats a null (or missing) compressor as "feature disabled".
+         */
+    public function compressorPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'compressor_preset_id');
+    }
+
+    /**
+     * ID of the compressor preset, or null when compaction is off.
+     * This is the single source of the "compression profile" — the profile is
+     * whatever the compressor preset's prompt encodes (task-state / salience).
+     */
+    public function getCompressorPresetId(): ?int
+    {
+        return $this->compressor_preset_id;
+    }
+
+    /**
+     * Whether agent-driven / watchdog compaction is available for this preset.
+     * True only when a compressor preset is configured.
+     */
+    public function hasCompaction(): bool
+    {
+        return !is_null($this->compressor_preset_id);
+    }
+
+    /**
+     * Active-window message count at which a compaction is force-triggered
+     * (watchdog safety net). Null/0 means the watchdog is off — the agent's
+     * own [compact] calls still work. Kept separate from
+     * max_context_limit_extended by design: that field means "how much to carry
+     * in work mode", this means "at what size to fold" — opposite intents.
+     */
+    public function getCompactionWatchdogLimit(): ?int
+    {
+        $value = $this->compaction_watchdog_limit;
+        return ($value === null || $value <= 0) ? null : $value;
     }
 
     public function allowsHandoffTo(): bool

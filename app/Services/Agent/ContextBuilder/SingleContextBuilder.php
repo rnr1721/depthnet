@@ -30,6 +30,11 @@ use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
  *
  * Inner voice pipeline:
  *   Unchanged.
+ *
+ * Compaction window:
+ *   History is read through ->activeWindow() (compacted = false), same as the
+ *   cycle builder. Folded messages leave the active window but remain in the DB
+ *   and reachable via journal/vector RAG (which is NOT window-filtered).
  */
 class SingleContextBuilder implements ContextBuilderInterface
 {
@@ -65,6 +70,7 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())
+            ->activeWindow()
             ->where('role', '!=', 'system')
             ->orderBy('id', 'desc')
             ->limit($maxContextLimit)

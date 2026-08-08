@@ -40,6 +40,15 @@ use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
  * Cycle prompt (anti-loop):
  *   A single CyclePromptEnricher call using cycle_prompt_preset_id.
  *   Its output goes into the input pool — not into [[inner_voice]].
+ *
+ * Compaction window:
+ *   History is read through ->activeWindow() (compacted = false). Messages that
+ *   have been folded into a recap stay in the DB but drop out of the agent's
+ *   active window here. RAG is deliberately NOT filtered this way — it reads the
+ *   journal/vector substrate (separate tables), so folded detail stays reachable.
+ *   The recap row itself is compacted = false (it IS the active summary), so it
+ *   enters context normally and becomes the trailing user turn the cycle
+ *   continues from.
  */
 class CycleContextBuilder implements ContextBuilderInterface
 {
@@ -76,6 +85,7 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())
+            ->activeWindow()
             ->where('role', '!=', 'system')
             ->orderBy('id', 'desc')
             ->limit($maxContextLimit)
@@ -161,7 +171,15 @@ class CycleContextBuilder implements ContextBuilderInterface
             );
         }
 
-        // If context is empty, start first cycle
+        // If context is empty, start first cycle.
+        //
+        // Note: after a compaction, context is NOT empty — the recap row
+        // (compacted = false) sits here as the trailing user turn, so this
+        // branch is skipped and the cycle continues from the recap rather than
+        // from the cold-start instruction. This only fires on a genuinely fresh
+        // preset (or one whose entire window was folded AND whose recap has not
+        // yet been written — which the compaction handler must avoid by writing
+        // the recap before the next context assembly).
         if (empty($context)) {
             return [
                 [

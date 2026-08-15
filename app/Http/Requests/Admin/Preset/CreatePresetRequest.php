@@ -42,6 +42,7 @@ class CreatePresetRequest extends FormRequest
             'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'compressor_preset_id'      => 'nullable|integer|exists:ai_presets,id',
             'compaction_watchdog_limit' => 'nullable|integer|min:0|max:200',
+            'knowledge_formulator_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'cp_context_limit' => 'required|integer|min:4|max:20',
             'voice_mp_commands' => ['nullable','string'],
             'default_call_message' => ['nullable', 'string', 'max:1000'],

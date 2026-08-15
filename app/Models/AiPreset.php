@@ -35,6 +35,7 @@ class AiPreset extends Model
         'cycle_prompt_preset_id',
         'compressor_preset_id',
         'compaction_watchdog_limit',
+        'knowledge_formulator_preset_id',
         'cp_context_limit',
         'voice_mp_commands',
         'default_call_message',
@@ -77,6 +78,7 @@ class AiPreset extends Model
         'cycle_prompt_preset_id'     => 'integer',
         'compressor_preset_id'       => 'integer',
         'compaction_watchdog_limit'  => 'integer',
+        'knowledge_formulator_preset_id' => 'integer',
         'cp_context_limit'           => 'integer',
         'max_context_limit'          => 'integer',
         'max_context_limit_extended' => 'integer',
@@ -692,6 +694,24 @@ class AiPreset extends Model
     public function getCompressorPresetId(): ?int
     {
         return $this->compressor_preset_id;
+    }
+
+    /**
+     * The preset whose system prompt drives knowledge formulation.
+     * Null means knowledge formulation is off for this preset.
+     */
+    public function knowledgeFormulatorPreset(): BelongsTo
+    {
+        return $this->belongsTo(AiPreset::class, 'knowledge_formulator_preset_id');
+    }
+
+    /**
+     * The preset whose system prompt drives knowledge formulation.
+     * Null means knowledge formulation is off for this preset.
+     */
+    public function getKnowledgeFormulatorPresetId(): ?int
+    {
+        return $this->knowledge_formulator_preset_id;
     }
 
     /**

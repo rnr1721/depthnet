@@ -42,6 +42,7 @@ class PresetResource extends JsonResource
             'cycle_prompt_preset_id' => $this->cycle_prompt_preset_id,
             'compressor_preset_id'      => $this->compressor_preset_id,
             'compaction_watchdog_limit' => $this->compaction_watchdog_limit,
+            'knowledge_formulator_preset_id' => $this->knowledge_formulator_preset_id,
             'cp_context_limit' => $this->cp_context_limit,
             'voice_mp_commands' => $this->voice_mp_commands,
             'default_call_message' => $this->default_call_message,

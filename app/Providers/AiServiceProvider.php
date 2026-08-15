@@ -212,6 +212,7 @@ use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\HeartPlugin;
 use App\Services\Agent\Plugins\JournalPlugin;
+use App\Services\Agent\Plugins\KnowledgePlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
@@ -683,6 +684,7 @@ class AiServiceProvider extends ServiceProvider
             RagQueryPlugin::class,
             OntologyPlugin::class,
             PersonPlugin::class,
+            KnowledgePlugin::class,
             ContractPlugin::class,
             WakePlugin::class,
             BehaviorPlugin::class,

@@ -622,15 +622,49 @@ class NovitaModel implements AIModelEngineInterface
                     'count' => count($message['tool_calls']),
                 ]);
 
+                $reasoningContent = $message['reasoning_content'] ?? null;
+
                 return new ModelResponseDTO(
                     json_encode(['tool_calls' => $message['tool_calls']]),
                     false,
-                    ['system_prompt' => $request->getResolvedSystemPrompt()]
+                    array_merge(
+                        $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                        ['system_prompt' => $request->getResolvedSystemPrompt()]
+                    )
                 );
             }
 
-            // Normal text response path
-            if (!isset($message['content'])) {
+            // Normal text response path.
+            // A missing/empty content is only a real error when the API gave us nothing
+            // structural. When finish_reason explains the emptiness (length, content_filter,
+            // stop after tools), it's a legitimate empty turn — the Agent loop handles it.
+            $content          = $message['content'] ?? null;
+            $reasoningContent = $message['reasoning_content'] ?? null;
+
+            if ($content === null || trim($content) === '') {
+                $knownReasons = ['stop', 'length', 'content_filter', 'tool_calls'];
+
+                if ($message !== null && in_array($finishReason, $knownReasons, true)) {
+                    $this->logger->info('Novita AI returned empty content (non-error)', [
+                        'model'         => $this->model,
+                        'finish_reason' => $finishReason,
+                    ]);
+
+                    return new ModelResponseDTO(
+                        '',
+                        false,
+                        array_merge(
+                            $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                            [
+                                'system_prompt'  => $request->getResolvedSystemPrompt(),
+                                'finish_reason'  => $finishReason,
+                                'empty_response' => true,
+                            ]
+                        )
+                    );
+                }
+
+                // No message / unknown finish_reason → genuinely malformed response.
                 $this->logger->warning('Invalid Novita AI response format', [
                     'response' => $result,
                     'model'    => $this->model,
@@ -640,10 +674,20 @@ class NovitaModel implements AIModelEngineInterface
                 );
             }
 
+            if ($reasoningContent) {
+                $this->logger->info('Novita AI reasoning content received', [
+                    'model'            => $this->model,
+                    'reasoning_length' => strlen($reasoningContent),
+                ]);
+            }
+
             return new ModelResponseDTO(
-                $this->cleanOutput($message['content']),
+                $this->cleanOutput($content),
                 false,
-                ['system_prompt' => $request->getResolvedSystemPrompt()]
+                array_merge(
+                    $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                    ['system_prompt' => $request->getResolvedSystemPrompt()]
+                )
             );
 
         } catch (\Exception $e) {
@@ -818,27 +862,31 @@ class NovitaModel implements AIModelEngineInterface
                     $messages[] = ['role' => 'user', 'content' => $content];
                     break;
                 case 'command':
-                    // tool_calls mode: restore structured assistant+tool_calls turn.
-                    // The engine stored the raw tool_calls JSON in metadata when it
-                    // detected finish_reason='tool_calls' from the API.
-                    $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    $toolCallsRaw     = $metadata['tool_calls_raw'] ?? null;
+                    $reasoningContent = $metadata['reasoning_content'] ?? null;
                     if ($toolCallsRaw) {
-                        $decoded    = json_decode($toolCallsRaw, true);
-                        $toolCalls  = $decoded['tool_calls'] ?? [];
+                        $decoded   = json_decode($toolCallsRaw, true);
+                        $toolCalls = $decoded['tool_calls'] ?? [];
 
                         if (!empty($toolCalls)) {
-                            // Emit null content — OpenAI spec requires content=null
-                            // when tool_calls are present in the assistant turn
-                            $messages[] = [
+                            // Model performed a tool call — reasoning_content MUST be passed
+                            // back in every subsequent turn, or reasoning models return 400.
+                            $assistantMsg = [
                                 'role'       => 'assistant',
                                 'content'    => null,
                                 'tool_calls' => $toolCalls,
                             ];
+                            if ($reasoningContent) {
+                                $assistantMsg['reasoning_content'] = $reasoningContent;
+                            }
+                            $messages[] = $assistantMsg;
                             break;
                         }
                     }
 
-                    // tag-mode fallback: plain assistant message
+                    // tag-mode fallback: plain assistant message, no tool call this turn.
+                    // reasoning_content is deliberately NOT re-attached here — without a tool
+                    // call it is ignored at best, and rejected (400) by some reasoning models.
                     $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
                 case 'result':

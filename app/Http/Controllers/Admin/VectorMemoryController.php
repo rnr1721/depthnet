@@ -42,6 +42,9 @@ class VectorMemoryController extends Controller
     protected function getVectorMemoryConfig(AiPreset $preset): array
     {
         $info = $this->pluginManagerFactory->get()->getPluginInfoForPreset('vectormemory', $preset);
+        if (empty($info)) {
+            $info = $this->pluginManagerFactory->get()->getPluginInfoForPreset('knowledge', $preset);
+        }
         return $info['current_config'] ?? [];
     }
 

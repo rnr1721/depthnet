@@ -330,6 +330,24 @@ class KnowledgePlugin implements CommandPluginInterface
                 'value'       => 3,
                 'required'    => false,
             ],
+            'max_entries' => [
+                'type' => 'number',
+                'label' => 'Max Vector Memory Entries',
+                'description' => 'Maximum number of vector memories to store. Only for vector memories.',
+                'min' => 100,
+                'max' => 10000,
+                'value' => 1000,
+                'required' => false
+            ],
+            'contract_hints_enabled' => [
+                'type'        => 'checkbox',
+                'label'       => 'Show contract hints',
+                'description' => 'When the contract engine watches this journal, add a short note to '
+                    . 'journal instructions explaining that entries here may trigger contracts. '
+                    . 'Off by default — leave off if you use the journal on its own.',
+                'value'       => false,
+                'required'    => false,
+            ],
         ];
     }
 
@@ -349,6 +367,16 @@ class KnowledgePlugin implements CommandPluginInterface
             $errors['input_mode'] = 'Input mode must be direct or formulator.';
         }
 
+        if (isset($config['memory_mode'])
+            && !in_array($config['memory_mode'], ['flat', 'associative'], true)) {
+            $errors['memory_mode'] = 'Memory mode must be flat or associative.';
+        }
+
+        if (isset($config['memory_engine'])
+            && !in_array($config['memory_engine'], ['tfidf', 'embedding'], true)) {
+            $errors['memory_engine'] = 'Memory engine must be tfidf or embedding.';
+        }
+
         // NOTE: "formulator mode requires a formulator preset" is a CROSS-FIELD
         // rule between this config and the preset column — it can't be enforced
         // here (no preset access). It's enforced softly at runtime (fail-safe to
@@ -366,6 +394,8 @@ class KnowledgePlugin implements CommandPluginInterface
             'memory_engine'     => 'tfidf',
             'recall_per_source' => 3,
             'knowledge_language' => 'en',
+            'max_entries' => 1000,
+            'contract_hints_enabled' => false,
         ];
     }
 

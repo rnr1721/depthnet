@@ -93,4 +93,60 @@ trait ContentCleaningTrait
         }
     }
 
+    /**
+     * Reposition the partial (watchdog) compression recap to its logical place:
+     * before the last contiguous group of fresh user messages.
+     *
+     * The watchdog collapses the head of the window while leaving the tail intact,
+     * but the recap is created with a higher ID and physically placed AFTER the tail.
+     * Here, we move it to the boundary between the "collapsed section" and the
+     * "fresh incoming block" so that the model accesses its memory of the
+     * preceding messages before the new ones, rather than after them.
+     *
+     * A no-op during an agent-initiated [compact] (since the recap is already
+     * in the tail, with no user messages following it).
+     *
+     * @param array $context
+     * @return void
+     */
+    protected function liftCompactionRecap(array &$context): void
+    {
+        if (empty($context)) {
+            return;
+        }
+
+        $recapIndex = null;
+        foreach ($context as $i => $msg) {
+            if (($msg['role'] ?? null) === 'user'
+                && (($msg['metadata']['source'] ?? null) === Message::SOURCE_COMPACTION)) {
+                $recapIndex = $i;
+                break;
+            }
+        }
+
+        if ($recapIndex === null) {
+            return; // There is no compression in the window.
+        }
+
+        $recap = $context[$recapIndex];
+        unset($context[$recapIndex]);
+        $context = array_values($context);
+
+        // From the end we skip a continuous tail of new users
+        // (we do not count the recap itself as a user—otherwise, the old recap would shift the boundary).
+        $insertAt = count($context);
+        for ($i = count($context) - 1; $i >= 0; $i--) {
+            $isFreshUser = ($context[$i]['role'] ?? null) === 'user'
+                && (($context[$i]['metadata']['source'] ?? null) !== Message::SOURCE_COMPACTION);
+
+            if ($isFreshUser) {
+                $insertAt = $i;
+            } else {
+                break;
+            }
+        }
+
+        array_splice($context, $insertAt, 0, [$recap]);
+    }
+
 }

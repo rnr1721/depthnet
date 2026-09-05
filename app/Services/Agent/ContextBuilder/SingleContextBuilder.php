@@ -81,6 +81,8 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         $this->stripLeadingCommandMessages($context);
 
+        $this->liftCompactionRecap($context);
+
         // ── Multi-RAG pipeline ────────────────────────────────────────────────
         $ragEnricher = $this->enricherFactory->makeRagEnricher();
         $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);

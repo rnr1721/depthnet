@@ -88,6 +88,22 @@ class CompactionService implements CompactionServiceInterface
             return null;
         }
 
+        $lastAgentTurnId = (int) ($this->messageModel
+            ->forPreset($preset->getId())
+            ->activeWindow()
+            ->whereIn('role', ['command','assistant','thinking'])
+            ->max('id') ?? 0);
+
+        // The fresh recap represents the active window boundary; we do not fold it.
+        // OLD recaps, conversely, are sent to the fold: otherwise, they accumulate
+        // (remaining compacted=0 indefinitely) and inflate activeWindowCount,
+        // causing the watchdog to trigger increasingly often.
+        $latestRecapId = (int) ($this->messageModel
+            ->forPreset($preset->getId())
+            ->activeWindow()
+            ->where('metadata->source', Message::SOURCE_COMPACTION)
+            ->max('id') ?? 0);
+
         // ── Gather the foldable range ─────────────────────────────────────────
         // Active window, excluding any existing recap (a recap must survive its
         // own future compaction — it IS the nerve holding the thread; folding it
@@ -97,11 +113,8 @@ class CompactionService implements CompactionServiceInterface
             ->forPreset($preset->getId())
             ->activeWindow()
             ->where('role', '!=', 'system')
-            ->where(function ($q) {
-                // Exclude prior recaps from the fold set.
-                $q->whereNull('metadata->source')
-                  ->orWhere('metadata->source', '!=', Message::SOURCE_COMPACTION);
-            })
+            ->when($lastAgentTurnId > 0, fn ($q) => $q->where('id', '<=', $lastAgentTurnId))
+            ->when($latestRecapId > 0, fn ($q) => $q->where('id', '!=', $latestRecapId))
             ->orderBy('id', 'asc')
             ->get();
 

@@ -229,6 +229,18 @@
                             <span class="text-sm">{{ t('rag_relative_dates') }}</span>
                         </label>
 
+                        <!-- Prewarmable -->
+                        <label
+                            :class="['flex items-center gap-3 cursor-pointer', isDark ? 'text-white' : 'text-gray-900']">
+                            <input type="checkbox" class="w-4 h-4 rounded text-emerald-600"
+                                :checked="config.prewarmable"
+                                @change="updateField(config, 'prewarmable', $event.target.checked)" />
+                            <span class="text-sm">{{ t('rag_prewarmable') }}</span>
+                        </label>
+                        <p :class="['text-xs -mt-2 ml-7', isDark ? 'text-gray-500' : 'text-gray-400']">
+                            {{ t('rag_prewarmable_hint') }}
+                        </p>
+
                     </div>
                 </Transition>
             </div>

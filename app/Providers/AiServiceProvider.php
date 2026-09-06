@@ -41,7 +41,9 @@ use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAssemblyCacheInterface;
 use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
+use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\Enricher\Rag\RagSectionRendererRegistryInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Exchange\PresetExporterInterface;
@@ -157,7 +159,9 @@ use App\Services\Agent\Enricher\EnricherFactory;
 use App\Services\Agent\Enricher\InnerVoiceEnricher;
 use App\Services\Agent\Enricher\PersonContextEnricher;
 use App\Services\Agent\Enricher\Rag\RagAggregatorService;
+use App\Services\Agent\Enricher\Rag\RagAssemblyCache;
 use App\Services\Agent\Enricher\Rag\RagContentFormatter;
+use App\Services\Agent\Enricher\Rag\RagPipelineService;
 use App\Services\Agent\Enricher\Rag\RagSectionRendererRegistry;
 use App\Services\Agent\Enricher\Rag\Renderers\FilesSectionRenderer;
 use App\Services\Agent\Enricher\Rag\Renderers\JournalSectionRenderer;
@@ -300,6 +304,15 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
+
+        $this->app->bind(RagPipelineServiceInterface::class, RagPipelineService::class);
+
+        $this->app->singleton(RagAssemblyCacheInterface::class, function ($app) {
+            return new RagAssemblyCache(
+                $app->make(\Illuminate\Contracts\Cache\Repository::class),
+                $app->make(LoggerInterface::class),
+            );
+        });
 
         $this->app->bind(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
         $this->app->bind(CyclePromptEnricherInterface::class, CyclePromptEnricher::class);

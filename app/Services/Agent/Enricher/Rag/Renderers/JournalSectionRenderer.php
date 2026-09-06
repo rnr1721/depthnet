@@ -56,51 +56,60 @@ final class JournalSectionRenderer extends AbstractSectionRenderer
         usort(
             $items,
             fn (RagItemInterface $a, RagItemInterface $b) =>
-            ($a->getMetadata()['entry']->recorded_at ?? null)
+            ($a->getMetadata()['recorded_at_iso'] ?? null)
             <=>
-            ($b->getMetadata()['entry']->recorded_at ?? null)
+            ($b->getMetadata()['recorded_at_iso'] ?? null)
         );
 
         $lines = [];
 
         foreach ($items as $item) {
             $meta     = $item->getMetadata();
-            $entry    = $meta['entry'] ?? null;
+            $entryId  = $meta['entry_id'] ?? null;
             $isAnchor = (bool) ($meta['is_anchor'] ?? false);
 
-            if ($entry === null) {
+            if ($entryId === null) {
                 continue;
             }
 
-            $date = $entry->recorded_at->format('Y-m-d H:i');
-            if ($showRelativeDate) {
-                $date .= ' (' . $this->formatRelativeDate($entry->recorded_at) . ')';
+            $recordedAt = isset($meta['recorded_at_iso'])
+                ? \Carbon\Carbon::parse($meta['recorded_at_iso'])
+                : null;
+
+            if ($recordedAt === null) {
+                continue;
             }
 
-            // Pulse coordinate is rendered as its own bracketed segment so
-            // it doesn't interfere with the date format and stays optional.
-            $pulseLabel = $this->formatPulseLabel($entry->recorded_at, $options);
+            $date = $recordedAt->format('Y-m-d H:i');
+            if ($showRelativeDate) {
+                $date .= ' (' . $this->formatRelativeDate($recordedAt) . ')';
+            }
+
+            $pulseLabel = $this->formatPulseLabel($recordedAt, $options);
             $pulsePart  = $pulseLabel !== null ? " [{$pulseLabel}]" : '';
 
+            $type    = $meta['type'] ?? '';
+            $summary = $meta['summary'] ?? $item->getContent();
+
             if ($isAnchor) {
-                $outcome = !empty($entry->outcome) ? " [{$entry->outcome}]" : '';
+                $outcome = !empty($meta['outcome']) ? " [{$meta['outcome']}]" : '';
                 $lines[] = sprintf(
                     '★ #{%d} [%s]%s [%s]%s %s',
-                    $entry->id,
+                    $entryId,
                     $date,
                     $pulsePart,
-                    $entry->type,
+                    $type,
                     $outcome,
-                    mb_substr($entry->summary, 0, $maxContentLimit),
+                    mb_substr($summary, 0, $maxContentLimit),
                 );
             } else {
                 $lines[] = sprintf(
                     '  [ctx] #{%d} [%s]%s [%s] %s',
-                    $entry->id,
+                    $entryId,
                     $date,
                     $pulsePart,
-                    $entry->type,
-                    mb_substr($entry->summary, 0, $maxContentLimit),
+                    $type,
+                    mb_substr($summary, 0, $maxContentLimit),
                 );
             }
         }

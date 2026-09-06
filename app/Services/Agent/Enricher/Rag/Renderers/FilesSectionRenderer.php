@@ -37,23 +37,21 @@ final class FilesSectionRenderer extends AbstractSectionRenderer
         $num   = 1;
 
         foreach ($section->getItems() as $item) {
-            $meta  = $item->getMetadata();
-            $chunk = $meta['chunk'] ?? null;
+            $meta = $item->getMetadata();
 
-            if ($chunk === null) {
+            if (!isset($meta['file_name'])) {
                 continue;
             }
 
             $similarity = (float) ($meta['similarity'] ?? $item->getScore() ?? 0);
             $score      = round($similarity * 100, 1);
-            $fileName   = $chunk->file->original_name ?? ("file#" . $chunk->file_id);
-            $preview    = mb_substr($chunk->content, 0, $maxContentLimit);
+            $preview    = mb_substr($meta['content'] ?? $item->getContent(), 0, $maxContentLimit);
 
             $lines[] = sprintf(
                 '%d. [%s | chunk#%d | %s%%] %s',
                 $num++,
-                $fileName,
-                $chunk->chunk_index,
+                $meta['file_name'],
+                $meta['chunk_index'] ?? 0,
                 $score,
                 $preview,
             );

@@ -1363,6 +1363,8 @@ export default {
   rag_context_mode_normal: "Normal Mode Only",
   rag_context_mode_extended: "Work Mode Only",
   rag_context_mode_hint: "Modes are switched only if the preset has an extended context limit. Otherwise, the agent is always in normal mode.",
+  rag_prewarmable: "Prewarmable (background level)",
+  rag_prewarmable_hint: "Assemble this level ahead of time, before the user's next message. Only for levels that don't depend on what the user says next — background memory about the person or project, not search reactive to the last message. Reactive levels must stay off.",
   iv_title: 'Inner Voice',
   iv_desc: 'Voice presets injected into [[inner_voice]] before each thinking cycle. Each voice runs independently and contributes a labeled block.',
   iv_add: 'Add voice',

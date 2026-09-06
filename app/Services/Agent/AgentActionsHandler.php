@@ -12,6 +12,7 @@ use App\Contracts\Agent\AiModelResponseInterface;
 use App\Contracts\Agent\Behavior\BehaviorCoordinatorInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAssemblyCacheInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
@@ -92,6 +93,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected ContextModeResolverInterface $contextModeResolver,
         protected AgentTaskServiceInterface $agentTaskService,
         protected PluginMetadataServiceInterface $pluginMetadataService,
+        protected RagAssemblyCacheInterface $ragWarmCache,
         protected ?BehaviorCoordinatorInterface $behavior = null,
     ) {
     }
@@ -174,6 +176,22 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         }
 
         $this->inputPoolService->clear($preset->getId());
+
+        $spoke = $result['spoke'] ?? false;
+
+        if ($spoke) {
+            // Speech is the single point of truth that the warm RAG is stale.
+            // Invalidate both the silent-stretch entry and any prior warm entry.
+            $this->ragWarmCache->forget($preset->getId());
+
+            // If the agent has gone quiet and now awaits the user, warm the
+            // prewarmable RAG levels during the user's think time. Fire-and-forget;
+            // never when the agent will self-continue (turn === true) — the next
+            // cycle is imminent and would assemble synchronously anyway.
+            if (!$turn) {
+                \App\Jobs\WarmRag::dispatch($preset->getId())->onQueue('ai');
+            }
+        }
 
         if ($turn) {
             $this->agentJobFactory->make()->start($preset->getId(), singleMode: true);
@@ -394,7 +412,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             event(new \App\Events\AgentSpeakEvent($actionsResult->getSystemMessage(), $preset));
         }
 
-        return ['actionsResult' => $actionsResult, 'message' => $message];
+        return ['actionsResult' => $actionsResult, 'message' => $message, 'spoke' => $hasSystemMessage];
     }
 
     /**

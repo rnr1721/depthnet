@@ -27,6 +27,7 @@ class StoreRagConfigRequest extends FormRequest
             'rag_content_limit'          => 'sometimes|integer|min:50|max:5000',
             'rag_journal_context_window' => 'sometimes|integer|min:0|max:10',
             'rag_relative_dates'         => 'sometimes|boolean',
+            'prewarmable'                => 'sometimes|boolean',
         ];
     }
 }

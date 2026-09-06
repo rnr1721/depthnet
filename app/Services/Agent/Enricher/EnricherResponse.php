@@ -23,6 +23,8 @@ class EnricherResponse implements EnricherResponseInterface
         private ?string                   $response = null,
         private array                     $retrievedIds = [],
         private ?EnricherPayloadInterface $responseData = null,
+        private readonly ?string $systemMessage = null,
+        private readonly ?int    $systemMessagePresetId = null,
     ) {
     }
 
@@ -64,5 +66,21 @@ class EnricherResponse implements EnricherResponseInterface
     public function getRetrievedIds(): array
     {
         return $this->retrievedIds;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getSystemMessage(): ?string
+    {
+        return $this->systemMessage;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getSystemMessagePresetId(): ?int
+    {
+        return $this->systemMessagePresetId;
     }
 }

@@ -5,9 +5,7 @@ namespace App\Services\Agent\ContextBuilder;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
-use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
-use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
-use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
+use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
@@ -62,9 +60,8 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected InputPoolServiceInterface        $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
         protected AuthServiceInterface             $authService,
-        protected RagAggregatorServiceInterface    $ragAggregator,
-        protected RagContentFormatterInterface     $ragFormatter,
         protected ContextModeResolverInterface     $contextModeResolver,
+        protected RagPipelineServiceInterface      $ragPipeline,
     ) {
     }
 
@@ -98,44 +95,22 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         $this->liftCompactionRecap($context);
 
-        // ── Multi-RAG pipeline ────────────────────────────────────────────────
-        $ragEnricher = $this->enricherFactory->makeRagEnricher();
-        $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
+        // ── RAG pipeline (unified service) ────────────────────────────────────
+        // Resolve the assembly for this cycle — warm cache if available, else a
+        // full synchronous assembly. Assembled over the context we just built so
+        // RAG queries are formulated over the exact window the model will see.
+        $extended = $this->contextModeResolver->isExtended($preset);
 
-        // Filter RAG configs by the THINKING preset's active context mode.
-        // In extended (work) mode we drop normal-only configs — heavy associative
-        // RAG that pulls the agent into reflection mid-task. In normal mode we drop
-        // extended-only ones. 'both' always passes. Mode is read from $preset (the
-        // agent that thinks), NOT $sourcePreset (the RAG source).
-        $extended   = $this->contextModeResolver->isExtended($preset);
-        $ragConfigs = $ragConfigs->filter(fn ($config) => $config->activeInMode($extended));
+        $assembly = $this->ragPipeline->resolveForCycle(
+            thinking: $preset,
+            source:   $sourcePreset,
+            extended: $extended,
+            context:  $context,
+        );
 
-        $seenIds      = [];
-        $ragPayloads  = [];
-
-        foreach ($ragConfigs as $config) {
-            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds, $preset);
-
-            $payload = $ragBlock->getResponseData();
-            if ($payload instanceof RagDataInterface && !$payload->isEmpty()) {
-                $ragPayloads[] = $payload;
-            }
-        }
-
-        // Aggregate all payloads into a unified result, then format as one block
-        $aggregated = $this->ragAggregator->merge($ragPayloads);
-        $ragText    = $this->ragFormatter->formatAggregated($aggregated);
+        $this->ragPipeline->applyToContext($assembly, $preset, $sourcePreset);
 
         $targetIds = array_unique([$sourcePreset->getId(), $preset->getId()]);
-
-        foreach ($targetIds as $id) {
-            $this->shortcodeManager->registerShortcodeForPreset(
-                $id,
-                'rag_context',
-                'RAG: relevant memories retrieved before this thinking cycle',
-                fn () => $ragText
-            );
-        }
 
         // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
         $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();

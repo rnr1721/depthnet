@@ -45,6 +45,7 @@ use App\Contracts\Agent\Enricher\Rag\RagAssemblyCacheInterface;
 use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
 use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\Enricher\Rag\RagSectionRendererRegistryInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSilentCacheInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Exchange\PresetExporterInterface;
 use App\Contracts\Agent\Exchange\PresetImporterInterface;
@@ -163,6 +164,7 @@ use App\Services\Agent\Enricher\Rag\RagAssemblyCache;
 use App\Services\Agent\Enricher\Rag\RagContentFormatter;
 use App\Services\Agent\Enricher\Rag\RagPipelineService;
 use App\Services\Agent\Enricher\Rag\RagSectionRendererRegistry;
+use App\Services\Agent\Enricher\Rag\RagSilentCache;
 use App\Services\Agent\Enricher\Rag\Renderers\FilesSectionRenderer;
 use App\Services\Agent\Enricher\Rag\Renderers\JournalSectionRenderer;
 use App\Services\Agent\Enricher\Rag\Renderers\MemoryAdditionalRenderer;
@@ -304,6 +306,13 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
+
+        $this->app->singleton(RagSilentCacheInterface::class, function ($app) {
+            return new RagSilentCache(
+                $app->make(\Illuminate\Contracts\Cache\Repository::class),
+                $app->make(LoggerInterface::class),
+            );
+        });
 
         $this->app->bind(RagPipelineServiceInterface::class, RagPipelineService::class);
 

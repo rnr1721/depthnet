@@ -13,6 +13,8 @@ Before each thinking cycle (or each response in single mode), the RAG pipeline r
 
 The RAG preset is a small, focused model — it doesn't need to be powerful, just good at formulating concise search queries from context.
 
+Caching. RAG assembly is cached to avoid re-running on every cycle. Within a single silent stretch (the agent thinking, calling tools, or self-continuing before it speaks) the full assembly is built once and reused — subsequent silent cycles serve the same [[rag_context]] without re-formulating queries or re-retrieving. The cache is invalidated when the agent speaks, since a new utterance marks a new context. This collapses what used to be N retrievals across a multi-cycle response into one.
+
 ---
 
 ## Multi-config pipeline
@@ -41,6 +43,18 @@ You can drag configs to reorder them. The **first config is always primary** —
 - Agent-queued queries do not apply to them
 
 This design lets you have one "smart" retrieval layer the agent can steer, and additional passive layers that always run automatically.
+
+---
+
+## Prewarmable configs (background warming)
+
+Each config has a prewarmable flag. A prewarmable config is a background retrieval layer — one whose queries don't depend on what the user says next (memory about the person or project, stable associative recall). These can be assembled ahead of time.
+
+After the agent speaks and goes quiet awaiting the user, a fire-and-forget background job pre-assembles all prewarmable configs and caches them. When the next cycle runs, those layers are served instantly from cache, and only the reactive (non-prewarmable) configs are assembled synchronously — cutting the visible wait before the agent's next response.
+
+Only mark a config prewarmable if its retrieval genuinely doesn't depend on the incoming message. A reactive layer (search tuned to the last thing said) must stay off — warmed ahead of the user's reply, it would retrieve for the wrong context. Background/associative layers are the right fit; sharp last-message search is not.
+
+Warming is fire-and-forget and never blocks: if the user replies before it finishes, the cycle simply assembles synchronously as before. Nothing is lost but the optimization.
 
 ---
 
@@ -354,3 +368,5 @@ Configuration is done in the preset's Agent Settings — select a target preset 
 **Spread RAG presets across different models or providers.** If multiple configs share the same model (especially a small fast model with tight rate limits), they may queue up against the same per-second budget and hit 429 errors. Either distribute presets across different providers, or accept that occasional `[RAG ERROR — <preset>]` messages in the chat are part of normal operation. The pipeline continues with whatever configs did succeed.
 
 **Avoid duplicating sources across configs without a reason.** Since sections of the same type are merged across configs, two configs both searching vector memory produce one merged memory section. If you want two different *strategies* on the same source (e.g. one associative for deep retrieval, one flat for breadth), this works well. But two configs with identical settings add nothing — just merge them into one.
+
+**Mark background layers prewarmable, not reactive ones**. Prewarming pays off for stable layers (person/project associative memory) that don't shift with the user's next message — they're ready instantly on the next cycle. A config whose queries react to the last message should stay non-prewarmable: warmed early, it retrieves for a context that no longer applies.

@@ -9,6 +9,7 @@ use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
 use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Enricher\Rag\RagAssemblyCacheInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSilentCacheInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -44,6 +45,7 @@ final class RagPipelineService implements RagPipelineServiceInterface
         private readonly ContextModeResolverInterface     $contextModeResolver,
         private readonly ShortcodeManagerServiceInterface $shortcodeManager,
         private readonly RagAssemblyCacheInterface        $warmCache,
+        private readonly RagSilentCacheInterface          $silentCache,
         private readonly Message                          $messageModel,
     ) {
     }
@@ -132,44 +134,56 @@ final class RagPipelineService implements RagPipelineServiceInterface
         array $context,
     ): RagAssembly {
         $mode = $extended ? 'extended' : 'normal';
-        $warm = $this->warmCache->get($thinking->getId(), $mode);
 
-        // A warm entry existing at all means the agent hasn't spoken since it was
-        // built — speech invalidates the cache in AgentActionsHandler. So presence
-        // is freshness; no separate anchor check is needed.
-        if ($warm === null) {
-            $seen = [];
-            return $this->assemble(
+        // 1. Silent hit — inside a silent act. The full assembly is already built;
+        // reuse it verbatim, re-formulating and re-retrieving nothing. This is what
+        // collapses N silent cycles (Continue runs) into a single assembly.
+        $silent = $this->silentCache->get($thinking->getId(), $mode);
+        if ($silent !== null) {
+            return $silent;
+        }
+
+        // 2. Warm hit — first cycle after speech: warm prewarmable + fresh non-prewarmable.
+        $warm = $this->warmCache->get($thinking->getId(), $mode);
+        if ($warm !== null) {
+            $seen  = $warm->seenIds;
+            $fresh = $this->assemble(
                 thinking:           $thinking,
                 source:             $source,
                 extended:           $extended,
-                onlyConfigIds:      [],
+                onlyConfigIds:      $this->nonPrewarmableConfigIds($source, $extended),
                 seenIds:            $seen,
                 emitSystemMessages: true,
                 context:            $context,
             );
+
+            $full = new RagAssembly(
+                payloads:        array_merge($warm->payloads, $fresh->payloads),
+                seenIds:         $seen,
+                contextMode:     $mode,
+                freshnessAnchor: null,
+                assembledAt:     time(),
+            );
+
+            // Freeze the full assembly for the rest of this silent act.
+            $this->silentCache->put($thinking->getId(), $mode, $full);
+            return $full;
         }
 
-        $seen           = $warm->seenIds;
-        $nonWarmableIds  = $this->nonPrewarmableConfigIds($source, $extended);
-
-        $fresh = $this->assemble(
+        // 3. Cold — no cache at all. Full synchronous assembly, then freeze it.
+        $seen = [];
+        $full = $this->assemble(
             thinking:           $thinking,
             source:             $source,
             extended:           $extended,
-            onlyConfigIds:      $nonWarmableIds,
+            onlyConfigIds:      [],
             seenIds:            $seen,
             emitSystemMessages: true,
             context:            $context,
         );
 
-        return new RagAssembly(
-            payloads:        array_merge($warm->payloads, $fresh->payloads),
-            seenIds:         $seen,
-            contextMode:     $mode,
-            freshnessAnchor: $warm->freshnessAnchor,
-            assembledAt:     $warm->assembledAt,
-        );
+        $this->silentCache->put($thinking->getId(), $mode, $full);
+        return $full;
     }
 
     /**

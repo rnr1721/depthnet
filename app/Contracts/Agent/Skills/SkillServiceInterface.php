@@ -13,13 +13,30 @@ interface SkillServiceInterface
      * @param string      $title
      * @param string|null $description
      * @param string|null $firstItem   If provided, added as item #1 immediately
+     * @param array|null  $tools       Optional array of tools associated with the skill
      * @return array{success: bool, message: string, skill_number: int|null}
      */
     public function addSkill(
         AiPreset $preset,
         string $title,
         ?string $description = null,
-        ?string $firstItem = null
+        ?string $firstItem = null,
+        ?array $tools = null
+    ): array;
+
+    /**
+     * Update a skill's own fields (title/description/tools) — NOT its items.
+     * Only provided keys are changed. tools: pass an array to set, or omit to leave.
+     *
+     * @param AiPreset $preset
+     * @param integer $skillNumber
+     * @param array $fields
+     * @return array
+     */
+    public function updateSkill(
+        AiPreset $preset,
+        int $skillNumber,
+        array $fields
     ): array;
 
     /**
@@ -117,13 +134,32 @@ interface SkillServiceInterface
     public function searchItemsData(AiPreset $preset, string $query, int $limit = 5): array;
 
     /**
-     * Return a compact skills summary for the context placeholder.
-     * Only titles + descriptions — no item content.
+     * Render the [SKILLS] inventory block for the system prompt.
      *
-     * @param AiPreset $preset
+     * This is the model's map of what capabilities EXIST — including ones whose
+     * tools are currently HIDDEN by lazy-loading. It must make the mechanic
+     * unmistakable, or the model mistakes "a skill about terminals" for "the
+     * terminal tool in hand" (observed: an agent read the old flat line
+     * "#1 Code — ... (1 item)" and reported it could use code/terminal, though
+     * those tools were correctly hidden from its schema).
+     *
+     * So each line states: number, title, LOADED/not-loaded status, the skill's
+     * tools (filtered to live plugins), and — when not loaded and it HAS tools —
+     * an explicit "load N to use" hint. A loaded skill shows its tools as active.
+     * A toolless skill shows no tool line (pure knowledge; loading just injects it).
+     *
+     * @param  AiPreset $preset
+     * @param  int[]    $loadedNumbers  Skill numbers currently loaded (from
+     *                                  SkillLoadService — passed in so this stays
+     *                                  pure data, no loading-plane dependency).
+     * @param  string[] $livePluginNames Names of plugins that actually exist right
+     *                                  now (from the registry) — tools not in this
+     *                                  list are dropped from display so a renamed/
+     *                                  deleted plugin never shows as a capability.
+     *                                  Empty array = don't filter (show all tools).
      * @return string
      */
-    public function getSkillsForContext(AiPreset $preset): string;
+    public function getSkillsForContext(AiPreset $preset, array $loadedNumbers = [], array $livePluginNames = []): string;
 
     /**
      * Delete all skills associated with the given preset.

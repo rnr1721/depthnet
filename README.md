@@ -114,6 +114,7 @@ DepthNet enables autonomous AI agents through:
 **Context Modes**: Per-preset dual context profiles — normal (short context, full RAG; reflection and conversation) and extended (long procedural context, filtered RAG; sustained work with stateful plugins like browser, terminal, sandbox). The agent switches automatically via a hysteresis detector: cycles that invoke stateful plugins build a work-streak that flips the profile after sustained activity and reverts it once work stops. RAG configs are tagged per-mode (normal/extended/both) so heavy associative retrieval can be silenced during task execution. Off by default — set an extended context limit to enable. Current mode visible via [[context_mode]].
 **Context compaction & mode-aware prompts.** Agents fold closed conversations into first-person recaps and clear the working window — staying continuous without carrying raw history through every cycle (faster tool work, less prompt
 noise, less forgetting). Folded messages remain in the journal and vector memory, so nothing is lost. Prompts can be tagged to auto-activate per context mode (a lean prompt while working, a reflective one while conversing). See [docs/compression.md](docs/memory/compression.md).
+- **Lazy Tool Loading (Skills)**: Tools can be attached to skills and hidden from the agent's tool schema until the relevant skill is loaded — cutting cognitive load without ever blocking a capability (hiding ≠ blocking). The agent sees an inventory of its skills with load status via `[[skills]]`, brings a skill into context with an explicit `load` command (by number or name), and its tools appear; a skill's full knowledge is injected into context while loaded. Tool-bearing skills auto-unload after several idle cycles to keep the list lean; the same tool can belong to several skills. Complements the Knowledge plugin: Knowledge is the content channel, the Skill console is the load channel. [→](docs/plugins/skill.md)
 - **Pre-Pass Reasoning**: An optional extra generation over the full assembled context *before* the main response. The agent reasons first on the same ground (history, RAG, inner voice, mood) it will answer from, and sees that reasoning via `[[reasoning]]`. Runs every cycle (always-on per preset) or on demand when the agent itself invokes the Reflect plugin. Output is ephemeral — never written to history or memory. Neutral by design: the preset's pre-pass instruction sets the character, from step-by-step planning for working agents to pre-verbal reflection for subjective ones. [→](docs/plugins/reflect.md)
 - **Preset & Agent Exchange** — portable import/export of complete presets and agents between instances. Secrets are automatically stripped; no lived state (memory, vectors, dialogues) travels. Two-step import with preflight validation ensures integrity. [→](docs/exchange.md)
 
@@ -154,7 +155,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Vector Memory** (`vectormemory`) | Semantic memory with TF-IDF and dense embedding search. Two retrieval modes: flat top-K and associative graph traversal. Organised into agent-managed domains. Supports temporal filtering, circadian (pulse) filtering, cross-domain bridges, defragmentation, export/import, and embedding backfill. | [→](docs/plugins/vector-memory.md) |
 | **Document Manager** (`documents`) | File storage and semantic search for agents. Upload PDFs, images, spreadsheets, code and text — files are chunked and indexed automatically. Two storage modes: Laravel storage (read-only reference) or sandbox (full agent access). Integrates with RAG pipeline as a `files` source. | [→](docs/plugins/documents.md) |
 | **Journal** (`journal`) | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and temporal search — ISO dates, calendar months/years, ranges, and multilingual relative keywords (`yesterday` / `вчера` / `last week`). | [→](docs/plugins/journal.md) |
-| **Skill** (`skill`) | Structured knowledge base of named skills with items. Semantically searchable via TF-IDF. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
+| **Skill** (`skill`) | Structured knowledge base of named skills with items, semantically searchable via TF-IDF. Also provides **lazy tool loading**: a skill can carry tools that stay hidden from the agent until it loads the skill, keeping the tool list lean. Loading is explicit (`load`/`unload`/`list`); hidden ≠ blocked. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
 | **Person** (`person`) | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
 | **Goal** (`goal`) | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
 | **Wake** (`wake`) | Temporal agency — the agent schedules its own future wakings. A wake is a temporal handoff from the agent-now to the agent-later: an instruction left for a specific moment (once, interval, daily, or cron), fired by an external tick so a sleeping agent can be woken from rest. Optional pulse-unit scheduling when the preset uses subjective time. The agent can inspect, cancel, and edit its own calendar; the user can design schedules via admin CRUD. Both surface in `[[wake_schedule]]`. | [→](docs/plugins/wake.md) |
@@ -236,6 +237,16 @@ The AI communicates through special command tags that trigger plugin execution. 
 [vectormemory recent]5[/vectormemory]  # Show 5 most recent memories
 [vectormemory domains][/vectormemory]  # List all domains with record counts
 [vectormemory clear][/vectormemory]
+
+# Skill — knowledge base + lazy tool loading
+[skill list][/skill]                          # list skills with load status
+[skill load]1[/skill]                         # load skill #1 (reveals its tools)
+[skill load]Code[/skill]                      # load by title instead of number
+[skill unload]1[/skill]                        # unload (re-hides its tools)
+[skill]PostgreSQL | Use EXPLAIN ANALYZE[/skill]  # create skill + first item
+[skill add]1 | Partial indexes speed up filtered queries[/skill]
+[skill show]1[/skill]
+[skill search]how to speed up slow queries[/skill]
 
 # Memory integration: When enabled, vector memories automatically add reference links 
 # to regular memory, creating a bridge between semantic and persistent memory systems
@@ -531,6 +542,8 @@ The optional **`knowledge`** plugin is a thin, deterministic *facade* over those
 - **Instrumental or subjective** — the same mechanism serves a dumb, reliable remember/recall tool and a rich single memory surface for an autonomous agent. Only the prompt and RAG config differ.
 
 **Nothing is replaced or made mandatory.** The five plugins remain fully available and unchanged. Turn `knowledge` on when you want one interface to all of memory — and then you can turn the five individual tools off, since it drives them for you. Leave it off and the five behave exactly as they always have.
+
+Note that skill *loading* (bringing a skill's knowledge and tools into context) is always done through the Skill plugin's console, never through Knowledge — Knowledge writes and recalls skill content, the Skill console loads it. The two are complementary channels.
 
 ## Architecture Overview
 
@@ -927,6 +940,7 @@ php artisan behavior:decay --preset=4               # Decay a specific preset (d
   - `[[available_switches]]` - All available switch variants
   - `[[context_mode]]` — Current cognitive context mode (normal/extended).Lets  the agent know whether it's in reflective or sustained-work mode this cycle.
   - `[[reasoning]]` — Output of the pre-pass (extra reasoning pass) run before the response this cycle. Empty when no pass ran. Set by always-on pre-pass or the Reflect plugin; ephemeral, never persisted.
+  - `[[skills]]` - Inventory of the agent's skills with load status (loaded/not loaded) and, for skills with tools, which tools they carry and how to load them. The bridge that makes lazy tool loading usable.
 - Even small prompt modifications can dramatically affect agent behavior
 
 **Real-World Agent Behaviors Observed:**

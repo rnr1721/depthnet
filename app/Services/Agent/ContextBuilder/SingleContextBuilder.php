@@ -47,6 +47,7 @@ class SingleContextBuilder implements ContextBuilderInterface
         protected ShortcodeManagerServiceInterface $shortcodeManager,
         protected ContextModeResolverInterface     $contextModeResolver,
         protected RagPipelineServiceInterface      $ragPipeline,
+        protected ContextInjectionService          $contextInjection,
     ) {
     }
 
@@ -146,6 +147,8 @@ class SingleContextBuilder implements ContextBuilderInterface
                 ];
             }
         }
+
+        $context = $this->contextInjection->injectLoadedSkills($context, $preset);
 
         return $context;
     }

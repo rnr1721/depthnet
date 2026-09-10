@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Models\PresetRegistryInterface;
+use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Skill\AddSkillItemRequest;
@@ -11,6 +12,7 @@ use App\Http\Requests\Admin\Skill\DestroySkillRequest;
 use App\Http\Requests\Admin\Skill\ShowSkillRequest;
 use App\Http\Requests\Admin\Skill\StoreSkillRequest;
 use App\Http\Requests\Admin\Skill\UpdateSkillItemRequest;
+use App\Http\Requests\Admin\Skill\UpdateSkillRequest;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -19,6 +21,7 @@ class SkillController extends Controller
     public function __construct(
         protected SkillServiceInterface $skillService,
         protected PresetRegistryInterface $presetRegistry,
+        protected PluginRegistryInterface $pluginRegistry,
     ) {
     }
 
@@ -57,6 +60,7 @@ class SkillController extends Controller
             'skills'        => $skills,
             'searchResults' => $searchResults,
             'searchQuery'   => $request->get('search', ''),
+            'availablePluginNames' => $this->pluginRegistry->getAvailablePluginNames(),
         ]);
     }
 
@@ -76,12 +80,28 @@ class SkillController extends Controller
             $request->getTitle(),
             $request->getDescription(),
             $request->getFirstItem(),
+            $request->getTools(),
         );
 
         if ($result['success']) {
             return back()->with('success', $result['message']);
         }
 
+        return back()->with('error', $result['message']);
+    }
+
+    public function update(UpdateSkillRequest $request)
+    {
+        $preset = $this->presetRegistry->getPreset($request->getPresetId());
+        $result = $this->skillService->updateSkill(
+            $preset,
+            $request->getSkillNumber(),
+            $request->getFields(),
+        );
+
+        if ($result['success']) {
+            return back()->with('success', $result['message']);
+        }
         return back()->with('error', $result['message']);
     }
 

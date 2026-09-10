@@ -157,6 +157,11 @@
                                     :class="['text-xs px-2 py-0.5 rounded flex-shrink-0', isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-600']">
                                     {{ skill.items_count }} {{ skill.items_count === 1 ? t('sk_item') : t('sk_items') }}
                                 </span>
+                                <span v-if="skill.tools && skill.tools.length"
+                                    :class="['text-xs px-2 py-0.5 rounded flex-shrink-0 font-mono', isDark ? 'bg-teal-900 text-teal-300' : 'bg-teal-100 text-teal-700']"
+                                    :title="skill.tools.join(', ')">
+                                    ⚙ {{ skill.tools.length }}
+                                </span>
                             </div>
                             <div class="flex items-center space-x-2 ml-4">
                                 <button @click="openSkill(skill)"
@@ -217,11 +222,12 @@
         </main>
 
         <!-- Modals -->
-        <AddSkillModal v-model="showAddModal" :preset="currentPreset" :isDark="isDark" @success="refreshData" />
+        <AddSkillModal v-model="showAddModal" :preset="currentPreset" :isDark="isDark"
+            :available-plugin-names="availablePluginNames" @success="refreshData" />
         <AddItemModal v-model="showAddItemModal" :preset="currentPreset" :skill="activeSkill" :isDark="isDark"
             @success="refreshData" />
         <ShowSkillModal v-model="showSkillModal" :preset="currentPreset" :skill="activeSkill" :isDark="isDark"
-            @success="refreshData" />
+            :available-plugin-names="availablePluginNames" @success="refreshData" />
     </div>
 </template>
 
@@ -243,6 +249,7 @@ const props = defineProps({
     skills: Array,
     searchResults: Array,
     searchQuery: String,
+    availablePluginNames: { type: Array, default: () => [] },
 });
 
 const isDark = ref(false);

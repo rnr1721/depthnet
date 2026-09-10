@@ -62,6 +62,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected AuthServiceInterface             $authService,
         protected ContextModeResolverInterface     $contextModeResolver,
         protected RagPipelineServiceInterface      $ragPipeline,
+        protected ContextInjectionService          $contextInjection,
     ) {
     }
 
@@ -191,6 +192,10 @@ class CycleContextBuilder implements ContextBuilderInterface
                 'is_visible_to_user' => true,
             ]);
         }
+
+        // Inject loaded-skill bodies as the OLDEST messages — the very last step,
+        // so RAG / compaction / recap (all already run above) are untouched.
+        $context = $this->contextInjection->injectLoadedSkills($context, $preset);
 
         return $context;
     }

@@ -478,11 +478,15 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(AgentTaskServiceInterface::class, AgentTaskService::class);
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
 
+        $this->app->singleton(\App\Services\Agent\Skills\SkillLoadService::class);
+        $this->app->singleton(\App\Services\Agent\Skills\SkillToolGate::class);
+
         $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
         $this->app->bind(HeartServiceInterface::class, HeartService::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
+        $this->app->bind(\App\Services\Agent\ContextBuilder\ContextInjectionService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
         $this->app->singleton(ShortcodeScopeResolverServiceInterface::class, ShortcodeScopeResolverService::class);
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);

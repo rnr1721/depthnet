@@ -23,23 +23,82 @@
                                     <div class="flex items-center space-x-3 min-w-0">
                                         <span
                                             :class="['font-mono text-sm font-bold px-2.5 py-1 rounded-lg flex-shrink-0', isDark ? 'bg-emerald-900 text-emerald-300' : 'bg-emerald-100 text-emerald-800']">#{{
-                                            skill?.number }}</span>
+                                                skill?.number }}</span>
                                         <div class="min-w-0">
                                             <h3
                                                 :class="['text-lg font-semibold truncate', isDark ? 'text-white' : 'text-gray-900']">
                                                 {{ skill?.title }}</h3>
                                             <p v-if="skill?.description"
                                                 :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">{{
-                                                skill.description }}</p>
+                                                    skill.description }}</p>
                                         </div>
                                     </div>
-                                    <button @click="close"
-                                        :class="['ml-4 flex-shrink-0 rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500', isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-600']">
-                                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M6 18L18 6M6 6l12 12"></path>
-                                        </svg>
-                                    </button>
+                                    <div class="flex items-center space-x-1 ml-4 flex-shrink-0">
+                                        <button @click="toggleEditSkill"
+                                            :class="['rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500', editingSkill ? (isDark ? 'bg-emerald-900 text-emerald-300' : 'bg-emerald-100 text-emerald-700') : (isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-600')]"
+                                            :title="t('sk_edit_skill')">
+                                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
+                                                </path>
+                                            </svg>
+                                        </button>
+                                        <button @click="close"
+                                            :class="['rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500', isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-600']">
+                                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M6 18L18 6M6 6l12 12"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Edit skill panel (title/description/tools) -->
+                            <div v-if="editingSkill"
+                                :class="['px-6 py-4 border-b space-y-3', isDark ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50']">
+                                <div>
+                                    <label
+                                        :class="['block text-xs font-medium mb-1', isDark ? 'text-gray-400' : 'text-gray-600']">{{
+                                            t('sk_title') }}</label>
+                                    <input v-model="skillForm.title" type="text"
+                                        :class="['w-full rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-white text-gray-900 ring-gray-300']" />
+                                </div>
+                                <div>
+                                    <label
+                                        :class="['block text-xs font-medium mb-1', isDark ? 'text-gray-400' : 'text-gray-600']">{{
+                                            t('sk_description') }}</label>
+                                    <input v-model="skillForm.description" type="text"
+                                        :class="['w-full rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-white text-gray-900 ring-gray-300']" />
+                                </div>
+                                <div>
+                                    <label
+                                        :class="['block text-xs font-medium mb-1', isDark ? 'text-gray-400' : 'text-gray-600']">{{
+                                            t('sk_tools') }}</label>
+                                    <input v-model="toolsText" type="text" :placeholder="t('sk_tools_placeholder')"
+                                        :class="['w-full rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-3 py-2 text-sm font-mono', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-white text-gray-900 ring-gray-300']" />
+                                    <p :class="['text-xs mt-1', isDark ? 'text-gray-500' : 'text-gray-400']">{{
+                                        t('sk_tools_hint') }}</p>
+                                    <div v-if="parsedTools.length" class="flex flex-wrap gap-1.5 mt-2">
+                                        <span v-for="tool in parsedTools" :key="tool"
+                                            :class="['inline-flex items-center px-2 py-0.5 rounded text-xs font-mono',
+                                                isKnownTool(tool)
+                                                    ? (isDark ? 'bg-emerald-900 text-emerald-300' : 'bg-emerald-100 text-emerald-800')
+                                                    : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500')]">
+                                            {{ tool }}
+                                            <span v-if="!isKnownTool(tool)" class="ml-1 opacity-70">· {{
+                                                t('sk_tool_inactive') }}</span>
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="flex space-x-2 pt-1">
+                                    <button @click="saveSkill"
+                                        :disabled="skillForm.processing || !skillForm.title?.trim()"
+                                        :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-50', isDark ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white']">{{
+                                            t('sk_save') }}</button>
+                                    <button @click="cancelEditSkill"
+                                        :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all', isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']">{{
+                                            t('sk_cancel') }}</button>
                                 </div>
                             </div>
 
@@ -57,7 +116,7 @@
                             </div>
 
                             <!-- Items list -->
-                            <div v-else class="max-h-[60vh] overflow-y-auto">
+                            <div v-else class="max-h-[50vh] overflow-y-auto">
                                 <div v-if="items.length === 0"
                                     :class="['px-6 py-10 text-center text-sm', isDark ? 'text-gray-400' : 'text-gray-500']">
                                     {{ t('sk_no_items') }}
@@ -71,7 +130,7 @@
                                             <div class="flex items-start space-x-3 flex-1 min-w-0">
                                                 <span
                                                     :class="['font-mono text-xs font-bold mt-0.5 flex-shrink-0', isDark ? 'text-emerald-400' : 'text-emerald-600']">{{
-                                                    skill?.number }}.{{ item.number }}</span>
+                                                        skill?.number }}.{{ item.number }}</span>
                                                 <p
                                                     :class="['text-sm leading-relaxed', isDark ? 'text-gray-300' : 'text-gray-700']">
                                                     {{ item.content }}</p>
@@ -108,10 +167,10 @@
                                             <div class="flex items-center space-x-2">
                                                 <span
                                                     :class="['font-mono text-xs font-bold', isDark ? 'text-emerald-400' : 'text-emerald-600']">{{
-                                                    skill?.number }}.{{ item.number }}</span>
+                                                        skill?.number }}.{{ item.number }}</span>
                                                 <span
                                                     :class="['text-xs', isDark ? 'text-gray-400' : 'text-gray-500']">{{
-                                                    t('sk_editing') }}</span>
+                                                        t('sk_editing') }}</span>
                                             </div>
                                             <textarea v-model="editForm.content" rows="4"
                                                 :class="['w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all resize-none px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-gray-50 text-gray-900 ring-gray-300']"></textarea>
@@ -119,10 +178,10 @@
                                                 <button @click="saveEdit(item.number)"
                                                     :disabled="editForm.processing || !editForm.content?.trim()"
                                                     :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-50', isDark ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white']">{{
-                                                    t('sk_save') }}</button>
+                                                        t('sk_save') }}</button>
                                                 <button @click="cancelEdit"
                                                     :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all', isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']">{{
-                                                    t('sk_cancel') }}</button>
+                                                        t('sk_cancel') }}</button>
                                             </div>
                                         </div>
                                     </div>
@@ -134,7 +193,7 @@
                                 :class="['px-6 py-4 border-t flex justify-end', isDark ? 'border-gray-700' : 'border-gray-200']">
                                 <button @click="close"
                                     :class="['px-4 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-gray-500', isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']">{{
-                                    t('sk_close') }}</button>
+                                        t('sk_close') }}</button>
                             </div>
                         </div>
                     </Transition>
@@ -157,6 +216,10 @@ const props = defineProps({
     preset: Object,
     skill: Object,
     isDark: Boolean,
+    availablePluginNames: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const emit = defineEmits(['update:modelValue', 'success']);
@@ -171,12 +234,23 @@ const items = ref([]);
 const editingItem = ref(null);
 const editForm = useForm({ preset_id: null, skill_number: null, item_number: null, content: '' });
 
-const handleEscape = (e) => { if (e.key === 'Escape' && show.value && !editingItem.value) close(); };
+// Skill-level edit (title/description/tools)
+const editingSkill = ref(false);
+const skillForm = useForm({ preset_id: null, skill_number: null, title: '', description: '', tools: [] });
+const toolsText = ref('');
+
+const parsedTools = computed(() =>
+    toolsText.value.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+);
+const isKnownTool = (name) => props.availablePluginNames.includes(name);
+
+const handleEscape = (e) => { if (e.key === 'Escape' && show.value && !editingItem.value && !editingSkill.value) close(); };
 
 const close = () => {
     show.value = false;
     items.value = [];
     editingItem.value = null;
+    editingSkill.value = false;
     document.body.style.overflow = '';
 };
 
@@ -188,6 +262,10 @@ const loadItems = async () => {
             params: { preset_id: props.preset.id },
         });
         items.value = res.data.items ?? [];
+        // seed the tools field from the fetched skill data (fresh source of truth)
+        if (Array.isArray(res.data.tools)) {
+            toolsText.value = res.data.tools.join(', ');
+        }
     } catch (e) {
         items.value = [];
     } finally {
@@ -195,6 +273,36 @@ const loadItems = async () => {
     }
 };
 
+// --- skill-level edit ---
+const toggleEditSkill = () => {
+    editingSkill.value = !editingSkill.value;
+    if (editingSkill.value) {
+        skillForm.title = props.skill?.title ?? '';
+        skillForm.description = props.skill?.description ?? '';
+        // toolsText was seeded in loadItems from fetched data; fall back to prop
+        if (!toolsText.value && Array.isArray(props.skill?.tools)) {
+            toolsText.value = props.skill.tools.join(', ');
+        }
+    }
+};
+
+const cancelEditSkill = () => {
+    editingSkill.value = false;
+};
+
+const saveSkill = () => {
+    skillForm.preset_id = props.preset?.id;
+    skillForm.skill_number = props.skill?.number;
+    skillForm.tools = parsedTools.value;
+    skillForm.post(route('admin.skills.update'), {
+        onSuccess: () => {
+            editingSkill.value = false;
+            emit('success');
+        },
+    });
+};
+
+// --- item edit ---
 const startEdit = (item) => {
     editingItem.value = item;
     editForm.content = item.content;
@@ -230,6 +338,8 @@ watch(() => show.value, (visible) => {
     if (visible) {
         document.body.style.overflow = 'hidden';
         document.addEventListener('keydown', handleEscape);
+        editingSkill.value = false;
+        toolsText.value = '';
         loadItems();
     } else {
         document.body.style.overflow = '';
@@ -238,7 +348,7 @@ watch(() => show.value, (visible) => {
 });
 
 watch(() => props.skill?.number, () => {
-    if (show.value) loadItems();
+    if (show.value) { editingSkill.value = false; toolsText.value = ''; loadItems(); }
 });
 
 onUnmounted(() => {

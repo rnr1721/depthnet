@@ -18,6 +18,8 @@ class StoreSkillRequest extends FormRequest
             'title'       => 'required|string|max:255',
             'description' => 'nullable|string|max:500',
             'first_item'  => 'nullable|string',
+            'tools'       => 'nullable|array',
+            'tools.*'     => 'string|max:100',
         ];
     }
 
@@ -41,5 +43,10 @@ class StoreSkillRequest extends FormRequest
     {
         $item = $this->validated('first_item');
         return $item ?: null;
+    }
+
+    public function getTools(): ?array
+    {
+        return $this->validated('tools');
     }
 }

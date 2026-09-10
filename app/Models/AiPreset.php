@@ -185,6 +185,15 @@ class AiPreset extends Model
         return $this->hasMany(AiPreset::class, 'parent_preset_id');
     }
 
+    /**
+     * Skills belonging to this preset (lazy-skills feature; also useful for the
+     * future transparency log). The loading mechanism is active for this preset
+     * iff some of these skills declare tools — there is no separate enable flag.
+     */
+    public function skills(): HasMany
+    {
+        return $this->hasMany(Skill::class, 'preset_id');
+    }
 
     /**
      * Known sources for pool input mode.

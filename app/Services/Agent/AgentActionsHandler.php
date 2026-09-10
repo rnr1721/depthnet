@@ -23,6 +23,7 @@ use App\Models\Message;
 use App\Services\Agent\Behavior\OutcomeSignal;
 use App\Services\Agent\DTO\ActionsResponseDTO;
 use App\Services\Agent\DTO\AgentResponseDTO;
+use App\Services\Agent\Skills\SkillLoadService;
 use App\Services\Chat\ChatStatusService;
 use Psr\Log\LoggerInterface;
 use Illuminate\Contracts\Cache\Repository as Cache;
@@ -96,6 +97,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected PluginMetadataServiceInterface $pluginMetadataService,
         protected RagAssemblyCacheInterface $ragWarmCache,
         protected RagSilentCacheInterface $ragSilentCache,
+        protected SkillLoadService $skillLoadService,
         protected ?BehaviorCoordinatorInterface $behavior = null,
     ) {
     }
@@ -403,6 +405,19 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             $preset,
             $actionsResult->containedLongContextPlugin(),
         );
+
+        // Lazy-skills: apply explicit load/unload the model requested this cycle.
+        // Same "successful path only" placement as updateStreak — a provider error
+        // shouldn't load/unload skills. Hysteresis auto-unload (step 7) will be
+        // added right after this call.
+        $this->applySkillLoadSignals($preset, $actionsResult);
+
+        // Lazy-skills hysteresis: note this cycle's tool use (resets idle for the
+        // loaded skills that own each used tool), then advance idle counters and
+        // auto-unload tool-bearing skills gone cold. Toolless skills are exempt
+        // (handled inside SkillLoadService). Successful path only — same reasoning
+        // as updateStreak: a provider error shouldn't age or unload skills.
+        $this->applySkillHysteresis($preset, $actionsResult);
 
         $hasSystemMessage = !empty(trim((string) $actionsResult->getSystemMessage()));
 
@@ -787,6 +802,83 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         // emitted from there through a one-shot flag the coordinator reads; see
         // note below. Default: no creditable outcome this cycle.
         return OutcomeSignal::none();
+    }
+
+    /**
+     * Apply the explicit load/unload signals the model emitted this cycle.
+     *
+     * SkillPlugin's load/unload verbs only SIGNAL (space-joined skill numbers in
+     * skillLoad()/skillUnload()); the actual loaded/idle state transition happens
+     * here, through SkillLoadService. Unloads are applied AFTER loads so that a
+     * load+unload of the same number in one cycle nets to unloaded (explicit close
+     * wins) — a rare case, but deterministic.
+     *
+     * No-op when both signals are empty (the common path — nothing to do).
+     */
+    private function applySkillLoadSignals(AiPreset $preset, AiActionsResponseInterface $actionsResult): void
+    {
+        foreach ($this->parseSkillNumbers($actionsResult->skillLoad()) as $n) {
+            $this->skillLoadService->load($preset, $n);
+        }
+
+        foreach ($this->parseSkillNumbers($actionsResult->skillUnload()) as $n) {
+            $this->skillLoadService->unload($preset, $n);
+        }
+    }
+
+    /**
+     * Parse a space-joined skill-number string ("3 7 7") into a unique int list.
+     *
+     * @return int[]
+     */
+    private function parseSkillNumbers(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $nums = [];
+        foreach (preg_split('/\s+/', $raw) as $tok) {
+            if (ctype_digit($tok)) {
+                $nums[(int) $tok] = true; // dedupe
+            }
+        }
+
+        return array_keys($nums);
+    }
+
+    /**
+     * Advance lazy-skills hysteresis for one completed cycle.
+     *
+     * Step 1 — noteToolUse for every plugin that actually executed this cycle.
+     *   The used plugins are the distinct command->plugin values across the
+     *   cycle's CommandResult objects. Each resets the idle counter of every
+     *   loaded skill that owns that tool (one-to-many: a shared tool refreshes
+     *   all its loaded owners).
+     * Step 2 — tickHysteresis: increment idle for loaded tool-bearing skills not
+     *   refreshed above, and auto-unload any that reached the idle limit.
+     *
+     * No-op in practice when nothing is loaded (both service methods iterate the
+     * loaded set, which is empty).
+     */
+    private function applySkillHysteresis(AiPreset $preset, AiActionsResponseInterface $actionsResult): void
+    {
+        // Distinct plugin names used this cycle, from the executed command results.
+        $usedPlugins = [];
+        foreach ($actionsResult->getCommandResults() as $commandResult) {
+            $name = $commandResult->command->plugin ?? null;
+            if (is_string($name) && $name !== '') {
+                $usedPlugins[$name] = true;
+            }
+        }
+
+        foreach (array_keys($usedPlugins) as $pluginName) {
+            $this->skillLoadService->noteToolUse($preset, $pluginName);
+        }
+
+        // Advance counters + auto-unload cold tool-bearing skills.
+        $this->skillLoadService->tickHysteresis($preset);
     }
 
 }

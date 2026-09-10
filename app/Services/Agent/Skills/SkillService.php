@@ -27,7 +27,8 @@ class SkillService implements SkillServiceInterface
         AiPreset $preset,
         string $title,
         ?string $description = null,
-        ?string $firstItem = null
+        ?string $firstItem = null,
+        ?array $tools = null
     ): array {
         try {
             $number = $this->nextSkillNumber($preset);
@@ -37,6 +38,7 @@ class SkillService implements SkillServiceInterface
                 'number'      => $number,
                 'title'       => $title,
                 'description' => $description,
+                'tools'       => $this->normalizeTools($tools),
             ]);
 
             $msg = "Skill #{$number} created: {$title}";
@@ -47,10 +49,47 @@ class SkillService implements SkillServiceInterface
             }
 
             return ['success' => true, 'message' => $msg, 'skill_number' => $number];
-
         } catch (\Throwable $e) {
             $this->logger->error("SkillService::addSkill error: " . $e->getMessage());
             return ['success' => false, 'message' => "Error creating skill: " . $e->getMessage(), 'skill_number' => null];
+        }
+    }
+
+    /**
+     * Update a skill's own fields (title/description/tools) — NOT its items.
+     * Only provided keys are changed. tools: pass an array to set, or omit to leave.
+     */
+    public function updateSkill(
+        AiPreset $preset,
+        int $skillNumber,
+        array $fields
+    ): array {
+        try {
+            $skill = $this->findSkill($preset, $skillNumber);
+            if ($skill === null) {
+                return ['success' => false, 'message' => "Skill #{$skillNumber} not found."];
+            }
+
+            $update = [];
+            if (array_key_exists('title', $fields) && trim((string) $fields['title']) !== '') {
+                $update['title'] = trim((string) $fields['title']);
+            }
+            if (array_key_exists('description', $fields)) {
+                $desc = trim((string) $fields['description']);
+                $update['description'] = $desc !== '' ? $desc : null;
+            }
+            if (array_key_exists('tools', $fields)) {
+                $update['tools'] = $this->normalizeTools($fields['tools']);
+            }
+
+            if (!empty($update)) {
+                $skill->update($update);
+            }
+
+            return ['success' => true, 'message' => "Skill #{$skillNumber} updated."];
+        } catch (\Throwable $e) {
+            $this->logger->error("SkillService::updateSkill error: " . $e->getMessage());
+            return ['success' => false, 'message' => "Error updating skill: " . $e->getMessage()];
         }
     }
 
@@ -289,6 +328,7 @@ class SkillService implements SkillServiceInterface
                 'number'      => $s->number,
                 'title'       => $s->title,
                 'description' => $s->description,
+                'tools'       => $s->getToolNames(),
                 'items_count' => $s->items_count,
             ])
             ->toArray();
@@ -310,6 +350,7 @@ class SkillService implements SkillServiceInterface
             'number'      => $skill->number,
             'title'       => $skill->title,
             'description' => $skill->description,
+            'tools'       => $skill->getToolNames(),
             'items'       => $skill->items->map(fn (SkillItem $i) => [
                 'number'  => $i->number,
                 'content' => $i->content,
@@ -355,8 +396,11 @@ class SkillService implements SkillServiceInterface
     /**
      * @inheritDoc
      */
-    public function getSkillsForContext(AiPreset $preset): string
-    {
+    public function getSkillsForContext(
+        AiPreset $preset,
+        array $loadedNumbers = [],
+        array $livePluginNames = []
+    ): string {
         $skills = $this->skillModel->where('preset_id', $preset->id)
                        ->withCount('items')
                        ->orderBy('number')
@@ -366,12 +410,41 @@ class SkillService implements SkillServiceInterface
             return '';
         }
 
+        $loadedSet = array_fill_keys(array_map('intval', $loadedNumbers), true);
+        $filterLive = !empty($livePluginNames);
+        $liveSet    = array_fill_keys($livePluginNames, true);
+
         $lines = ['[SKILLS]'];
+        $lines[] = 'My skills. A skill can carry tools that stay HIDDEN until I load it. '
+                 . 'Load a skill to bring its knowledge into context and reveal its tools; '
+                 . 'unload when done. Loading is explicit: [skill load]N / [skill unload]N.';
 
         foreach ($skills as $skill) {
-            $desc  = $skill->description ? " — {$skill->description}" : '';
-            $count = $skill->items_count;
-            $lines[] = "#{$skill->number} {$skill->title}{$desc} ({$count} " . ($count === 1 ? 'item' : 'items') . ")";
+            $isLoaded = isset($loadedSet[(int) $skill->number]);
+
+            // Tools to display: the skill's own, filtered to live plugins.
+            $tools = $skill->getToolNames();
+            if ($filterLive) {
+                $tools = array_values(array_filter($tools, fn ($t) => isset($liveSet[$t])));
+            }
+
+            $desc   = $skill->description ? " — {$skill->description}" : '';
+            $count  = $skill->items_count;
+            $items  = "({$count} " . ($count === 1 ? 'item' : 'items') . ")";
+            $status = $isLoaded ? '● loaded' : 'not loaded';
+
+            $line = "#{$skill->number} {$skill->title}{$desc} {$items} — {$status}";
+
+            if (!empty($tools)) {
+                $toolList = implode(', ', $tools);
+                if ($isLoaded) {
+                    $line .= "; tools active: {$toolList}";
+                } else {
+                    $line .= "; tools (hidden): {$toolList} → [skill load]{$skill->number} to use";
+                }
+            }
+
+            $lines[] = $line;
         }
 
         $lines[] = '[/SKILLS]';
@@ -477,6 +550,28 @@ class SkillService implements SkillServiceInterface
             'content'      => $content,
             'tfidf_vector' => $this->tfIdfService->vectorize($content),
         ]);
+    }
+
+    /**
+     * Normalize a tools input into a clean string[] or null.
+     * Accepts an array (from JSON) or null. Empty → null (pure-knowledge skill).
+     * Dedupes, trims, drops empties. Does NOT validate against the plugin registry —
+     * unknown names are kept (may be future custom tools) and simply ignored at read
+     * time by SkillLoadService's live-registry intersection.
+     */
+    private function normalizeTools(?array $tools): ?array
+    {
+        if (empty($tools)) {
+            return null;
+        }
+        $clean = [];
+        foreach ($tools as $t) {
+            $t = is_string($t) ? trim($t) : '';
+            if ($t !== '') {
+                $clean[$t] = true;
+            }
+        }
+        return $clean === [] ? null : array_keys($clean);
     }
 
 }

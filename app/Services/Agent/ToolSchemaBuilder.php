@@ -6,20 +6,26 @@ use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Models\AiPreset;
+use App\Services\Agent\Skills\SkillToolGate;
 
 /**
  * Builds an OpenAI-compatible tools array for a preset's enabled plugins.
  *
- * Plugin-provided getToolSchema($config) takes precedence. If it returns
- * an empty array, we auto-generate a default schema from the plugin's
- * description + methods inferred from instructions. All three metadata
- * methods receive the per-preset config.
+ * Plugin-provided getToolSchema($config) takes precedence. If it returns an empty
+ * array, we auto-generate a default schema from the plugin's description + methods
+ * inferred from instructions. All three metadata methods receive the per-preset config.
+ *
+ * Lazy-skills: SkillToolGate::hiddenFor($preset) returns the set of tool names owned
+ * by a not-yet-loaded skill; those are skipped. Empty set (no skill declares tools, or
+ * all gated tools are visible) → nothing skipped → unchanged behavior. Presentation
+ * gate only — a hidden tool stays fully callable (HIDING ≠ BLOCKING).
  */
 class ToolSchemaBuilder implements ToolSchemaBuilderInterface
 {
     public function __construct(
         protected PluginRegistryInterface $pluginRegistry,
-        protected PluginManagerFactoryInterface $pluginManagerFactory
+        protected PluginManagerFactoryInterface $pluginManagerFactory,
+        protected SkillToolGate $skillToolGate,
     ) {
     }
 
@@ -33,7 +39,14 @@ class ToolSchemaBuilder implements ToolSchemaBuilderInterface
         $entries = $this->pluginManagerFactory->get()
             ->getEnabledPluginsWithContextsForPreset($preset);
 
+        // Lazy-skills: compute the hidden set ONCE, then filter the loop by membership.
+        $hidden = $this->skillToolGate->hiddenFor($preset);
+
         foreach ($entries as $entry) {
+            if (in_array($entry['plugin']->getName(), $hidden, true)) {
+                continue; // owned by a skill that isn't loaded
+            }
+
             $schema = $this->getPluginSchema($entry['plugin'], $entry['context']->config);
             if ($schema !== null) {
                 $tools[] = $schema;

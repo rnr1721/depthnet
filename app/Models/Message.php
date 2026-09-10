@@ -36,6 +36,7 @@ class Message extends Model
     public const SOURCE_RHASSPY      = 'rhasspy';
     public const SOURCE_API          = 'api';
     public const SOURCE_COMPACTION   = 'compaction';
+    public const SOURCE_SKILL        = 'skill';
 
     /**
      * The attributes that are mass assignable.

@@ -110,4 +110,17 @@ interface AiActionsResponseInterface
      * @return boolean
      */
     public function plannerCommitted(): bool;
+
+    /**
+     * Skill numbers the model asked to LOAD this cycle, space-joined (e.g. "3 7").
+     * Empty when none.
+     */
+    public function skillLoad(): string;
+
+    /**
+     * Skill numbers the model asked to UNLOAD this cycle, space-joined.
+     * Empty when none.
+     */
+    public function skillUnload(): string;
+
 }

@@ -15,6 +15,7 @@ use App\Models\AiPreset;
 use App\Services\Agent\DTO\ActionsResponseDTO;
 use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
+use App\Services\Agent\Plugins\SkillPlugin;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -206,6 +207,10 @@ class AgentActions implements AgentActionsInterface
         $createdTask = (bool) ($executionResult?->pluginExecutionMeta[AgentTaskPlugin::META_TASK_CREATED] ?? false);
         $plannerCommitted = (bool) ($executionResult?->pluginExecutionMeta[AgentTaskPlugin::META_COMMITTED] ?? false);
 
+        // Lazy-skills: explicit load/unload signals (space-joined skill numbers).
+        $skillLoad   = (string) ($executionResult?->pluginExecutionMeta[SkillPlugin::META_LOAD] ?? '');
+        $skillUnload = (string) ($executionResult?->pluginExecutionMeta[SkillPlugin::META_UNLOAD] ?? '');
+
         return new ActionsResponseDTO(
             $output,
             $role,
@@ -218,6 +223,8 @@ class AgentActions implements AgentActionsInterface
             $containedLongContext,
             $createdTask,
             $plannerCommitted,
+            $skillLoad,
+            $skillUnload,
         );
     }
 

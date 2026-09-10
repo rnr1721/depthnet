@@ -6,19 +6,26 @@ use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Models\AiPreset;
+use App\Services\Agent\Skills\SkillToolGate;
 
 /**
  * Builds the command-instructions prose block shown to the agent.
  *
- * Plugins' getDescription() and getInstructions() take the resolved
- * per-preset config as an argument, so descriptions can reflect what's
- * actually enabled for this preset.
+ * Plugins' getDescription() and getInstructions() take the resolved per-preset
+ * config as an argument, so descriptions can reflect what's actually enabled.
+ *
+ * Lazy-skills: SkillToolGate::hiddenFor($preset) returns the set of tool names owned
+ * by a not-yet-loaded skill; those are dropped from this instruction block. Empty set
+ * → nothing dropped → unchanged behavior. This is the tag-mode twin of the gate in
+ * ToolSchemaBuilder; both must filter identically. Presentation gate only — a hidden
+ * command stays fully callable (HIDING ≠ BLOCKING).
  */
 class CommandInstructionBuilder implements CommandInstructionBuilderInterface
 {
     public function __construct(
         protected PluginRegistryInterface $pluginRegistry,
-        protected PluginManagerFactoryInterface $pluginManagerFactory
+        protected PluginManagerFactoryInterface $pluginManagerFactory,
+        protected SkillToolGate $skillToolGate,
     ) {
     }
 
@@ -29,6 +36,15 @@ class CommandInstructionBuilder implements CommandInstructionBuilderInterface
     {
         $entries = $this->pluginManagerFactory->get()
             ->getEnabledPluginsWithContextsForPreset($preset);
+
+        // Lazy-skills: compute the hidden set ONCE, drop those plugins before rendering.
+        $hidden = $this->skillToolGate->hiddenFor($preset);
+        if (!empty($hidden)) {
+            $entries = array_filter(
+                $entries,
+                fn ($entry) => !in_array($entry['plugin']->getName(), $hidden, true)
+            );
+        }
 
         if (empty($entries)) {
             return "No commands available.";

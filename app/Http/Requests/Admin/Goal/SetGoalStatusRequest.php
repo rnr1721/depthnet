@@ -15,7 +15,7 @@ class SetGoalStatusRequest extends FormRequest
     {
         return [
             'preset_id' => ['required', 'integer'],
-            'status'    => ['required', 'string', 'in:active,paused,done'],
+            'status'    => ['required', 'string', 'in:active,paused,done,dropped'],
         ];
     }
 

@@ -13,6 +13,7 @@ use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\Compaction\CompactionServiceInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
+use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
@@ -94,6 +95,7 @@ class Agent implements AgentInterface
         protected ?BehaviorCoordinatorInterface $behavior = null,
         protected ?CompactionServiceInterface $compaction = null,
         protected ?ModePromptSwitcherInterface $modePromptSwitcher = null,
+        protected ?GoalServiceInterface $goalService = null,
     ) {
     }
 
@@ -263,9 +265,36 @@ class Agent implements AgentInterface
                 'slack'        => $slack,
                 'threshold'    => $threshold,
             ]);
-            // No focus — the watchdog fold follows the mode-derived profile.
-            $this->compaction->compact($preset, null);
+            // No agent focus — the journal type stays mode-derived. If a goal is in
+            // focus, the compressor gets it as a thread hint so the recap keeps it.
+            $this->compaction->compact($preset, null, $this->watchdogThreadHint($preset));
         }
+    }
+
+    /**
+     * Thread hint for a watchdog fold: the goal in focus, if any. Goes to the
+     * compressor only (not the journal-type heuristic). Null when goals are not
+     * wired or nothing is in focus — then the fold is exactly as before.
+     */
+    private function watchdogThreadHint(AiPreset $preset): ?string
+    {
+        if ($this->goalService === null) {
+            return null;
+        }
+
+        try {
+            $goal = $this->goalService->getFocusedGoal($preset);
+        } catch (\Throwable $e) {
+            $this->logger->warning('Agent: could not read focused goal for watchdog fold', [
+                'preset_id' => $preset->getId(),
+                'error'     => $e->getMessage(),
+            ]);
+            return null;
+        }
+
+        return $goal
+            ? "The agent is currently focused on the goal \"{$goal->title}\" — keep where it stands on that goal clearly in the recap."
+            : null;
     }
 
     /**

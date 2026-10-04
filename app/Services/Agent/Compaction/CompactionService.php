@@ -68,7 +68,15 @@ class CompactionService implements CompactionServiceInterface
     /**
      * @inheritDoc
      */
-    public function compact(AiPreset $preset, ?string $focus = null): ?Message
+    /**
+     * @param string|null $focus      Agent-given focus ([compact] content). Steers the
+     *                                compressor AND may pick the journal entry type.
+     * @param string|null $threadHint System-given hint (e.g. the goal in focus during a
+     *                                watchdog fold). Steers the compressor ONLY — never
+     *                                the journal type, so a goal title that happens to
+     *                                contain "task"/"state" can't flip the entry type.
+     */
+    public function compact(AiPreset $preset, ?string $focus = null, ?string $threadHint = null): ?Message
     {
         // Feature gate: no compressor preset → compaction is off.
         $compressorId = $preset->getCompressorPresetId();
@@ -131,7 +139,7 @@ class CompactionService implements CompactionServiceInterface
         $toId   = (int) $foldable->last()->id;
 
         // ── Generate the recap text via the compressor preset ─────────────────
-        $recapText = $this->generateRecap($compressor, $foldable, $focus);
+        $recapText = $this->generateRecap($compressor, $foldable, $focus, $threadHint);
 
         if ($recapText === null || $recapText === '') {
             $this->logger->warning('CompactionService: compressor returned empty — aborting, window untouched', [
@@ -193,8 +201,12 @@ class CompactionService implements CompactionServiceInterface
      * tags, restore the main preset in finally. No tools attached — we want
      * text, not tool calls.
      */
-    private function generateRecap($compressor, \Illuminate\Support\Collection $foldable, ?string $focus): ?string
-    {
+    private function generateRecap(
+        $compressor,
+        \Illuminate\Support\Collection $foldable,
+        ?string $focus,
+        ?string $threadHint = null
+    ): ?string {
         try {
             $this->pluginRegistry->applyPreset($compressor);
 
@@ -210,6 +222,10 @@ class CompactionService implements CompactionServiceInterface
             $focusNote = ($focus !== null && trim($focus) !== '')
                 ? "\n\nThis time, focus on: " . trim($focus)
                 : '';
+
+            if ($threadHint !== null && trim($threadHint) !== '') {
+                $focusNote .= "\n\n" . trim($threadHint);
+            }
 
             $flatContext = [[
                 'role'         => 'user',

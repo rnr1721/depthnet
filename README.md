@@ -115,6 +115,7 @@ DepthNet enables autonomous AI agents through:
 **Context compaction & mode-aware prompts.** Agents fold closed conversations into first-person recaps and clear the working window — staying continuous without carrying raw history through every cycle (faster tool work, less prompt
 noise, less forgetting). Folded messages remain in the journal and vector memory, so nothing is lost. Prompts can be tagged to auto-activate per context mode (a lean prompt while working, a reflective one while conversing). See [docs/compression.md](docs/memory/compression.md).
 - **Lazy Tool Loading (Skills)**: Tools can be attached to skills and hidden from the agent's tool schema until the relevant skill is loaded — cutting cognitive load without ever blocking a capability (hiding ≠ blocking). The agent sees an inventory of its skills with load status via `[[skills]]`, brings a skill into context with an explicit `load` command (by number or name), and its tools appear; a skill's full knowledge is injected into context while loaded. Tool-bearing skills auto-unload after several idle cycles to keep the list lean; the same tool can belong to several skills. Complements the Knowledge plugin: Knowledge is the content channel, the Skill console is the load channel. [→](docs/plugins/skill.md)
+- **Goal Focus**: The agent separates *what it wants* from *what it is doing now*. All active goals stay in the system prompt as intentions via `[[active_goals]]`; one goal can be put in focus with an explicit `focus` command, and its whole progress history — why, since when, every note, how long since the last step — is injected into context as working material, the same way loaded skills are. The focused goal is listed first and marked; progress notes and status changes default to it, so recording progress is cheap. It survives context compaction (the watchdog also tells the compressor which goal is in focus), and is released automatically when the goal is done, paused or dropped. No timeout — staleness is shown to the agent, the decision is its own. [→](docs/plugins/goal.md)
 - **Pre-Pass Reasoning**: An optional extra generation over the full assembled context *before* the main response. The agent reasons first on the same ground (history, RAG, inner voice, mood) it will answer from, and sees that reasoning via `[[reasoning]]`. Runs every cycle (always-on per preset) or on demand when the agent itself invokes the Reflect plugin. Output is ephemeral — never written to history or memory. Neutral by design: the preset's pre-pass instruction sets the character, from step-by-step planning for working agents to pre-verbal reflection for subjective ones. [→](docs/plugins/reflect.md)
 - **Preset & Agent Exchange** — portable import/export of complete presets and agents between instances. Secrets are automatically stripped; no lived state (memory, vectors, dialogues) travels. Two-step import with preflight validation ensures integrity. [→](docs/exchange.md)
 
@@ -157,7 +158,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Journal** (`journal`) | Episodic memory chronicle. Records typed, timestamped events (actions, decisions, errors, reflections) with semantic and temporal search — ISO dates, calendar months/years, ranges, and multilingual relative keywords (`yesterday` / `вчера` / `last week`). | [→](docs/plugins/journal.md) |
 | **Skill** (`skill`) | Structured knowledge base of named skills with items, semantically searchable via TF-IDF. Also provides **lazy tool loading**: a skill can carry tools that stay hidden from the agent until it loads the skill, keeping the tool list lean. Loading is explicit (`load`/`unload`/`list`); hidden ≠ blocked. Visible via `[[skills]]`. | [→](docs/plugins/skill.md) |
 | **Person** (`person`) | Structured memory for people — facts, aliases, semantic search. Aliases stored as `Primary / Alias1 / Alias2`. Heart-aware via `[[persons_context]]`. | [→](docs/plugins/person.md) |
-| **Goal** (`goal`) | Persistent goal tracker with progress history and statuses. Active goals always visible via `[[active_goals]]`. | [→](docs/plugins/goal.md) |
+| **Goal** (`goal`) | Persistent goal tracker with progress history and statuses (active / paused / done / dropped). Active goals always visible via `[[active_goals]]`. One goal can be put **in focus**: its full progress history is injected into context as working material, survives compaction, and is released automatically on done / pause / drop. | [→](docs/plugins/goal.md) |
 | **Wake** (`wake`) | Temporal agency — the agent schedules its own future wakings. A wake is a temporal handoff from the agent-now to the agent-later: an instruction left for a specific moment (once, interval, daily, or cron), fired by an external tick so a sleeping agent can be woken from rest. Optional pulse-unit scheduling when the preset uses subjective time. The agent can inspect, cancel, and edit its own calendar; the user can design schedules via admin CRUD. Both surface in `[[wake_schedule]]`. | [→](docs/plugins/wake.md) |
 | **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26) and legacy SSE (2024-11-05). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
 | **Telegram** (`telegram`) | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
@@ -252,6 +253,16 @@ The AI communicates through special command tags that trigger plugin execution. 
 # to regular memory, creating a bridge between semantic and persistent memory systems
 
 # Self-motivation and goal tracking
+[goal]Explore memory architecture | motivation: curiosity[/goal]  # create goal
+[goal focus]1[/goal]                     # put goal #1 in focus — its history goes into context
+[goal progress]Found saturation penalty approach[/goal]  # note on the focused goal
+[goal progress]2 | Another note[/goal]   # note on goal #2
+[goal pause][/goal]                      # defer focused goal — not now
+[goal drop][/goal]                       # abandon focused goal on purpose
+[goal done][/goal]                       # focused goal achieved (releases focus)
+[goal unfocus][/goal]                    # set focus aside, goal stays active
+[goal list]all[/goal]
+
 [dopamine reward][/dopamine]  # Increase motivation
 [dopamine penalty][/dopamine]  # Decrease motivation  
 
@@ -940,6 +951,7 @@ php artisan behavior:decay --preset=4               # Decay a specific preset (d
   - `[[available_switches]]` - All available switch variants
   - `[[context_mode]]` — Current cognitive context mode (normal/extended).Lets  the agent know whether it's in reflective or sustained-work mode this cycle.
   - `[[reasoning]]` — Output of the pre-pass (extra reasoning pass) run before the response this cycle. Empty when no pass ran. Set by always-on pre-pass or the Reflect plugin; ephemeral, never persisted.
+  - `[[active_goals]]` - Active goals with motivation and the latest progress note. The goal in focus is listed first and marked; its full history is injected into context separately as working material. Injected when the Goal plugin is enabled.
   - `[[skills]]` - Inventory of the agent's skills with load status (loaded/not loaded) and, for skills with tools, which tools they carry and how to load them. The bridge that makes lazy tool loading usable.
 - Even small prompt modifications can dramatically affect agent behavior
 

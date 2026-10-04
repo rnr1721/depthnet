@@ -2,7 +2,9 @@
 
 namespace App\Services\Agent\ContextBuilder;
 
+use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
+use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\Skills\SkillLoadService;
@@ -19,87 +21,172 @@ use Psr\Log\LoggerInterface;
  * already run over the context WITHOUT this material.
  *
  * ── Why "desktop", not "identity" ────────────────────────────────────────────
- * Loaded skills are working material the agent is holding right now — data for the
- * task, not part of who the agent IS. That is why they go into the HISTORY (the
- * work stream) as the oldest messages, not into the system prompt (which is
- * identity: character, reasoning, behavior, the RAG that constitutes the agent in
- * the moment). A skill un-loads by hysteresis in a few cycles; putting something
- * that transient into the identity prompt would make the self flicker. History is
- * where things appear and leave — that is the right home.
+ * Desktop material is what the agent is holding right now — data for the task,
+ * not part of who the agent IS. That is why it goes into the HISTORY (the work
+ * stream) as the oldest messages, not into the system prompt (which is identity:
+ * character, reasoning, behavior, intentions such as [[active_goals]]).
+ * Things on the desk appear and leave; the identity prompt should not flicker.
+ *
+ * ── Consumers, in reading order ──────────────────────────────────────────────
+ *   1. Goal in focus  — WHAT I am doing and why, and how far I got (full progress
+ *                       history of the single focused goal).
+ *   2. Loaded skills  — HOW: the procedures/tools I picked up for it.
+ * Each consumer is a build*Blocks() method; inject() collects them in this order
+ * and prepends the whole group ONCE, so the order is explicit here rather than
+ * an accident of call order (repeated prepends would reverse it).
  *
  * ── Position: oldest, index 0, ahead of everything (recap included) ──────────
- * Injected as the OLDEST messages (array_unshift), so they read as "here is what's
- * open on my desk" before the agent reads its recap of the folded conversation and
- * before the fresh dialogue. Because injection happens AFTER liftCompactionRecap has
- * already placed the recap over the fresh tail, and skills go to the very head, the
- * two never collide — the recap stays where the trait put it; skills sit above it.
- * The trait is NOT touched.
+ * Injection happens AFTER liftCompactionRecap has placed the recap over the fresh
+ * tail; desktop blocks go to the very head, so the two never collide. A side
+ * effect worth having: the focused goal survives any compaction fold — it is not
+ * part of the window, it is re-rendered every cycle.
  *
  * ── Ephemeral ────────────────────────────────────────────────────────────────
- * These messages are runtime-only — never written to the DB. They are rebuilt every
- * cycle from SkillLoadService::loadedSkillNumbers(), so a skill unloaded next cycle
- * simply stops being injected. metadata.source = SOURCE_SKILL marks them so future
- * passes / the UI log can recognize the block (not for positioning — position is
- * purely "index 0").
+ * Runtime-only, never written to the DB, rebuilt every cycle. metadata.source
+ * marks each block (SOURCE_GOAL / SOURCE_SKILL) so the UI log and future passes
+ * can recognize it.
  *
- * ── General mechanism ────────────────────────────────────────────────────────
- * Skills are the FIRST consumer. Future consumers (unread telegram, sensor snapshots,
- * ambient signals) add their own inject* method and a call site; the shape (ephemeral,
- * head-of-array, source-marked) is the reusable pattern.
+ * ── Failure isolation ────────────────────────────────────────────────────────
+ * A consumer that throws is logged and skipped; the cycle proceeds with whatever
+ * the other consumers produced. Desktop material is never worth a failed cycle.
  */
 class ContextInjectionService
 {
+    /** Default number of most recent progress notes shown for the focused goal. */
+    private const DEFAULT_GOAL_HISTORY_LIMIT = 20;
+
     public function __construct(
         protected SkillLoadService $skillLoad,
         protected SkillServiceInterface $skillService,
+        protected GoalServiceInterface $goalService,
+        protected OptionsServiceInterface $optionsService,
         protected LoggerInterface $logger,
     ) {
     }
 
     /**
-     * Prepend all currently-loaded skills' bodies to the assembled context.
-     *
-     * Returns the context unchanged when nothing is loaded (the common path). One
-     * message per loaded skill, each a self-contained, labelled block, ordered by
-     * skill number (#1 above #2 …) at the head of the array.
+     * Prepend all desktop material to the assembled context.
+     * Returns the context unchanged when there is nothing on the desk.
      *
      * @param  array    $context  the fully assembled cycle context
      * @param  AiPreset $preset
-     * @return array              context with loaded-skill bodies prepended
+     * @return array
+     */
+    public function inject(array $context, AiPreset $preset): array
+    {
+        $blocks = array_merge(
+            $this->safely('goal', fn () => $this->buildFocusedGoalBlocks($preset), $preset),
+            $this->safely('skills', fn () => $this->buildLoadedSkillBlocks($preset), $preset),
+        );
+
+        return empty($blocks) ? $context : array_merge($blocks, $context);
+    }
+
+    /**
+     * @deprecated use inject() — kept so any other caller keeps working.
+     *             Injects ONLY skills.
      */
     public function injectLoadedSkills(array $context, AiPreset $preset): array
     {
-        $loadedNumbers = $this->skillLoad->loadedSkillNumbers($preset);
-        if (empty($loadedNumbers)) {
-            return $context;
+        $blocks = $this->safely('skills', fn () => $this->buildLoadedSkillBlocks($preset), $preset);
+
+        return empty($blocks) ? $context : array_merge($blocks, $context);
+    }
+
+    // ── Consumer: goal in focus ───────────────────────────────────────────────
+
+    /**
+     * @return array<int, array> zero or one injected message
+     */
+    private function buildFocusedGoalBlocks(AiPreset $preset): array
+    {
+        $limit = (int) $this->optionsService->get(
+            'agent_goal_focus_history_limit',
+            self::DEFAULT_GOAL_HISTORY_LIMIT
+        );
+
+        $data = $this->goalService->getFocusedGoalData($preset, max(0, $limit));
+        if ($data === null) {
+            return [];
         }
 
-        // Build one message per skill, in ascending number order.
+        return [$this->makeInjectionMessage($this->renderGoalBody($data), Message::SOURCE_GOAL)];
+    }
+
+    /**
+     * Render the focused goal: what, why, since when, the path so far, and how
+     * long since the last step. Staleness is shown as information — whether the
+     * goal is still worth the focus is the agent's call, not a timer's.
+     */
+    private function renderGoalBody(array $data): string
+    {
+        $n     = $data['number'];
+        $lines = [];
+
+        $lines[] = "[FOCUSED GOAL #{$n}: {$data['title']}]";
+
+        if (!empty($data['motivation'])) {
+            $lines[] = "Why: {$data['motivation']}";
+        }
+
+        if ($data['focused_at'] !== null) {
+            $lines[] = 'In focus since: ' . $data['focused_at']->format('Y-m-d H:i');
+        }
+
+        if ($data['total_notes'] === 0) {
+            $lines[] = 'Progress: no notes yet.';
+        } else {
+            $lines[] = "Progress ({$data['total_notes']} notes):";
+
+            if ($data['omitted_notes'] > 0) {
+                $lines[] = "  (+{$data['omitted_notes']} earlier notes — use goal show {$n} for the full history)";
+            }
+
+            foreach ($data['progress'] as $note) {
+                $lines[] = '  - [' . $note['created_at']->format('Y-m-d H:i') . "] {$note['content']}";
+            }
+
+            if ($data['last_progress_at'] !== null) {
+                $lines[] = 'Last progress: ' . $data['last_progress_at']->diffForHumans();
+            }
+        }
+
+        $lines[] = 'Record progress as you go (number optional while in focus). '
+            . 'Close with done (achieved), pause (not now) or drop (no longer wanted); unfocus to set it aside.';
+
+        $lines[] = "[/FOCUSED GOAL #{$n}]";
+
+        return implode("\n", $lines);
+    }
+
+    // ── Consumer: loaded skills ───────────────────────────────────────────────
+
+    /**
+     * One message per loaded skill, ordered by skill number (#1 above #2 …).
+     *
+     * @return array<int, array>
+     */
+    private function buildLoadedSkillBlocks(AiPreset $preset): array
+    {
+        $loadedNumbers = $this->skillLoad->loadedSkillNumbers($preset);
+        if (empty($loadedNumbers)) {
+            return [];
+        }
+
         $blocks = [];
         foreach ($loadedNumbers as $number) {
             $body = $this->renderSkillBody($preset, (int) $number);
             if ($body !== null) {
-                $blocks[] = $this->makeInjectionMessage($body);
+                $blocks[] = $this->makeInjectionMessage($body, Message::SOURCE_SKILL);
             }
         }
 
-        if (empty($blocks)) {
-            return $context;
-        }
-
-        // Prepend as the oldest messages, preserving #1 above #2 above … .
-        // array_merge (blocks first) keeps their internal order and puts the whole
-        // group ahead of the existing context — simpler and less error-prone than
-        // repeated array_unshift, which would reverse the order.
-        return array_merge($blocks, $context);
+        return $blocks;
     }
 
     /**
      * Render one loaded skill as a labelled body: title, description, all items.
      * Returns null if the skill can't be rendered (deleted mid-cycle, etc.).
-     *
-     * Uses SkillService::showSkillData (pure data) rather than the message-shaped
-     * showSkill, so the framing here is ours and consistent, not the CRUD reply text.
      */
     private function renderSkillBody(AiPreset $preset, int $number): ?string
     {
@@ -130,21 +217,40 @@ class ContextInjectionService
         return implode("\n", $lines);
     }
 
+    // ── Shared ────────────────────────────────────────────────────────────────
+
+    /**
+     * Run one consumer; on failure log and contribute nothing.
+     *
+     * @param  callable(): array $build
+     * @return array
+     */
+    private function safely(string $consumer, callable $build, AiPreset $preset): array
+    {
+        try {
+            return $build();
+        } catch (\Throwable $e) {
+            $this->logger->error("ContextInjectionService: '{$consumer}' injection failed — skipped", [
+                'preset_id' => $preset->getId(),
+                'error'     => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
     /**
      * Shape an ephemeral injected message. role=user so the model reads it as
-     * material present in the conversation; SOURCE_SKILL marks it as an injected
-     * skill block (recognizable, never confused with a real reply). from_user_id
-     * null — it originates from no user. NOT persisted.
+     * material present in the conversation; source marks the block. NOT persisted.
      *
      * @return array{role: string, content: string, from_user_id: null, metadata: array}
      */
-    private function makeInjectionMessage(string $content): array
+    private function makeInjectionMessage(string $content, string $source): array
     {
         return [
             'role'         => 'user',
             'content'      => $content,
             'from_user_id' => null,
-            'metadata'     => ['source' => Message::SOURCE_SKILL],
+            'metadata'     => ['source' => $source],
         ];
     }
 }

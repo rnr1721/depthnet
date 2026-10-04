@@ -7,6 +7,7 @@ use App\Contracts\Agent\Heart\HeartServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Goal;
 use App\Models\GoalProgress;
+use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
 
 class GoalService implements GoalServiceInterface
@@ -30,20 +31,24 @@ class GoalService implements GoalServiceInterface
                 return ['success' => false, 'message' => 'Error: Goal title cannot be empty.'];
             }
 
-            $position = $this->goalModel->forPreset($preset->id)->count() + 1;
+            // Position after the current max (not count+1): stays monotonic even
+            // after individual goals are deleted from the UI.
+            $position = ((int) $this->goalModel->forPreset($preset->id)->max('position')) + 1;
 
             $goal = $this->goalModel->create([
                 'preset_id'  => $preset->id,
                 'title'      => $title,
                 'motivation' => $motivation ? trim($motivation) : null,
-                'status'     => 'active',
-                'position'   => $position
+                'status'     => Goal::STATUS_ACTIVE,
+                'position'   => $position,
             ]);
+
+            $number = $this->numberOf($preset, $goal) ?? $position;
 
             return [
                 'success' => true,
-                'message' => "Goal [{$goal->position}] created: {$title}"
-                    . ($motivation ? " | motivation: {$motivation}" : '')
+                'message' => "Goal [{$number}] created: {$title}"
+                    . ($motivation ? " | motivation: {$motivation}" : ''),
             ];
 
         } catch (\Throwable $e) {
@@ -70,12 +75,12 @@ class GoalService implements GoalServiceInterface
 
             $this->goalProgressModel->create([
                 'goal_id' => $goal->id,
-                'content' => $content
+                'content' => $content,
             ]);
 
             return [
                 'success' => true,
-                'message' => "Progress noted for goal [{$goalNumber}]: {$content}"
+                'message' => "Progress noted for goal [{$goalNumber}]: {$content}",
             ];
 
         } catch (\Throwable $e) {
@@ -95,24 +100,180 @@ class GoalService implements GoalServiceInterface
                 return ['success' => false, 'message' => "Error: Goal [{$goalNumber}] not found."];
             }
 
-            if (!in_array($status, ['active', 'paused', 'done'])) {
-                return ['success' => false, 'message' => "Error: Invalid status. Use: active, paused, done."];
+            if (!in_array($status, Goal::STATUSES, true)) {
+                return [
+                    'success' => false,
+                    'message' => 'Error: Invalid status. Use: ' . implode(', ', Goal::STATUSES) . '.',
+                ];
             }
 
-            $goal->update(['status' => $status]);
+            $wasFocused = $goal->isFocused();
+            $update     = ['status' => $status];
 
-            // Sync with Heart if active
+            // Focus only makes sense for a goal being pursued. Leaving 'active'
+            // in any direction (done, dropped, paused) puts it down.
+            if ($status !== Goal::STATUS_ACTIVE) {
+                $update['focused_at'] = null;
+            }
+
+            $goal->update($update);
+
             $this->syncGoalStatusWithHeart($preset, $goal->title, $status);
 
-            return [
-                'success' => true,
-                'message' => "Goal [{$goalNumber}] marked as {$status}: {$goal->title}"
-            ];
+            $message = "Goal [{$goalNumber}] marked as {$status}: {$goal->title}";
+            if ($wasFocused && $status !== Goal::STATUS_ACTIVE) {
+                $message .= ' (released from focus)';
+            }
+
+            return ['success' => true, 'message' => $message];
 
         } catch (\Throwable $e) {
             $this->logger->error("GoalService::setStatus error: " . $e->getMessage());
             return ['success' => false, 'message' => "Error updating goal: " . $e->getMessage()];
         }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function focus(AiPreset $preset, int $goalNumber): array
+    {
+        try {
+            $goal = $this->getGoalByNumber($preset, $goalNumber);
+            if (!$goal) {
+                return ['success' => false, 'message' => "Error: Goal [{$goalNumber}] not found."];
+            }
+
+            if (in_array($goal->status, Goal::CLOSED_STATUSES, true)) {
+                return [
+                    'success' => false,
+                    'message' => "Error: Goal [{$goalNumber}] is {$goal->status} — only active or paused goals can be focused.",
+                ];
+            }
+
+            if ($goal->isFocused()) {
+                return ['success' => true, 'message' => "Goal [{$goalNumber}] is already in focus: {$goal->title}"];
+            }
+
+            $previous       = $this->getFocusedGoal($preset);
+            $previousNumber = $previous ? $this->numberOf($preset, $previous) : null;
+            $resumed        = $goal->status === Goal::STATUS_PAUSED;
+
+            // One focus per preset: clear + set atomically.
+            $this->goalModel->getConnection()->transaction(function () use ($preset, $goal) {
+                $this->goalModel->forPreset($preset->id)->focused()->update(['focused_at' => null]);
+                $goal->update([
+                    'status'     => Goal::STATUS_ACTIVE,
+                    'focused_at' => now(),
+                ]);
+            });
+
+            if ($resumed) {
+                $this->syncGoalStatusWithHeart($preset, $goal->title, Goal::STATUS_ACTIVE);
+            }
+
+            $message = "Goal [{$goalNumber}] is now in focus: {$goal->title}.";
+            if ($resumed) {
+                $message .= ' (resumed from paused)';
+            }
+            if ($previous) {
+                $message .= " Goal [{$previousNumber}] released from focus (still active).";
+            }
+            $message .= ' Its full progress history will be on your desk from the next cycle.';
+
+            return ['success' => true, 'message' => $message];
+
+        } catch (\Throwable $e) {
+            $this->logger->error("GoalService::focus error: " . $e->getMessage());
+            return ['success' => false, 'message' => "Error focusing goal: " . $e->getMessage()];
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function unfocus(AiPreset $preset): array
+    {
+        try {
+            $goal = $this->getFocusedGoal($preset);
+            if (!$goal) {
+                return ['success' => true, 'message' => 'No goal is in focus.'];
+            }
+
+            $number = $this->numberOf($preset, $goal);
+            $goal->update(['focused_at' => null]);
+
+            return [
+                'success' => true,
+                'message' => "Goal [{$number}] released from focus (still active): {$goal->title}",
+            ];
+
+        } catch (\Throwable $e) {
+            $this->logger->error("GoalService::unfocus error: " . $e->getMessage());
+            return ['success' => false, 'message' => "Error releasing focus: " . $e->getMessage()];
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getFocusedGoal(AiPreset $preset): ?Goal
+    {
+        return $this->goalModel
+            ->forPreset($preset->id)
+            ->focused()
+            ->orderByDesc('focused_at')
+            ->first();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getFocusedGoalNumber(AiPreset $preset): ?int
+    {
+        $goal = $this->getFocusedGoal($preset);
+
+        return $goal ? $this->numberOf($preset, $goal) : null;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getFocusedGoalData(AiPreset $preset, int $historyLimit = 20): ?array
+    {
+        $goal = $this->getFocusedGoal($preset);
+        if (!$goal) {
+            return null;
+        }
+
+        $number = $this->numberOf($preset, $goal);
+        if ($number === null) {
+            return null;
+        }
+
+        $total = $goal->progress()->count();
+
+        $query = $goal->progress()->reorder()->orderByDesc('created_at')->orderByDesc('id');
+        if ($historyLimit > 0) {
+            $query->limit($historyLimit);
+        }
+
+        // Newest N, then back to chronological order for reading.
+        $notes = $query->get()->reverse()->values();
+
+        return [
+            'number'           => $number,
+            'title'            => $goal->title,
+            'motivation'       => $goal->motivation,
+            'focused_at'       => $goal->focused_at,
+            'total_notes'      => $total,
+            'omitted_notes'    => max(0, $total - $notes->count()),
+            'progress'         => $notes->map(fn (GoalProgress $p) => [
+                'content'    => $p->content,
+                'created_at' => $p->created_at,
+            ])->all(),
+            'last_progress_at' => $notes->last()?->created_at,
+        ];
     }
 
     /**
@@ -126,9 +287,12 @@ class GoalService implements GoalServiceInterface
                 return ['success' => false, 'message' => "Error: Goal [{$goalNumber}] not found."];
             }
 
-            $lines = [
-                "Goal [{$goalNumber}] [{$goal->status}]: {$goal->title}",
-            ];
+            $header = "Goal [{$goalNumber}] [{$goal->status}]: {$goal->title}";
+            if ($goal->isFocused()) {
+                $header .= ' — IN FOCUS';
+            }
+
+            $lines = [$header];
 
             if ($goal->motivation) {
                 $lines[] = "Motivation: {$goal->motivation}";
@@ -158,30 +322,31 @@ class GoalService implements GoalServiceInterface
     public function listGoals(AiPreset $preset, string $status = 'active'): array
     {
         try {
-            $query = $this->goalModel->forPreset($preset->id)->ordered();
-
-            if ($status !== 'all') {
-                $query->where('status', $status);
-            }
-
-            $goals = $query->get();
-
-            if ($goals->isEmpty()) {
-                $label = $status === 'all' ? '' : " {$status}";
-                return ['success' => true, 'message' => "No{$label} goals found."];
-            }
-
             $lines = [];
-            foreach ($goals as $goal) {
-                $line = "[{$goal->position}] [{$goal->status}] {$goal->title}";
+
+            // Numbers come from the FULL ordered list, so they match what every
+            // other command resolves — even when filtering by status.
+            foreach ($this->orderedGoals($preset) as $index => $goal) {
+                if ($status !== 'all' && $goal->status !== $status) {
+                    continue;
+                }
+
+                $line = '[' . ($index + 1) . "] [{$goal->status}] {$goal->title}";
                 if ($goal->motivation) {
                     $line .= " | {$goal->motivation}";
                 }
-                $progressCount = $goal->progress()->count();
-                if ($progressCount > 0) {
-                    $line .= " ({$progressCount} progress notes)";
+                if ($goal->progress_count > 0) {
+                    $line .= " ({$goal->progress_count} progress notes)";
+                }
+                if ($goal->isFocused()) {
+                    $line = '▶ ' . $line . ' — IN FOCUS';
                 }
                 $lines[] = $line;
+            }
+
+            if (empty($lines)) {
+                $label = $status === 'all' ? '' : " {$status}";
+                return ['success' => true, 'message' => "No{$label} goals found."];
             }
 
             return ['success' => true, 'message' => implode("\n", $lines)];
@@ -193,49 +358,96 @@ class GoalService implements GoalServiceInterface
     }
 
     /**
-     * Get active goals formatted for Dynamic Context placeholder
      * @inheritDoc
      */
     public function getActiveGoalsForContext(AiPreset $preset): string
     {
-        $goals = $this->goalModel
-            ->forPreset($preset->id)
-            ->active()
-            ->ordered()
-            ->get();
+        $focusedLine = null;
+        $lines       = [];
 
-        if ($goals->isEmpty()) {
-            return 'none';
-        }
+        foreach ($this->orderedGoals($preset) as $index => $goal) {
+            if ($goal->status !== Goal::STATUS_ACTIVE) {
+                continue;
+            }
 
-        $lines = [];
-        foreach ($goals as $goal) {
-            $line = "[{$goal->position}] {$goal->title}";
+            $line = '[' . ($index + 1) . "] {$goal->title}";
             if ($goal->motivation) {
                 $line .= " | {$goal->motivation}";
             }
-            // Show last progress note if exists
-            $lastProgress = $goal->progress()->latest()->first();
+
+            if ($goal->isFocused()) {
+                // No last note here — the whole history is on the desk.
+                $focusedLine = "▶ {$line} — IN FOCUS ({$goal->progress_count} progress notes, full history in context)";
+                continue;
+            }
+
+            $lastProgress = $goal->progress()->reorder()->latest()->first();
             if ($lastProgress) {
                 $line .= " → {$lastProgress->content}";
             }
             $lines[] = $line;
         }
 
-        return implode("\n", $lines);
+        if ($focusedLine !== null) {
+            array_unshift($lines, $focusedLine);
+        }
+
+        return empty($lines) ? 'none' : implode("\n", $lines);
     }
 
     /**
-     * Get goal by its display number (position-based)
+     * @inheritDoc
+     */
+    public function clear(AiPreset $preset): bool
+    {
+        $this->goalModel
+            ->where('preset_id', $preset->getId())
+            ->delete();
+
+        return true;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * All goals of the preset in display order, with progress counts.
+     */
+    protected function orderedGoals(AiPreset $preset): Collection
+    {
+        return $this->goalModel
+            ->forPreset($preset->id)
+            ->ordered()
+            ->withCount('progress')
+            ->get()
+            ->values();
+    }
+
+    /**
+     * Get goal by its display number (1-based index in the ordered list).
      */
     protected function getGoalByNumber(AiPreset $preset, int $number): ?Goal
     {
-        $goals = $this->goalModel
+        if ($number < 1) {
+            return null;
+        }
+
+        return $this->goalModel
             ->forPreset($preset->id)
             ->ordered()
-            ->get();
+            ->skip($number - 1)
+            ->first();
+    }
 
-        return $goals[$number - 1] ?? null;
+    /**
+     * Display number of a goal (inverse of getGoalByNumber), or null if it
+     * no longer belongs to the preset.
+     */
+    protected function numberOf(AiPreset $preset, Goal $goal): ?int
+    {
+        $ids   = $this->goalModel->forPreset($preset->id)->ordered()->pluck('id');
+        $index = $ids->search($goal->id);
+
+        return $index === false ? null : $index + 1;
     }
 
     /**
@@ -243,9 +455,10 @@ class GoalService implements GoalServiceInterface
      * Does nothing if Heart has no data — avoids coupling to disabled plugin.
      *
      * Status mapping:
-     *   done   → relief | pride   (completion is positive)
-     *   paused → unresolved       (unfinished creates mild negative signal)
-     *   active → anticipation     (resuming creates forward-looking signal)
+     *   done    → relief | pride     (completion is positive)
+     *   dropped → relief (mild)      (letting go: release without achievement)
+     *   paused  → unresolved         (unfinished creates mild negative signal)
+     *   active  → anticipation       (resuming creates forward-looking signal)
      */
     private function syncGoalStatusWithHeart(AiPreset $preset, string $goalTitle, string $status): void
     {
@@ -255,14 +468,17 @@ class GoalService implements GoalServiceInterface
             }
 
             $signals = match ($status) {
-                'done'   => [
+                Goal::STATUS_DONE    => [
                     ['type' => 'relief',       'intensity' => 0.5, 'focus' => 'release',      'valence' => 0.5,  'duration' => 'brief'],
                     ['type' => 'pride',        'intensity' => 0.4, 'focus' => 'achievement',  'valence' => 0.4,  'duration' => 'brief'],
                 ],
-                'paused' => [
+                Goal::STATUS_DROPPED => [
+                    ['type' => 'relief',       'intensity' => 0.3, 'focus' => 'letting_go',   'valence' => 0.1,  'duration' => 'brief'],
+                ],
+                Goal::STATUS_PAUSED  => [
                     ['type' => 'unresolved',   'intensity' => 0.4, 'focus' => 'open_end',     'valence' => -0.1, 'duration' => 'sustained'],
                 ],
-                'active' => [
+                Goal::STATUS_ACTIVE  => [
                     ['type' => 'anticipation', 'intensity' => 0.5, 'focus' => 'future',       'valence' => 0.4,  'duration' => 'variable'],
                 ],
                 default => [],
@@ -290,11 +506,6 @@ class GoalService implements GoalServiceInterface
 
     /**
      * Check if Heart has active data — connections or signals.
-     * Used to decide whether to sync goal events with Heart.
-     *
-     * GoalService does not check plugin config directly —
-     * it infers Heart activity from the presence of data.
-     * If Heart was never used or was cleared, this returns false.
      */
     private function shouldSyncWithHeart(AiPreset $preset): bool
     {
@@ -306,17 +517,5 @@ class GoalService implements GoalServiceInterface
         } catch (\Throwable) {
             return false;
         }
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function clear(AiPreset $preset): bool
-    {
-        $this->goalModel
-            ->where('preset_id', $preset->getId())
-            ->delete();
-
-        return true;
     }
 }

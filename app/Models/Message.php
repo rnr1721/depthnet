@@ -37,6 +37,7 @@ class Message extends Model
     public const SOURCE_API          = 'api';
     public const SOURCE_COMPACTION   = 'compaction';
     public const SOURCE_SKILL        = 'skill';
+    public const SOURCE_GOAL         = 'goal_focus';
 
     /**
      * The attributes that are mass assignable.

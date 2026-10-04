@@ -148,7 +148,8 @@ class SingleContextBuilder implements ContextBuilderInterface
             }
         }
 
-        $context = $this->contextInjection->injectLoadedSkills($context, $preset);
+        // Desktop material (goal in focus, loaded skills) — last step, see CycleContextBuilder.
+        $context = $this->contextInjection->inject($context, $preset);
 
         return $context;
     }

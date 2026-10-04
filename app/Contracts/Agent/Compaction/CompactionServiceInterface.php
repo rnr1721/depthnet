@@ -33,11 +33,12 @@ interface CompactionServiceInterface
      *                                     (e.g. "task-state" / "salience"), forwarded
      *                                     to the compressor prompt and used to override
      *                                     the journal entry type for this one pass.
+     * @param  string|null  $threadHint   Optional thread hint for the compressor prompt.
      * @return Message|null  The recap message written into the window, or null when
      *                       compaction was a no-op (feature off, nothing to fold,
      *                       or compressor failed — all logged, never thrown).
      */
-    public function compact(AiPreset $preset, ?string $focus = null): ?Message;
+    public function compact(AiPreset $preset, ?string $focus = null, ?string $threadHint = null): ?Message;
 
     /**
      * Count messages currently in the active window (compacted=false, non-system)

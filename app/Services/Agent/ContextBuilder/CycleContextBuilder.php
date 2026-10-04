@@ -193,9 +193,10 @@ class CycleContextBuilder implements ContextBuilderInterface
             ]);
         }
 
-        // Inject loaded-skill bodies as the OLDEST messages — the very last step,
-        // so RAG / compaction / recap (all already run above) are untouched.
-        $context = $this->contextInjection->injectLoadedSkills($context, $preset);
+        // Inject desktop material (goal in focus, loaded skills) as the OLDEST
+        // messages — the very last step, so RAG / compaction / recap (all already
+        // run above) are untouched.
+        $context = $this->contextInjection->inject($context, $preset);
 
         return $context;
     }

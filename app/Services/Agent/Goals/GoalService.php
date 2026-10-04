@@ -172,7 +172,7 @@ class GoalService implements GoalServiceInterface
                 $this->syncGoalStatusWithHeart($preset, $goal->title, Goal::STATUS_ACTIVE);
             }
 
-            $message = "Goal [{$goalNumber}] is now in focus: {$goal->title}.";
+            $message = "Goal [{$goalNumber}] is now in focus: {$goal->title}" . ($resumed ? ' (resumed from paused).' : '.');
             if ($resumed) {
                 $message .= ' (resumed from paused)';
             }
@@ -370,21 +370,19 @@ class GoalService implements GoalServiceInterface
                 continue;
             }
 
+            // One line per goal: an inventory of intentions, not their content.
+            // Motivation and progress live in the focused-goal block (or `show`).
             $line = '[' . ($index + 1) . "] {$goal->title}";
-            if ($goal->motivation) {
-                $line .= " | {$goal->motivation}";
-            }
 
             if ($goal->isFocused()) {
-                // No last note here — the whole history is on the desk.
-                $focusedLine = "▶ {$line} — IN FOCUS ({$goal->progress_count} progress notes, full history in context)";
+                $focusedLine = "▶ {$line} — IN FOCUS (full history in context)";
                 continue;
             }
 
-            $lastProgress = $goal->progress()->reorder()->latest()->first();
-            if ($lastProgress) {
-                $line .= " → {$lastProgress->content}";
+            if ($goal->progress_count > 0) {
+                $line .= " ({$goal->progress_count} notes)";
             }
+
             $lines[] = $line;
         }
 
@@ -392,7 +390,9 @@ class GoalService implements GoalServiceInterface
             array_unshift($lines, $focusedLine);
         }
 
-        return empty($lines) ? 'none' : implode("\n", $lines);
+        $body = empty($lines) ? 'none' : implode("\n", $lines);
+
+        return "[ACTIVE GOALS]\n{$body}\n[/ACTIVE GOALS]";
     }
 
     /**

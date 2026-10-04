@@ -20,7 +20,7 @@ Each goal has one of four statuses:
 | `done` | Achieved. |
 | `dropped` | Abandoned on purpose — the agent decided it no longer wants this. |
 
-Progress notes are timestamped and accumulate over time, forming a history of what the agent discovered or did toward that goal.
+Progress notes are timestamped and accumulate over time, forming a history of what the agent discovered or did toward that goal. Notes are append-only: they record what happened, not a value that keeps being overwritten.
 
 ### Focus
 
@@ -55,13 +55,17 @@ Add this to the preset's system prompt to keep active goals visible every cycle:
 [[active_goals]]
 ```
 
-Each active goal is shown with its motivation and the most recent progress note. The goal in focus is listed first and marked; its last note is not repeated, since the whole history is already in context:
+The block is a one-line-per-goal inventory of the agent's intentions: number, title and how many progress notes the goal has. Motivation and progress are not repeated here — they live in the focused-goal block, or are one `[goal show]` away. The goal in focus is listed first and marked:
 
 ```
-▶ [3] Understand how compaction affects recall | curiosity — IN FOCUS (12 progress notes, full history in context)
-[1] Explore memory architecture | curiosity about persistence → Found saturation penalty approach
-[5] Learn Eugeny's daily rhythm → He works late on weekdays
+[ACTIVE GOALS]
+▶ [3] Understand how compaction affects recall — IN FOCUS (full history in context)
+[1] Explore memory architecture (4 notes)
+[5] Learn Eugeny's daily rhythm (2 notes)
+[/ACTIVE GOALS]
 ```
+
+With no active goals the block still renders, with `none` inside — so the agent sees that it has no goals rather than that the block is missing.
 
 ## What the agent sees in focus
 
@@ -146,6 +150,7 @@ Goals are well suited for agents running in continuous autonomous loops — they
 
 - Creating a goal when starting an exploration: `[goal]Understand Eugeny's relationship with time | motivation: came up in conversation, felt significant[/goal]`
 - Focusing on it when actually working on it: `[goal focus]1[/goal]`
+- Turning any multi-step request into a focused goal, with the steps and conditions copied into the first progress note — the conversation history is short and drops older messages, the focused goal does not
 - Adding a progress note after each relevant step — short, without a number: `[goal progress]He mentioned feeling rushed — time pressure seems to shape his decisions[/goal]`
 - Switching focus to another goal when attention moves — the previous one stays active and keeps its history
 - Pausing a goal that can't move forward right now, dropping one that turned out not to matter

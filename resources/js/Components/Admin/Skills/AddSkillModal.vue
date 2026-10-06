@@ -52,7 +52,7 @@
                                     <div>
                                         <label
                                             :class="['block text-sm font-medium mb-2', isDark ? 'text-gray-300' : 'text-gray-700']">{{
-                                            t('sk_title') }} *</label>
+                                                t('sk_title') }} *</label>
                                         <input v-model="form.title" type="text" :placeholder="t('sk_title_placeholder')"
                                             :class="['w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 transition-all px-4 py-3', form.errors.title ? 'ring-red-500 focus:ring-red-500' : 'focus:ring-emerald-500', isDark ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600' : 'bg-gray-50 text-gray-900 placeholder-gray-500 ring-gray-300']" />
                                         <div v-if="form.errors.title" class="mt-1 text-xs text-red-500">{{
@@ -66,11 +66,38 @@
                                             {{ t('sk_description') }}
                                             <span
                                                 :class="['ml-1 text-xs font-normal', isDark ? 'text-gray-500' : 'text-gray-400']">{{
-                                                t('sk_optional') }}</span>
+                                                    t('sk_optional') }}</span>
                                         </label>
                                         <input v-model="form.description" type="text"
                                             :placeholder="t('sk_description_placeholder')"
                                             :class="['w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-4 py-3', isDark ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600' : 'bg-gray-50 text-gray-900 placeholder-gray-500 ring-gray-300']" />
+                                    </div>
+
+                                    <!-- Tools (optional) — lazy-skills -->
+                                    <div>
+                                        <label
+                                            :class="['block text-sm font-medium mb-2', isDark ? 'text-gray-300' : 'text-gray-700']">
+                                            {{ t('sk_tools') }}
+                                            <span
+                                                :class="['ml-1 text-xs font-normal', isDark ? 'text-gray-500' : 'text-gray-400']">{{
+                                                    t('sk_optional') }}</span>
+                                        </label>
+                                        <input v-model="toolsText" type="text" :placeholder="t('sk_tools_placeholder')"
+                                            :class="['w-full rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-4 py-3 font-mono text-sm', isDark ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600' : 'bg-gray-50 text-gray-900 placeholder-gray-500 ring-gray-300']" />
+                                        <p :class="['text-xs mt-1', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                            {{ t('sk_tools_hint') }}</p>
+                                        <!-- Recognition chips: which entered names are active plugins -->
+                                        <div v-if="parsedTools.length" class="flex flex-wrap gap-1.5 mt-2">
+                                            <span v-for="tool in parsedTools" :key="tool"
+                                                :class="['inline-flex items-center px-2 py-0.5 rounded text-xs font-mono',
+                                                    isKnownTool(tool)
+                                                        ? (isDark ? 'bg-emerald-900 text-emerald-300' : 'bg-emerald-100 text-emerald-800')
+                                                        : (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500')]">
+                                                {{ tool }}
+                                                <span v-if="!isKnownTool(tool)" class="ml-1 opacity-70">· {{
+                                                    t('sk_tool_inactive') }}</span>
+                                            </span>
+                                        </div>
                                     </div>
 
                                     <!-- First item (optional) -->
@@ -80,7 +107,7 @@
                                             {{ t('sk_first_item') }}
                                             <span
                                                 :class="['ml-1 text-xs font-normal', isDark ? 'text-gray-500' : 'text-gray-400']">{{
-                                                t('sk_optional') }}</span>
+                                                    t('sk_optional') }}</span>
                                         </label>
                                         <textarea v-model="form.first_item" rows="4"
                                             :placeholder="t('sk_first_item_placeholder')"
@@ -102,7 +129,7 @@
                                     :class="['px-6 py-4 border-t flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-3 space-y-3 space-y-reverse sm:space-y-0', isDark ? 'border-gray-700' : 'border-gray-200']">
                                     <button type="button" @click="close"
                                         :class="['w-full sm:w-auto px-4 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-gray-500', isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']">{{
-                                        t('sk_cancel') }}</button>
+                                            t('sk_cancel') }}</button>
                                     <button type="submit" :disabled="form.processing || !form.title?.trim()"
                                         :class="['w-full sm:w-auto px-6 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed', isDark ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white']">
                                         <span v-if="form.processing" class="flex items-center justify-center">
@@ -128,7 +155,7 @@
 </template>
 
 <script setup>
-import { computed, watch, onUnmounted } from 'vue';
+import { computed, ref, watch, onUnmounted } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
 
@@ -138,6 +165,10 @@ const props = defineProps({
     modelValue: Boolean,
     preset: Object,
     isDark: Boolean,
+    availablePluginNames: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const emit = defineEmits(['update:modelValue', 'success']);
@@ -147,7 +178,19 @@ const show = computed({
     set: (v) => emit('update:modelValue', v),
 });
 
-const form = useForm({ preset_id: null, title: '', description: '', first_item: '' });
+const form = useForm({ preset_id: null, title: '', description: '', first_item: '', tools: [] });
+
+// tools are edited as a comma-separated string, parsed to an array on submit.
+const toolsText = ref('');
+
+const parsedTools = computed(() =>
+    toolsText.value
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+);
+
+const isKnownTool = (name) => props.availablePluginNames.includes(name);
 
 const handleEscape = (e) => { if (e.key === 'Escape' && show.value) close(); };
 
@@ -155,11 +198,13 @@ const close = () => {
     show.value = false;
     form.reset();
     form.clearErrors();
+    toolsText.value = '';
     document.body.style.overflow = '';
 };
 
 const submit = () => {
     form.preset_id = props.preset?.id;
+    form.tools = parsedTools.value;
     form.post(route('admin.skills.store'), {
         onSuccess: () => { close(); emit('success'); },
     });

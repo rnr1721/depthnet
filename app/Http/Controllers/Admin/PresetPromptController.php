@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Models\PresetServiceInterface;
-use App\Contracts\Agent\PresetPromptServiceInterface;
+use App\Contracts\Agent\Prompt\PresetPromptServiceInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Preset\CreatePresetPromptRequest;
 use App\Http\Requests\Admin\Preset\UpdatePresetPromptRequest;

@@ -360,10 +360,10 @@ class DeepSeekModel implements AIModelEngineInterface
                 throw new AiModelException("DeepSeek API Error ({$response->status()}): {$errorMessage}");
             }
 
-            $result      = $response->json();
-            $choice      = $result['choices'][0] ?? null;
+            $result       = $response->json();
+            $choice        = $result['choices'][0] ?? null;
             $finishReason = $choice['finish_reason'] ?? null;
-            $message     = $choice['message'] ?? null;
+            $message      = $choice['message'] ?? null;
 
             // Log token usage if enabled
             if (isset($result['usage']) && config('ai.engines.deepseek.log_usage', true)) {
@@ -396,8 +396,40 @@ class DeepSeekModel implements AIModelEngineInterface
                 );
             }
 
-            // Normal text response path
-            if (!isset($message['content'])) {
+            // Normal text response path.
+            // A missing/empty content is only a real error when the API gave us nothing
+            // structural. When finish_reason explains the emptiness (length after CoT,
+            // content_filter, stop), it's a legitimate empty turn — the Agent loop
+            // handles it. This matters especially for deepseek-reasoner: on
+            // finish_reason='length' the whole token budget may have gone into
+            // reasoning_content, leaving content empty though the turn is valid.
+            $content          = $message['content'] ?? null;
+            $reasoningContent = $message['reasoning_content'] ?? null;
+
+            if ($content === null || trim($content) === '') {
+                $knownReasons = ['stop', 'length', 'content_filter', 'tool_calls'];
+
+                if ($message !== null && in_array($finishReason, $knownReasons, true)) {
+                    $this->logger->info('DeepSeek returned empty content (non-error)', [
+                        'model'         => $this->model,
+                        'finish_reason' => $finishReason,
+                    ]);
+
+                    return new ModelResponseDTO(
+                        '',
+                        false,
+                        array_merge(
+                            $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                            [
+                                'system_prompt'  => $request->getResolvedSystemPrompt(),
+                                'finish_reason'  => $finishReason,
+                                'empty_response' => true,
+                            ]
+                        )
+                    );
+                }
+
+                // No message / unknown finish_reason → genuinely malformed response.
                 $this->logger->warning('Invalid DeepSeek response format', [
                     'response' => $result,
                     'model'    => $this->model,
@@ -408,7 +440,6 @@ class DeepSeekModel implements AIModelEngineInterface
             }
 
             // Log reasoning_content when using deepseek-reasoner (CoT mode)
-            $reasoningContent = $message['reasoning_content'] ?? null;
             if ($reasoningContent) {
                 $this->logger->info('DeepSeek reasoning content received', [
                     'model'            => $this->model,
@@ -417,7 +448,7 @@ class DeepSeekModel implements AIModelEngineInterface
             }
 
             return new ModelResponseDTO(
-                $this->cleanOutput($message['content']),
+                $this->cleanOutput($content),
                 false,
                 array_merge(
                     $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
@@ -592,8 +623,16 @@ class DeepSeekModel implements AIModelEngineInterface
      * Build messages array for the DeepSeek API.
      *
      * DeepSeek is OpenAI-compatible, so the system prompt goes as the first
-     * message. Per DeepSeek spec, reasoning_content from previous turns must
-     * NOT be included in context (we never store it, so nothing to do here).
+     * message.
+     *
+     * reasoning_content handling (per DeepSeek thinking-mode spec):
+     *   - After a tool call, reasoning_content MUST be passed back in every
+     *     subsequent turn or the API returns 400 — so it is re-attached on the
+     *     structured assistant+tool_calls turn.
+     *   - Without a tool call, previous-turn reasoning_content is ignored by the
+     *     API (and rejected by some R1 configs), so it is deliberately NOT
+     *     re-attached on a plain assistant turn. It still lives in metadata for
+     *     the UI.
      *
      * Role mapping:
      *   user    → role: user
@@ -639,7 +678,7 @@ class DeepSeekModel implements AIModelEngineInterface
                     // tool_calls mode: restore structured assistant+tool_calls turn.
                     // The engine stored the raw tool_calls JSON in metadata when it
                     // detected finish_reason='tool_calls' from the API.
-                    $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    $toolCallsRaw     = $metadata['tool_calls_raw'] ?? null;
                     $reasoningContent = $metadata['reasoning_content'] ?? null;
                     if ($toolCallsRaw) {
                         $decoded    = json_decode($toolCallsRaw, true);
@@ -647,7 +686,9 @@ class DeepSeekModel implements AIModelEngineInterface
 
                         if (!empty($toolCalls)) {
                             // Emit null content — OpenAI spec requires content=null
-                            // when tool_calls are present in the assistant turn
+                            // when tool_calls are present in the assistant turn.
+                            // reasoning_content MUST ride along: after a tool call
+                            // DeepSeek requires it back in every subsequent turn (else 400).
                             $assistantMsg = [
                                 'role'       => 'assistant',
                                 'content'    => null,
@@ -663,11 +704,10 @@ class DeepSeekModel implements AIModelEngineInterface
                         }
                     }
 
-                    $msg = ['role' => 'assistant', 'content' => $content];
-                    if ($reasoningContent) {
-                        $msg['reasoning_content'] = $reasoningContent;
-                    }
-                    $messages[] = $msg;
+                    // tag-mode fallback: plain assistant message, no tool call this turn.
+                    // reasoning_content is deliberately NOT re-attached — without a tool
+                    // call DeepSeek ignores it (and some R1 configs 400 on it).
+                    $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
                 case 'result':
                     $toolResults = $metadata['tool_results'] ?? null;

@@ -17,7 +17,7 @@ class IndexGoalRequest extends FormRequest
     {
         return [
             'preset_id'     => ['nullable', 'integer'],
-            'status_filter' => ['nullable', 'string', 'in:active,paused,done,all'],
+            'status_filter' => ['nullable', 'string', 'in:active,paused,done,dropped,all'],
         ];
     }
 

@@ -22,6 +22,10 @@ use App\Contracts\Agent\AiActionsResponseInterface;
  *   containedLongContextPlugin — a needsLongContext plugin ran (work-mode detector)
  *   createdTask     — a task was created this cycle (planner productive signal)
  *   plannerCommitted — planner ended its planning round via [task commit]
+ *   skillLoad       — space-joined skill numbers the model asked to LOAD this cycle
+ *                     (lazy-skills; e.g. "3 7"). Empty when none. The handler splits
+ *                     and drives SkillLoadService::load().
+ *   skillUnload     — space-joined skill numbers the model asked to UNLOAD this cycle.
  */
 class ActionsResponseDTO implements AiActionsResponseInterface
 {
@@ -37,6 +41,8 @@ class ActionsResponseDTO implements AiActionsResponseInterface
         private readonly bool $containedLongContextPlugin = false,
         private readonly bool $createdTask = false,
         private readonly bool $plannerCommitted = false,
+        private readonly string $skillLoad = '',
+        private readonly string $skillUnload = '',
     ) {
     }
 
@@ -60,6 +66,8 @@ class ActionsResponseDTO implements AiActionsResponseInterface
             $this->containedLongContextPlugin,
             $this->createdTask,
             $this->plannerCommitted,
+            $this->skillLoad,
+            $this->skillUnload,
         );
     }
 
@@ -181,5 +189,28 @@ class ActionsResponseDTO implements AiActionsResponseInterface
     public function plannerCommitted(): bool
     {
         return $this->plannerCommitted;
+    }
+
+    /**
+     * Skill numbers the model asked to LOAD this cycle, space-joined (e.g. "3 7").
+     * Empty string when none. AgentActionsHandler splits on whitespace and drives
+     * SkillLoadService::load() for each.
+     *
+     * @return string
+     */
+    public function skillLoad(): string
+    {
+        return $this->skillLoad;
+    }
+
+    /**
+     * Skill numbers the model asked to UNLOAD this cycle, space-joined.
+     * Empty string when none.
+     *
+     * @return string
+     */
+    public function skillUnload(): string
+    {
+        return $this->skillUnload;
     }
 }

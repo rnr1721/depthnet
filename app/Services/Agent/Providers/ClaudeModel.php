@@ -411,9 +411,9 @@ class ClaudeModel implements AIModelEngineInterface
 
             $result = $response->json();
 
+            $stopReason = $result['stop_reason'] ?? null;
+
             // Tool-use path: find type=tool_use blocks in the content array.
-            // Serialize them as a JSON array — ToolCallParser::parse() recognizes
-            // the Anthropic format (blocks with type=tool_use).
             $toolUseBlocks = array_values(array_filter(
                 $result['content'] ?? [],
                 fn ($block) => ($block['type'] ?? '') === 'tool_use'
@@ -430,9 +430,59 @@ class ClaudeModel implements AIModelEngineInterface
                 );
             }
 
-            // Normal text response path
-            if (!isset($result['content'][0]['text'])) {
-                $this->logger->warning("Invalid Claude response format", ['response' => $result]);
+            // refusal — a safety classifier declined, returned as a normal HTTP 200.
+            // Not a parse error, but not a silent empty turn either: surface it as a soft
+            // error so it's visible in the UI and the loop doesn't blindly re-run the same
+            // prompt into the same refusal.
+            if ($stopReason === 'refusal') {
+                $this->logger->warning('Claude declined to respond (refusal)', [
+                    'model' => $this->model,
+                ]);
+                return new ModelResponseDTO(
+                    "error\nClaude declined to respond to this request (safety refusal).",
+                    true
+                );
+            }
+
+            // Collect text blocks. A valid response may legitimately contain no text:
+            // only thinking blocks (thinking-enabled turns begin with one), or nothing at
+            // all when stopped by max_tokens / context window before any text was emitted.
+            $textBlocks = array_values(array_filter(
+                $result['content'] ?? [],
+                fn ($block) => ($block['type'] ?? '') === 'text'
+            ));
+
+            if (empty($textBlocks)) {
+                // stop_reason values that explain an empty/text-less response without it
+                // being a malformed one. Per Anthropic's stop-reason reference.
+                $knownReasons = [
+                    'end_turn',
+                    'max_tokens',
+                    'stop_sequence',
+                    'tool_use',
+                    'pause_turn',
+                    'model_context_window_exceeded',
+                ];
+
+                if (in_array($stopReason, $knownReasons, true)) {
+                    $this->logger->info('Claude returned no text block (non-error)', [
+                        'model'       => $this->model,
+                        'stop_reason' => $stopReason,
+                    ]);
+
+                    return new ModelResponseDTO(
+                        '',
+                        false,
+                        [
+                            'system_prompt'  => $request->getResolvedSystemPrompt(),
+                            'stop_reason'    => $stopReason,
+                            'empty_response' => true,
+                        ]
+                    );
+                }
+
+                // Unknown/absent stop_reason and no text → genuinely malformed response.
+                $this->logger->warning('Invalid Claude response format', ['response' => $result]);
                 $errorMessage = config(
                     'ai.global.error_messages.invalid_format',
                     'Invalid response format from Claude API'
@@ -441,7 +491,7 @@ class ClaudeModel implements AIModelEngineInterface
             }
 
             return new ModelResponseDTO(
-                $this->cleanOutput($result['content'][0]['text']),
+                $this->cleanOutput($textBlocks[0]['text']),
                 false,
                 ['system_prompt' => $request->getResolvedSystemPrompt()]
             );

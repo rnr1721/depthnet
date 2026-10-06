@@ -6,10 +6,11 @@ use App\Contracts\Agent\Models\EngineRegistryInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\PluginManagerFactoryInterface;
-use App\Contracts\Agent\PresetPromptServiceInterface;
+use App\Contracts\Agent\Prompt\PresetPromptServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Models\AiPreset;
 use App\Exceptions\PresetException;
+use App\Models\PresetPrompt;
 use App\Models\PresetPromptVersion;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Collection;
@@ -72,6 +73,9 @@ class PresetService implements PresetServiceInterface
                 'defrag_prompt'       => $data['defrag_prompt'] ?? null,
                 'defrag_keep_per_day' => $data['defrag_keep_per_day'] ?? 3,
                 'cycle_prompt_preset_id' => $data['cycle_prompt_preset_id'] ?? null,
+                'compressor_preset_id'      => $data['compressor_preset_id'] ?? null,
+                'compaction_watchdog_limit' => $data['compaction_watchdog_limit'] ?? null,
+                'knowledge_formulator_preset_id' => $data['knowledge_formulator_preset_id'] ?? null,
                 'cp_context_limit' => $data['cp_context_limit'] ?? null,
                 'voice_mp_commands' => $data['voice_mp_commands'] ?? '',
                 'default_call_message' => $data['default_call_message'] ?? '',
@@ -159,6 +163,9 @@ class PresetService implements PresetServiceInterface
                 'defrag_prompt'       => array_key_exists('defrag_prompt', $data) ? $data['defrag_prompt'] : $preset->defrag_prompt,
                 'defrag_keep_per_day' => array_key_exists('defrag_keep_per_day', $data) ? $data['defrag_keep_per_day'] : $preset->defrag_keep_per_day,
                 'cycle_prompt_preset_id' => array_key_exists('cycle_prompt_preset_id', $data) ? $data['cycle_prompt_preset_id'] : $preset->cycle_prompt_preset_id,
+                'compressor_preset_id'      => array_key_exists('compressor_preset_id', $data) ? $data['compressor_preset_id'] : $preset->compressor_preset_id,
+                'compaction_watchdog_limit' => array_key_exists('compaction_watchdog_limit', $data) ? $data['compaction_watchdog_limit'] : $preset->compaction_watchdog_limit,
+                'knowledge_formulator_preset_id' => array_key_exists('knowledge_formulator_preset_id', $data) ? $data['knowledge_formulator_preset_id'] : $preset->knowledge_formulator_preset_id,
                 'cp_context_limit' => array_key_exists('cp_context_limit', $data) ? $data['cp_context_limit'] : $preset->cp_context_limit,
                 'voice_mp_commands' => array_key_exists('voice_mp_commands', $data) ? $data['voice_mp_commands'] : $preset->voice_mp_commands,
                 'default_call_message' => array_key_exists('default_call_message', $data) ? $data['default_call_message'] : $preset->default_call_message,
@@ -731,6 +738,7 @@ class PresetService implements PresetServiceInterface
 
         $activePromptId = $preset->active_prompt_id;
         $newActiveId    = null;
+        $modeAssignments = [];
 
         foreach ($promptsData as $promptData) {
             if (!empty($promptData['id'])) {
@@ -764,6 +772,15 @@ class PresetService implements PresetServiceInterface
                 );
             }
 
+            // collected after $prompt is resolved in either branch
+            if (array_key_exists('context_mode', $promptData)) {
+                $mode = $promptData['context_mode'] ?? PresetPrompt::MODE_NONE;
+                if (!in_array($mode, PresetPrompt::CONTEXT_MODES, true)) {
+                    $mode = PresetPrompt::MODE_NONE;
+                }
+                $modeAssignments[$prompt->getId()] = $mode;
+            }
+
             if (!empty($promptData['is_active'])) {
                 $newActiveId = $prompt->getId();
             }
@@ -779,6 +796,31 @@ class PresetService implements PresetServiceInterface
                 $editorUserId
             );
             $newActiveId = $prompt->getId();
+        }
+
+        // Phase 2: assign context-mode roles now that every prompt exists with a
+        // real id. Done after the loop so exclusivity (one prompt per mode) is
+        // computed against the FULL final set — not against a half-built one where
+        // prompts created later in the same request wouldn't yet be visible.
+        //
+        // Within one sync, LAST assignment of a given mode wins: we walk the
+        // collected assignments, and for each real (non-none) mode clear it from
+        // all others first, then set it here. If the form somehow tagged two
+        // prompts with the same mode, the later one in array order ends up owning
+        // it — deterministic, no error state.
+        if (!empty($modeAssignments)) {
+            foreach ($modeAssignments as $promptId => $mode) {
+                if ($mode !== PresetPrompt::MODE_NONE) {
+                    $preset->prompts()
+                        ->where('id', '!=', $promptId)
+                        ->where('context_mode', $mode)
+                        ->update(['context_mode' => PresetPrompt::MODE_NONE]);
+                }
+
+                $preset->prompts()
+                    ->where('id', $promptId)
+                    ->update(['context_mode' => $mode]);
+            }
         }
 
         // Resolve active prompt: explicit is_active -> previous active -> first.
@@ -831,6 +873,9 @@ class PresetService implements PresetServiceInterface
             'defrag_prompt'       => 'nullable|string',
             'defrag_keep_per_day' => 'nullable|integer|min:1|max:20',
             'cycle_prompt_preset_id' => 'nullable|integer|exists:ai_presets,id',
+            'compressor_preset_id'      => 'nullable|integer|exists:ai_presets,id',
+            'compaction_watchdog_limit' => 'nullable|integer|min:0|max:200',
+            'knowledge_formulator_preset_id' => 'nullable|integer|exists:ai_presets,id',
             'cp_context_limit' => 'required|integer|min:4|max:20',
             'voice_mp_commands' => 'nullable|string',
             'default_call_message' => 'nullable|string',

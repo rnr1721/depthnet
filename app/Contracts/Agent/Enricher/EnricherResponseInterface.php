@@ -51,4 +51,23 @@ interface EnricherResponseInterface
      * @return array<string, true>
      */
     public function getRetrievedIds(): array;
+
+    /**
+     * Text to persist as a system message for UI visibility, or null.
+     *
+     * The enricher no longer writes this itself — it only carries the text.
+     * The pipeline service decides whether to persist it: the real cycle does,
+     * warm-up suppresses it. This keeps the enricher free of DB side effects.
+     *
+     * @return string|null
+     */
+    public function getSystemMessage(): ?string;
+
+    /**
+     * Preset id the system message belongs to (the RAG preset), or null.
+     * Used by the pipeline as the message's preset_id when persisting.
+     *
+     * @return int|null
+     */
+    public function getSystemMessagePresetId(): ?int;
 }

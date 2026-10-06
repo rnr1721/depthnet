@@ -10,17 +10,21 @@ use App\Contracts\Agent\Behavior\BehaviorCoordinatorInterface;
 use App\Contracts\Agent\CommandInstructionBuilderInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\Compaction\CompactionServiceInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
+use App\Contracts\Agent\Goals\GoalServiceInterface;
 use App\Contracts\Agent\Memory\MemoryServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Agent\Prompt\ModePromptSwitcherInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
+use App\Services\Agent\Plugins\CompactPlugin;
 use App\Services\Agent\Plugins\ReflectPlugin;
 use Psr\Log\LoggerInterface;
 
@@ -89,6 +93,9 @@ class Agent implements AgentInterface
         protected ContextModeResolverInterface $contextModeResolver,
         protected LoggerInterface $logger,
         protected ?BehaviorCoordinatorInterface $behavior = null,
+        protected ?CompactionServiceInterface $compaction = null,
+        protected ?ModePromptSwitcherInterface $modePromptSwitcher = null,
+        protected ?GoalServiceInterface $goalService = null,
     ) {
     }
 
@@ -103,6 +110,12 @@ class Agent implements AgentInterface
         $presetId = $currentPreset->getId();
         try {
             $this->setupPresetEnvironment($currentPreset);
+
+            // Consolidate BEFORE assembling context: an agent-armed [compact],
+            // or the watchdog when the window has grown too large. Either writes
+            // the recap and folds the range, so buildContext() below sees the
+            // fresh, post-fold window with the recap as its trailing turn.
+            $this->maybeCompact($currentPreset);
 
             $context  = $this->buildContext($currentPreset);
             $response = $this->generateResponse($context, $currentPreset);
@@ -171,6 +184,117 @@ class Agent implements AgentInterface
                 $additionalParams
             )
         );
+    }
+
+    /**
+     * Run a compaction pass this cycle when either trigger fires:
+     *
+     *   agent-driven — CompactPlugin armed a one-shot flag last cycle (the
+     *                  primary, semantic trigger: the agent decided a boundary
+     *                  was reached). Consumed read-once, like the pre-pass flag.
+     *   watchdog     — the active window has grown past the preset's
+     *                  compaction_watchdog_limit (the safety net for when the
+     *                  agent never calls [compact] itself).
+     *
+     * No-op when compaction isn't wired (service absent or no compressor preset).
+     * The agent flag wins over the watchdog — if both would fire, the explicit
+     * agent focus is honoured and the watchdog check is moot (the window shrinks).
+     */
+    protected function maybeCompact(AiPreset $preset): void
+    {
+        if ($this->compaction === null || !$preset->hasCompaction()) {
+            return;
+        }
+
+        // 1) Agent-driven one-shot flag (consume read-once, like the pre-pass).
+        $pending = $this->pluginMetadataService->get(
+            $preset,
+            CompactPlugin::PLUGIN_NAME,
+            CompactPlugin::META_PENDING,
+            false
+        );
+
+        if ($pending) {
+            $this->pluginMetadataService->remove(
+                $preset,
+                CompactPlugin::PLUGIN_NAME,
+                CompactPlugin::META_PENDING
+            );
+
+            $focus = $this->pluginMetadataService->get(
+                $preset,
+                CompactPlugin::PLUGIN_NAME,
+                CompactPlugin::META_FOCUS,
+                null
+            );
+
+            if ($focus !== null) {
+                $this->pluginMetadataService->remove(
+                    $preset,
+                    CompactPlugin::PLUGIN_NAME,
+                    CompactPlugin::META_FOCUS
+                );
+            }
+
+            $this->compaction->compact($preset, is_string($focus) ? $focus : null);
+            return; // agent trigger handled — don't also watchdog this cycle
+        }
+
+        // 2) Watchdog: fold when the active window outgrows the CURRENT MODE's
+        // context limit by more than the configured slack. Critically, the
+        // threshold is relative to the mode's context limit (normal vs extended),
+        // NOT an absolute count — otherwise the watchdog fires in extended (work)
+        // mode before the window ever reaches its larger extended ceiling, folding
+        // an instrumental agent mid-task. compaction_watchdog_limit is read as the
+        // SLACK above the mode limit: fold once activeWindow >= modeLimit + slack.
+        // 0/null slack disables the watchdog (agent-driven [compact] still works).
+        $slack = $preset->getCompactionWatchdogLimit();
+        if ($slack === null) {
+            return; // watchdog off
+        }
+
+        $modeLimit   = $this->contextModeResolver->activeContextLimit($preset);
+        $threshold   = $modeLimit + $slack;
+        $activeCount = $this->compaction->activeWindowCount($preset);
+
+        if ($activeCount >= $threshold) {
+            $this->logger->info('Agent: watchdog compaction triggered', [
+                'preset_id'    => $preset->getId(),
+                'active_count' => $activeCount,
+                'mode_limit'   => $modeLimit,
+                'slack'        => $slack,
+                'threshold'    => $threshold,
+            ]);
+            // No agent focus — the journal type stays mode-derived. If a goal is in
+            // focus, the compressor gets it as a thread hint so the recap keeps it.
+            $this->compaction->compact($preset, null, $this->watchdogThreadHint($preset));
+        }
+    }
+
+    /**
+     * Thread hint for a watchdog fold: the goal in focus, if any. Goes to the
+     * compressor only (not the journal-type heuristic). Null when goals are not
+     * wired or nothing is in focus — then the fold is exactly as before.
+     */
+    private function watchdogThreadHint(AiPreset $preset): ?string
+    {
+        if ($this->goalService === null) {
+            return null;
+        }
+
+        try {
+            $goal = $this->goalService->getFocusedGoal($preset);
+        } catch (\Throwable $e) {
+            $this->logger->warning('Agent: could not read focused goal for watchdog fold', [
+                'preset_id' => $preset->getId(),
+                'error'     => $e->getMessage(),
+            ]);
+            return null;
+        }
+
+        return $goal
+            ? "The agent is currently focused on the goal \"{$goal->title}\" — keep where it stands on that goal clearly in the recap."
+            : null;
     }
 
     /**
@@ -411,6 +535,13 @@ class Agent implements AgentInterface
         // winner's behavior can shape the speaking pass via [[behavior]].
         $this->registerBehaviorShortcode($preset);
 
+        // Mode-aware prompt: make the active prompt match the current context
+        // mode (idempotent; inert when no prompt of this preset is mode-tagged).
+        // Runs here so it happens after the mode is resolved and before the
+        // prompt is assembled for generation.
+        if ($this->modePromptSwitcher !== null) {
+            $this->modePromptSwitcher->syncActivePromptForMode($preset);
+        }
 
         $this->commandPreRunner->run($preset, $preset);
     }

@@ -38,9 +38,6 @@ class GoalController extends Controller
 
         $goals = [];
         if ($currentPreset) {
-            $result = $this->goalService->listGoals($currentPreset, 'all');
-            // We need structured data, not formatted string — fetch raw from service
-            // GoalService::listGoals returns formatted string, so we go directly to the model
             $goals = $this->getStructuredGoals($currentPreset);
         }
 
@@ -145,17 +142,22 @@ class GoalController extends Controller
         // Re-use the Goal model via the service's underlying query
         // Since GoalService doesn't expose raw data, we inject the model via the registry
         // or resolve it from the container. Adjust the namespace if needed.
-        $goals = \App\Models\Goal::where('preset_id', $preset->id)
-            ->orderBy('position')
+        $goals = \App\Models\Goal::forPreset($preset->id)
+            ->ordered()
             ->with(['progress' => fn ($q) => $q->orderBy('created_at')])
-            ->get();
+            ->get()
+            ->values();
 
-        return $goals->map(fn ($goal) => [
+        // number = 1-based index in the ordered list — the same numbering every
+        // GoalService command and the agent resolve. NOT `position`: positions
+        // keep gaps after a goal is deleted, indexes don't.
+        return $goals->map(fn ($goal, $index) => [
             'id'         => $goal->id,
-            'number'     => $goal->position,
+            'number'     => $index + 1,
             'title'      => $goal->title,
             'motivation' => $goal->motivation,
             'status'     => $goal->status,
+            'focused'    => $goal->isFocused(),
             'progress'   => $goal->progress->map(fn ($p) => [
                 'id'         => $p->id,
                 'content'    => $p->content,
@@ -165,15 +167,19 @@ class GoalController extends Controller
     }
 
     /**
-     * Delete a goal by its display number (position-based, 1-indexed).
+     * Delete a goal by its display number (1-based index in the ordered list).
+     * If the goal was in focus, the focus goes with it — the marker lives on the row.
      */
     private function deleteGoalByNumber($preset, int $number): bool
     {
-        $goals = \App\Models\Goal::where('preset_id', $preset->id)
-            ->orderBy('position')
-            ->get();
+        if ($number < 1) {
+            return false;
+        }
 
-        $goal = $goals[$number - 1] ?? null;
+        $goal = \App\Models\Goal::forPreset($preset->id)
+            ->ordered()
+            ->skip($number - 1)
+            ->first();
 
         if (!$goal) {
             return false;

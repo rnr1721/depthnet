@@ -49,6 +49,7 @@ class PresetRagConfig extends Model
         'sort_order',
         'is_primary',
         'context_mode',
+        'prewarmable',
         'sources',
         'rag_mode',
         'rag_engine',
@@ -64,6 +65,7 @@ class PresetRagConfig extends Model
     protected $casts = [
         'is_primary'                 => 'boolean',
         'rag_relative_dates'         => 'boolean',
+        'prewarmable'                => 'boolean',
         'sources'                    => 'array',
         'sort_order'                 => 'integer',
         'rag_context_limit'          => 'integer',
@@ -78,6 +80,7 @@ class PresetRagConfig extends Model
         'sort_order'                 => 0,
         'is_primary'                 => false,
         'context_mode'               => 'both',
+        'prewarmable'                => false,
         'rag_mode'                   => 'flat',
         'rag_engine'                 => 'tfidf',
         'rag_context_limit'          => 5,
@@ -231,5 +234,19 @@ class PresetRagConfig extends Model
         }
 
         return $extended ? ($mode === 'extended') : ($mode === 'normal');
+    }
+
+    /**
+     * Whether this config may be assembled ahead of the next user message
+     * (warm-up). A prewarmable level is background memory — its retrieval does
+     * not depend on what the user says next, so it can be prepared while the
+     * agent is idle and served warm on the next cycle.
+     *
+     * A non-prewarmable level is reactive: it must see the fresh incoming
+     * message, so it is always assembled synchronously in the cycle.
+     */
+    public function isPrewarmable(): bool
+    {
+        return (bool) ($this->prewarmable ?? false);
     }
 }

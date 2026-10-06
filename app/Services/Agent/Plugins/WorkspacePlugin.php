@@ -59,7 +59,8 @@ class WorkspacePlugin implements CommandPluginInterface
 
     public function getDescription(array $config = []): string
     {
-        return 'Persistent cross-session key-value scratchpad. that survive across thinking cycles.';
+        return 'Persistent key-value scratchpad for current state: values you overwrite as they change. '
+            . 'Each key holds only its latest value; always visible across cycles.';
     }
 
     public function getInstructions(array $config = []): array
@@ -71,6 +72,7 @@ class WorkspacePlugin implements CommandPluginInterface
             'Delete a single key:     [workspace delete]key[/workspace]',
             'Wipe entire workspace:   [workspace clear][/workspace]',
             'List all keys:           [workspace list][/workspace]',
+            'Each key holds only its latest value. Delete keys that belonged to a finished task, so stale state does not linger.',
         ];
 
         $warning = $this->buildLanguageWarning($config, 'workspace_language', 'workspace entries');
@@ -97,10 +99,12 @@ class WorkspacePlugin implements CommandPluginInterface
 
         return [
             'name'        => self::PLUGIN_NAME,
-            'description' => 'Persistent cross-session key-value scratchpad. '
-                . 'Stores named, independently updatable keys that survive across thinking cycles. '
+            'description' => 'Persistent key-value scratchpad for current state: named values you overwrite as they change '
+                . '(working variables, current drafts, lists of what remains to do). '
+                . 'Each key holds only its latest value — no history. '
+                . 'Survives across thinking cycles and is always visible. '
                 . $langInstruction
-                . 'Use for active task state, working variables, drafts, plans.',
+                . 'Delete keys that belonged to a finished task, so stale state does not linger.',
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [

@@ -21,17 +21,31 @@
                             <div :class="['px-6 py-4 border-b', isDark ? 'border-gray-700' : 'border-gray-200']">
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center space-x-3 min-w-0">
-                                        <span :class="['font-mono text-sm font-bold px-2.5 py-1 rounded-lg flex-shrink-0', isDark ? 'bg-amber-900 text-amber-300' : 'bg-amber-100 text-amber-800']">#{{ goal?.number }}</span>
+                                        <span
+                                            :class="['font-mono text-sm font-bold px-2.5 py-1 rounded-lg flex-shrink-0', isDark ? 'bg-amber-900 text-amber-300' : 'bg-amber-100 text-amber-800']">#{{
+                                                goal?.number }}</span>
                                         <div class="min-w-0">
                                             <div class="flex items-center gap-2">
-                                                <h3 :class="['text-lg font-semibold truncate', isDark ? 'text-white' : 'text-gray-900']">{{ goal?.title }}</h3>
-                                                <span v-if="goal" :class="statusBadgeClass(goal.status)">{{ t('gm_status_' + goal.status) }}</span>
+                                                <h3
+                                                    :class="['text-lg font-semibold truncate', isDark ? 'text-white' : 'text-gray-900']">
+                                                    {{ goal?.title }}</h3>
+                                                <span v-if="goal" :class="statusBadgeClass(goal.status)">{{
+                                                    t('gm_status_' + goal.status) }}</span>
+                                                <span v-if="goal?.focused"
+                                                    :class="['inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0', isDark ? 'bg-orange-900 text-orange-200' : 'bg-orange-100 text-orange-800']">▶
+                                                    {{ t('gm_in_focus') }}</span>
                                             </div>
-                                            <p v-if="goal?.motivation" :class="['text-xs mt-0.5', isDark ? 'text-gray-400' : 'text-gray-500']">💡 {{ goal.motivation }}</p>
+                                            <p v-if="goal?.motivation"
+                                                :class="['text-xs mt-0.5', isDark ? 'text-gray-400' : 'text-gray-500']">
+                                                💡 {{ goal.motivation }}</p>
                                         </div>
                                     </div>
-                                    <button @click="close" :class="['ml-4 flex-shrink-0 rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500', isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-600']">
-                                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                    <button @click="close"
+                                        :class="['ml-4 flex-shrink-0 rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500', isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-600']">
+                                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
                                     </button>
                                 </div>
                             </div>
@@ -45,10 +59,15 @@
                                 <div v-else class="divide-y" :class="isDark ? 'divide-gray-700' : 'divide-gray-200'">
                                     <div v-for="(entry, idx) in goal.progress" :key="entry.id"
                                         :class="['px-6 py-4 flex items-start space-x-3', isDark ? 'hover:bg-gray-750' : 'hover:bg-gray-50']">
-                                        <span :class="['font-mono text-xs font-bold mt-0.5 flex-shrink-0', isDark ? 'text-amber-400' : 'text-amber-600']">{{ idx + 1 }}.</span>
+                                        <span
+                                            :class="['font-mono text-xs font-bold mt-0.5 flex-shrink-0', isDark ? 'text-amber-400' : 'text-amber-600']">{{
+                                                idx + 1 }}.</span>
                                         <div class="flex-1 min-w-0">
-                                            <p :class="['text-sm leading-relaxed', isDark ? 'text-gray-300' : 'text-gray-700']">{{ entry.content }}</p>
-                                            <p :class="['text-xs mt-1', isDark ? 'text-gray-500' : 'text-gray-400']">{{ entry.created_at }}</p>
+                                            <p
+                                                :class="['text-sm leading-relaxed', isDark ? 'text-gray-300' : 'text-gray-700']">
+                                                {{ entry.content }}</p>
+                                            <p :class="['text-xs mt-1', isDark ? 'text-gray-500' : 'text-gray-400']">{{
+                                                entry.created_at }}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -56,12 +75,16 @@
 
                             <!-- Inline add progress -->
                             <div :class="['px-6 py-4 border-t', isDark ? 'border-gray-700' : 'border-gray-200']">
-                                <label :class="['block text-sm font-medium mb-2', isDark ? 'text-gray-300' : 'text-gray-700']">{{ t('gm_add_progress') }}</label>
+                                <label
+                                    :class="['block text-sm font-medium mb-2', isDark ? 'text-gray-300' : 'text-gray-700']">{{
+                                        t('gm_add_progress') }}</label>
                                 <div class="flex gap-2">
-                                    <textarea v-model="progressNote" rows="2" :placeholder="t('gm_progress_placeholder')"
+                                    <textarea v-model="progressNote" rows="2"
+                                        :placeholder="t('gm_progress_placeholder')"
                                         :class="['flex-1 rounded-xl border-0 ring-1 ring-inset focus:ring-2 focus:ring-amber-500 transition-all resize-none px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white placeholder-gray-400 ring-gray-600' : 'bg-gray-50 text-gray-900 placeholder-gray-500 ring-gray-300']"
                                         @keydown.ctrl.enter="submitProgress"></textarea>
-                                    <button @click="submitProgress" :disabled="progressForm.processing || !progressNote.trim()"
+                                    <button @click="submitProgress"
+                                        :disabled="progressForm.processing || !progressNote.trim()"
                                         :class="['px-4 rounded-xl font-medium text-sm transition-all focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50 self-end py-2', isDark ? 'bg-amber-600 hover:bg-amber-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white']">
                                         {{ t('gm_save') }}
                                     </button>
@@ -69,7 +92,8 @@
                             </div>
 
                             <!-- Footer -->
-                            <div :class="['px-6 py-4 border-t flex justify-end', isDark ? 'border-gray-700' : 'border-gray-200']">
+                            <div
+                                :class="['px-6 py-4 border-t flex justify-end', isDark ? 'border-gray-700' : 'border-gray-200']">
                                 <button @click="close"
                                     :class="['px-4 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-gray-500', isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']">
                                     {{ t('gm_close') }}
@@ -118,16 +142,17 @@ const close = () => {
 const statusBadgeClass = (status) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium';
     if (status === 'active') return `${base} ${props.isDark ? 'bg-amber-900 text-amber-300' : 'bg-amber-100 text-amber-800'}`;
-    if (status === 'done')   return `${base} ${props.isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-800'}`;
+    if (status === 'done') return `${base} ${props.isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-800'}`;
     if (status === 'paused') return `${base} ${props.isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`;
+    if (status === 'dropped') return `${base} ${props.isDark ? 'bg-rose-900 text-rose-300' : 'bg-rose-100 text-rose-700'}`;
     return base;
 };
 
 const submitProgress = () => {
     if (!progressNote.value.trim()) return;
-    progressForm.preset_id   = props.preset?.id;
+    progressForm.preset_id = props.preset?.id;
     progressForm.goal_number = props.goal?.number;
-    progressForm.content     = progressNote.value;
+    progressForm.content = progressNote.value;
     progressForm.post(route('admin.goals.progress'), {
         onSuccess: () => {
             progressNote.value = '';

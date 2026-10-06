@@ -29,6 +29,7 @@ use App\Contracts\Agent\CommandParserInterface;
 use App\Contracts\Agent\CommandPreProcessorInterface;
 use App\Contracts\Agent\CommandPreRunnerInterface;
 use App\Contracts\Agent\CommandResultPoolInterface;
+use App\Contracts\Agent\Compaction\CompactionServiceInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Contract\ContractMemoWriterInterface;
@@ -40,8 +41,11 @@ use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\InnerVoiceEnricherInterface;
 use App\Contracts\Agent\Enricher\PersonContextEnricherInterface;
 use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
+use App\Contracts\Agent\Enricher\Rag\RagAssemblyCacheInterface;
 use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
+use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\Enricher\Rag\RagSectionRendererRegistryInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSilentCacheInterface;
 use App\Contracts\Agent\EnvironmentInfoServiceInterface;
 use App\Contracts\Agent\Exchange\PresetExporterInterface;
 use App\Contracts\Agent\Exchange\PresetImporterInterface;
@@ -74,9 +78,10 @@ use App\Contracts\Agent\Plugins\TfIdfServiceInterface;
 use App\Contracts\Agent\PresetInnerVoiceConfigServiceInterface;
 use App\Contracts\Agent\PresetMetadataServiceInterface;
 use App\Contracts\Agent\PresetPluginDataServiceInterface;
-use App\Contracts\Agent\PresetPromptServiceInterface;
 use App\Contracts\Agent\PresetRagConfigServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
+use App\Contracts\Agent\Prompt\ModePromptSwitcherInterface;
+use App\Contracts\Agent\Prompt\PresetPromptServiceInterface;
 use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
@@ -138,6 +143,7 @@ use App\Services\Agent\CommandParserSmart;
 use App\Services\Agent\CommandPreProcessor;
 use App\Services\Agent\CommandPreRunner;
 use App\Services\Agent\CommandResultPoolService;
+use App\Services\Agent\Compaction\CompactionService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\ContextModeResolver;
 use App\Services\Agent\Contract\ContractMemoWriter;
@@ -154,8 +160,11 @@ use App\Services\Agent\Enricher\EnricherFactory;
 use App\Services\Agent\Enricher\InnerVoiceEnricher;
 use App\Services\Agent\Enricher\PersonContextEnricher;
 use App\Services\Agent\Enricher\Rag\RagAggregatorService;
+use App\Services\Agent\Enricher\Rag\RagAssemblyCache;
 use App\Services\Agent\Enricher\Rag\RagContentFormatter;
+use App\Services\Agent\Enricher\Rag\RagPipelineService;
 use App\Services\Agent\Enricher\Rag\RagSectionRendererRegistry;
+use App\Services\Agent\Enricher\Rag\RagSilentCache;
 use App\Services\Agent\Enricher\Rag\Renderers\FilesSectionRenderer;
 use App\Services\Agent\Enricher\Rag\Renderers\JournalSectionRenderer;
 use App\Services\Agent\Enricher\Rag\Renderers\MemoryAdditionalRenderer;
@@ -202,12 +211,14 @@ use App\Services\Agent\Plugins\AgentTaskPlugin;
 use App\Services\Agent\Plugins\BehaviorPlugin;
 use App\Services\Agent\Plugins\BeingPlugin;
 use App\Services\Agent\Plugins\CodePlugin;
+use App\Services\Agent\Plugins\CompactPlugin;
 use App\Services\Agent\Plugins\ContractPlugin;
 use App\Services\Agent\Plugins\DocumentManagerPlugin;
 use App\Services\Agent\Plugins\DopaminePlugin;
 use App\Services\Agent\Plugins\GoalPlugin;
 use App\Services\Agent\Plugins\HeartPlugin;
 use App\Services\Agent\Plugins\JournalPlugin;
+use App\Services\Agent\Plugins\KnowledgePlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
@@ -235,10 +246,11 @@ use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\WakePlugin;
 use App\Services\Agent\Plugins\WorkspacePlugin;
 use App\Services\Agent\PresetMetadataService;
-use App\Services\Agent\PresetPromptService;
 use App\Services\Agent\PresetRegistry;
 use App\Services\Agent\PresetSandboxService;
 use App\Services\Agent\PresetService;
+use App\Services\Agent\Prompt\ModePromptSwitcher;
+use App\Services\Agent\Prompt\PresetPromptService;
 use App\Services\Agent\Providers\DeepSeekModel;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
@@ -295,6 +307,22 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(MemoryServiceInterface::class, MemoryService::class);
         $this->app->singleton(PersonMemoryServiceInterface::class, PersonMemoryService::class);
 
+        $this->app->singleton(RagSilentCacheInterface::class, function ($app) {
+            return new RagSilentCache(
+                $app->make(\Illuminate\Contracts\Cache\Repository::class),
+                $app->make(LoggerInterface::class),
+            );
+        });
+
+        $this->app->bind(RagPipelineServiceInterface::class, RagPipelineService::class);
+
+        $this->app->singleton(RagAssemblyCacheInterface::class, function ($app) {
+            return new RagAssemblyCache(
+                $app->make(\Illuminate\Contracts\Cache\Repository::class),
+                $app->make(LoggerInterface::class),
+            );
+        });
+
         $this->app->bind(InnerVoiceEnricherInterface::class, InnerVoiceEnricher::class);
         $this->app->bind(CyclePromptEnricherInterface::class, CyclePromptEnricher::class);
         $this->app->bind(PresetInnerVoiceConfigServiceInterface::class, PresetInnerVoiceConfigService::class);
@@ -338,6 +366,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(TfIdfServiceInterface::class, TfIdfService::class);
 
         $this->app->singleton(JournalServiceInterface::class, JournalService::class);
+
+        $this->app->singleton(CompactionServiceInterface::class, CompactionService::class);
 
         $this->app->singleton(OntologyServiceInterface::class, OntologyService::class);
         $this->app->bind(OntologyQueryServiceInterface::class, OntologyQueryService::class);
@@ -448,11 +478,15 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(AgentTaskServiceInterface::class, AgentTaskService::class);
         $this->app->singleton(GoalServiceInterface::class, GoalService::class);
 
+        $this->app->singleton(\App\Services\Agent\Skills\SkillLoadService::class);
+        $this->app->singleton(\App\Services\Agent\Skills\SkillToolGate::class);
+
         $this->app->singleton(SkillServiceInterface::class, SkillService::class);
 
         $this->app->bind(HeartServiceInterface::class, HeartService::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
+        $this->app->bind(\App\Services\Agent\ContextBuilder\ContextInjectionService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
         $this->app->singleton(ShortcodeScopeResolverServiceInterface::class, ShortcodeScopeResolverService::class);
         $this->app->singleton(PlaceholderServiceInterface::class, PlaceholderService::class);
@@ -510,6 +544,7 @@ class AiServiceProvider extends ServiceProvider
         });
         $this->app->bind(AgentMessageServiceInterface::class, AgentMessageService::class);
         $this->app->singleton(PresetPromptServiceInterface::class, PresetPromptService::class);
+        $this->app->singleton(ModePromptSwitcherInterface::class, ModePromptSwitcher::class);
         $this->app->singleton(PresetPluginDataServiceInterface::class, PresetPluginDataService::class);
         $this->app->bind(PresetServiceInterface::class, PresetService::class);
         $this->app->singleton(PresetRegistryInterface::class, PresetRegistry::class);
@@ -675,6 +710,7 @@ class AiServiceProvider extends ServiceProvider
             RagQueryPlugin::class,
             OntologyPlugin::class,
             PersonPlugin::class,
+            KnowledgePlugin::class,
             ContractPlugin::class,
             WakePlugin::class,
             BehaviorPlugin::class,
@@ -693,6 +729,7 @@ class AiServiceProvider extends ServiceProvider
             MyselfPlugin::class,
             SelfNotePlugin::class,
             ReflectPlugin::class,
+            CompactPlugin::class,
             PlaywrightBrowserPlugin::class,
             WorkspacePlugin::class,
             GoalPlugin::class,

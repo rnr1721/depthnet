@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Contracts\Agent;
+namespace App\Contracts\Agent\Prompt;
 
 use App\Models\AiPreset;
 use App\Models\PresetPrompt;

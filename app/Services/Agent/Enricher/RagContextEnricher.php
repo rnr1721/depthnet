@@ -165,30 +165,26 @@ class RagContextEnricher implements RagContextEnricherInterface
             // ── Format text representation for UI message ────────────────────
             $text = $this->ragFormatter->formatIndividual($payload);
 
-            if ($text !== '') {
-                $this->createMessage($text, $ragPreset->getId(), 'system');
-            }
-
+            // NO createMessage here anymore — the pipeline service decides whether
+            // to persist this (real cycle: yes; warm-up: no). We only carry it.
             return new EnricherResponse(
-                mainPreset:   $preset,
-                voicePreset:  $ragPreset,
-                response:     $text,
-                retrievedIds: $seenIds,
-                responseData: $payload,
+                mainPreset:            $preset,
+                voicePreset:           $ragPreset,
+                response:              $text,
+                retrievedIds:          $seenIds,
+                responseData:          $payload,
+                systemMessage:         $text !== '' ? $text : null,
+                systemMessagePresetId: $ragPreset->getId(),
             );
 
         } catch (\Throwable $e) {
-            // Any failure during enrichment is surfaced to the user as a
-            // system message from the RAG preset itself. This makes operational
-            // issues (provider rate limits, network problems, misconfigured
-            // sources) immediately visible without digging through logs.
+            $errorMessage = null;
             if ($ragPreset) {
                 $errorMessage = sprintf(
                     "[RAG ERROR — %s]\n%s",
                     $ragPreset->getName(),
                     $e->getMessage(),
                 );
-                $this->createMessage($errorMessage, $ragPreset->getId(), 'system');
             }
             $this->logger->error('RagContextEnricher::enrichWithConfig error: ' . $e->getMessage(), [
                 'main_preset_id' => $preset->getId(),
@@ -196,7 +192,14 @@ class RagContextEnricher implements RagContextEnricherInterface
                 'config_id'      => $config->id ?? null,
                 'trace'          => $e->getTraceAsString(),
             ]);
-            return $this->emptyResponse($preset, $ragPreset);
+
+            // Carry the error text for the pipeline to persist (or not, in warm-up).
+            return new EnricherResponse(
+                mainPreset:            $preset,
+                voicePreset:           $ragPreset,
+                systemMessage:         $errorMessage,
+                systemMessagePresetId: $ragPreset?->getId(),
+            );
         }
     }
 
@@ -514,24 +517,22 @@ class RagContextEnricher implements RagContextEnricherInterface
         );
     }
 
-    /**
-     * @return RagItem[]
-     */
     private function mapMemoryItems(array $results): array
     {
         $items = [];
 
         foreach ($results as $r) {
-            $memory = $r['document'] ?? $r['memory'];
-            $score  = $r['composite_score'] ?? $r['similarity'] ?? null;
+            $memory  = $r['document'] ?? $r['memory'];
+            $score   = $r['composite_score'] ?? $r['similarity'] ?? null;
+            $created = $memory->getCreatedAt();
 
             $items[] = new RagItem(
                 dedupKey: 'vm:' . $memory->id,
                 content:  $memory->getTextContent(),
                 score:    $score !== null ? (float) $score : null,
                 metadata: array_filter([
-                    'document'        => $r['document'] ?? null,
-                    'memory'          => $r['memory'] ?? null,
+                    'text'            => $memory->getTextContent(),
+                    'created_at_iso'  => $created?->format(\DateTimeInterface::ATOM),
                     'composite_score' => $r['composite_score'] ?? null,
                     'source'          => $r['source'] ?? null,
                 ], fn ($v) => $v !== null),
@@ -593,10 +594,14 @@ class RagContextEnricher implements RagContextEnricherInterface
             $items[] = new RagItem(
                 dedupKey: 'journal:' . $entry->id,
                 content:  $entry->summary,
-                score:    $isAnchor ? null : null, // journal entries aren't ranked by score
+                score:    null, // journal entries aren't ranked by score
                 metadata: [
-                    'entry'     => $entry,
-                    'is_anchor' => $isAnchor,
+                    'entry_id'        => $entry->id,
+                    'recorded_at_iso' => $entry->recorded_at?->format(\DateTimeInterface::ATOM),
+                    'type'            => $entry->type,
+                    'summary'         => $entry->summary,
+                    'outcome'         => $entry->outcome,
+                    'is_anchor'       => $isAnchor,
                 ],
             );
         }
@@ -632,13 +637,19 @@ class RagContextEnricher implements RagContextEnricherInterface
             $chunk      = $r['chunk'];
             $similarity = (float) ($r['similarity'] ?? 0);
 
+            // Resolve the lazy file relation NOW, while it's still hydrated —
+            // after caching there is no model to walk to.
+            $fileName = $chunk->file->original_name ?? ('file#' . $chunk->file_id);
+
             $items[] = new RagItem(
                 dedupKey: 'file_chunk:' . $chunk->id,
                 content:  $chunk->content ?? '',
                 score:    $similarity,
                 metadata: [
-                    'chunk'      => $chunk,
-                    'similarity' => $similarity,
+                    'file_name'   => $fileName,
+                    'chunk_index' => $chunk->chunk_index,
+                    'content'     => $chunk->content ?? '',
+                    'similarity'  => $similarity,
                 ],
             );
         }
@@ -881,17 +892,6 @@ class RagContextEnricher implements RagContextEnricherInterface
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    protected function createMessage(string $content, int $presetId, string $role): Message
-    {
-        return $this->messageModel->create([
-            'role'               => 'system',
-            'content'            => $content,
-            'from_user_id'       => null,
-            'preset_id'          => $presetId,
-            'is_visible_to_user' => true,
-        ]);
-    }
 
     private function emptyResponse(AiPreset $mainPreset, ?AiPreset $ragPreset = null): EnricherResponseInterface
     {

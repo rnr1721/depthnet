@@ -5,9 +5,7 @@ namespace App\Services\Agent\ContextBuilder;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
-use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
-use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
-use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
+use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
@@ -30,6 +28,11 @@ use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
  *
  * Inner voice pipeline:
  *   Unchanged.
+ *
+ * Compaction window:
+ *   History is read through ->activeWindow() (compacted = false), same as the
+ *   cycle builder. Folded messages leave the active window but remain in the DB
+ *   and reachable via journal/vector RAG (which is NOT window-filtered).
  */
 class SingleContextBuilder implements ContextBuilderInterface
 {
@@ -42,9 +45,9 @@ class SingleContextBuilder implements ContextBuilderInterface
         protected EnricherFactoryInterface         $enricherFactory,
         protected InputPoolServiceInterface        $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
-        protected RagAggregatorServiceInterface    $ragAggregator,
-        protected RagContentFormatterInterface     $ragFormatter,
         protected ContextModeResolverInterface     $contextModeResolver,
+        protected RagPipelineServiceInterface      $ragPipeline,
+        protected ContextInjectionService          $contextInjection,
     ) {
     }
 
@@ -65,6 +68,7 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())
+            ->activeWindow()
             ->where('role', '!=', 'system')
             ->orderBy('id', 'desc')
             ->limit($maxContextLimit)
@@ -75,43 +79,24 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         $this->stripLeadingCommandMessages($context);
 
-        // ── Multi-RAG pipeline ────────────────────────────────────────────────
-        $ragEnricher = $this->enricherFactory->makeRagEnricher();
-        $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
+        $this->liftCompactionRecap($context);
 
-        // Filter RAG configs by the THINKING preset's active context mode.
-        // In extended (work) mode we drop normal-only configs — heavy associative
-        // RAG that pulls the agent into reflection mid-task. In normal mode we drop
-        // extended-only ones. 'both' always passes. Mode is read from $preset (the
-        // agent that thinks), NOT $sourcePreset (the RAG source).
-        $extended   = $this->contextModeResolver->isExtended($preset);
-        $ragConfigs = $ragConfigs->filter(fn ($config) => $config->activeInMode($extended));
+        // ── RAG pipeline (unified service) ────────────────────────────────────
+        // Resolve the assembly for this cycle — warm cache if available, else a
+        // full synchronous assembly. Assembled over the context we just built so
+        // RAG queries are formulated over the exact window the model will see.
+        $extended = $this->contextModeResolver->isExtended($preset);
 
-        $seenIds     = [];
-        $ragPayloads = [];
+        $assembly = $this->ragPipeline->resolveForCycle(
+            thinking: $preset,
+            source:   $sourcePreset,
+            extended: $extended,
+            context:  $context,
+        );
 
-        foreach ($ragConfigs as $config) {
-            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds, $preset);
-
-            $payload = $ragBlock->getResponseData();
-            if ($payload instanceof RagDataInterface && !$payload->isEmpty()) {
-                $ragPayloads[] = $payload;
-            }
-        }
-
-        $aggregated = $this->ragAggregator->merge($ragPayloads);
-        $ragText    = $this->ragFormatter->formatAggregated($aggregated);
+        $this->ragPipeline->applyToContext($assembly, $preset, $sourcePreset);
 
         $targetIds = array_unique([$sourcePreset->getId(), $preset->getId()]);
-
-        foreach ($targetIds as $id) {
-            $this->shortcodeManager->registerShortcodeForPreset(
-                $id,
-                'rag_context',
-                'RAG: relevant memories retrieved before this thinking cycle',
-                fn () => $ragText
-            );
-        }
 
         // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
         $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();
@@ -162,6 +147,9 @@ class SingleContextBuilder implements ContextBuilderInterface
                 ];
             }
         }
+
+        // Desktop material (goal in focus, loaded skills) — last step, see CycleContextBuilder.
+        $context = $this->contextInjection->inject($context, $preset);
 
         return $context;
     }

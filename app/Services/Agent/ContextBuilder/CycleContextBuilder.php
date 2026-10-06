@@ -5,9 +5,7 @@ namespace App\Services\Agent\ContextBuilder;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
-use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
-use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
-use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
+use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
@@ -40,6 +38,15 @@ use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
  * Cycle prompt (anti-loop):
  *   A single CyclePromptEnricher call using cycle_prompt_preset_id.
  *   Its output goes into the input pool — not into [[inner_voice]].
+ *
+ * Compaction window:
+ *   History is read through ->activeWindow() (compacted = false). Messages that
+ *   have been folded into a recap stay in the DB but drop out of the agent's
+ *   active window here. RAG is deliberately NOT filtered this way — it reads the
+ *   journal/vector substrate (separate tables), so folded detail stays reachable.
+ *   The recap row itself is compacted = false (it IS the active summary), so it
+ *   enters context normally and becomes the trailing user turn the cycle
+ *   continues from.
  */
 class CycleContextBuilder implements ContextBuilderInterface
 {
@@ -53,9 +60,9 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected InputPoolServiceInterface        $inputPoolService,
         protected ShortcodeManagerServiceInterface $shortcodeManager,
         protected AuthServiceInterface             $authService,
-        protected RagAggregatorServiceInterface    $ragAggregator,
-        protected RagContentFormatterInterface     $ragFormatter,
         protected ContextModeResolverInterface     $contextModeResolver,
+        protected RagPipelineServiceInterface      $ragPipeline,
+        protected ContextInjectionService          $contextInjection,
     ) {
     }
 
@@ -76,6 +83,7 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         $messages = $this->messageModel
             ->forPreset($preset->getId())
+            ->activeWindow()
             ->where('role', '!=', 'system')
             ->orderBy('id', 'desc')
             ->limit($maxContextLimit)
@@ -86,44 +94,24 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         $this->stripLeadingCommandMessages($context);
 
-        // ── Multi-RAG pipeline ────────────────────────────────────────────────
-        $ragEnricher = $this->enricherFactory->makeRagEnricher();
-        $ragConfigs  = $this->enricherFactory->getOrderedRagConfigs($sourcePreset);
+        $this->liftCompactionRecap($context);
 
-        // Filter RAG configs by the THINKING preset's active context mode.
-        // In extended (work) mode we drop normal-only configs — heavy associative
-        // RAG that pulls the agent into reflection mid-task. In normal mode we drop
-        // extended-only ones. 'both' always passes. Mode is read from $preset (the
-        // agent that thinks), NOT $sourcePreset (the RAG source).
-        $extended   = $this->contextModeResolver->isExtended($preset);
-        $ragConfigs = $ragConfigs->filter(fn ($config) => $config->activeInMode($extended));
+        // ── RAG pipeline (unified service) ────────────────────────────────────
+        // Resolve the assembly for this cycle — warm cache if available, else a
+        // full synchronous assembly. Assembled over the context we just built so
+        // RAG queries are formulated over the exact window the model will see.
+        $extended = $this->contextModeResolver->isExtended($preset);
 
-        $seenIds      = [];
-        $ragPayloads  = [];
+        $assembly = $this->ragPipeline->resolveForCycle(
+            thinking: $preset,
+            source:   $sourcePreset,
+            extended: $extended,
+            context:  $context,
+        );
 
-        foreach ($ragConfigs as $config) {
-            $ragBlock = $ragEnricher->enrichWithConfig($sourcePreset, $context, $config, $seenIds, $preset);
-
-            $payload = $ragBlock->getResponseData();
-            if ($payload instanceof RagDataInterface && !$payload->isEmpty()) {
-                $ragPayloads[] = $payload;
-            }
-        }
-
-        // Aggregate all payloads into a unified result, then format as one block
-        $aggregated = $this->ragAggregator->merge($ragPayloads);
-        $ragText    = $this->ragFormatter->formatAggregated($aggregated);
+        $this->ragPipeline->applyToContext($assembly, $preset, $sourcePreset);
 
         $targetIds = array_unique([$sourcePreset->getId(), $preset->getId()]);
-
-        foreach ($targetIds as $id) {
-            $this->shortcodeManager->registerShortcodeForPreset(
-                $id,
-                'rag_context',
-                'RAG: relevant memories retrieved before this thinking cycle',
-                fn () => $ragText
-            );
-        }
 
         // ── Multi inner voice pipeline — [[inner_voice]] ──────────────────────
         $voiceEnricher = $this->enricherFactory->makeInnerVoiceEnricher();
@@ -161,7 +149,15 @@ class CycleContextBuilder implements ContextBuilderInterface
             );
         }
 
-        // If context is empty, start first cycle
+        // If context is empty, start first cycle.
+        //
+        // Note: after a compaction, context is NOT empty — the recap row
+        // (compacted = false) sits here as the trailing user turn, so this
+        // branch is skipped and the cycle continues from the recap rather than
+        // from the cold-start instruction. This only fires on a genuinely fresh
+        // preset (or one whose entire window was folded AND whose recap has not
+        // yet been written — which the compaction handler must avoid by writing
+        // the recap before the next context assembly).
         if (empty($context)) {
             return [
                 [
@@ -196,6 +192,11 @@ class CycleContextBuilder implements ContextBuilderInterface
                 'is_visible_to_user' => true,
             ]);
         }
+
+        // Inject desktop material (goal in focus, loaded skills) as the OLDEST
+        // messages — the very last step, so RAG / compaction / recap (all already
+        // run above) are untouched.
+        $context = $this->contextInjection->inject($context, $preset);
 
         return $context;
     }

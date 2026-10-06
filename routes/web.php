@@ -297,6 +297,7 @@ Route::middleware('auth')->group(function () {
         Route::prefix('skills')->name('skills.')->group(function () {
             Route::get('/', [SkillController::class, 'index'])->name('index');
             Route::post('/', [SkillController::class, 'store'])->name('store');
+            Route::post('/update', [SkillController::class, 'update'])->name('update');
             Route::get('/{number}', [SkillController::class, 'show'])->name('show');
             Route::post('/add-item', [SkillController::class, 'addItem'])->name('add-item');
             Route::post('/update-item', [SkillController::class, 'updateItem'])->name('update-item');

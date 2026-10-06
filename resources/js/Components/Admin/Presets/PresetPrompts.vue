@@ -93,6 +93,29 @@
                         isDark ? 'bg-gray-700 text-gray-300 border-gray-600 placeholder-gray-500 focus:border-gray-500 outline-none' : 'bg-gray-100 text-gray-600 border-gray-200 placeholder-gray-400 focus:border-gray-300 outline-none'
                     ]" />
 
+                <!-- Context mode (mode-aware prompt) -->
+                <div class="mb-3">
+                    <label :class="['block text-xs font-medium mb-1', isDark ? 'text-gray-300' : 'text-gray-600']">
+                        {{ t('prompt_context_mode_label') }}
+                    </label>
+                    <select v-model="prompt.context_mode" :class="[
+                        'text-sm rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-indigo-500 px-3 py-1.5 transition-all',
+                        isDark ? 'bg-gray-600 text-white ring-gray-500' : 'bg-gray-50 text-gray-900 ring-gray-300'
+                    ]">
+                        <option value="none">{{ t('prompt_context_mode_none') }}</option>
+                        <option value="normal">{{ t('prompt_context_mode_normal') }}</option>
+                        <option value="extended">{{ t('prompt_context_mode_extended') }}</option>
+                    </select>
+                    <p :class="['text-xs mt-1', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        {{ t('prompt_context_mode_hint') }}
+                    </p>
+                    <div v-if="prompt.context_mode && prompt.context_mode !== 'none'" :class="['mt-2 text-xs rounded-lg px-3 py-2 flex gap-2',
+                        isDark ? 'bg-amber-900 bg-opacity-30 text-amber-300' : 'bg-amber-50 text-amber-700']">
+                        <span class="flex-shrink-0">⚠</span>
+                        <span>{{ t('prompt_context_mode_warning') }}</span>
+                    </div>
+                </div>
+
                 <!-- Content -->
                 <div>
                     <textarea :ref="el => textareaRefs[prompt._key] = el" v-model="prompt.content" rows="6" :class="[
@@ -197,6 +220,7 @@ function buildLocal(presetValue) {
         _key: makeKey(),
         id: null,
         code: 'default',
+        context_mode: 'none',
         content: '',
         description: '',
         is_active: true,
@@ -228,6 +252,7 @@ function emitUpdateNow() {
     const updated = prompts.value.map((p, i) => ({
         id: p.id ?? undefined,
         code: p.code,
+        context_mode: p.context_mode ?? 'none',
         content: p.content,
         description: p.description,
         is_active: i === activeIndex.value,
@@ -280,7 +305,7 @@ function setActive(index) {
 
 function addPrompt() {
     prompts.value.push({
-        _key: makeKey(), id: null, code: '', content: '', description: '', is_active: false,
+        _key: makeKey(), id: null, code: '', context_mode: 'none', content: '', description: '', is_active: false,
     });
 }
 
@@ -303,6 +328,7 @@ function duplicatePrompt(index) {
         _key: makeKey(),
         id: null,           // duplicated prompts are new records
         code: src.code ? src.code + '_copy' : '',
+        context_mode: 'none',
         content: src.content,
         description: src.description ? src.description + ' (copy)' : '',
         is_active: false,

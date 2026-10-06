@@ -68,32 +68,31 @@ abstract class AbstractMemoryRenderer extends AbstractSectionRenderer
         bool             $showRelativeDate,
         array            $options,
     ): string {
-        $meta   = $item->getMetadata();
-        $memory = $meta['document'] ?? $meta['memory'] ?? null;
+        $meta = $item->getMetadata();
 
-        if ($memory === null) {
-            // Fallback: use content directly if no model in metadata.
-            // No date anchor is available, so pulse label is skipped.
+        $text        = $meta['text'] ?? $item->getContent();
+        $createdIso  = $meta['created_at_iso'] ?? null;
+
+        if ($createdIso === null) {
+            // No date anchor — pulse label is skipped, mirror the old model-less fallback.
             $score = round(($item->getScore() ?? 0) * 100, 1);
-            return sprintf('%d. [— | %s%%] %s', $num, $score, mb_substr($item->getContent(), 0, $maxContentLimit));
+            return sprintf('%d. [— | %s%%] %s', $num, $score, mb_substr($text, 0, $maxContentLimit));
         }
+
+        $created = \Carbon\Carbon::parse($createdIso);
 
         $rawScore = $this->useCompositeScore
             ? ($meta['composite_score'] ?? $item->getScore() ?? 0)
             : ($item->getScore() ?? 0);
 
         $score   = round($rawScore * 100, 1);
-        $content = mb_substr($memory->getTextContent(), 0, $maxContentLimit);
-        $created = $memory->getCreatedAt();
+        $content = mb_substr($text, 0, $maxContentLimit);
         $dateStr = $created->format('Y-m-d');
 
         if ($showRelativeDate) {
             $dateStr .= ' (' . $this->formatRelativeDate($created) . ')';
         }
 
-        // Pulse label is appended as an additional bracketed segment so
-        // it composes cleanly with the absolute/relative date block.
-        // Layout: [date | (rel) | pulse | score%] content
         $pulseLabel = $this->formatPulseLabel($created, $options);
         $pulsePart  = $pulseLabel !== null ? ' | ' . $pulseLabel : '';
 

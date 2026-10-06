@@ -682,15 +682,49 @@ class FireworksModel implements AIModelEngineInterface
                     'count' => count($message['tool_calls']),
                 ]);
 
+                $reasoningContent = $message['reasoning_content'] ?? null;
+
                 return new ModelResponseDTO(
                     json_encode(['tool_calls' => $message['tool_calls']]),
                     false,
-                    ['system_prompt' => $request->getResolvedSystemPrompt()]
+                    array_merge(
+                        $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                        ['system_prompt' => $request->getResolvedSystemPrompt()]
+                    )
                 );
             }
 
-            // Normal text response path
-            if (!isset($message['content'])) {
+            // Normal text response path.
+            // A missing/empty content is only a real error when the API gave us nothing
+            // structural. When finish_reason explains the emptiness (length, content_filter,
+            // stop after tools), it's a legitimate empty turn — the Agent loop handles it.
+            $content          = $message['content'] ?? null;
+            $reasoningContent = $message['reasoning_content'] ?? null;
+
+            if ($content === null || trim($content) === '') {
+                $knownReasons = ['stop', 'length', 'content_filter', 'tool_calls'];
+
+                if ($message !== null && in_array($finishReason, $knownReasons, true)) {
+                    $this->logger->info('Fireworks AI returned empty content (non-error)', [
+                        'model'         => $this->model,
+                        'finish_reason' => $finishReason,
+                    ]);
+
+                    return new ModelResponseDTO(
+                        '',
+                        false,
+                        array_merge(
+                            $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                            [
+                                'system_prompt'  => $request->getResolvedSystemPrompt(),
+                                'finish_reason'  => $finishReason,
+                                'empty_response' => true,
+                            ]
+                        )
+                    );
+                }
+
+                // No message / unknown finish_reason → genuinely malformed response.
                 $this->logger->warning('Invalid Fireworks AI response format', [
                     'response' => $result,
                     'model'    => $this->model,
@@ -700,10 +734,20 @@ class FireworksModel implements AIModelEngineInterface
                 );
             }
 
+            if ($reasoningContent) {
+                $this->logger->info('Fireworks AI reasoning content received', [
+                    'model'            => $this->model,
+                    'reasoning_length' => strlen($reasoningContent),
+                ]);
+            }
+
             return new ModelResponseDTO(
-                $this->cleanOutput($message['content']),
+                $this->cleanOutput($content),
                 false,
-                ['system_prompt' => $request->getResolvedSystemPrompt()]
+                array_merge(
+                    $reasoningContent ? ['reasoning_content' => $reasoningContent] : [],
+                    ['system_prompt' => $request->getResolvedSystemPrompt()]
+                )
             );
 
         } catch (\Exception $e) {
@@ -880,27 +924,37 @@ class FireworksModel implements AIModelEngineInterface
                     $messages[] = ['role' => 'user', 'content' => $content];
                     break;
                 case 'command':
-                    // tool_calls mode: restore structured assistant+tool_calls turn.
-                    // The engine stored the raw tool_calls JSON in metadata when it
-                    // detected finish_reason='tool_calls' from the API.
-                    $toolCallsRaw = $metadata['tool_calls_raw'] ?? null;
+                    $toolCallsRaw     = $metadata['tool_calls_raw'] ?? null;
+                    $reasoningContent = $metadata['reasoning_content'] ?? null;
                     if ($toolCallsRaw) {
-                        $decoded    = json_decode($toolCallsRaw, true);
-                        $toolCalls  = $decoded['tool_calls'] ?? [];
+                        $decoded   = json_decode($toolCallsRaw, true);
+                        $toolCalls = $decoded['tool_calls'] ?? [];
 
                         if (!empty($toolCalls)) {
-                            // Emit null content — OpenAI spec requires content=null
-                            // when tool_calls are present in the assistant turn
-                            $messages[] = [
+                            // Model performed a tool call — keep reasoning_content on this turn.
+                            // Fireworks uses it for interleaved thinking: when the next message is the
+                            // tool result, the model resumes its own prior reasoning between calls.
+                            // (Unlike DeepSeek, Fireworks won't 400 without it — but including it here
+                            // is what makes multi-step tool reasoning coherent.)
+                            $assistantMsg = [
                                 'role'       => 'assistant',
                                 'content'    => null,
                                 'tool_calls' => $toolCalls,
                             ];
+                            if ($reasoningContent) {
+                                $assistantMsg['reasoning_content'] = $reasoningContent;
+                            }
+                            $messages[] = $assistantMsg;
                             break;
                         }
                     }
 
-                    // tag-mode fallback: plain assistant message
+                    // tag-mode fallback: plain assistant message, no tool call this turn.
+                    // Fireworks tolerates reasoning_content here (it's ignored without a tool
+                    // result as the trailing message — unlike DeepSeek, no 400). We still omit it:
+                    // in a continuous agent loop, re-attaching reasoning across user-turns amounts
+                    // to opt-in "preserved thinking" that inflates the window and pressures the
+                    // compactor. Reasoning is kept in metadata for the UI, not replayed to the API.
                     $messages[] = ['role' => 'assistant', 'content' => $content];
                     break;
                 case 'result':

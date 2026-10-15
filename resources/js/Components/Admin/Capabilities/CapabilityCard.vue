@@ -70,89 +70,41 @@
 
                     <!-- Dynamic config fields -->
                     <template v-if="form.driver && currentDriver">
-                        <div v-for="(field, fieldKey) in currentDriver.config_fields" :key="fieldKey">
-                            <label :class="labelClass">
-                                {{ field.label }}
-                                <span v-if="field.required" class="text-red-400 ml-0.5">*</span>
-                            </label>
+                        <CapabilityField v-for="(field, fieldKey) in currentDriver.config_fields" :key="fieldKey"
+                            v-model="form.config[fieldKey]" :field="field" :is-dark="isDark"
+                            :error="validationErrors[fieldKey] ?? null"
+                            :list="canListModels(fieldKey) ? `models-${capability.capability}` : undefined">
 
-                            <!-- password -->
-                            <input v-if="field.type === 'password'" type="password" v-model="form.config[fieldKey]"
-                                :placeholder="field.placeholder ?? ''"
-                                :class="[inputClass, validationErrors[fieldKey] ? errorBorderClass : '']" />
-
-                            <!-- select -->
-                            <select v-else-if="field.type === 'select'" v-model="form.config[fieldKey]"
-                                :class="[inputClass, validationErrors[fieldKey] ? errorBorderClass : '']">
-                                <option v-for="(label, val) in (field.options ?? {})" :key="val" :value="val">
-                                    {{ label }}
-                                </option>
-                            </select>
-
-                            <!-- number -->
-                            <input v-else-if="field.type === 'number'" type="number" v-model="form.config[fieldKey]"
-                                :min="field.min" :max="field.max" :step="field.step ?? 1"
-                                :placeholder="field.placeholder ?? ''"
-                                :class="[inputClass, validationErrors[fieldKey] ? errorBorderClass : '']" />
-
-                            <!-- checkbox -->
-                            <button v-else-if="field.type === 'checkbox'" type="button"
-                                @click="form.config[fieldKey] = !form.config[fieldKey]" :class="[
-                                    'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none',
-                                    form.config[fieldKey] ? 'bg-indigo-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'
+                            <template v-if="canListModels(fieldKey)" #append>
+                                <button type="button" @click="loadModels" :disabled="loadingModels" :class="[
+                                    'inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 whitespace-nowrap',
+                                    loadingModels ? 'opacity-50 cursor-not-allowed' : '',
+                                    isDark ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
                                 ]">
-                                <span :class="[
-                                    'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                                    form.config[fieldKey] ? 'translate-x-4' : 'translate-x-1'
-                                ]"></span>
-                            </button>
+                                    <svg v-if="loadingModels" class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none"
+                                        viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                            stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor"
+                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                    </svg>
+                                    {{ loadingModels ? t('capabilities_loading_models') : t('capabilities_load_models')
+                                    }}
+                                </button>
+                            </template>
 
-                            <!-- url / text (+ optional model listing) -->
-                            <template v-else>
-                                <div class="flex gap-2">
-                                    <input type="text" v-model="form.config[fieldKey]"
-                                        :placeholder="field.placeholder ?? ''"
-                                        :list="canListModels(fieldKey) ? `models-${capability.capability}` : undefined"
-                                        :class="[inputClass, validationErrors[fieldKey] ? errorBorderClass : '', 'flex-1']" />
-
-                                    <button v-if="canListModels(fieldKey)" type="button" @click="loadModels"
-                                        :disabled="loadingModels" :class="[
-                                            'inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 whitespace-nowrap',
-                                            loadingModels ? 'opacity-50 cursor-not-allowed' : '',
-                                            isDark ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
-                                        ]">
-                                        <svg v-if="loadingModels" class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none"
-                                            viewBox="0 0 24 24">
-                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
-                                                stroke-width="4"></circle>
-                                            <path class="opacity-75" fill="currentColor"
-                                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                                        </svg>
-                                        {{ loadingModels ? t('capabilities_loading_models') :
-                                            t('capabilities_load_models') }}
-                                    </button>
-                                </div>
-
-                                <datalist v-if="canListModels(fieldKey)" :id="`models-${capability.capability}`">
+                            <template v-if="canListModels(fieldKey)" #below>
+                                <datalist :id="`models-${capability.capability}`">
                                     <option v-for="m in availableModels" :key="m.id" :value="m.id">
                                         {{ m.title }}{{ m.description ? ' — ' + m.description : '' }}
                                     </option>
                                 </datalist>
-
-                                <p v-if="canListModels(fieldKey) && modelsMessage"
+                                <p v-if="modelsMessage"
                                     :class="['text-xs mt-1', modelsError ? 'text-red-400' : (isDark ? 'text-gray-500' : 'text-gray-400')]">
                                     {{ modelsMessage }}
                                 </p>
                             </template>
-
-                            <p v-if="field.description"
-                                :class="['text-xs mt-1', isDark ? 'text-gray-500' : 'text-gray-400']">
-                                {{ field.description }}
-                            </p>
-                            <p v-if="validationErrors[fieldKey]" class="text-xs mt-1 text-red-400">
-                                {{ validationErrors[fieldKey] }}
-                            </p>
-                        </div>
+                        </CapabilityField>
 
                         <!-- Active toggle + explanation -->
                         <div :class="[
@@ -219,7 +171,7 @@
                             </span>
                             <span v-if="testResult.latency_ms != null" class="text-xs opacity-70 flex-shrink-0">{{
                                 testResult.latency_ms
-                                }}ms</span>
+                            }}ms</span>
                         </div>
                         <div v-if="testResult.dimension" class="text-xs mt-1 opacity-70">
                             {{ t('capabilities_vector_dimension') }}: {{ testResult.dimension }}
@@ -264,6 +216,11 @@
                         </span>
                     </div>
 
+                    <!-- Interactive login (drivers implementing AuthenticatesInteractivelyInterface) -->
+                    <CapabilityAuthPanel v-if="currentDriver?.interactive_auth" :capability="capability.capability"
+                        :preset-id="presetId" :ready="authReady" :is-dark="isDark" @authorized="testResult = null"
+                        @logged-out="testResult = null" />
+
                 </div>
             </div>
         </Transition>
@@ -274,6 +231,8 @@
 import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
+import CapabilityField from './CapabilityField.vue';
+import CapabilityAuthPanel from './CapabilityAuthPanel.vue';
 
 const { t } = useI18n();
 
@@ -315,6 +274,12 @@ const currentDriver = computed(() =>
 
 const canListModels = (fieldKey) =>
     fieldKey === 'model' && !!currentDriver.value?.lists_models;
+
+// Login runs against the SAVED config, so it is only offered once the selected
+// driver is the one stored in the DB.
+const authReady = computed(() =>
+    !!props.capability.configured && form.value.driver === props.capability.current_driver
+);
 
 // ── Driver change — reset to the new driver's defaults ────────────────────────
 // Full reset (per design decision): switching driver clears the old driver's
@@ -431,6 +396,4 @@ const inputClass = computed(() => [
         ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
         : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400',
 ].join(' '));
-
-const errorBorderClass = 'border-red-500 focus:ring-red-500';
 </script>

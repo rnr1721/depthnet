@@ -116,9 +116,6 @@
                 <!-- Mcp Management Component -->
                 <PresetMcpManager :preset="preset" :is-dark="isDark" @error="showError" @success="showNotification" />
 
-                <!-- Integrations Component -->
-                <PresetIntegrations v-model="form" :is-dark="isDark" :errors="errors" :preset-id="preset?.id ?? null" />
-
                 <!-- Preset Vector memory defrag -->
                 <PresetDefrag v-model="form" :is-dark="isDark" :errors="errors" />
 
@@ -159,7 +156,6 @@ import PresetLogicInfo from './PresetLogicInfo.vue';
 import PresetRagConfigs from './PresetRagConfigs.vue';
 import PresetInnerVoiceConfigs from './PresetInnerVoiceConfigs.vue';
 import PresetAgentSettings from './PresetAgentSettings.vue';
-import PresetIntegrations from './PresetIntegrations.vue';
 import PresetEngineConfig from './PresetEngineConfig.vue';
 import PresetDefrag from './PresetDefrag.vue';
 import PresetCompaction from './PresetCompaction.vue';
@@ -234,11 +230,6 @@ const form = ref({
     voice_context_limit: props.preset?.voice_context_limit || 4,
     cp_context_limit: props.preset?.cp_context_limit || 5,
     voice_mp_commands: props.preset?.voice_mp_commands || '',
-    rhasspy_enabled: props.preset?.rhasspy_enabled ?? false,
-    rhasspy_url: props.preset?.rhasspy_url ?? '',
-    rhasspy_tts_voice: props.preset?.rhasspy_tts_voice ?? '',
-    rhasspy_incoming_enabled: props.preset?.rhasspy_incoming_enabled ?? false,
-    rhasspy_incoming_token: props.preset?.rhasspy_incoming_token ?? '',
 });
 
 // Computed

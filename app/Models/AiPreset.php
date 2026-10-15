@@ -52,11 +52,6 @@ class AiPreset extends Model
         'error_behavior',
         'allow_handoff_to',
         'allow_handoff_from',
-        'rhasspy_enabled',
-        'rhasspy_url',
-        'rhasspy_tts_voice',
-        'rhasspy_incoming_enabled',
-        'rhasspy_incoming_token',
         'is_active',
         'is_default',
         'created_by',
@@ -86,8 +81,6 @@ class AiPreset extends Model
         'before_execution_wait'      => 'integer',
         'allow_handoff_to'           => 'boolean',
         'allow_handoff_from'         => 'boolean',
-        'rhasspy_enabled'            => 'boolean',
-        'rhasspy_incoming_enabled'   => 'boolean',
         'is_active'                  => 'boolean',
         'is_default'                 => 'boolean',
         'created_at'                 => 'datetime',
@@ -117,8 +110,6 @@ class AiPreset extends Model
         'voice_mp_commands'        => '',
         'pre_run_commands'         => '',
         'turn_trigger'             => 'no_speak',
-        'rhasspy_enabled'          => false,
-        'rhasspy_incoming_enabled' => false,
         'pre_pass_enabled'         => false,
     ];
 
@@ -166,7 +157,6 @@ class AiPreset extends Model
             )
         );
     }
-
 
     /**
      * Parent preset that spawned this one.
@@ -804,26 +794,7 @@ class AiPreset extends Model
         return $this->hasMany(VectorMemory::class, 'preset_id');
     }
 
-    public function getRhasspyEnabled(): bool
-    {
-        return $this->rhasspy_enabled;
-    }
-    public function getRhasspyUrl(): ?string
-    {
-        return $this->rhasspy_url;
-    }
-    public function getRhasspyTtsVoice(): ?string
-    {
-        return $this->rhasspy_tts_voice;
-    }
-    public function getRhasspyIncomingEnabled(): bool
-    {
-        return $this->rhasspy_incoming_enabled;
-    }
-    public function getRhasspyIncomingToken(): ?string
-    {
-        return $this->rhasspy_incoming_token;
-    }
+
 
     /**
      * Whether the pre-pass ("reasoning"/"beneath") is enabled for this preset.

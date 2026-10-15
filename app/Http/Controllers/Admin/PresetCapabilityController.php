@@ -2,18 +2,22 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Contracts\Agent\Capabilities\AuthenticatesInteractivelyInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
 use App\Contracts\Agent\Capabilities\ListsModelsInterface;
 use App\Contracts\Agent\Capabilities\ListsVoicesInterface;
+use App\Contracts\Agent\Capabilities\MessengerServiceInterface;
 use App\Contracts\Agent\Capabilities\SttServiceInterface;
 use App\Contracts\Agent\Capabilities\TtsServiceInterface;
 use App\Contracts\Agent\Capabilities\VisionServiceInterface;
 use App\Contracts\Agent\Models\PresetRegistryInterface;
+use App\Http\Controllers\Admin\Concerns\HandlesCapabilityAuth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Capabilities\UpdateCapabilityRequest;
 use App\Models\AiPreset;
 use App\Models\PresetCapabilityConfig;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
+use App\Services\Agent\Capabilities\Messenger\MessengerRegistry;
 use App\Services\Agent\Capabilities\Speech\SttRegistry;
 use App\Services\Agent\Capabilities\Speech\TtsRegistry;
 use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
@@ -32,6 +36,8 @@ use Psr\Log\LoggerInterface;
  */
 class PresetCapabilityController extends Controller
 {
+    use HandlesCapabilityAuth;
+
     public function __construct(
         protected EmbeddingRegistry $embeddingRegistry,
         protected EmbeddingServiceInterface $embeddingService,
@@ -41,6 +47,8 @@ class PresetCapabilityController extends Controller
         protected SttServiceInterface $sttService,
         protected TtsRegistry $ttsRegistry,
         protected TtsServiceInterface $ttsService,
+        protected MessengerRegistry $messengerRegistry,
+        protected MessengerServiceInterface $messengerService,
         protected PresetRegistryInterface $presetRegistry,
         protected LoggerInterface $logger,
     ) {
@@ -229,6 +237,7 @@ class PresetCapabilityController extends Controller
             $result = match ($capability) {
                 'embedding' => $this->testEmbedding($preset),
                 'vision'    => $this->testVision($preset),
+                'messenger' => $this->testMessenger($preset),
                 'stt' => $this->testStt($preset),
                 'tts' => $this->testTts($preset),
                 default     => ['success' => false, 'message' => "No test available for '{$capability}'."],
@@ -286,6 +295,13 @@ class PresetCapabilityController extends Controller
                 registry:      $this->visionRegistry,
                 currentConfig: $existing->get('vision'),
             ),
+            'messenger' => $this->buildCapabilityEntry(
+                capability:    'messenger',
+                label:         'Messenger',
+                description:   'Lets the agent read and write in a messenger account, and receive messages from it.',
+                registry:      $this->messengerRegistry,
+                currentConfig: $existing->get('messenger'),
+            ),
             'stt' => $this->buildCapabilityEntry(
                 capability:    'stt',
                 label:         'Speech-to-Text',
@@ -322,6 +338,7 @@ class PresetCapabilityController extends Controller
                 'default_config' => $provider->getDefaultConfig(),
                 'lists_models'   => $provider instanceof ListsModelsInterface,
                 'lists_voices'   => $provider instanceof ListsVoicesInterface,
+                'interactive_auth' => $provider instanceof AuthenticatesInteractivelyInterface,
                 'execution_mode' => method_exists($provider, 'getExecutionMode')
                     ? $provider->getExecutionMode()
                     : 'server',
@@ -390,6 +407,7 @@ class PresetCapabilityController extends Controller
         return match ($capability) {
             'embedding' => $this->embeddingRegistry,
             'vision'    => $this->visionRegistry,
+            'messenger' => $this->messengerRegistry,
             'stt'       => $this->sttRegistry,
             'tts'       => $this->ttsRegistry,
             default     => abort(404, "Unknown capability '{$capability}'."),
@@ -623,6 +641,20 @@ class PresetCapabilityController extends Controller
             'message'    => 'Speech recognition is working correctly.',
             'recognized' => mb_substr((string) $result->text, 0, 200),
         ];
+    }
+
+    private function testMessenger(AiPreset $preset): array
+    {
+        $provider = $this->messengerService->provider($preset);
+        if ($provider === null) {
+            return ['success' => false, 'message' => 'No active messenger configuration for this preset.'];
+        }
+
+        $status = $provider->status();
+
+        return $status->authorized
+            ? ['success' => true,  'message' => 'Connected as ' . $status->account->label() . '.']
+            : ['success' => false, 'message' => $status->message ?? 'Not logged in.'];
     }
 
 }

@@ -310,10 +310,7 @@ class PresetImporter implements PresetImporterInterface
             'default_call_message'       => $p['default_call_message'] ?? null,
             'metadata'                   => $p['metadata'] ?? [],
             'target_plugins_whitelist'   => $p['target_plugins_whitelist'] ?? null,
-            'rhasspy_enabled'            => $p['rhasspy_enabled'] ?? false,
-            'rhasspy_url'                => $p['rhasspy_url'] ?? null,
-            'rhasspy_tts_voice'          => $p['rhasspy_tts_voice'] ?? null,
-            'rhasspy_incoming_enabled'   => $p['rhasspy_incoming_enabled'] ?? false,
+
 
             // imported presets are never default; active by default
             'is_active'                  => true,

@@ -60,7 +60,6 @@ _ide_helper_models.php
 docker-compose.override.yml
 *.log
 /shared
-/docker/rhasspy
 /docker/ssl
 /sandboxes/templates/user-*
 

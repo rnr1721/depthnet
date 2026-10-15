@@ -14,6 +14,7 @@ use App\Contracts\Agent\AgentJobServiceInterface;
 use App\Contracts\Agent\AgentMessageServiceInterface;
 use App\Contracts\Agent\Browser\BrowserServiceInterface;
 use App\Contracts\Agent\Capabilities\EmbeddingServiceInterface;
+use App\Contracts\Agent\Capabilities\MessengerServiceInterface;
 use App\Contracts\Agent\Capabilities\SttServiceInterface;
 use App\Contracts\Agent\Capabilities\TtsServiceInterface;
 use App\Contracts\Agent\Capabilities\VisionServiceInterface;
@@ -97,7 +98,6 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Wake\WakeScheduleServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
-use App\Contracts\Integrations\Telegram\TelegramServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
@@ -110,6 +110,10 @@ use App\Services\Agent\Browser\BrowserService;
 use App\Services\Agent\Capabilities\Embedding\Drivers\NovitaEmbeddingProvider;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingRegistry;
 use App\Services\Agent\Capabilities\Embedding\EmbeddingService;
+use App\Services\Agent\Capabilities\Messenger\Drivers\Telegram\TgcliRunner;
+use App\Services\Agent\Capabilities\Messenger\Inbound\MediaInterpreter;
+use App\Services\Agent\Capabilities\Messenger\MessengerRegistry;
+use App\Services\Agent\Capabilities\Messenger\MessengerService;
 use App\Services\Agent\Capabilities\Speech\Drivers\BrowserSttProvider;
 use App\Services\Agent\Capabilities\Speech\Drivers\BrowserTtsProvider;
 use App\Services\Agent\Capabilities\Speech\Drivers\OpenAiCompatibleSttProvider;
@@ -221,6 +225,7 @@ use App\Services\Agent\Plugins\JournalPlugin;
 use App\Services\Agent\Plugins\KnowledgePlugin;
 use App\Services\Agent\Plugins\McpPlugin;
 use App\Services\Agent\Plugins\MemoryPlugin;
+use App\Services\Agent\Plugins\MessengerPlugin;
 use App\Services\Agent\Plugins\MoodPlugin;
 use App\Services\Agent\Plugins\MyselfPlugin;
 use App\Services\Agent\Plugins\OntologyPlugin;
@@ -240,7 +245,6 @@ use App\Services\Agent\Plugins\SkillPlugin;
 use App\Services\Agent\Plugins\SpawnPlugin;
 use App\Services\Agent\Plugins\SpeakPlugin;
 use App\Services\Agent\Plugins\SwitchPlugin;
-use App\Services\Agent\Plugins\TelegramPlugin;
 use App\Services\Agent\Plugins\TerminalPlugin;
 use App\Services\Agent\Plugins\VectorMemoryPlugin;
 use App\Services\Agent\Plugins\WakePlugin;
@@ -274,7 +278,6 @@ use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
 use App\Services\Agent\Wake\WakeScheduleService;
 use App\Services\Agent\Workspace\WorkspaceService;
-use App\Services\Integrations\Telegram\TelegramService;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -420,6 +423,33 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(VisionServiceInterface::class, VisionService::class);
 
+        $this->app->singleton(TgcliRunner::class, fn ($app) => new TgcliRunner(
+            $app->make(\Illuminate\Process\Factory::class),
+            $app->make(\Psr\Log\LoggerInterface::class),
+            config('messenger.telegram.binary'),
+            config('messenger.telegram.timeout'),
+        ));
+
+        $this->app->singleton(MessengerRegistry::class, function ($app) {
+            $registry = new MessengerRegistry(
+                $app->make(\Illuminate\Http\Client\Factory::class),
+                $app->make(\Psr\Log\LoggerInterface::class),
+                $app->make(TgcliRunner::class),
+                config('messenger.telegram.data_dir'),
+            );
+
+            // Prototype: unbound (no preset) — used only for config fields/validation.
+            return $registry->register(
+                new \App\Services\Agent\Capabilities\Messenger\Drivers\Telegram\TelegramMessengerProvider(
+                    $app->make(TgcliRunner::class),
+                    $app->make(\Psr\Log\LoggerInterface::class),
+                    config('messenger.telegram.data_dir'),
+                )
+            );
+        });
+
+        $this->app->singleton(MessengerServiceInterface::class, MessengerService::class);
+
         $this->app->singleton(SttRegistry::class, function ($app) {
             $registry = new SttRegistry(
                 $app->make(HttpFactory::class),
@@ -558,13 +588,12 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->bind(SpawnServiceInterface::class, SpawnService::class);
 
-        $this->app->singleton(TelegramServiceInterface::class, function () {
-            return new TelegramService(
-                binary:      env('TELEGRAM_BINARY', 'telegram'),
-                baseDataDir: env('TELEGRAM_DATA_DIR', '/shared/telegram'),
-                timeout:     (int) env('TELEGRAM_TIMEOUT', 30),
-            );
-        });
+        $this->app->bind(MediaInterpreter::class, fn ($app) => new MediaInterpreter(
+            $app->make(SttServiceInterface::class),
+            $app->make(VisionServiceInterface::class),
+            $app->make(LoggerInterface::class),
+            storage_path('app/messenger_tmp'),
+        ));
 
         $this->app->singleton(TerminalServiceInterface::class, TerminalService::class);
 
@@ -738,7 +767,7 @@ class AiServiceProvider extends ServiceProvider
             HeartPlugin::class,
             BeingPlugin::class,
             RhythmPlugin::class,
-            TelegramPlugin::class,
+            MessengerPlugin::class,
         ];
     }
 

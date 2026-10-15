@@ -70,7 +70,7 @@ triggering one thinking cycle. The **origin** of that message is recorded in
 | source         | who woke the cycle                              |
 |----------------|-------------------------------------------------|
 | `web`          | a person typing in chat                         |
-| `rhasspy`      | voice input                                     |
+
 | `api`          | API input                                       |
 | `orchestrator` | the pipeline dispatcher (task dispatch, planner notify, validator request) |
 

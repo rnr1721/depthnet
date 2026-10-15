@@ -33,11 +33,11 @@ class Message extends Model
      */
     public const SOURCE_WEB          = 'web';
     public const SOURCE_ORCHESTRATOR = 'orchestrator';
-    public const SOURCE_RHASSPY      = 'rhasspy';
     public const SOURCE_API          = 'api';
     public const SOURCE_COMPACTION   = 'compaction';
     public const SOURCE_SKILL        = 'skill';
     public const SOURCE_GOAL         = 'goal_focus';
+    public const SOURCE_MESSENGER    = 'messenger';
 
     /**
      * The attributes that are mass assignable.

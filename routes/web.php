@@ -25,7 +25,6 @@ use App\Http\Controllers\Admin\PresetSandboxController;
 use App\Http\Controllers\Admin\SandboxController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SkillController;
-use App\Http\Controllers\Admin\TelegramController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VectorMemoryController;
 use App\Http\Controllers\Admin\WakeScheduleController;
@@ -156,16 +155,6 @@ Route::middleware('auth')->group(function () {
                 Route::post('/{serverId}/ping', [PresetMcpController::class, 'ping'])->name('ping');
             });
 
-            // Telegram integration routes
-            Route::prefix('/{presetId}/telegram')->name('telegram.')->group(function () {
-                Route::get('/status', [TelegramController::class, 'status'])->name('status');
-                Route::post('/auth/init', [TelegramController::class, 'authInit'])->name('auth.init');
-                Route::post('/auth/phone', [TelegramController::class, 'authPhone'])->name('auth.phone');
-                Route::post('/auth/code', [TelegramController::class, 'authCode'])->name('auth.code');
-                Route::post('/auth/password', [TelegramController::class, 'authPassword'])->name('auth.password');
-                Route::delete('/session', [TelegramController::class, 'destroySession'])->name('session.destroy');
-            });
-
             // Preset Prompts
             Route::prefix('/{id}/prompts')->name('prompts.')->group(function () {
                 Route::get('/', [PresetPromptController::class, 'index'])->name('index');
@@ -291,6 +280,9 @@ Route::middleware('auth')->group(function () {
             // List available models for capabilities that support it (e.g. LLMs)
             Route::get('/{presetId}/{capability}/models', [PresetCapabilityController::class, 'models'])->name('models');
             Route::get('/{presetId}/{capability}/voices', [PresetCapabilityController::class, 'voices'])->name('voices');
+            Route::get('/{presetId}/{capability}/auth', [PresetCapabilityController::class, 'authShow'])->name('auth.show');
+            Route::post('/{presetId}/{capability}/auth', [PresetCapabilityController::class, 'authSubmit'])->name('auth.submit');
+            Route::delete('/{presetId}/{capability}/auth', [PresetCapabilityController::class, 'authDestroy'])->name('auth.destroy');
         });
 
         // Skills Management routes

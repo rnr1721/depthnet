@@ -1227,6 +1227,7 @@ export default {
   capabilities_auth_continue: 'Продолжить',
   capabilities_auth_start_over: 'Начать заново',
   capabilities_auth_failed: 'Не удалось выполнить запрос входа.',
+  capabilities_auth_wait: "{s} с",
   integrations_title: 'Интеграции',
   ag_title: 'Агенты',
   ag_subtitle: 'Оркестрованные агентские воркфлоу',

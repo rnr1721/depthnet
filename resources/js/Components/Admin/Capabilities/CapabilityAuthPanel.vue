@@ -73,13 +73,26 @@
                         {{ t('capabilities_auth_start_over') }}
                     </button>
                 </div>
+
+                <!-- Secondary actions offered by the provider (e.g. resend the code another way) -->
+                <div v-if="step.actions?.length" class="flex flex-wrap items-center gap-3">
+                    <button v-for="action in step.actions" :key="action.step" type="button" @click="runAction(action)"
+                        :disabled="busy || waitLeft(action) > 0"
+                        :class="['text-xs underline',
+                            busy || waitLeft(action) > 0 ? 'opacity-50 cursor-not-allowed no-underline' : '',
+                            isDark ? 'text-indigo-300 hover:text-indigo-200' : 'text-indigo-600 hover:text-indigo-800']">
+                        {{ action.label }}
+                        <span v-if="waitLeft(action) > 0">({{ t('capabilities_auth_wait', { s: waitLeft(action) })
+                        }})</span>
+                    </button>
+                </div>
             </form>
         </template>
     </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
 import CapabilityField from './CapabilityField.vue';
@@ -128,6 +141,35 @@ const autocompleteFor = (key) => ({
     password: 'current-password',
 }[key] ?? 'off');
 
+// Action countdowns: `wait` is relative to when the step arrived. One ticking
+// clock for all actions, running only while something is still waiting.
+const stepAt = ref(0);
+const now = ref(Date.now());
+let ticker = null;
+
+const waitLeft = (action) => {
+    if (!action?.wait) return 0;
+    return Math.max(0, Math.ceil(action.wait - (now.value - stepAt.value) / 1000));
+};
+
+const syncTicker = () => {
+    const waiting = (step.value?.actions ?? []).some((a) => waitLeft(a) > 0);
+    if (waiting && !ticker) {
+        ticker = setInterval(() => {
+            now.value = Date.now();
+            if (!(step.value?.actions ?? []).some((a) => waitLeft(a) > 0)) {
+                clearInterval(ticker);
+                ticker = null;
+            }
+        }, 1000);
+    } else if (!waiting && ticker) {
+        clearInterval(ticker);
+        ticker = null;
+    }
+};
+
+onBeforeUnmount(() => { if (ticker) clearInterval(ticker); });
+
 // Keep what the user typed when the same step comes back with an error;
 // clear it when the flow moves to a different step.
 const applyStep = (next) => {
@@ -136,7 +178,13 @@ const applyStep = (next) => {
     if (!firstStep.value && next && !next.done) firstStep.value = next.step;
 
     const wasDone = step.value?.done;
+    // An error re-renders the same step — keep the running countdown.
+    if (!(sameStep && next?.error)) {
+        stepAt.value = Date.now();
+        now.value = stepAt.value;
+    }
     step.value = next;
+    syncTicker();
 
     if (next?.done && !wasDone) emit('authorized', next.account);
 };
@@ -171,6 +219,13 @@ const load = () => {
 const submit = () => {
     if (!step.value || busy.value) return;
     request('post', { step: step.value.step, input: { ...input.value } });
+};
+
+// An action is just another step with empty input; the provider answers with
+// the next AuthStep. What the user already typed stays in the form.
+const runAction = (action) => {
+    if (!action?.step || busy.value || waitLeft(action) > 0) return;
+    request('post', { step: action.step, input: {} });
 };
 
 const logout = async () => {

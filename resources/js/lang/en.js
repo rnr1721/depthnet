@@ -1229,6 +1229,7 @@ export default {
   capabilities_auth_continue: 'Continue',
   capabilities_auth_start_over: 'Start over',
   capabilities_auth_failed: 'Login request failed.',
+  capabilities_auth_wait: "{s}s",
   integrations_title: 'Integrations',
   ag_title: 'Agents',
   ag_subtitle: 'Orchestrated Agent Workflows',

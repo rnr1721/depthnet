@@ -414,6 +414,7 @@ class TelegramMessengerProvider implements
             AuthStep::STEP_PHONE    => $this->submitPhone(trim((string) ($input['phone'] ?? ''))),
             AuthStep::STEP_CODE     => $this->submitCode(trim((string) ($input['code'] ?? ''))),
             AuthStep::STEP_PASSWORD => $this->submitPassword((string) ($input['password'] ?? '')),
+            AuthStep::STEP_RESEND   => $this->resendCode(),
             default                 => $this->phoneStep()->withError("Unknown login step '{$step}'. Start again."),
         };
     }
@@ -447,7 +448,28 @@ class TelegramMessengerProvider implements
             return AuthStep::done($this->peerFromBrief($r->data['user'] ?? []), 'Already logged in.');
         }
 
-        return $this->codeStep();
+        return $this->codeStep(is_array($r->data['code'] ?? null) ? $r->data['code'] : null);
+    }
+
+    /**
+     * "The code never came": ask Telegram to deliver it the next way
+     * (usually SMS or a call). Needs tgcli 1.2+.
+     */
+    private function resendCode(): AuthStep
+    {
+        $r = $this->call(['auth:resend']);
+
+        if (!$r->ok) {
+            return match ($r->code) {
+                'no_auth_state' => $this->phoneStep()->withError('The login attempt expired. Request a new code.'),
+                'usage'         => $this->codeStep()->withError(
+                    'This tgcli version cannot resend codes — update tgcli to 1.2 or newer.'
+                ),
+                default         => $this->codeStep()->withError((string) $r->error),
+            };
+        }
+
+        return $this->codeStep(is_array($r->data['code'] ?? null) ? $r->data['code'] : null, true);
     }
 
     private function submitCode(string $code): AuthStep
@@ -499,17 +521,79 @@ class TelegramMessengerProvider implements
         ], 'Log in to the Telegram account this agent will use.');
     }
 
-    private function codeStep(): AuthStep
+    /**
+     * Where Telegram says it sent the code (tgcli 1.2+ reports it). Without
+     * this, "the code never came" is a guessing game: since Telegram prefers
+     * in-app delivery and login email, it is rarely an SMS.
+     */
+    private const CODE_DELIVERY = [
+        'app'                  => 'in the Telegram app — a message from "Telegram" in a session where this account is logged in',
+        'sms'                  => 'by SMS',
+        'call'                 => 'by a phone call — the code will be dictated',
+        'flash_call'           => 'by a flash call — the code is in the caller\'s number',
+        'missed_call'          => 'by a missed call — the code is the last digits of the caller\'s number',
+        'email'                => 'to the login email of the account',
+        'fragment'             => 'via Fragment (fragment.com) — the number is anonymous',
+        'setup_email_required' => 'nowhere yet: Telegram requires a login email for this account. Set it up in an official Telegram app (Settings → Privacy and Security → Login Email), then request the code again.',
+    ];
+
+    private const NEXT_DELIVERY = [
+        'sms'         => 'by SMS',
+        'call'        => 'by a call',
+        'flash_call'  => 'by a flash call',
+        'missed_call' => 'by a missed call',
+        'fragment'    => 'via Fragment',
+    ];
+
+    /**
+     * @param array<string, mixed>|null $info tgcli's `code` object: delivery,
+     *                                        hint, length, email_pattern,
+     *                                        next_delivery, resend_after
+     */
+    private function codeStep(?array $info = null, bool $resent = false): AuthStep
     {
+        $delivery = (string) ($info['delivery'] ?? '');
+        $where    = self::CODE_DELIVERY[$delivery] ?? (isset($info['hint']) ? (string) $info['hint'] : null);
+
+        if ($where !== null && !empty($info['email_pattern'])) {
+            $where .= ' (' . $info['email_pattern'] . ')';
+        }
+
+        $message = $where !== null
+            ? ($resent ? 'Code sent again ' : 'Code sent ') . $where . '.'
+            : ($resent ? 'Code sent again.' : 'Code sent.');
+
+        $length = (int) ($info['length'] ?? 0);
+
+        // Offer another delivery route unless Telegram says there is none.
+        // Older tgcli reports nothing — offer it anyway; it will say if it can't.
+        $actions = [];
+        $next    = $info['next_delivery'] ?? null;
+        if ($info === null || $next !== null) {
+            $label = isset(self::NEXT_DELIVERY[$next])
+                ? "Didn't get it? Send the code " . self::NEXT_DELIVERY[$next]
+                : "Didn't get it? Send the code another way";
+            $action = ['step' => AuthStep::STEP_RESEND, 'label' => $label];
+            if (!empty($info['resend_after'])) {
+                $action['wait'] = (int) $info['resend_after'];
+            }
+            $actions[] = $action;
+        }
+
+        $field = [
+            'type'        => 'text',
+            'label'       => 'Login code',
+            'placeholder' => $length > 0 ? str_repeat('0', $length) : '12345',
+            'required'    => true,
+        ];
+        if ($where === null) {
+            $field['description'] = 'If the account is logged in anywhere, Telegram sends the code inside the app '
+                . '(a message from "Telegram"), not by SMS. It may also go to the login email.';
+        }
+
         return new AuthStep(AuthStep::STEP_CODE, [
-            'code' => [
-                'type'        => 'text',
-                'label'       => 'Login code',
-                'description' => 'Sent by Telegram to the account — check the Telegram app on another device.',
-                'placeholder' => '12345',
-                'required'    => true,
-            ],
-        ], 'Code sent.');
+            'code' => $field,
+        ], $message, null, null, ['delivery' => $delivery !== '' ? $delivery : null], $actions);
     }
 
     private function passwordStep(): AuthStep

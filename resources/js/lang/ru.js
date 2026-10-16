@@ -1228,6 +1228,8 @@ export default {
   capabilities_auth_start_over: 'Начать заново',
   capabilities_auth_failed: 'Не удалось выполнить запрос входа.',
   capabilities_auth_wait: "{s} с",
+  capabilities_auth_qr_preparing: "Подготовка QR-кода…",
+  capabilities_auth_qr_waiting: "Ожидание сканирования…",
   integrations_title: 'Интеграции',
   ag_title: 'Агенты',
   ag_subtitle: 'Оркестрованные агентские воркфлоу',

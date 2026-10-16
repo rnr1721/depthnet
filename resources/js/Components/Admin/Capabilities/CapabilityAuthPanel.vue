@@ -50,13 +50,27 @@
                     {{ step.message }}
                 </p>
 
+                <!-- QR login: the provider gives a URL to encode; it may change as tokens refresh -->
+                <div v-if="step.data?.poll" class="flex flex-col items-start gap-2">
+                    <div :class="['rounded-lg p-2', 'bg-white']">
+                        <img v-if="qrImage" :src="qrImage" alt="QR" width="220" height="220" class="block" />
+                        <div v-else class="w-[220px] h-[220px] flex items-center justify-center text-xs text-gray-500">
+                            {{ t('capabilities_auth_qr_preparing') }}
+                        </div>
+                    </div>
+                    <p :class="['text-xs flex items-center gap-2', isDark ? 'text-gray-400' : 'text-gray-500']">
+                        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                        {{ t('capabilities_auth_qr_waiting') }}
+                    </p>
+                </div>
+
                 <CapabilityField v-for="(field, key) in step.fields" :key="`${step.step}-${key}`" v-model="input[key]"
                     :field="field" :is-dark="isDark" :autocomplete="autocompleteFor(key)" />
 
                 <div v-if="step.error" :class="errorBoxClass">{{ step.error }}</div>
 
                 <div class="flex items-center gap-3">
-                    <button type="submit" :disabled="busy || !canSubmit" :class="[
+                    <button v-if="hasFields" type="submit" :disabled="busy || !canSubmit" :class="[
                         'inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all bg-indigo-600 text-white',
                         busy || !canSubmit ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'
                     ]">
@@ -83,7 +97,7 @@
                             isDark ? 'text-indigo-300 hover:text-indigo-200' : 'text-indigo-600 hover:text-indigo-800']">
                         {{ action.label }}
                         <span v-if="waitLeft(action) > 0">({{ t('capabilities_auth_wait', { s: waitLeft(action) })
-                        }})</span>
+                            }})</span>
                     </button>
                 </div>
             </form>
@@ -95,6 +109,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
+import QRCode from 'qrcode';
 import CapabilityField from './CapabilityField.vue';
 
 /**
@@ -129,6 +144,8 @@ const accountLabel = computed(() => {
     if (!a) return '';
     return a.username ? `${a.name} (@${a.username})` : a.name;
 });
+
+const hasFields = computed(() => Object.keys(step.value?.fields ?? {}).length > 0);
 
 const canSubmit = computed(() => {
     const fields = step.value?.fields ?? {};
@@ -185,11 +202,13 @@ const applyStep = (next) => {
     }
     step.value = next;
     syncTicker();
+    schedulePoll();
 
     if (next?.done && !wasDone) emit('authorized', next.account);
 };
 
 const request = async (method, body = null) => {
+    stopPolling();
     busy.value = true;
     requestError.value = null;
     try {
@@ -228,6 +247,61 @@ const runAction = (action) => {
     request('post', { step: action.step, input: {} });
 };
 
+// ── Polling steps (QR login) ────────────────────────────────────────────────
+// A step with data.poll is re-checked every `poll` seconds with input
+// {check: '1'} until the provider moves on. `pollGen` invalidates a poll in
+// flight when the user does something else, so a late answer can't overwrite
+// the step they have moved to.
+let pollTimer = null;
+let pollGen = 0;
+
+const stopPolling = () => {
+    pollGen++;
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+};
+
+const schedulePoll = () => {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+    const every = Number(step.value?.data?.poll ?? 0);
+    if (!every || step.value?.done) return;
+
+    const gen = pollGen;
+    const pollStep = step.value.step;
+    pollTimer = setTimeout(async () => {
+        pollTimer = null;
+        try {
+            const res = await axios({
+                method: 'post',
+                url: route('admin.capabilities.auth.submit', routeParams.value),
+                data: { step: pollStep, input: { check: '1' } },
+            });
+            if (gen !== pollGen) return;
+            if (res.data?.success && res.data.step) {
+                applyStep(res.data.step);
+            } else {
+                requestError.value = res.data?.message ?? t('capabilities_auth_failed');
+            }
+        } catch (e) {
+            if (gen !== pollGen) return;
+            requestError.value = e.response?.data?.message ?? t('capabilities_auth_failed');
+        }
+    }, every * 1000);
+};
+
+const qrImage = ref(null);
+watch(() => step.value?.data?.qr, async (url) => {
+    if (!url) { qrImage.value = null; return; }
+    try {
+        qrImage.value = await QRCode.toDataURL(url, { margin: 1, width: 220, errorCorrectionLevel: 'M' });
+    } catch {
+        qrImage.value = null;
+    }
+});
+
+onBeforeUnmount(stopPolling);
+
 const logout = async () => {
     if (!confirm(t('capabilities_auth_logout_confirm'))) return;
     await request('delete');
@@ -240,7 +314,7 @@ onMounted(() => {
 
 watch(() => props.ready, (now) => {
     if (now) load();
-    else { step.value = null; requestError.value = null; }
+    else { stopPolling(); step.value = null; requestError.value = null; }
 });
 
 const errorBoxClass = computed(() => [

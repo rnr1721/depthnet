@@ -59,6 +59,8 @@ class TelegramMessengerProvider implements
         'telegram_session.session',
         'telegram_session.session-journal',
         'telegram_auth_state.json',
+        'telegram_qr.json',
+        'telegram_qr.log',
         'updates_state.json',
         self::CURSOR_FILE,
     ];
@@ -393,6 +395,10 @@ class TelegramMessengerProvider implements
 
     public function beginAuth(): AuthStep
     {
+        // A QR login left waiting (page reloaded, "start over") holds the
+        // session lock — stop it, or status() would wait for the lock.
+        $this->call(['auth:qr:cancel']);
+
         $status = $this->status();
 
         if ($status->authorized && $status->account !== null) {
@@ -415,6 +421,7 @@ class TelegramMessengerProvider implements
             AuthStep::STEP_CODE     => $this->submitCode(trim((string) ($input['code'] ?? ''))),
             AuthStep::STEP_PASSWORD => $this->submitPassword((string) ($input['password'] ?? '')),
             AuthStep::STEP_RESEND   => $this->resendCode(),
+            AuthStep::STEP_QR       => !empty($input['check']) ? $this->qrStatus() : $this->qrStart(),
             default                 => $this->phoneStep()->withError("Unknown login step '{$step}'. Start again."),
         };
     }
@@ -424,6 +431,8 @@ class TelegramMessengerProvider implements
         if ($this->presetId === null) {
             return;
         }
+
+        $this->call(['auth:qr:cancel']);
 
         foreach (self::SESSION_FILES as $name) {
             $path = $this->dataDir() . '/' . $name;
@@ -518,7 +527,73 @@ class TelegramMessengerProvider implements
                 'placeholder' => '+380501234567',
                 'required'    => true,
             ],
-        ], 'Log in to the Telegram account this agent will use.');
+        ], 'Log in to the Telegram account this agent will use.', null, null, [], [
+            ['step' => AuthStep::STEP_QR, 'label' => 'Log in with a QR code instead'],
+        ]);
+    }
+
+    // ── QR login ─────────────────────────────────────────────────────────────
+    //
+    // Telegram may refuse to deliver login codes to third-party clients while
+    // claiming they were "sent to the app". QR login needs no code: a phone
+    // where the account is logged in scans the token. tgcli keeps a background
+    // process waiting for the scan; the GUI polls auth:qr:status.
+
+    /** Seconds between status polls the GUI should use. */
+    private const QR_POLL = 2;
+
+    private function qrStart(): AuthStep
+    {
+        // Starting includes connecting to Telegram (up to ~20s in tgcli).
+        return $this->qrResult($this->call(['auth:qr'], 45));
+    }
+
+    private function qrStatus(): AuthStep
+    {
+        return $this->qrResult($this->call(['auth:qr:status']));
+    }
+
+    private function qrResult(TgcliResponse $r): AuthStep
+    {
+        if (!$r->ok) {
+            return match ($r->code) {
+                'qr_expired' => $this->phoneStep()->withError('The QR code expired. Start the QR login again.'),
+                'usage'      => $this->phoneStep()->withError(
+                    'This tgcli version has no QR login — update tgcli to 1.3 or newer.'
+                ),
+                'busy'       => $this->qrStep(null),   // still starting — keep polling
+                default      => $this->phoneStep()->withError((string) $r->error),
+            };
+        }
+
+        if (!empty($r->data['authorized'])) {
+            return AuthStep::done($this->peerFromBrief($r->data['user'] ?? []), 'Logged in.');
+        }
+
+        if (($r->data['next_step'] ?? null) === 'password') {
+            return $this->passwordStep();
+        }
+
+        $qr = is_array($r->data['qr'] ?? null) ? $r->data['qr'] : [];
+
+        return $this->qrStep(isset($qr['url']) ? (string) $qr['url'] : null, (int) ($qr['expires'] ?? 0));
+    }
+
+    private function qrStep(?string $url, int $expires = 0): AuthStep
+    {
+        return new AuthStep(
+            AuthStep::STEP_QR,
+            [],
+            'On a phone where this account is logged in, open Telegram → Settings → Devices → '
+                . 'Link Desktop Device, and scan this code. It refreshes by itself.',
+            null,
+            null,
+            array_filter([
+                'qr'      => $url,
+                'expires' => $expires ?: null,
+                'poll'    => self::QR_POLL,
+            ], fn ($v) => $v !== null),
+        );
     }
 
     /**

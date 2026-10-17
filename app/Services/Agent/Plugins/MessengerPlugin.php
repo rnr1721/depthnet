@@ -5,6 +5,7 @@ namespace App\Services\Agent\Plugins;
 use App\Contracts\Agent\Capabilities\DescribesChatsInterface;
 use App\Contracts\Agent\Capabilities\ListsContactsInterface;
 use App\Contracts\Agent\Capabilities\ListsDialogsInterface;
+use App\Contracts\Agent\Capabilities\RepliesToMessagesInterface;
 use App\Contracts\Agent\Capabilities\MarksReadInterface;
 use App\Contracts\Agent\Capabilities\MessengerProviderInterface;
 use App\Contracts\Agent\Capabilities\MessengerServiceInterface;
@@ -84,6 +85,7 @@ class MessengerPlugin implements CommandPluginInterface
             'Read last messages: [messenger read]@username[/messenger]',
             'Read N messages: [messenger read]@username 30[/messenger]',
             'Send a message: [messenger send]@username Hello, how are you?[/messenger]',
+            'Reply to a specific message (#id from read; threads it in groups): [messenger reply]@groupname 4215 Agreed![/messenger]',
             'Unread overview: [messenger unread][/messenger]',
             'List dialogs: [messenger dialogs][/messenger] or [messenger dialogs]50 groups[/messenger]',
             'Saved contacts: [messenger contacts][/messenger]',
@@ -114,7 +116,7 @@ class MessengerPlugin implements CommandPluginInterface
                         'type'        => 'string',
                         'description' => 'Operation to perform',
                         'enum'        => [
-                            'resolve', 'read', 'send', 'unread', 'dialogs', 'contacts',
+                            'resolve', 'read', 'send', 'reply', 'unread', 'dialogs', 'contacts',
                             'search', 'info', 'mark_read', 'media', 'me',
                         ],
                     ],
@@ -125,6 +127,8 @@ class MessengerPlugin implements CommandPluginInterface
                             'resolve: name, @username or id to look up.',
                             'read: "@username" or "@username 30".',
                             'send: target, then the message text — "@username Hello!".',
+                            'reply: target, message id (from read, #4215 → 4215), then the text — '
+                                . '"@groupname 4215 Agreed!". Sent as a reply to that message.',
                             'unread: optional limit, e.g. "10".',
                             'dialogs: optional "[limit] [users|groups|channels]", e.g. "50 groups".',
                             'contacts, me: leave empty.',
@@ -246,6 +250,31 @@ class MessengerPlugin implements CommandPluginInterface
         $sent = $this->unwrap($this->provider($context)->send($target, $text));
 
         return $this->formatter->sent($sent);
+    }
+
+    /**
+     * "@chat 4215 text" — a threaded reply to one message. Providers without
+     * threading send the text plainly (and the result says so).
+     */
+    public function reply(string $content, PluginExecutionContext $context): string
+    {
+        [$target, $rest] = $this->splitTarget($content);
+        $rest = ltrim($rest);
+
+        if (!preg_match('/^#?(\d+)\s+(.+)$/su', $rest, $m)) {
+            throw new \InvalidArgumentException(
+                'Give the chat, the message id and the text: [messenger reply]@username 4215 Agreed![/messenger]'
+            );
+        }
+        [, $messageId, $text] = $m;
+
+        $provider = $this->provider($context);
+        if (!$provider instanceof RepliesToMessagesInterface) {
+            $sent = $this->unwrap($provider->send($target, $text));
+            return $this->formatter->sent($sent) . ' (this messenger cannot thread replies — sent as a plain message)';
+        }
+
+        return $this->formatter->sent($this->unwrap($provider->reply($target, $messageId, $text)));
     }
 
     public function unread(string $content, PluginExecutionContext $context): string

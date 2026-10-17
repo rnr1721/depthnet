@@ -61,6 +61,7 @@ class AgentMessageService implements AgentMessageServiceInterface
                 'from_user_id'       => null,
                 'preset_id'          => $targetPresetId,
                 'is_visible_to_user' => true,
+                'metadata'           => ['source' => Message::SOURCE_AGENT],
             ]);
         } else {
             $label = "handoff response from {$sourceName}:";
@@ -72,6 +73,7 @@ class AgentMessageService implements AgentMessageServiceInterface
                 'from_user_id'       => null,
                 'preset_id'          => $targetPresetId,
                 'is_visible_to_user' => true,
+                'metadata'           => ['source' => Message::SOURCE_AGENT],
             ]);
         }
 

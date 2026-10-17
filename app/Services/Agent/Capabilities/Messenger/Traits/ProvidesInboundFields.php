@@ -52,6 +52,28 @@ trait ProvidesInboundFields
                     InboundSettings::GROUPS_ALL      => 'All group messages (mentions wake the agent)',
                 ],
             ],
+            'reply_via_speak' => [
+                'type'        => 'checkbox',
+                'label'       => 'Reply through speak',
+                'description' => 'When someone writes to the agent here, its [speak] goes back to that chat '
+                    . '(and still shows in the web chat). Ends when someone writes from the web, '
+                    . 'or after the reply window.',
+                'required'    => false,
+            ],
+            'reply_window_minutes' => [
+                'type'        => 'number',
+                'label'       => 'Reply window (minutes)',
+                'description' => 'How long after the last incoming message [speak] keeps going to that chat.',
+                'min'         => 1,
+                'max'         => 1440,
+                'required'    => false,
+            ],
+            'mark_read' => [
+                'type'        => 'checkbox',
+                'label'       => 'Mark delivered messages as read',
+                'description' => 'The sender sees the message as read once it has reached the agent.',
+                'required'    => false,
+            ],
             'send_to_pool' => [
                 'type'        => 'checkbox',
                 'label'       => 'Route to input pool',
@@ -69,6 +91,9 @@ trait ProvidesInboundFields
             'inbound_whitelist' => '',
             'inbound_groups'    => InboundSettings::GROUPS_IGNORE,
             'send_to_pool'      => false,
+            'reply_via_speak'   => true,
+            'reply_window_minutes' => (int) (InboundSettings::DEFAULT_REPLY_WINDOW / 60),
+            'mark_read'         => true,
         ];
     }
 

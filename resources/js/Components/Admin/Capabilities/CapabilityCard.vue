@@ -171,7 +171,7 @@
                             </span>
                             <span v-if="testResult.latency_ms != null" class="text-xs opacity-70 flex-shrink-0">{{
                                 testResult.latency_ms
-                            }}ms</span>
+                                }}ms</span>
                         </div>
                         <div v-if="testResult.dimension" class="text-xs mt-1 opacity-70">
                             {{ t('capabilities_vector_dimension') }}: {{ testResult.dimension }}
@@ -263,7 +263,10 @@ const modelsError = ref(false);
 // don't have to discover the toggle. Configured capabilities keep their state.
 const form = ref({
     driver: props.capability.current_driver ?? '',
-    config: { ...(props.capability.current_config ?? {}) },
+    config: {
+        ...(props.capability.drivers?.[props.capability.current_driver]?.default_config ?? {}),
+        ...(props.capability.current_config ?? {}),
+    },
     isActive: props.capability.configured ? (props.capability.is_active ?? true) : true,
 });
 
@@ -297,7 +300,7 @@ const onDriverChange = () => {
         // restore its saved (masked) config; otherwise start from defaults.
         const isSavedDriver = form.value.driver === props.capability.current_driver;
         form.value.config = isSavedDriver
-            ? { ...(props.capability.current_config ?? {}) }
+            ? { ...(currentDriver.value.default_config ?? {}), ...(props.capability.current_config ?? {}) }
             : { ...(currentDriver.value.default_config ?? {}) };
     } else {
         form.value.config = {};

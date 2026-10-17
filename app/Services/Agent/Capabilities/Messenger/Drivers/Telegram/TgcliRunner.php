@@ -30,6 +30,12 @@ class TgcliRunner
     ) {
     }
 
+    /** The tgcli executable this runner calls. */
+    public function binary(): string
+    {
+        return $this->binary;
+    }
+
     /**
      * @param string[]              $args Command and its arguments, e.g. ['send', '@x', 'hi'].
      * @param array<string, string> $env  Extra environment (TELEGRAM_DATA_DIR, credentials).

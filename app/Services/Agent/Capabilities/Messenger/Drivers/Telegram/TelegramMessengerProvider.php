@@ -10,6 +10,7 @@ use App\Contracts\Agent\Capabilities\ListsDialogsInterface;
 use App\Contracts\Agent\Capabilities\MarksReadInterface;
 use App\Contracts\Agent\Capabilities\MessengerProviderInterface;
 use App\Contracts\Agent\Capabilities\ReceivesMessagesInterface;
+use App\Contracts\Agent\Capabilities\RepliesToMessagesInterface;
 use App\Contracts\Agent\Capabilities\SearchesMessagesInterface;
 use App\Services\Agent\Capabilities\Messenger\DTO\AuthStatus;
 use App\Services\Agent\Capabilities\Messenger\DTO\AuthStep;
@@ -40,6 +41,7 @@ class TelegramMessengerProvider implements
     MessengerProviderInterface,
     AuthenticatesInteractivelyInterface,
     ReceivesMessagesInterface,
+    RepliesToMessagesInterface,
     ListsDialogsInterface,
     ListsContactsInterface,
     SearchesMessagesInterface,
@@ -55,6 +57,9 @@ class TelegramMessengerProvider implements
     private const CURSOR_FILE = 'updates_cursor.pending.json';
 
     /** Files that make up a login; removed by logout(). Credentials file is kept. */
+    /** Telegram service notifications (login codes, security alerts). */
+    private const SERVICE_CHATS = ['777000'];
+
     private const SESSION_FILES = [
         'telegram_session.session',
         'telegram_session.session-journal',
@@ -208,7 +213,42 @@ class TelegramMessengerProvider implements
             return MessengerResult::fail('Message text is required.', MessengerResult::CODE_INVALID);
         }
 
-        $r = $this->call(['send', trim($target), $text]);
+        return $this->sendMessage(trim($target), $text, null);
+    }
+
+    // ── RepliesToMessagesInterface ───────────────────────────────────────────
+
+    public function reply(string $target, string $messageId, string $text): MessengerResult
+    {
+        if (($bad = $this->checkTarget($target)) !== null) {
+            return $bad;
+        }
+        if (trim($text) === '') {
+            return MessengerResult::fail('Message text is required.', MessengerResult::CODE_INVALID);
+        }
+
+        $id = ltrim(trim($messageId), '#');
+        if (!ctype_digit($id) || (int) $id < 1) {
+            return MessengerResult::fail("Not a message id: '{$messageId}'.", MessengerResult::CODE_INVALID);
+        }
+
+        // tgcli before 1.4 has no --reply-to and would send it as part of the
+        // text — deliver the words plainly instead of garbling them.
+        return $this->sendMessage(trim($target), $text, $this->supportsReplies() ? $id : null);
+    }
+
+    private function sendMessage(string $target, string $text, ?string $replyTo): MessengerResult
+    {
+        $args = ['send', $target];
+        if ($replyTo !== null) {
+            array_push($args, '--reply-to', $replyTo, '--');
+        } elseif (str_starts_with($text, '-') && $this->supportsReplies()) {
+            // 1.4+ reads options after the target; `--` keeps "-…" text verbatim.
+            $args[] = '--';
+        }
+        $args[] = $text;
+
+        $r = $this->call($args);
         if (!$r->ok) {
             return TgcliMapper::failure($r);
         }
@@ -218,6 +258,31 @@ class TelegramMessengerProvider implements
             (string) ($r->data['sent']['id'] ?? ''),
             TgcliMapper::date($r->data['sent']['date'] ?? null),
         ));
+    }
+
+    /**
+     * tgcli >= 1.4 (send --reply-to). Asked once per binary per process —
+     * queue workers live long, so this costs one call, not one per message.
+     */
+    private function supportsReplies(): bool
+    {
+        $binary = $this->runner->binary();
+        if (!array_key_exists($binary, self::$replySupport)) {
+            $r = $this->runner->call(['--version'], [], 15);
+            $version = $r->ok ? (string) ($r->data['version'] ?? '0') : '0';
+            self::$replySupport[$binary] = version_compare($version, '1.4.0', '>=');
+        }
+
+        return self::$replySupport[$binary];
+    }
+
+    /** @var array<string, bool> binary => supports --reply-to */
+    private static array $replySupport = [];
+
+    /** For tests: forget what was learned about tgcli versions. */
+    public static function forgetCapabilities(): void
+    {
+        self::$replySupport = [];
     }
 
     // ── ListsDialogsInterface / ListsContactsInterface ───────────────────────
@@ -382,8 +447,16 @@ class TelegramMessengerProvider implements
             return TgcliMapper::failure($r);
         }
 
+        // Telegram's service account sends login codes and security notices.
+        // They must never reach an agent, whatever the inbound policy says —
+        // a login code in the context is a way into the agent's own account.
+        $messages = array_values(array_filter(
+            TgcliMapper::messages($r->data['messages'] ?? []),
+            fn ($m) => !in_array($m->chat->id, self::SERVICE_CHATS, true),
+        ));
+
         return MessengerResult::ok(new UpdatesBatch(
-            messages:  TgcliMapper::messages($r->data['messages'] ?? []),
+            messages:  $messages,
             cursor:    is_array($r->data['cursor'] ?? null) ? $r->data['cursor'] : [],
             baseline:  (bool) ($r->data['baseline'] ?? false),
             truncated: (bool) ($r->data['truncated'] ?? false),

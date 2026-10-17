@@ -38,6 +38,7 @@ class Message extends Model
     public const SOURCE_SKILL        = 'skill';
     public const SOURCE_GOAL         = 'goal_focus';
     public const SOURCE_MESSENGER    = 'messenger';
+    public const SOURCE_AGENT        = 'agent';
 
     /**
      * The attributes that are mass assignable.

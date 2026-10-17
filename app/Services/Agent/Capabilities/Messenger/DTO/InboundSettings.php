@@ -23,6 +23,11 @@ namespace App\Services\Agent\Capabilities\Messenger\DTO;
  * Whitelist entries are @usernames or ids. A private message passes when the
  * person is listed. A group message passes when the group OR its author is
  * listed — so a whitelisted friend can address the agent from a shared group.
+ *
+ * Replies:
+ *   replyViaSpeak  the agent's [speak] also goes back to the chat that called it,
+ *                  for replyWindow seconds after that chat's last message
+ *   markRead       delivered messages are marked read in the messenger
  */
 final class InboundSettings
 {
@@ -42,8 +47,14 @@ final class InboundSettings
         public readonly array $whitelist = [],
         public readonly string $groups = self::GROUPS_IGNORE,
         public readonly bool $sendToPool = false,
+        public readonly bool $replyViaSpeak = true,
+        public readonly bool $markRead = true,
+        public readonly int $replyWindow = self::DEFAULT_REPLY_WINDOW,
     ) {
     }
+
+    /** Seconds after the last incoming message during which [speak] goes back to that chat. */
+    public const DEFAULT_REPLY_WINDOW = 1200;
 
     public static function off(): self
     {
@@ -70,7 +81,19 @@ final class InboundSettings
             self::parseWhitelist($config['inbound_whitelist'] ?? ''),
             $groups,
             (bool) ($config['send_to_pool'] ?? false),
+            (bool) ($config['reply_via_speak'] ?? true),
+            (bool) ($config['mark_read'] ?? true),
+            self::minutes($config['reply_window_minutes'] ?? null),
         );
+    }
+
+    private static function minutes(mixed $raw): int
+    {
+        if ($raw === null || $raw === '' || !is_numeric($raw)) {
+            return self::DEFAULT_REPLY_WINDOW;
+        }
+
+        return max(1, min(1440, (int) $raw)) * 60;
     }
 
     /**

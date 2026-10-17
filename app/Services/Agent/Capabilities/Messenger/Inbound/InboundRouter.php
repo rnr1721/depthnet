@@ -3,6 +3,7 @@
 namespace App\Services\Agent\Capabilities\Messenger\Inbound;
 
 use App\Contracts\Agent\AgentJobServiceFactoryInterface;
+use App\Contracts\Agent\Capabilities\MarksReadInterface;
 use App\Contracts\Agent\Capabilities\MessengerProviderInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
@@ -75,6 +76,8 @@ class InboundRouter
         $wake     = false;
         $blocks   = [];
         $meta     = [];
+        $target   = $settings->replyViaSpeak ? $this->replyTarget($settings, $messages) : null;
+        $header   = $this->header($provider, count($messages), $target);
 
         foreach ($messages as $m) {
             $block = $this->formatter->inboundBlock($m, $this->interpretMedia($preset, $provider, $m));
@@ -91,7 +94,9 @@ class InboundRouter
             ];
 
             if ($usePool) {
-                $this->pool->add($presetId, $this->poolSourceName($provider, $m), $block);
+                // Each pool item stands alone in the JSON, so each carries the
+                // short note on what it is and where [speak] goes.
+                $this->pool->add($presetId, $this->poolSourceName($provider, $m), $header . "\n\n" . $block);
             } else {
                 $blocks[] = $block;
             }
@@ -103,6 +108,17 @@ class InboundRouter
             'messages' => $meta,
             'wake'     => $wake,
         ];
+
+        // Where the agent's [speak] goes back to (RouteSpeechToMessenger reads it).
+        if ($target !== null) {
+            $baseMeta['reply_to'] = [
+                'chat'       => $target->chat->address(),
+                'chat_id'    => $target->chat->id,
+                'message_id' => $target->id,
+                'label'      => $target->chat->label(),
+                'private'    => $target->isPrivate(),
+            ];
+        }
 
         $created = null;
 
@@ -118,8 +134,12 @@ class InboundRouter
                 }
             }
         } else {
-            $content = $this->header($provider, count($blocks)) . "\n\n" . implode("\n\n", $blocks);
+            $content = $header . "\n\n" . implode("\n\n", $blocks);
             $created = $this->createUserMessage($presetId, $content, $baseMeta);
+        }
+
+        if ($settings->markRead) {
+            $this->markRead($provider, $messages);
         }
 
         $woke = $wake ? $this->wake($preset) : false;
@@ -199,12 +219,73 @@ class InboundRouter
         }
     }
 
-    private function header(MessengerProviderInterface $provider, int $count): string
+    /**
+     * What the agent reads above the messages. Says three things: where this
+     * came from, that the text is complete (no need to open the chat), and how
+     * a reply reaches the sender.
+     */
+    private function header(MessengerProviderInterface $provider, int $count, ?InboundMessage $target): string
     {
+        $name = ucfirst($provider->getDriverName());
         $what = $count === 1 ? 'new message' : "{$count} new messages";
 
-        return "[{$provider->getDisplayName()}] {$what}. "
-            . 'Reply with the messenger tool to the address shown, if a reply is needed.';
+        $reply = $target !== null
+            ? "Your [speak] reply goes to {$target->chat->label()}; to write anyone else, use the messenger tool."
+            : 'To reply, use the messenger tool with the address shown.';
+
+        // A group is a public room: everyone there reads the reply.
+        $public = $target !== null && !$target->isPrivate()
+            ? ' This is a group — everyone in it reads your reply; keep private matters about people out of it.'
+            : '';
+
+        return "[{$name}] {$what} — the full text is below, no need to open the chat. {$reply}{$public}";
+    }
+
+    /**
+     * The chat [speak] answers: the latest message that called the agent
+     * (private message or mention), else the latest message at all.
+     *
+     * @param InboundMessage[] $messages
+     */
+    private function replyTarget(InboundSettings $settings, array $messages): ?InboundMessage
+    {
+        $last = null;
+        foreach ($messages as $m) {
+            if ($settings->wakes($m)) {
+                $last = $m;
+            }
+        }
+
+        return $last ?? ($messages !== [] ? $messages[array_key_last($messages)] : null);
+    }
+
+    /**
+     * The sender sees "read" once the message reached the agent. One call per
+     * chat; a failure only costs the read mark, never the delivery.
+     *
+     * @param InboundMessage[] $messages
+     */
+    private function markRead(MessengerProviderInterface $provider, array $messages): void
+    {
+        if (!$provider instanceof MarksReadInterface) {
+            return;
+        }
+
+        $chats = [];
+        foreach ($messages as $m) {
+            $chats[$m->chat->address()] = true;
+        }
+
+        foreach (array_keys($chats) as $chat) {
+            try {
+                $r = $provider->markRead((string) $chat);
+                if (!$r->success) {
+                    $this->logger->info('InboundRouter: mark read failed', ['chat' => $chat, 'error' => $r->error]);
+                }
+            } catch (\Throwable $e) {
+                $this->logger->info('InboundRouter: mark read failed', ['chat' => $chat, 'error' => $e->getMessage()]);
+            }
+        }
     }
 
     private function poolSourceName(MessengerProviderInterface $provider, InboundMessage $m): string

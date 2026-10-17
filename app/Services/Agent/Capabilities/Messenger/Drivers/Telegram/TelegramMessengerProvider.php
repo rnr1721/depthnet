@@ -270,7 +270,7 @@ class TelegramMessengerProvider implements
         if (!array_key_exists($binary, self::$replySupport)) {
             $r = $this->runner->call(['--version'], [], 15);
             $version = $r->ok ? (string) ($r->data['version'] ?? '0') : '0';
-            self::$replySupport[$binary] = version_compare($version, '1.4.0', '>=');
+            self::$replySupport[$binary] = version_compare($version, '1.1.4', '>=');
         }
 
         return self::$replySupport[$binary];

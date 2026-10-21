@@ -16,6 +16,11 @@ class InputPoolItem extends Model
         'preset_id',
         'source_name',
         'content',
+        'is_synthetic',
+    ];
+
+    protected $casts = [
+        'is_synthetic' => 'boolean',
     ];
 
     /**

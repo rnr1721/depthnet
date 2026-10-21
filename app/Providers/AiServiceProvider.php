@@ -33,6 +33,7 @@ use App\Contracts\Agent\CommandResultPoolInterface;
 use App\Contracts\Agent\Compaction\CompactionServiceInterface;
 use App\Contracts\Agent\ContextBuilder\ContextBuilderFactoryInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
+use App\Contracts\Agent\ContextWindow\ContextMeterInterface;
 use App\Contracts\Agent\Contract\ContractMemoWriterInterface;
 use App\Contracts\Agent\Contract\ContractRuntimeServiceInterface;
 use App\Contracts\Agent\Contract\ContractServiceInterface;
@@ -150,6 +151,7 @@ use App\Services\Agent\CommandResultPoolService;
 use App\Services\Agent\Compaction\CompactionService;
 use App\Services\Agent\ContextBuilder\ContextBuilderFactory;
 use App\Services\Agent\ContextModeResolver;
+use App\Services\Agent\ContextWindow\MessageCountMeter;
 use App\Services\Agent\Contract\ContractMemoWriter;
 use App\Services\Agent\Contract\ContractRuntimeService;
 use App\Services\Agent\Contract\ContractService;
@@ -516,6 +518,9 @@ class AiServiceProvider extends ServiceProvider
         $this->app->bind(HeartServiceInterface::class, HeartService::class);
 
         $this->app->bind(PresetSandboxServiceInterface::class, PresetSandboxService::class);
+
+        $this->app->bind(ContextMeterInterface::class, MessageCountMeter::class);
+
         $this->app->bind(\App\Services\Agent\ContextBuilder\ContextInjectionService::class);
         $this->app->bind(ContextBuilderFactoryInterface::class, ContextBuilderFactory::class);
         $this->app->singleton(ShortcodeScopeResolverServiceInterface::class, ShortcodeScopeResolverService::class);

@@ -255,13 +255,15 @@ class ChatService implements ChatServiceInterface
      * @param int $presetId
      * @param string $content
      * @param string $source   Origin marker for the message (web by default).
+     * @param string $kind     Episode marker — a human/API dispatch is input by default.
      * @return Message
      */
     protected function createMessage(
         User $user,
         int $presetId,
         string $content,
-        string $source = Message::SOURCE_WEB
+        string $source = Message::SOURCE_WEB,
+        string $kind = Message::KIND_INPUT
     ): Message {
         $finalContent = null;
         if ($this->optionsService->get('user_can_run_commands', false)) {
@@ -274,7 +276,7 @@ class ChatService implements ChatServiceInterface
             'from_user_id'       => $user->id,
             'preset_id'          => $presetId,
             'is_visible_to_user' => true,
-            'metadata'           => ['source' => $source],
+            'metadata'           => ['source' => $source, 'kind' => $kind],
         ]);
 
         $isActive = $this->chatStatusService->getPresetStatus($presetId);
@@ -293,13 +295,15 @@ class ChatService implements ChatServiceInterface
             return null;
         }
 
+        // Classify before flush() clears the pool.
+        $kind    = $this->inputPoolService->payloadKind($preset);
         $content = $this->inputPoolService->flush($preset);
 
         if (!$content) {
             return null;
         }
 
-        return $this->createMessage($user, $presetId, $content);
+        return $this->createMessage($user, $presetId, $content, Message::SOURCE_WEB, $kind);
     }
 
     /**

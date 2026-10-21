@@ -106,6 +106,7 @@ class AiPreset extends Model
         'engine_config'            => '{}',
         'metadata'                 => '{}',
         'plugins_disabled'         => '',
+        'max_context_limit'        => 20,
         'cp_context_limit'         => 5,
         'voice_mp_commands'        => '',
         'pre_run_commands'         => '',

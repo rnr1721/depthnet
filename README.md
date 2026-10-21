@@ -116,6 +116,7 @@ DepthNet enables autonomous AI agents through:
 - **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
 - **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
 **Context Modes**: Per-preset dual context profiles — normal (short context, full RAG; reflection and conversation) and extended (long procedural context, filtered RAG; sustained work with stateful plugins like browser, terminal, sandbox). The agent switches automatically via a hysteresis detector: cycles that invoke stateful plugins build a work-streak that flips the profile after sustained activity and reverts it once work stops. RAG configs are tagged per-mode (normal/extended/both) so heavy associative retrieval can be silenced during task execution. Off by default — set an extended context limit to enable. Current mode visible via [[context_mode]].
+- **Episode-Aware Context Window**: History is assembled by meaning, not by count. Messages are grouped into cycles (one input + everything the agent did in response) and episodes (from a real input — user, API, handoff, recap — to the next one, or until the agent speaks). The window never starts mid-cycle; recent episodes go in whole, older ones as a single outline row (time, input → reply, tools used), so the agent always sees the shape of what came before. When the current task outgrows the budget, its opening input stays pinned with a note on how many cycles are skipped, followed by the latest steps. Empty cycles (a continuation answered with nothing) are dropped. `max_context_limit` is the budget; a whole episode may overshoot it by about a quarter rather than be cut.
 **Context compaction & mode-aware prompts.** Agents fold closed conversations into first-person recaps and clear the working window — staying continuous without carrying raw history through every cycle (faster tool work, less prompt
 noise, less forgetting). Folded messages remain in the journal and vector memory, so nothing is lost. Prompts can be tagged to auto-activate per context mode (a lean prompt while working, a reflective one while conversing). See [docs/compression.md](docs/memory/compression.md).
 - **Lazy Tool Loading (Skills)**: Tools can be attached to skills and hidden from the agent's tool schema until the relevant skill is loaded — cutting cognitive load without ever blocking a capability (hiding ≠ blocking). The agent sees an inventory of its skills with load status via `[[skills]]`, brings a skill into context with an explicit `load` command (by number or name), and its tools appear; a skill's full knowledge is injected into context while loaded. Tool-bearing skills auto-unload after several idle cycles to keep the list lean; the same tool can belong to several skills. Complements the Knowledge plugin: Knowledge is the content channel, the Skill console is the load channel. [→](docs/plugins/skill.md)
@@ -866,7 +867,7 @@ The model receives all accumulated sources as a single structured JSON payload. 
 The core innovation is the continuous thinking loop powered by Laravel's queue system:
 
 1. **Queue Job Initiation**: `ProcessAgentThinking` job starts thinking cycle
-2. **Context Assembly**: Agent retrieves recent conversation history, system prompt, persistent memory content, dopamine level, current date and time etc
+2. **Context Assembly**: Agent assembles an episode-aware window of recent history (whole recent episodes, an outline of older ones, a pinned task head when the current episode overflows), plus system prompt, persistent memory, RAG, current date and time etc.
 3. **AI Model Processing**: Sends context to current active AI preset with some engine and waits for response (OpenAI/Claude/Novita/Fireworks/Local/Mock). In `tool_calls` mode, plugin schemas are also attached to the request.
 4. **Response Analysis**: In tag mode — `CommandValidator` scans for syntax errors. In `tool_calls` mode — `ToolCallParser` maps provider tool_calls to internal commands.
 5. **Command Parsing**: `CommandParser` (tag mode) or `ToolCallParser` (tool_calls mode) extracts commands
@@ -897,6 +898,9 @@ php artisan vectormemory:embed --all --journal --persons
 php artisan vectormemory:embed --all               # All presets with embedding configured
 php artisan vectormemory:embed --preset=1 --persons --dry-run
 
+php artisan depthnet:backfill-message-kind --dry-run   # Mark historical messages as input/continue/recap for the context window
+php artisan depthnet:backfill-message-kind --preset=4  # One preset
+
 php artisan agent:defrag                           # Defrag vector memory for all eligible presets
 php artisan agent:defrag --preset=3                # Defrag specific preset
 
@@ -923,6 +927,7 @@ php artisan behavior:decay --preset=4               # Decay a specific preset (d
 - In `tool_calls` mode, models that are well-trained on function calling (DeepSeek V3.2+, GPT-4o, Claude) perform more reliably than in tag mode — the native mechanism reduces syntax errors entirely
 - Models trained specifically for cyclic reasoning (vs. assistant training) would be ideal
 - A pre-pass agent (Reflect plugin or always-on) often references its own reasoning as genuinely its own ("I saw several directions before answering") rather than as an external note — because it is: the same model produced it moments earlier from the identical context. This is the behavioural difference from injecting a separate "inner voice" preset, which models tend to treat as another's words.
+- Reasoning models (DeepSeek reasoner / v4 flash and similar) can spend the whole `max_tokens` on thinking and return empty output (`finish_reason: length`). With `turn_trigger: no_speak` this used to loop on nothing; after 3 empty responses in a row self-continue now stops with a visible system message. Give such models generous `max_tokens` (8192+): at 2048 they routinely run out before answering.
 
 **Tool Calls Mode Notes:**
 - Requires provider support: DeepSeek V3.2+, Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint)

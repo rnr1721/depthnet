@@ -41,6 +41,45 @@ class Message extends Model
     public const SOURCE_AGENT        = 'agent';
 
     /**
+     * Message kind markers, stored in metadata['kind'].
+     *
+     * A second axis, orthogonal to source. Source answers "who / which mode"
+     * and is deliberately INHERITED (the orchestrated self-continue carries
+     * SOURCE_ORCHESTRATOR so the pipeline stays in pipeline mode). Kind answers
+     * "is this a new input, or the agent's own continuation?" and is never
+     * inherited. The context window uses it to find episode boundaries.
+     *
+     *   KIND_INPUT    — something external arrived: user, API, messenger, handoff,
+     *                   orchestrator wake, a pool payload with at least one real
+     *                   (non-synthetic) source. Starts a new episode.
+     *   KIND_CONTINUE — self-generated continuation: "Continue", cycle start /
+     *                   continue instructions, cycle-prompt impulses, a pool
+     *                   payload made only of synthetic sources. Never starts one.
+     *   KIND_RECAP    — a compaction recap. Starts a (synthetic) episode.
+     *
+     * Absence of a kind marker means KIND_INPUT. A forgotten entry point then
+     * only makes episodes smaller than ideal — the old behaviour. The opposite
+     * default would silently glue someone's new question onto the previous
+     * episode.
+     */
+    public const KIND_INPUT    = 'input';
+    public const KIND_CONTINUE = 'continue';
+    public const KIND_RECAP    = 'recap';
+
+    /**
+     * Non-user kinds:
+     *   KIND_SPEECH   — the system row carrying what the agent said outward
+     *                   (speak / plain-text answer). metadata['agent_message_id']
+     *                   points at the agent row of that cycle. Read by the
+     *                   context window to build the outline of older episodes.
+     *   KIND_OUTLINE  — an in-memory user-role row the context window builds
+     *                   to list older episodes it does not show in full.
+     *                   Never persisted.
+     */
+    public const KIND_SPEECH   = 'speech';
+    public const KIND_OUTLINE  = 'outline';
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var array<int, string>
@@ -133,7 +172,39 @@ class Message extends Model
      */
     public function isRecap(): bool
     {
-        return $this->getSource() === self::SOURCE_COMPACTION;
+        return $this->getSource() === self::SOURCE_COMPACTION
+            || ($this->metadata['kind'] ?? null) === self::KIND_RECAP;
+    }
+
+    /**
+     * Kind marker of this message. Unmarked means KIND_INPUT (see constants).
+     */
+    public function getKind(): string
+    {
+        $kind = $this->metadata['kind'] ?? null;
+
+        return is_string($kind) && $kind !== '' ? $kind : self::KIND_INPUT;
+    }
+
+    /**
+     * Whether this message opens a new episode: a user-role row that is not
+     * the agent's own continuation. Recaps count — they open the window after
+     * a fold.
+     */
+    public function isEpisodeHead(): bool
+    {
+        return $this->role === 'user' && $this->getKind() !== self::KIND_CONTINUE;
+    }
+
+    /**
+     * Whether this agent row carried speech to the outside (a speak result or a
+     * plain-text answer). Set by AgentActionsHandler on both persistence paths;
+     * a cycle that spoke closes the episode it belongs to.
+     */
+    public function didSpeak(): bool
+    {
+        return $this->role !== 'user'
+            && !empty($this->metadata['content_duplicated_in_system']);
     }
 
     /**

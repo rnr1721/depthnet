@@ -57,12 +57,31 @@ class InputPoolService implements InputPoolServiceInterface
     /**
      * @inheritDoc
      */
-    public function add(int $presetId, string $sourceName, string $content): void
+    public function add(int $presetId, string $sourceName, string $content, bool $synthetic = false): void
     {
         $this->poolItemModel->updateOrCreate(
             ['preset_id' => $presetId, 'source_name' => $sourceName],
-            ['content' => $content]
+            ['content' => $content, 'is_synthetic' => $synthetic]
         );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function payloadKind(AiPreset $preset): string
+    {
+        $knownNames = $this->knownSourceModel
+            ->forPreset($preset->getId())
+            ->pluck('source_name')
+            ->toArray();
+
+        $hasRealInput = $this->poolItemModel
+            ->forPreset($preset->getId())
+            ->when(!empty($knownNames), fn ($q) => $q->whereNotIn('source_name', $knownNames))
+            ->where(fn ($q) => $q->where('is_synthetic', false)->orWhereNull('is_synthetic'))
+            ->exists();
+
+        return $hasRealInput ? Message::KIND_INPUT : Message::KIND_CONTINUE;
     }
 
     /**

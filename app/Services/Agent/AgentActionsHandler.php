@@ -158,24 +158,35 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                 // Pool-mode presets are not used in orchestrated pipelines (the
                 // orchestrator writes directly to history, bypassing the pool),
                 // so no source inheritance is needed on this branch.
-                $this->inputPoolService->add($preset->getId(), 'system', 'Continue');
+                $this->inputPoolService->add($preset->getId(), 'system', 'Continue', synthetic: true);
             } else {
                 // Inherit the orchestrated marker onto the self-continue message so
                 // the next cycle re-enters pipeline mode. Without this, the next
                 // cycle's initiating message would be an unmarked "Continue" and the
                 // participant would fall out of the pipeline on its second step.
-                $this->createUserMessage(
-                    'Continue',
-                    $preset->getId(),
-                    $orchestrated ? ['source' => Message::SOURCE_ORCHESTRATOR] : []
-                );
+                // kind=continue is NOT inherited-by-source: it is what tells the
+                // context window this is not a new episode, even when the source
+                // says "orchestrator".
+                $metadata = ['kind' => Message::KIND_CONTINUE];
+                if ($orchestrated) {
+                    $metadata['source'] = Message::SOURCE_ORCHESTRATOR;
+                }
+
+                $this->createUserMessage('Continue', $preset->getId(), $metadata);
             }
         }
 
         if ($this->inputPoolService->isEnabled($preset)) {
             $remaining = $this->inputPoolService->getAllAsJSON($preset);
             if ($remaining) {
-                $this->createUserMessage($remaining, $preset->getId());
+                // Classify BEFORE clear(): input that arrived during this cycle
+                // makes the flush a real episode head; a pool holding only our own
+                // "Continue" does not.
+                $this->createUserMessage(
+                    $remaining,
+                    $preset->getId(),
+                    ['kind' => $this->inputPoolService->payloadKind($preset)]
+                );
             }
         }
 
@@ -426,7 +437,13 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         $this->deliverInterAgentMessages($response, $preset, $actionsResult);
 
         if ($hasSystemMessage) {
-            $this->createSystemMessage($actionsResult->getSystemMessage(), $preset->getId());
+            // Marked as speech and linked to this cycle's agent row, so the
+            // context window can condense an older episode to "input → reply".
+            $this->createSystemMessage(
+                $actionsResult->getSystemMessage(),
+                $preset->getId(),
+                ['kind' => Message::KIND_SPEECH, 'agent_message_id' => $message->id]
+            );
             event(new \App\Events\AgentSpeakEvent($actionsResult->getSystemMessage(), $preset));
         }
 

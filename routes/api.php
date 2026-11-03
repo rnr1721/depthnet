@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\ChatApiController;
-use App\Http\Controllers\Api\RhasspyApiController;
 use App\Http\Middleware\ApiKeyMiddleware;
 use Illuminate\Support\Facades\Route;
 
@@ -39,11 +38,4 @@ Route::middleware(ApiKeyMiddleware::class)->group(function () {
             ->name('pool');
     });
 
-});
-
-Route::prefix('v1/rhasspy')->name('api.rhasspy.')->group(function () {
-    Route::post('presets/{preset_id}/speech', [RhasspyApiController::class, 'speech'])
-    ->name('speech');
-    Route::get('presets/{preset_id}/ping', [RhasspyApiController::class, 'ping'])
-    ->name('ping');
 });

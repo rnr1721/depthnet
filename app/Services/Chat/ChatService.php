@@ -249,52 +249,21 @@ class ChatService implements ChatServiceInterface
     }
 
     /**
-     * @inheritDoc
-     */
-    public function sendVoiceInput(
-        int $presetId,
-        string $content,
-        string $source = 'rhasspy',
-    ): Message {
-        $preset = $this->presetRegistry->getPreset($presetId);
-
-        if ($this->inputPoolService->isEnabled($preset)) {
-            $this->inputPoolService->add($presetId, $source, $content);
-            $formattedContent = $this->inputPoolService->getAllAsJSON($preset);
-            $this->inputPoolService->clear($preset->getId(), true);
-        } else {
-            $formattedContent = "[{$source}]: {$content}";
-        }
-
-        $message = $this->messageModel->create([
-            'role'               => 'user',
-            'content'            => $formattedContent,
-            'from_user_id'       => null,
-            'preset_id'          => $presetId,
-            'is_visible_to_user' => true,
-            'metadata'           => ['source' => $source],
-        ]);
-
-        $isActive = $this->chatStatusService->getPresetStatus($presetId);
-        $this->agentJobServiceFactory->make()->start($presetId, !$isActive);
-
-        return $message;
-    }
-
-    /**
      * Create a user message, run commands if needed, trigger agent.
      *
      * @param User $user
      * @param int $presetId
      * @param string $content
      * @param string $source   Origin marker for the message (web by default).
+     * @param string $kind     Episode marker — a human/API dispatch is input by default.
      * @return Message
      */
     protected function createMessage(
         User $user,
         int $presetId,
         string $content,
-        string $source = Message::SOURCE_WEB
+        string $source = Message::SOURCE_WEB,
+        string $kind = Message::KIND_INPUT
     ): Message {
         $finalContent = null;
         if ($this->optionsService->get('user_can_run_commands', false)) {
@@ -307,7 +276,7 @@ class ChatService implements ChatServiceInterface
             'from_user_id'       => $user->id,
             'preset_id'          => $presetId,
             'is_visible_to_user' => true,
-            'metadata'           => ['source' => $source],
+            'metadata'           => ['source' => $source, 'kind' => $kind],
         ]);
 
         $isActive = $this->chatStatusService->getPresetStatus($presetId);
@@ -326,13 +295,15 @@ class ChatService implements ChatServiceInterface
             return null;
         }
 
+        // Classify before flush() clears the pool.
+        $kind    = $this->inputPoolService->payloadKind($preset);
         $content = $this->inputPoolService->flush($preset);
 
         if (!$content) {
             return null;
         }
 
-        return $this->createMessage($user, $presetId, $content);
+        return $this->createMessage($user, $presetId, $content, Message::SOURCE_WEB, $kind);
     }
 
     /**

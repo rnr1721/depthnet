@@ -8,5 +8,4 @@ return [
     App\Providers\FileStorageServiceProvider::class,
     App\Providers\AuthServiceProvider::class,
     App\Providers\ChatServiceProvider::class,
-    App\Providers\RhasspyServiceProvider::class,
 ];

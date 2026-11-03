@@ -8,6 +8,7 @@
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP%20%2B%20SSE%20HTTP-blue?style=flat-square)
 ![Vision](https://img.shields.io/badge/Vision-Claude%20%7C%20Novita-purple?style=flat-square)
 ![Voice](https://img.shields.io/badge/Voice-Whisper%20%7C%20Piper%20%7C%20Browser-purple?style=flat-square)
+![Messenger](https://img.shields.io/badge/Messenger-Telegram%20(MTProto)-purple?style=flat-square)
 
 **Autonomous AI Agent Platform with Orchestrated Workflows** | v1.0.0
 
@@ -61,8 +62,9 @@ Choose your preferred installation method:
 
 - **[Reference prompts](docs/prompts)** - System message examples
 
+- **[Messenger (Telegram)](docs/capabilities/messenger.md)** - connect a real Telegram account per preset, inbound messages that wake the agent, voice/photo via STT/Vision
+
 - **[Voice interface (STT/TTS)](docs/capabilities/text-to-speech.md)** - speech capabilities, local Whisper + Piper container, wake word, browser setup
-- **[Rhasspy](docs/integrations/README-RHASSPY.md)** - Rhasspy integration (legacy — superseded by speech capabilities)
 
 - **[Reverse proxy](docs/installation/reverse-proxy.md)** - instruction for production environments
 
@@ -88,12 +90,14 @@ Each provider supports custom presets with individual settings. Each preset has 
 DepthNet enables autonomous AI agents through:
 
 - **Continuous Reasoning**: Agents operate in persistent thinking loops beyond simple request-response
+- **Messenger**: Agents can be reached through a real messenger account — Telegram today (MTProto user account via [tgcli](https://github.com/rnr1721/tgcli), not Bot API), with the provider abstraction open for others. Configured per preset as a capability, including interactive login (phone → code → 2FA) right in the preset UI. Incoming messages are optional: off, whitelist, or everyone; groups ignored, mentions only, or all. A direct message or a mention acts as a call — it wakes a sleeping agent. Messages arrive as one marked user message per batch, or into the input pool in pool mode. Voice messages are transcribed through the preset's STT, photos described through its Vision; nothing raw reaches the model. Inbound text is never executed as commands. Delivery is at-least-once: the read cursor advances only after delivery. [→](docs/capabilities/messenger.md)
 - **Code Execution**: Direct execution of PHP, Python, Node.js code, shell commands, and API calls
 - **Persistent Memory**: Cross-session knowledge retention and learning capabilities
 - **Unified Memory (Knowledge)**: An optional single interface over all five memory subsystems. The agent states the *nature* of what it knows — episode, person, relation, skill, or note — and a deterministic router (no LLM in the loop) writes it to exactly one home, while recall fans out across every subsystem and merges the results. Distinct from RAG: RAG is a passive, pre-assembled retrieval layer; knowledge is active, driven by the agent on demand, and bypasses RAG entirely on read. Two input modes — the model emits the routing intent directly, or a lightweight formulator preset translates plain natural-language intent into it. Works for instrumental agents (a reliable remember/recall tool) and subjective ones (a single memory surface) alike — the difference is prompt and RAG config, not the mechanism. [→](docs/plugins/knowledge.md)
-- **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context). Service Capabilities: Modular provider system for embedding, vision (image), and other AI services. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers. Each preset can have its own configured provider. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
+- **Vector Memory with Associative Mode**: Two retrieval modes — standard (finds relevant memories) and associative (finds the most relevant memory, then expands to related ones for deeper context).
+- **Service Capabilities**: Modular per-preset provider system for embeddings, vision, speech (STT/TTS) and messengers. GUI-driven configuration with per-driver config fields — no code changes needed to add new providers.
 - **Native Vision**: Agents can actually *see* — images attached to chat, images returned by MCP tools, and image files uploaded as documents. A single vision service serves all three entry points through a per-preset provider (Claude or Novita), with configurable image normalization (resize/format/quality). Images returned by MCP tools can be routed into the input pool and, when set as a known source, perceived as part of the agent's own sensory state rather than a tool result. The agent never receives raw image data — only text descriptions; when vision is not configured, no image content reaches the agent (no confabulation). [→](docs/capabilities/vision.md)
-- **Voice (STT/TTS)**: Agents can listen and speak. Speech-to-text and text-to-speech are separate per-preset capabilities, each with its own provider — browser (Web Speech API, zero config) or any OpenAI-compatible endpoint. An optional bundled container runs faster-whisper and Piper locally, so nothing spoken to or by an agent leaves the host. Because the two capabilities are independent, they combine: browser recognition keeps hands-free wake-word dialogue working while a local neural voice handles output. Server-side providers work outside the browser entirely, so a voice message from any channel can be transcribed into the agent's input and replies synthesized back. [→](docs/capabilities/text-to-speech.md)
+- **Voice (STT/TTS)**: Agents can listen and speak. Speech-to-text and text-to-speech are separate per-preset capabilities, each with its own provider — browser (Web Speech API, zero config) or any OpenAI-compatible endpoint. An optional bundled container runs faster-whisper and Piper locally, so nothing spoken to or by an agent leaves the host. Because the two capabilities are independent, they combine: browser recognition keeps hands-free wake-word dialogue working while a local neural voice handles output. Server-side providers work outside the browser entirely, so a voice message from any channel can be transcribed into the agent's input and replies synthesized back. Telegram voice messages via the Messenger capability. [→](docs/capabilities/text-to-speech.md)
 - **RAG (Retrieval-Augmented Generation)**: Multi-config RAG pipeline — attach one or more RAG presets to any agent, each with its own sources, retrieval mode, and limits. Results are deduplicated across configs and merged into a single unified `[[rag_context]]` block, with sections of the same type from different configs combined into one. Each config also writes its own system message to the chat for per-config visibility; failures appear as `[RAG ERROR — <preset>]` messages so operational issues are immediately visible. Sources per config: vector memory (flat or associative), journal, skills, persons, ontology, files. Queries formulated by the RAG model can carry `time:` and `domain:` prefixes — temporal scoping and domain selection become part of the query formulation, not a separate config axis. The first (primary) config supports agent-queued queries via the RAG Query plugin; secondary configs always use model-formulated queries. Configs are ordered via drag-and-drop in the UI. Assembly is cached across silent cycles and prewarmable configs can be warmed in the background after the agent speaks, so heavy retrieval doesn't re-run every cycle or block the next response. [→](docs/memory/RAG.md)
 - **MCP Integration**: Connect external Model Context Protocol servers per-preset, giving agents access to GitHub, databases, APIs and any other MCP-compatible service
 - **Multi-Source Input (Pool Mode)**: Two input modes — `single` (classic user message) and `pool` (aggregates messages from multiple sources into a JSON payload, cleared on send). In loop mode, user and other source messages accumulate in the pool and are sent together on the next cycle
@@ -112,6 +116,7 @@ DepthNet enables autonomous AI agents through:
 - **Orchestrated Agent Workflows**: Structured agents with a planner preset and named roles (executor, critic, validator). A deterministic orchestrator manages task lifecycle — pending → in_progress → validating → done — without relying on prompt engineering for routing. Optional per-role validators retry or escalate tasks automatically. See [Orchestrated Mode](#orchestrated-agent-mode) below.
 - **Native Tool Calls**: Presets can operate in `tool_calls` mode where plugin schemas are sent to the provider API and the model invokes plugins through the provider's native mechanism instead of tag syntax. Supports all major providers. See [Command Execution Modes](#command-execution-modes) below.
 **Context Modes**: Per-preset dual context profiles — normal (short context, full RAG; reflection and conversation) and extended (long procedural context, filtered RAG; sustained work with stateful plugins like browser, terminal, sandbox). The agent switches automatically via a hysteresis detector: cycles that invoke stateful plugins build a work-streak that flips the profile after sustained activity and reverts it once work stops. RAG configs are tagged per-mode (normal/extended/both) so heavy associative retrieval can be silenced during task execution. Off by default — set an extended context limit to enable. Current mode visible via [[context_mode]].
+- **Episode-Aware Context Window**: History is assembled by meaning, not by count. Messages are grouped into cycles (one input + everything the agent did in response) and episodes (from a real input — user, API, handoff, recap — to the next one, or until the agent speaks). The window never starts mid-cycle; recent episodes go in whole, older ones as a single outline row (time, input → reply, tools used), so the agent always sees the shape of what came before. When the current task outgrows the budget, its opening input stays pinned with a note on how many cycles are skipped, followed by the latest steps. Empty cycles (a continuation answered with nothing) are dropped. `max_context_limit` is the budget; a whole episode may overshoot it by about a quarter rather than be cut.
 **Context compaction & mode-aware prompts.** Agents fold closed conversations into first-person recaps and clear the working window — staying continuous without carrying raw history through every cycle (faster tool work, less prompt
 noise, less forgetting). Folded messages remain in the journal and vector memory, so nothing is lost. Prompts can be tagged to auto-activate per context mode (a lean prompt while working, a reflective one while conversing). See [docs/compression.md](docs/memory/compression.md).
 - **Lazy Tool Loading (Skills)**: Tools can be attached to skills and hidden from the agent's tool schema until the relevant skill is loaded — cutting cognitive load without ever blocking a capability (hiding ≠ blocking). The agent sees an inventory of its skills with load status via `[[skills]]`, brings a skill into context with an explicit `load` command (by number or name), and its tools appear; a skill's full knowledge is injected into context while loaded. Tool-bearing skills auto-unload after several idle cycles to keep the list lean; the same tool can belong to several skills. Complements the Knowledge plugin: Knowledge is the content channel, the Skill console is the load channel. [→](docs/plugins/skill.md)
@@ -161,7 +166,7 @@ Each preset has an `agent_result_mode` setting that controls both how commands a
 | **Goal** (`goal`) | Persistent goal tracker with progress history and statuses (active / paused / done / dropped). Active goals always visible via `[[active_goals]]`. One goal can be put **in focus**: its full progress history is injected into context as working material, survives compaction, and is released automatically on done / pause / drop. | [→](docs/plugins/goal.md) |
 | **Wake** (`wake`) | Temporal agency — the agent schedules its own future wakings. A wake is a temporal handoff from the agent-now to the agent-later: an instruction left for a specific moment (once, interval, daily, or cron), fired by an external tick so a sleeping agent can be woken from rest. Optional pulse-unit scheduling when the preset uses subjective time. The agent can inspect, cancel, and edit its own calendar; the user can design schedules via admin CRUD. Both surface in `[[wake_schedule]]`. | [→](docs/plugins/wake.md) |
 | **MCP** (`mcp`) | Connect any Model Context Protocol server per-preset. Supports Streamable HTTP (MCP spec 2025-03-26) and legacy SSE (2024-11-05). Agent can optionally connect/disconnect servers autonomously. | [→](docs/plugins/mcp.md) |
-| **Telegram** (`telegram`) | Full Telegram access via [tgcli](https://github.com/rnr1721/tgcli) — read/send messages, browse dialogs and channels, search. Real user account (MTProto), not Bot API. Per-preset session isolation. | [→](docs/plugins/telegram.md) |
+| **Messenger** (`messenger`) | Act through the preset's messenger account (Messenger capability; Telegram via [tgcli](https://github.com/rnr1721/tgcli)) — read/send, dialogs, contacts, unread, search, chat info, mark read, and `media` to hear a voice message or see a photo via the preset's STT/Vision. Per-preset session isolation. | [→](docs/plugins/messenger.md) |
 | **Code** (`code`) | Structured sandbox filesystem access with LSP code intelligence. Navigate, read, search, edit (replace/patch/batch), plus symbols, references, hover, definition, diagnostics. Requires sandbox. | [→](docs/plugins/code.md) |
 | **Browser** (`browser`) | Persistent Playwright browser with session memory surviving across thinking cycles. Returns numbered page snapshots — the agent acts on elements by number. Auto-snapshots after each action. Requires `browser` Docker profile. | [→](docs/plugins/browser.md) |
 | **Dopamine** (`dopamine`) | Self-motivation system. Agent rewards/penalises itself; level visible via `[[dopamine_level]]`. Optional auto-decay. | [→](docs/plugins/dopamine.md) |
@@ -385,16 +390,19 @@ The AI communicates through special command tags that trigger plugin execution. 
 [task approve]42 | Looks good, meets requirements[/task]
 [task reject]42 | Missing Q1 breakdown, please revise[/task]
 
-# Telegram — full MTProto access via user account
-[telegram dialogs][/telegram]
-[telegram dialogs]50 channels[/telegram]
-[telegram read]@username 20[/telegram]
-[telegram send]@username Hello![/telegram]
-[telegram unread][/telegram]
-[telegram search]@groupname keyword[/telegram]
-[telegram info]@username[/telegram]
-[telegram mark_read]@username[/telegram]
-[telegram me][/telegram]
+# Messenger — act through the preset's messenger account (Telegram)
+[messenger dialogs][/messenger]
+[messenger dialogs]50 channels[/messenger]
+[messenger read]@username 20[/messenger]
+[messenger send]@username Hello![/messenger]
+[messenger unread][/messenger]
+[messenger search]@groupname keyword[/messenger]
+[messenger info]@username[/messenger]
+[messenger mark_read]@username[/messenger]
+[messenger media]@username 4215 what is on the photo?[/messenger]  # transcribe voice / describe image
+[messenger contacts][/messenger]
+[messenger resolve]Eugeny[/messenger]
+[messenger me][/messenger]
 
 # Ontology — world-model graph
 [ontology find]eugeny[/ontology]
@@ -590,7 +598,7 @@ Built on modern Laravel principles with dependency injection:
 - `ChatServiceProvider` - Conversation handling and export functionality
 - `AppServiceProvider` - Authentication, settings, user management
 
-Integrations (Telegram, Rhasspy) and capabilities (embedding, vision, speech) are configured per-preset — each agent can use its own providers, accounts and credentials, stored in isolated directories under /shared/.
+Integrations (Telegram, Rhasspy) and capabilities (embedding, vision, speech, messenger) are configured per-preset — each agent can use its own providers, accounts and credentials, stored in isolated directories under /shared/.
 
 <a href="docs/screenshots/presets.png">
   <img src="docs/screenshots/presets.png" alt="Main Interface" height="300">
@@ -746,6 +754,8 @@ Default security settings prioritize safety with safe_mode enabled, network acce
 - **Dark/Light Themes**: Customizable appearance with user preferences
 - **Voice Interface**: Per-preset speech capabilities — browser Web Speech API (zero config) or a local Whisper + Piper container, mixable in any combination. Hands-free spoken dialogue on desktop (wake word = preset code), push-to-talk on mobile. [→](docs/capabilities/text-to-speech.md)
 
+**External input (Messenger)**: Inbound messenger text is written by people outside the operator's control and is effectively untrusted prompt content. It is stored without a user identity and never executed as commands, but an agent with host-level plugins (Shell, Sandbox, Browser) can still choose to act on what it was asked. For such presets keep inbound in whitelist mode and tell the agent in its prompt that `[Telegram]` messages come from external people, not the operator.
+
 **Important**: This platform is designed for controlled research environments. Production deployment requires appropriate security hardening based on your specific risk assessment.
 
 <a href="docs/screenshots/users.png">
@@ -857,7 +867,7 @@ The model receives all accumulated sources as a single structured JSON payload. 
 The core innovation is the continuous thinking loop powered by Laravel's queue system:
 
 1. **Queue Job Initiation**: `ProcessAgentThinking` job starts thinking cycle
-2. **Context Assembly**: Agent retrieves recent conversation history, system prompt, persistent memory content, dopamine level, current date and time etc
+2. **Context Assembly**: Agent assembles an episode-aware window of recent history (whole recent episodes, an outline of older ones, a pinned task head when the current episode overflows), plus system prompt, persistent memory, RAG, current date and time etc.
 3. **AI Model Processing**: Sends context to current active AI preset with some engine and waits for response (OpenAI/Claude/Novita/Fireworks/Local/Mock). In `tool_calls` mode, plugin schemas are also attached to the request.
 4. **Response Analysis**: In tag mode — `CommandValidator` scans for syntax errors. In `tool_calls` mode — `ToolCallParser` maps provider tool_calls to internal commands.
 5. **Command Parsing**: `CommandParser` (tag mode) or `ToolCallParser` (tool_calls mode) extracts commands
@@ -888,6 +898,9 @@ php artisan vectormemory:embed --all --journal --persons
 php artisan vectormemory:embed --all               # All presets with embedding configured
 php artisan vectormemory:embed --preset=1 --persons --dry-run
 
+php artisan depthnet:backfill-message-kind --dry-run   # Mark historical messages as input/continue/recap for the context window
+php artisan depthnet:backfill-message-kind --preset=4  # One preset
+
 php artisan agent:defrag                           # Defrag vector memory for all eligible presets
 php artisan agent:defrag --preset=3                # Defrag specific preset
 
@@ -895,6 +908,11 @@ php artisan contract:tick                          # Tick the metabolism engine 
 php artisan contract:tick --preset=4               # Tick a specific preset (debugging)
 
 php artisan wake:dispatch                          # Fire any wake schedules that are due (runs every minute via scheduler)
+
+php artisan messenger:poll                         # One pass: fetch and deliver inbound messages for all presets with inbound on
+php artisan messenger:poll --loop --interval=10    # Long-running poller (supervisor) — conversational latency
+php artisan messenger:poll --preset=1 -v           # One preset, verbose (debugging)
+php artisan messenger:poll --reset                 # Drop the read cursor; next pass takes a fresh baseline (nothing replayed)
 
 php artisan behavior:decay                          # Decay inactive patterns for all eligible presets
 php artisan behavior:decay --preset=4               # Decay a specific preset (debugging)
@@ -909,6 +927,7 @@ php artisan behavior:decay --preset=4               # Decay a specific preset (d
 - In `tool_calls` mode, models that are well-trained on function calling (DeepSeek V3.2+, GPT-4o, Claude) perform more reliably than in tag mode — the native mechanism reduces syntax errors entirely
 - Models trained specifically for cyclic reasoning (vs. assistant training) would be ideal
 - A pre-pass agent (Reflect plugin or always-on) often references its own reasoning as genuinely its own ("I saw several directions before answering") rather than as an external note — because it is: the same model produced it moments earlier from the identical context. This is the behavioural difference from injecting a separate "inner voice" preset, which models tend to treat as another's words.
+- Reasoning models (DeepSeek reasoner / v4 flash and similar) can spend the whole `max_tokens` on thinking and return empty output (`finish_reason: length`). With `turn_trigger: no_speak` this used to loop on nothing; after 3 empty responses in a row self-continue now stops with a visible system message. Give such models generous `max_tokens` (8192+): at 2048 they routinely run out before answering.
 
 **Tool Calls Mode Notes:**
 - Requires provider support: DeepSeek V3.2+, Claude, OpenAI, Novita, Fireworks, Gemini (via OpenAI-compatible endpoint)
@@ -943,7 +962,7 @@ php artisan behavior:decay --preset=4               # Decay a specific preset (d
   - `[[rhythm_self]]` - Optional self-description of how the agent relates to its sense of time (pulse). Empty when pulse is disabled.
   - `[[wake_schedule]]` - The agent's upcoming wakings (its temporal calendar), showing when each fires, the instruction, and who scheduled it (agent or user). Injected when the Wake plugin is enabled. Shows pulse units when the preset uses subjective time.
   - `[[agent_tasks]]` - Active tasks for the current orchestrated agent, with status and assigned role. Available to planner and role presets when AgentTask plugin is enabled.
-  - `[[telegram_account]]` - Current Telegram account info (username, name, ID). Cached, injected when Telegram plugin is enabled and authorized.
+  - `[[messenger_account]]` - Current messenger account (name, username, ID). Cached; empty when the Messenger capability isn't configured or authorized. `[[telegram_account]]` is kept as a legacy alias.
   - `[[active_spawns]]` - List of active spawned instruments created by this agent. Injected when Spawn plugin is enabled.
   - `[[terminal_screen]]` - Current terminal screen content. Injected when Terminal plugin is enabled and monitor is on (`[terminal on][/terminal]`). Empty string when monitor is off.
   - `[[active_switch]]` - Content of the currently active prompt block (Switch plugin). Empty if no block is active.

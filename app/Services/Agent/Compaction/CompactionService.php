@@ -406,6 +406,7 @@ class CompactionService implements CompactionServiceInterface
             'compacted'          => false, // the recap IS the active summary — stays in-window
             'metadata'           => [
                 'source'     => Message::SOURCE_COMPACTION,
+                'kind'       => Message::KIND_RECAP,
                 'compaction' => ['from_id' => $fromId, 'to_id' => $toId],
             ],
         ]);

@@ -79,9 +79,12 @@ trait ContentCleaningTrait
     }
 
     /**
-     * Strip leading 'command' messages — the first message in context
-     * must not have the 'command' role (AI APIs may reject it or
-     * misinterpret the conversation start).
+     * Strip leading 'result' messages — a tool result whose call is not in the
+     * window (provider APIs reject an orphan tool turn).
+     *
+     * With ContextWindowSelector the window no longer starts mid-cycle, so this
+     * only matters for rows the selector does not control (e.g. the very start
+     * of history). Kept as a cheap safety net.
      *
      * @param array $context
      * @return void
@@ -94,17 +97,24 @@ trait ContentCleaningTrait
     }
 
     /**
-     * Reposition the partial (watchdog) compression recap to its logical place:
-     * before the last contiguous group of fresh user messages.
+     * Reposition a compaction recap before the fresh user messages that were
+     * left unfolded by the same fold.
      *
-     * The watchdog collapses the head of the window while leaving the tail intact,
-     * but the recap is created with a higher ID and physically placed AFTER the tail.
-     * Here, we move it to the boundary between the "collapsed section" and the
-     * "fresh incoming block" so that the model accesses its memory of the
-     * preceding messages before the new ones, rather than after them.
+     * A fold marks everything up to the last agent turn as compacted; user rows
+     * that arrived after that turn stay in the window. The recap is written
+     * after them, so by id it sits AFTER the inputs it should precede. Here it
+     * is moved to the start of the contiguous run of user rows directly in
+     * front of it: memory of what came before, then the new inputs.
      *
-     * A no-op during an agent-initiated [compact] (since the recap is already
-     * in the tail, with no user messages following it).
+     * The run is looked for immediately BEFORE the recap, not at the end of the
+     * context. Searching from the end (the previous behaviour) re-lifted an old
+     * recap every cycle: once the agent had moved on, the recap jumped from its
+     * place to just before the newest user turn, and the model kept reading a
+     * stale summary as if it were the latest thing before the current input.
+     * Anchoring to the recap's own neighbours makes the result stable — the
+     * same placement every cycle for the whole life of the recap.
+     *
+     * A no-op when the recap has no user rows directly before it.
      *
      * @param array $context
      * @return void
@@ -115,38 +125,53 @@ trait ContentCleaningTrait
             return;
         }
 
+        $context = array_values($context);
+
         $recapIndex = null;
         foreach ($context as $i => $msg) {
-            if (($msg['role'] ?? null) === 'user'
-                && (($msg['metadata']['source'] ?? null) === Message::SOURCE_COMPACTION)) {
-                $recapIndex = $i;
-                break;
+            if ($this->isRecapEntry($msg)) {
+                $recapIndex = $i; // keep the LAST one: the latest recap is the live one
             }
         }
 
         if ($recapIndex === null) {
-            return; // There is no compression in the window.
+            return; // No compaction in the window.
+        }
+
+        // Walk back over the contiguous fresh user rows right before the recap
+        // (another recap does not count as fresh input).
+        $insertAt = $recapIndex;
+        for ($i = $recapIndex - 1; $i >= 0; $i--) {
+            $isFreshUser = ($context[$i]['role'] ?? null) === 'user' && !$this->isRecapEntry($context[$i]);
+
+            if (!$isFreshUser) {
+                break;
+            }
+            $insertAt = $i;
+        }
+
+        if ($insertAt === $recapIndex) {
+            return;
         }
 
         $recap = $context[$recapIndex];
-        unset($context[$recapIndex]);
-        $context = array_values($context);
+        array_splice($context, $recapIndex, 1);
+        array_splice($context, $insertAt, 0, [$recap]);
+    }
 
-        // From the end we skip a continuous tail of new users
-        // (we do not count the recap itself as a user—otherwise, the old recap would shift the boundary).
-        $insertAt = count($context);
-        for ($i = count($context) - 1; $i >= 0; $i--) {
-            $isFreshUser = ($context[$i]['role'] ?? null) === 'user'
-                && (($context[$i]['metadata']['source'] ?? null) !== Message::SOURCE_COMPACTION);
-
-            if ($isFreshUser) {
-                $insertAt = $i;
-            } else {
-                break;
-            }
+    /**
+     * @param array $msg context entry
+     */
+    private function isRecapEntry(array $msg): bool
+    {
+        if (($msg['role'] ?? null) !== 'user') {
+            return false;
         }
 
-        array_splice($context, $insertAt, 0, [$recap]);
+        $meta = $msg['metadata'] ?? [];
+
+        return ($meta['source'] ?? null) === Message::SOURCE_COMPACTION
+            || ($meta['kind'] ?? null) === Message::KIND_RECAP;
     }
 
 }

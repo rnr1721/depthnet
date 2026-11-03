@@ -22,6 +22,8 @@ SANDBOX_READONLY_ROOT="${SANDBOX_READONLY_ROOT:-false}"
 SANDBOX_ENABLE_PRIVILEGED="${SANDBOX_ENABLE_PRIVILEGED:-false}"
 SANDBOX_ENABLE_SYS_ADMIN="${SANDBOX_ENABLE_SYS_ADMIN:-false}"
 
+SANDBOX_RESTART_POLICY="${SANDBOX_RESTART_POLICY:-unless-stopped}"
+
 log_info() { echo "Info:  $1"; }
 log_success() { echo "Success: $1"; }
 log_error() { echo "Error: $1" >&2; }
@@ -149,6 +151,7 @@ create_sandbox() {
     # Create container with configurable resources
     if ! docker run -d \
         --name "$container_name" \
+        --restart "$SANDBOX_RESTART_POLICY" \
         --network "$SANDBOX_NETWORK" \
         --user "${HOST_UID}:${HOST_GID}" \
         --memory="$SANDBOX_MEMORY" \

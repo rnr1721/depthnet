@@ -46,6 +46,7 @@ services:
         condition: service_healthy
     networks:
       - depthnet
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.0
@@ -120,6 +121,7 @@ services:
       - SANDBOX_READONLY_ROOT=${SANDBOX_READONLY_ROOT:-false}
       - SANDBOX_ENABLE_PRIVILEGED=${SANDBOX_ENABLE_PRIVILEGED:-false}
       - SANDBOX_ENABLE_SYS_ADMIN=${SANDBOX_ENABLE_SYS_ADMIN:-false}
+      - SANDBOX_RESTART_POLICY=${SANDBOX_RESTART_POLICY:-unless-stopped}
     networks:
       - depthnet
     privileged: true                               # We need to control Docker

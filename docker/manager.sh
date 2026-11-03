@@ -158,6 +158,7 @@ setup_env() {
     fi
 
     cp "$template_file" "$ENV_FILE"
+    ensure_app_key
     sed -i "s/DOCKER_UID=1000/DOCKER_UID=$DOCKER_UID/" "$ENV_FILE"
     sed -i "s/DOCKER_GID=1000/DOCKER_GID=$DOCKER_GID/" "$ENV_FILE"
 
@@ -406,6 +407,7 @@ toggle_voice() {
 
 # Start containers
 start_containers() {
+    ensure_app_key
     local resolved_port=$(get_resolved_port)
 
     # If HTTPS — internal HTTP port must be 8000, not the HTTPS port
@@ -501,6 +503,7 @@ restart_containers() {
 
 # Start in foreground
 start_foreground() {
+    ensure_app_key
     local resolved_port=$(get_resolved_port)
     detect_sandbox_mode
 
@@ -855,6 +858,22 @@ check_env() {
         log_error ".env file not found!"
         echo "Run '$0 setup-dev' or '$0 setup-prod' first"
         exit 1
+    fi
+}
+
+# Generate APP_KEY in host .env if missing
+ensure_app_key() {
+    [ -f "$ENV_FILE" ] || return 0
+    local key
+    key=$(grep "^APP_KEY=" "$ENV_FILE" | cut -d'=' -f2-)
+    if [[ "$key" != base64:* ]]; then
+        key="base64:$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+        if grep -q "^APP_KEY=" "$ENV_FILE"; then
+            sed -i "s|^APP_KEY=.*|APP_KEY=$key|" "$ENV_FILE"
+        else
+            echo "APP_KEY=$key" >> "$ENV_FILE"
+        fi
+        log_success "APP_KEY generated and saved to .env"
     fi
 }
 

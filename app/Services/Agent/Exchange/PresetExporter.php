@@ -78,10 +78,6 @@ class PresetExporter implements PresetExporterInterface
         'default_call_message',
         'metadata',
         'target_plugins_whitelist',
-        'rhasspy_enabled',
-        'rhasspy_url',
-        'rhasspy_tts_voice',
-        'rhasspy_incoming_enabled',
     ];
 
     /**
@@ -107,7 +103,6 @@ class PresetExporter implements PresetExporterInterface
         'cycle_prompt_preset_id',
         'target_preset_id',
         // secret — token lives in a column, stripped explicitly (never exported)
-        'rhasspy_incoming_token',
     ];
 
     /** Capability config keys treated as secret (fallback until drivers declare password fields). */

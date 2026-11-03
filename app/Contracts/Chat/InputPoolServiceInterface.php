@@ -20,12 +20,29 @@ interface InputPoolServiceInterface
      * Add or overwrite a source in the pool.
      * If a source with the same name already exists for this preset — it gets overwritten.
      *
+     * $synthetic marks items the system generated itself (Continue, cycle
+     * instructions, cycle-prompt impulses). They can't be told apart by source
+     * name — cycle instructions are added under the preset's or the voice
+     * preset's own name — so the flag is set at the moment of adding.
+     *
      * @param integer $presetId
      * @param string $sourceName
      * @param string $content
+     * @param bool $synthetic
      * @return void
      */
-    public function add(int $presetId, string $sourceName, string $content): void;
+    public function add(int $presetId, string $sourceName, string $content, bool $synthetic = false): void;
+
+    /**
+     * Message kind for a payload built from the current pool: Message::KIND_INPUT
+     * when at least one regular (non-known) item is not synthetic, otherwise
+     * Message::KIND_CONTINUE. Known sources are ignored — they never enter the
+     * payload. Call BEFORE clear()/flush().
+     *
+     * @param AiPreset $preset
+     * @return string
+     */
+    public function payloadKind(AiPreset $preset): string;
 
     /**
      * Build JSON from regular (non-known) pool items without clearing the pool.

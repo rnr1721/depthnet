@@ -13,6 +13,7 @@ use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
+use App\Services\Agent\ContextWindow\ContextWindowSelector;
 use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
 /**
@@ -63,6 +64,7 @@ class CycleContextBuilder implements ContextBuilderInterface
         protected ContextModeResolverInterface     $contextModeResolver,
         protected RagPipelineServiceInterface      $ragPipeline,
         protected ContextInjectionService          $contextInjection,
+        protected ContextWindowSelector            $windowSelector,
     ) {
     }
 
@@ -81,14 +83,10 @@ class CycleContextBuilder implements ContextBuilderInterface
 
         $sourcePreset = $sourcePreset ?? $this->resolveSourcePreset($preset);
 
-        $messages = $this->messageModel
-            ->forPreset($preset->getId())
-            ->activeWindow()
-            ->where('role', '!=', 'system')
-            ->orderBy('id', 'desc')
-            ->limit($maxContextLimit)
-            ->get()
-            ->reverse();
+        // Episode-aware window: the same active-window rows as before, but the
+        // cut snaps to cycle/episode boundaries and the task that opened an
+        // overflowing episode stays pinned. See ContextWindowSelector.
+        $messages = $this->windowSelector->select($preset, $maxContextLimit);
 
         $context = $this->buildCleanContextFromMessages($messages);
 
@@ -174,9 +172,17 @@ class CycleContextBuilder implements ContextBuilderInterface
         if ($lastRole !== 'user') {
             $messageText = $this->resolveContinueInstruction($preset, $context);
 
-            $content = $preset->input_mode === 'pool'
+            $isPool  = $preset->input_mode === 'pool';
+            $content = $isPool
                 ? $this->inputPoolService->getAllAsJSON($preset)
                 : $messageText;
+
+            // Plain mode: this row is our own continuation instruction. Pool mode:
+            // the payload may also carry real input that arrived meanwhile, so it
+            // is classified by its items (the pool is cleared later, in the handler).
+            $kind = $isPool
+                ? $this->inputPoolService->payloadKind($preset)
+                : Message::KIND_CONTINUE;
 
             $context[] = [
                 'role'         => 'user',
@@ -190,6 +196,7 @@ class CycleContextBuilder implements ContextBuilderInterface
                 'from_user_id'       => $this->authService->getCurrentUserId(),
                 'preset_id'          => $preset->getId(),
                 'is_visible_to_user' => true,
+                'metadata'           => ['kind' => $kind],
             ]);
         }
 
@@ -213,9 +220,9 @@ class CycleContextBuilder implements ContextBuilderInterface
             $voicePreset         = $cyclePromptEnricher->getVoicePreset($preset);
 
             if ($voicePreset) {
-                $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $source);
+                $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $source, synthetic: true);
             } else {
-                $this->inputPoolService->add($preset->getId(), $preset->getName(), $source);
+                $this->inputPoolService->add($preset->getId(), $preset->getName(), $source, synthetic: true);
             }
 
             $result = $this->inputPoolService->getAllAsJSON($preset);
@@ -238,9 +245,9 @@ class CycleContextBuilder implements ContextBuilderInterface
         $voicePreset         = $cyclePromptEnricher->getVoicePreset($preset);
 
         if ($dynamic !== null && $preset->input_mode === 'pool' && $voicePreset) {
-            $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $dynamic);
+            $this->inputPoolService->add($preset->getId(), $voicePreset->getName(), $dynamic, synthetic: true);
         } else {
-            $this->inputPoolService->add($preset->getId(), $preset->getName(), $this->getCycleContinueInstruction());
+            $this->inputPoolService->add($preset->getId(), $preset->getName(), $this->getCycleContinueInstruction(), synthetic: true);
         }
 
         return $dynamic ?? $this->getCycleContinueInstruction();

@@ -1,4 +1,4 @@
-FROM php:8.2-fpm
+FROM php:8.4-fpm
 
 ARG DOCKER_UID=1000
 ARG DOCKER_GID=1000
@@ -45,7 +45,7 @@ RUN pecl install imagick && docker-php-ext-enable imagick
 
 # Install Node.js (LTS version)
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -63,7 +63,7 @@ RUN apt-get update && apt-get install -y python3 python3-pip python3-setuptools 
     && rm -rf /var/lib/apt/lists/*
 
 # Install tgcli
-RUN git clone --branch 1.0.1 https://github.com/rnr1721/tgcli.git /usr/local/lib/tgcli \
+RUN git clone --branch 1.1.4 https://github.com/rnr1721/tgcli.git /usr/local/lib/tgcli \
     && printf '#!/bin/bash\nexec python3 /usr/local/lib/tgcli/telegram_tool.py "$@"\n' > /usr/local/bin/telegram \
     && chmod +x /usr/local/bin/telegram
 

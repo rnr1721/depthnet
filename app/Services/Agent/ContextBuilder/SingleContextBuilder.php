@@ -12,6 +12,7 @@ use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
+use App\Services\Agent\ContextWindow\ContextWindowSelector;
 use App\Services\Agent\Traits\ResolvesSourcePresetTrait;
 
 /**
@@ -48,6 +49,7 @@ class SingleContextBuilder implements ContextBuilderInterface
         protected ContextModeResolverInterface     $contextModeResolver,
         protected RagPipelineServiceInterface      $ragPipeline,
         protected ContextInjectionService          $contextInjection,
+        protected ContextWindowSelector            $windowSelector,
     ) {
     }
 
@@ -66,14 +68,10 @@ class SingleContextBuilder implements ContextBuilderInterface
 
         $sourcePreset = $sourcePreset ?? $this->resolveSourcePreset($preset);
 
-        $messages = $this->messageModel
-            ->forPreset($preset->getId())
-            ->activeWindow()
-            ->where('role', '!=', 'system')
-            ->orderBy('id', 'desc')
-            ->limit($maxContextLimit)
-            ->get()
-            ->reverse();
+        // Episode-aware window: the same active-window rows as before, but the
+        // cut snaps to cycle/episode boundaries and the task that opened an
+        // overflowing episode stays pinned. See ContextWindowSelector.
+        $messages = $this->windowSelector->select($preset, $maxContextLimit);
 
         $context = $this->buildCleanContextFromMessages($messages);
 

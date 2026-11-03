@@ -202,29 +202,7 @@ fix_permissions() {
     echo "Permissions fixed!"
 }
 
-# Initialize application if needed (only on first run)
-if [ ! -f storage/app/.docker_initialized ]; then
-    echo "Initializing application..."
-
-    # Install dependencies
-    if is_production; then
-        echo "Installing production PHP dependencies..."
-        composer install --optimize-autoloader --no-dev
-    else
-        echo "Installing development PHP dependencies..."
-        composer install --optimize-autoloader
-    fi
-    if [ $? -ne 0 ]; then
-        echo "Failed to install composer dependencies"
-        exit 1
-    fi
-
-    # App key generation
-    if ! grep -q "APP_KEY=base64:" .env; then
-        echo "Generating application key..."
-        php artisan key:generate --force
-    fi
-
+wait_for_db() {
     # Database setup
     echo "Waiting for database connection..."
     MYSQL_OPTS="-h$DB_HOST -u$DB_USERNAME -p$DB_PASSWORD"
@@ -268,6 +246,32 @@ if [ ! -f storage/app/.docker_initialized ]; then
         sleep 3
     done
     echo "✓ Database connection established"
+}
+
+wait_for_db
+
+# Initialize application if needed (only on first run)
+if [ ! -f storage/app/.docker_initialized ]; then
+    echo "Initializing application..."
+
+    # Install dependencies
+    if is_production; then
+        echo "Installing production PHP dependencies..."
+        composer install --optimize-autoloader --no-dev
+    else
+        echo "Installing development PHP dependencies..."
+        composer install --optimize-autoloader
+    fi
+    if [ $? -ne 0 ]; then
+        echo "Failed to install composer dependencies"
+        exit 1
+    fi
+
+    # App key generation
+    if ! grep -q "APP_KEY=base64:" .env; then
+        echo "Generating application key..."
+        php artisan key:generate --force
+    fi
 
     if ! php artisan migrate --force; then
         echo "Failed to run migrations"

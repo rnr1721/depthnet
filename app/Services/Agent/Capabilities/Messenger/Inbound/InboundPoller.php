@@ -118,6 +118,8 @@ class InboundPoller
      */
     public function loadCursor(AiPreset $preset): array
     {
+        $preset->refresh();
+
         $raw = $this->metadata->get($preset, self::META_PLUGIN, self::META_CURSOR, null);
 
         if (is_array($raw)) {

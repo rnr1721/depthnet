@@ -45,21 +45,9 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function set(AiPreset $preset, string $key, $value): bool
     {
-        return $this->db->transaction(function () use ($preset, $key, $value) {
-            $metadata = $preset->metadata ?? [];
-
-            if (strpos($key, '.') !== false) {
-                data_set($metadata, $key, $value);
-            } else {
-                $metadata[$key] = $value;
-            }
-
-            $preset->metadata = $metadata;
-            $result = $preset->save();
-
-            $this->logMetadataChange($preset, 'set', $key, $value);
-
-            return $result;
+        return $this->mutate($preset, 'set', $key, function (array $m) use ($key, $value) {
+            data_set($m, $key, $value);
+            return $m;
         });
     }
 
@@ -68,23 +56,11 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function update(AiPreset $preset, array $data): bool
     {
-        return $this->db->transaction(function () use ($preset, $data) {
-            $metadata = $preset->metadata ?? [];
-
+        return $this->mutate($preset, 'update', array_keys($data), function (array $m) use ($data) {
             foreach ($data as $key => $value) {
-                if (strpos($key, '.') !== false) {
-                    data_set($metadata, $key, $value);
-                } else {
-                    $metadata[$key] = $value;
-                }
+                data_set($m, $key, $value);
             }
-
-            $preset->metadata = $metadata;
-            $result = $preset->save();
-
-            $this->logMetadataChange($preset, 'update', array_keys($data), $data);
-
-            return $result;
+            return $m;
         });
     }
 
@@ -93,21 +69,9 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function remove(AiPreset $preset, string $key): bool
     {
-        return $this->db->transaction(function () use ($preset, $key) {
-            $metadata = $preset->metadata ?? [];
-
-            if (strpos($key, '.') !== false) {
-                data_forget($metadata, $key);
-            } else {
-                unset($metadata[$key]);
-            }
-
-            $preset->metadata = $metadata;
-            $result = $preset->save();
-
-            $this->logMetadataChange($preset, 'remove', $key, null);
-
-            return $result;
+        return $this->mutate($preset, 'remove', $key, function (array $m) use ($key) {
+            data_forget($m, $key);
+            return $m;
         });
     }
 
@@ -130,20 +94,12 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function clear(AiPreset $preset, ?string $namespace = null): bool
     {
-        return $this->db->transaction(function () use ($preset, $namespace) {
+        return $this->mutate($preset, 'clear', $namespace ?? 'all', function (array $m) use ($namespace) {
             if ($namespace === null) {
-                $preset->metadata = [];
-            } else {
-                $metadata = $preset->metadata ?? [];
-                unset($metadata[$namespace]);
-                $preset->metadata = $metadata;
+                return [];
             }
-
-            $result = $preset->save();
-
-            $this->logMetadataChange($preset, 'clear', $namespace ?? 'all', null);
-
-            return $result;
+            unset($m[$namespace]);
+            return $m;
         });
     }
 
@@ -174,10 +130,12 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function updatePluginMetadata(AiPreset $preset, string $pluginName, array $data): bool
     {
-        $pluginData = $this->get($preset, $pluginName, []);
-        $pluginData = array_merge($pluginData, $data);
+        $paths = [];
+        foreach ($data as $k => $v) {
+            $paths["{$pluginName}.{$k}"] = $v;
+        }
 
-        return $this->set($preset, $pluginName, $pluginData);
+        return $this->update($preset, $paths);
     }
 
     /**
@@ -213,15 +171,10 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function increment(AiPreset $preset, string $key, int $amount = 1, ?int $max = null): bool
     {
-        return $this->db->transaction(function () use ($preset, $key, $amount, $max) {
-            $currentValue = (int) $this->get($preset, $key, 0);
-            $newValue = $currentValue + $amount;
-
-            if ($max !== null && $newValue > $max) {
-                $newValue = $max;
-            }
-
-            return $this->set($preset, $key, $newValue);
+        return $this->mutate($preset, 'increment', $key, function (array $m) use ($key, $amount, $max) {
+            $v = (int) data_get($m, $key, 0) + $amount;
+            data_set($m, $key, $max !== null ? min($v, $max) : $v);
+            return $m;
         });
     }
 
@@ -230,15 +183,10 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function decrement(AiPreset $preset, string $key, int $amount = 1, ?int $min = null): bool
     {
-        return $this->db->transaction(function () use ($preset, $key, $amount, $min) {
-            $currentValue = (int) $this->get($preset, $key, 0);
-            $newValue = $currentValue - $amount;
-
-            if ($min !== null && $newValue < $min) {
-                $newValue = $min;
-            }
-
-            return $this->set($preset, $key, $newValue);
+        return $this->mutate($preset, 'decrement', $key, function (array $m) use ($key, $amount, $min) {
+            $v = (int) data_get($m, $key, 0) - $amount;
+            data_set($m, $key, $min !== null ? max($v, $min) : $v);
+            return $m;
         });
     }
 
@@ -290,28 +238,14 @@ class PresetMetadataService implements PresetMetadataServiceInterface
      */
     public function import(AiPreset $preset, array $metadata, ?string $namespace = null, bool $merge = true): bool
     {
-        if ($namespace === null) {
-            if ($merge) {
-                $existingMetadata = $preset->metadata ?? [];
-                $metadata = array_merge($existingMetadata, $metadata);
+        return $this->mutate($preset, 'import', $namespace ?? 'all', function (array $m) use ($metadata, $namespace, $merge) {
+            if ($namespace === null) {
+                return $merge ? array_merge($m, $metadata) : $metadata;
             }
-
-            return $this->db->transaction(function () use ($preset, $metadata) {
-                $preset->metadata = $metadata;
-                $result = $preset->save();
-
-                $this->logMetadataChange($preset, 'import', 'all', $metadata);
-
-                return $result;
-            });
-        }
-
-        if ($merge) {
-            $existingData = $this->get($preset, $namespace, []);
-            $metadata = array_merge($existingData, $metadata);
-        }
-
-        return $this->set($preset, $namespace, $metadata);
+            $existing = $merge ? (array) data_get($m, $namespace, []) : [];
+            data_set($m, $namespace, array_merge($existing, $metadata));
+            return $m;
+        });
     }
 
     /**
@@ -474,5 +408,30 @@ class PresetMetadataService implements PresetMetadataServiceInterface
                 }
             }
         }
+    }
+
+    /**
+     * Read-modify-write on the CURRENT row, not on this process's copy.
+     * Locks the preset row so concurrent writers (agent cycle, poller, UI)
+     * serialize instead of overwriting each other's keys.
+     */
+    private function mutate(AiPreset $preset, string $action, $key, callable $change): bool
+    {
+        return $this->db->transaction(function () use ($preset, $action, $key, $change) {
+            $raw = AiPreset::whereKey($preset->getKey())->lockForUpdate()->value('metadata');
+
+            $metadata = is_string($raw) ? (json_decode($raw, true) ?: []) : ((array) ($raw ?? []));
+            $metadata = $change($metadata);
+
+            $json = json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+            AiPreset::whereKey($preset->getKey())->update(['metadata' => $json]);
+
+            $preset->forceFill(['metadata' => $metadata]);
+            $preset->syncOriginalAttribute('metadata');
+
+            $this->logMetadataChange($preset, $action, $key, null);
+
+            return true;
+        });
     }
 }

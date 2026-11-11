@@ -42,7 +42,6 @@ class AiPreset extends Model
         'before_execution_wait',
         'plugins_disabled',
         'engine_config',
-        'metadata',
         'loop_interval',
         'max_context_limit',
         'max_context_limit_extended',

@@ -91,6 +91,10 @@
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-3">
+                            <button @click="showLibraryModal = true"
+                                :class="['px-4 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ring-1', isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-200 ring-gray-600 focus:ring-offset-gray-800' : 'bg-white hover:bg-gray-50 text-gray-700 ring-gray-300']">
+                                📄 {{ t('sk_library_connect_from') }}
+                            </button>
                             <button @click="showAddModal = true"
                                 :class="['px-4 py-2 rounded-xl font-medium transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2', isDark ? 'bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-offset-gray-800' : 'bg-emerald-600 hover:bg-emerald-700 text-white']">
                                 {{ t('sk_add_skill') }}
@@ -162,6 +166,16 @@
                                     :title="skill.tools.join(', ')">
                                     ⚙ {{ skill.tools.length }}
                                 </span>
+                                <span v-if="skill.source === 'file'"
+                                    :class="['text-xs px-2 py-0.5 rounded flex-shrink-0', isDark ? 'bg-sky-900 text-sky-300' : 'bg-sky-100 text-sky-700']"
+                                    :title="t('sk_badge_standard') + ': ' + skill.source_path + (skill.has_scripts ? ' · scripts' : '')">
+                                    📄{{ skill.has_scripts ? ' ⚡' : '' }}
+                                </span>
+                                <span v-if="skill.is_experience"
+                                    :class="['text-xs px-2 py-0.5 rounded flex-shrink-0', isDark ? 'bg-violet-900 text-violet-300' : 'bg-violet-100 text-violet-700']"
+                                    :title="t('sk_badge_experience')">
+                                    💭
+                                </span>
                             </div>
                             <div class="flex items-center space-x-2 ml-4">
                                 <button @click="openSkill(skill)"
@@ -175,7 +189,7 @@
                                         </path>
                                     </svg>
                                 </button>
-                                <button @click="openAddItem(skill)"
+                                <button v-if="!skill.read_only" @click="openAddItem(skill)"
                                     :class="['p-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500', isDark ? 'hover:bg-gray-700 text-emerald-400 hover:text-emerald-300' : 'hover:bg-gray-100 text-emerald-600 hover:text-emerald-800']"
                                     :title="t('sk_add_item')">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -183,9 +197,9 @@
                                             d="M12 4v16m8-8H4"></path>
                                     </svg>
                                 </button>
-                                <button @click="deleteSkill(skill.number)"
+                                <button @click="deleteSkill(skill)"
                                     :class="['p-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500', isDark ? 'hover:bg-red-900 text-red-400 hover:text-red-300' : 'hover:bg-red-100 text-red-600 hover:text-red-800']"
-                                    :title="t('sk_delete')">
+                                    :title="skill.source === 'file' ? t('sk_detach') : t('sk_delete')">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
@@ -226,6 +240,7 @@
             :available-plugin-names="availablePluginNames" @success="refreshData" />
         <AddItemModal v-model="showAddItemModal" :preset="currentPreset" :skill="activeSkill" :isDark="isDark"
             @success="refreshData" />
+        <LibraryModal v-model="showLibraryModal" :preset="currentPreset" :isDark="isDark" />
         <ShowSkillModal v-model="showSkillModal" :preset="currentPreset" :skill="activeSkill" :isDark="isDark"
             :available-plugin-names="availablePluginNames" @success="refreshData" />
     </div>
@@ -240,6 +255,7 @@ import PageTitle from '@/Components/PageTitle.vue';
 import AddSkillModal from '@/Components/Admin/Skills/AddSkillModal.vue';
 import AddItemModal from '@/Components/Admin/Skills/AddItemModal.vue';
 import ShowSkillModal from '@/Components/Admin/Skills/ShowSkillModal.vue';
+import LibraryModal from '@/Components/Admin/Skills/LibraryModal.vue';
 
 const { t } = useI18n();
 
@@ -259,6 +275,7 @@ const searchQuery = ref(props.searchQuery || '');
 const showAddModal = ref(false);
 const showAddItemModal = ref(false);
 const showSkillModal = ref(false);
+const showLibraryModal = ref(false);
 const activeSkill = ref(null);
 
 const changePreset = () => {
@@ -289,9 +306,11 @@ const openAddItem = (skill) => {
     showAddItemModal.value = true;
 };
 
-const deleteSkill = (skillNumber) => {
-    if (confirm(t('sk_confirm_delete'))) {
-        router.delete(route('admin.skills.destroy', skillNumber), {
+// A library skill is detached, not deleted: its folder stays and can be connected again.
+const deleteSkill = (skill) => {
+    const question = skill.source === 'file' ? t('sk_confirm_detach') : t('sk_confirm_delete');
+    if (confirm(question)) {
+        router.delete(route('admin.skills.destroy', skill.number), {
             data: { preset_id: selectedPresetId.value },
         });
     }

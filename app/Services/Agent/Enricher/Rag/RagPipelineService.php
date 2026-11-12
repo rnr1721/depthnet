@@ -6,6 +6,7 @@ use App\Contracts\Agent\Enricher\EnricherFactoryInterface;
 use App\Contracts\Agent\Enricher\Rag\RagAggregatorServiceInterface;
 use App\Contracts\Agent\Enricher\Rag\RagContentFormatterInterface;
 use App\Contracts\Agent\Enricher\Rag\RagDataInterface;
+use App\Contracts\Agent\Enricher\Rag\RagSectionType;
 use App\Contracts\Agent\Enricher\Rag\RagPipelineServiceInterface;
 use App\Contracts\Agent\ContextModeResolverInterface;
 use App\Contracts\Agent\Enricher\Rag\RagAssemblyCacheInterface;
@@ -112,7 +113,8 @@ final class RagPipelineService implements RagPipelineServiceInterface
      */
     public function applyToContext(RagAssembly $assembly, AiPreset $thinking, AiPreset $source): void
     {
-        $aggregated = $this->ragAggregator->merge($assembly->payloads);
+        $payloads   = $this->dropLoadedSkillItems($assembly->payloads, $thinking, $source);
+        $aggregated = $this->ragAggregator->merge($payloads);
         $ragText    = $this->ragFormatter->formatAggregated($aggregated);
 
         $targetIds = array_unique([$source->getId(), $thinking->getId()]);
@@ -125,6 +127,75 @@ final class RagPipelineService implements RagPipelineServiceInterface
                 fn () => $ragText
             );
         }
+    }
+
+    /**
+     * A loaded skill is already on the desk in full (ContextInjectionService), so its
+     * items retrieved by RAG would only repeat it. Drop them here — AFTER the
+     * silent/warm caches, because the loaded set changes between cycles while a
+     * cached assembly does not.
+     *
+     * Only when the skills were searched in the thinking preset itself: loaded state
+     * belongs to the thinking preset, skill numbers belong to the source preset.
+     * The loaded set is read fresh from metadata (read-only), never cached.
+     *
+     * @param  RagDataInterface[] $payloads
+     * @return RagDataInterface[]
+     */
+    private function dropLoadedSkillItems(array $payloads, AiPreset $thinking, AiPreset $source): array
+    {
+        if ($payloads === [] || $source->getId() !== $thinking->getId()) {
+            return $payloads;
+        }
+
+        try {
+            // Lazy: SkillLoadService depends on the plugin registry (container-cycle rule).
+            $loaded = app(\App\Services\Agent\Skills\SkillLoadService::class)->loadedSkillNumbersRaw($thinking);
+        } catch (\Throwable) {
+            return $payloads;
+        }
+        if ($loaded === []) {
+            return $payloads;
+        }
+        $loadedSet = array_flip($loaded);
+        $skills    = RagSectionType::Skills->value;
+
+        $out = [];
+        foreach ($payloads as $payload) {
+            $changed  = false;
+            $sections = [];
+            foreach ($payload->getSections() as $section) {
+                if ($section->getType() !== $skills) {
+                    $sections[] = $section;
+                    continue;
+                }
+                $kept = array_values(array_filter(
+                    $section->getItems(),
+                    fn ($item) => !isset($loadedSet[(int) ($item->getMetadata()['skill_number'] ?? 0)])
+                ));
+                if (count($kept) !== count($section->getItems())) {
+                    $changed = true;
+                    $section = new RagSection(
+                        type:          $section->getType(),
+                        items:         $kept,
+                        label:         $section->getLabel(),
+                        renderOptions: $section->getRenderOptions(),
+                    );
+                }
+                $sections[] = $section;
+            }
+
+            $out[] = $changed
+                ? new RagData(
+                    queries:        $payload->getQueries(),
+                    sections:       $sections,
+                    sourceConfigId: $payload->getSourceConfigId(),
+                    priority:       $payload->getPriority(),
+                )
+                : $payload;
+        }
+
+        return $out;
     }
 
     public function resolveForCycle(

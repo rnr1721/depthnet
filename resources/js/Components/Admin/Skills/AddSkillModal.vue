@@ -100,6 +100,20 @@
                                         </div>
                                     </div>
 
+                                    <!-- Experience (RAG) — off for user-made skills by default -->
+                                    <div>
+                                        <label
+                                            :class="['flex items-center space-x-2 text-sm', parsedTools.length ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer', isDark ? 'text-gray-300' : 'text-gray-700']">
+                                            <input type="checkbox" v-model="form.is_experience"
+                                                :disabled="parsedTools.length > 0"
+                                                class="rounded text-violet-600 focus:ring-violet-500" />
+                                            <span>💭 {{ t('sk_experience') }}</span>
+                                        </label>
+                                        <p :class="['text-xs mt-1 ml-6', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                            {{ parsedTools.length ? t('sk_experience_locked_tools') :
+                                            t('sk_experience_hint') }}</p>
+                                    </div>
+
                                     <!-- First item (optional) -->
                                     <div>
                                         <label
@@ -178,7 +192,7 @@ const show = computed({
     set: (v) => emit('update:modelValue', v),
 });
 
-const form = useForm({ preset_id: null, title: '', description: '', first_item: '', tools: [] });
+const form = useForm({ preset_id: null, title: '', description: '', first_item: '', tools: [], is_experience: false });
 
 // tools are edited as a comma-separated string, parsed to an array on submit.
 const toolsText = ref('');
@@ -205,6 +219,7 @@ const close = () => {
 const submit = () => {
     form.preset_id = props.preset?.id;
     form.tools = parsedTools.value;
+    if (form.tools.length) form.is_experience = false; // experience ⟂ tools (server enforces it too)
     form.post(route('admin.skills.store'), {
         onSuccess: () => { close(); emit('success'); },
     });

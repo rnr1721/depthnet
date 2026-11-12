@@ -336,10 +336,14 @@ class RagContextEnricher implements RagContextEnricherInterface
         $skillResults = [];
 
         if ($config->hasSkills()) {
+            // Only experience skills reach RAG. Classic skills (user-made, imported
+            // from the library) are brought in deliberately, by loading them.
             $skillResults = $this->skillService->searchItemsData(
                 $preset,
                 $queries[0],
-                $config->getRagSkillsLimit()
+                $config->getRagSkillsLimit(),
+                includeFileSkills: true,   // a library skill the user marked as experience is allowed
+                experienceOnly: true
             );
 
             foreach ($skillResults as $item) {

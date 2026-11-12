@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Contracts\Agent\Models\PresetRegistryInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Contracts\Agent\Skills\SkillLibraryServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Skill\AddSkillItemRequest;
 use App\Http\Requests\Admin\Skill\DestroySkillItemRequest;
 use App\Http\Requests\Admin\Skill\DestroySkillRequest;
+use App\Http\Requests\Admin\Skill\LibrarySkillRequest;
 use App\Http\Requests\Admin\Skill\ShowSkillRequest;
 use App\Http\Requests\Admin\Skill\StoreSkillRequest;
 use App\Http\Requests\Admin\Skill\UpdateSkillItemRequest;
@@ -22,6 +24,7 @@ class SkillController extends Controller
         protected SkillServiceInterface $skillService,
         protected PresetRegistryInterface $presetRegistry,
         protected PluginRegistryInterface $pluginRegistry,
+        protected SkillLibraryServiceInterface $library,
     ) {
     }
 
@@ -81,6 +84,7 @@ class SkillController extends Controller
             $request->getDescription(),
             $request->getFirstItem(),
             $request->getTools(),
+            $request->getIsExperience(),
         );
 
         if ($result['success']) {
@@ -160,5 +164,61 @@ class SkillController extends Controller
         }
 
         return back()->with('error', $result['message']);
+    }
+
+    // ── Library (standard skills from {shared}/skills) ───────────────────────
+
+    /**
+     * JSON for the "Connect from library" modal: every library folder with its
+     * parse status, plus this preset's state (attached as #N, stale) and orphans.
+     */
+    public function library(LibrarySkillRequest $request)
+    {
+        $preset = $this->presetRegistry->getPreset($request->getPresetId());
+
+        return response()->json(
+            ['root' => $this->library->libraryRoot()] + $this->library->listForPreset($preset)
+        );
+    }
+
+    public function attachLibrary(LibrarySkillRequest $request)
+    {
+        $preset = $this->presetRegistry->getPreset($request->getPresetId());
+        $name   = $request->getName();
+
+        if ($name === null) {
+            return back()->with('error', 'Library skill name is required.');
+        }
+
+        $result = $this->library->attach($preset, $name);
+
+        return back()->with($result['success'] ? 'success' : 'error', $result['message']);
+    }
+
+    /**
+     * Re-import one guest skill (skill_number) or every changed one (no number).
+     */
+    public function refreshLibrary(LibrarySkillRequest $request)
+    {
+        $preset = $this->presetRegistry->getPreset($request->getPresetId());
+        $number = $request->getSkillNumber();
+
+        if ($number !== null) {
+            $r = $this->library->refresh($preset, $number, $request->getForce());
+            $msg = "Skill #{$number}: {$r['message']}";
+            return back()->with($r['success'] ? 'success' : 'error', $msg);
+        }
+
+        $r = $this->library->refreshAll($preset);
+        $parts = [];
+        $parts[] = $r['refreshed'] ? 'Re-imported: #' . implode(', #', $r['refreshed']) : 'Nothing changed';
+        if ($r['missing']) {
+            $parts[] = 'library folder missing for #' . implode(', #', $r['missing']);
+        }
+        foreach ($r['failed'] as $n => $why) {
+            $parts[] = "#{$n} failed: {$why}";
+        }
+
+        return back()->with($r['failed'] ? 'error' : 'success', implode('. ', $parts) . '.');
     }
 }

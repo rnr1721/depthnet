@@ -399,11 +399,15 @@ class KnowledgeRouter
         // the item with the title so the skill isn't invisible to searchItems.
         $firstItem = $content !== '' ? $content : $title;
 
+        // Learned by the agent → experience skill (reaches RAG). The user can turn
+        // it into a classic, console-loaded skill in the UI.
         return $this->skillService->addSkill(
             $preset,
             $title,
             isset($args['description']) ? (string) $args['description'] : null,
-            $firstItem
+            $firstItem,
+            null,
+            true
         );
     }
 

@@ -7,7 +7,9 @@ use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
+use App\Models\Skill;
 use App\Services\Agent\Skills\SkillLoadService;
+use App\Services\Agent\Skills\SkillSandboxSync;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -61,6 +63,7 @@ class ContextInjectionService
         protected GoalServiceInterface $goalService,
         protected OptionsServiceInterface $optionsService,
         protected LoggerInterface $logger,
+        protected SkillSandboxSync $skillSync,
     ) {
     }
 
@@ -201,6 +204,29 @@ class ContextInjectionService
 
         if (!empty($data['description'])) {
             $lines[] = $data['description'];
+        }
+
+        // Standard skill with files: deliver them to the sandbox (cheap no-op when
+        // current) and tell the agent where they are and how to run them. Isolated:
+        // a failure here costs the header, never the skill body.
+        if (($data['source'] ?? null) === Skill::SOURCE_FILE && !empty($data['has_files'])) {
+            try {
+                $skill = Skill::query()
+                    ->where('preset_id', $preset->getId())
+                    ->where('number', $number)
+                    ->first();
+                $header = $skill ? $this->skillSync->describe($preset, $skill) : null;
+                if ($header !== null) {
+                    $lines[] = $header;
+                    $lines[] = '── Skill text ──';
+                }
+            } catch (\Throwable $e) {
+                $this->logger->warning('ContextInjectionService: skill files header failed', [
+                    'preset_id' => $preset->getId(),
+                    'skill'     => $number,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
         }
 
         $items = $data['items'] ?? [];

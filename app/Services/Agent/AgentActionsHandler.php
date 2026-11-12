@@ -888,6 +888,14 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             if (is_string($name) && $name !== '') {
                 $usedPlugins[$name] = true;
             }
+
+            // Standard skills run their scripts through generic tools (terminal, code),
+            // so the only sign they are in use is their folder in the command text.
+            // `?? ''` keeps this a no-op if the command DTO names the field differently.
+            $text = $commandResult->command->content ?? '';
+            if (is_string($text) && $text !== '') {
+                $this->skillLoadService->noteContentUse($preset, $text);
+            }
         }
 
         foreach (array_keys($usedPlugins) as $pluginName) {

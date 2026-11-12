@@ -50,8 +50,22 @@ class SkillLoadService
     private const NS = 'skills';
 
     /** Flat key prefixes (NO dots — see class docblock). */
-    private const KEY_LOADED = 'loaded_';
-    private const KEY_IDLE   = 'idle_';
+    private const KEY_LOADED  = 'loaded_';
+    private const KEY_IDLE    = 'idle_';
+    /** Cycle number at which skill N was last used (load, owned-tool use, file use, skill read). */
+    private const KEY_TOUCHED = 'touched_';
+    /** Owned by SkillSandboxSync; listed here only so orphan cleanup covers it. */
+    private const KEY_SYNCED  = 'synced_';
+    /** Per-preset counter of completed cycles — the clock touched_{N} is measured on. */
+    private const KEY_CYCLE   = 'cycle';
+
+    /**
+     * Backstop cap on simultaneously loaded skills. Toolless skills (most library
+     * skills) never auto-unload, so without a cap the desk only grows. Loading
+     * past the cap evicts the least recently touched OTHER skill; the load result
+     * names it (SkillPlugin asks evictionCandidate() before signalling).
+     */
+    public const MAX_LOADED = 5;
 
     /**
      * Cycles a tool-bearing skill may go unused before auto-unload.
@@ -85,10 +99,120 @@ class SkillLoadService
             return false;
         }
 
+        $wasLoaded = $this->isLoaded($preset, $skillNumber);
+
         $this->meta->set($preset, self::NS, self::KEY_LOADED . $skillNumber, true);
         $this->meta->set($preset, self::NS, self::KEY_IDLE . $skillNumber, 0);
+        $this->touch($preset, $skillNumber);
+
+        if (!$wasLoaded) {
+            while (count($this->loadedSkillNumbersRaw($preset)) > self::MAX_LOADED) {
+                $victim = $this->evictionCandidate($preset, $skillNumber, ignoreCap: true);
+                if ($victim === null) {
+                    break;
+                }
+                $this->unload($preset, $victim);
+                $this->logger->info('SkillLoadService: evicted least recently used skill', [
+                    'preset_id' => $preset->getId(),
+                    'evicted'   => $victim,
+                    'loading'   => $skillNumber,
+                    'cap'       => self::MAX_LOADED,
+                ]);
+            }
+        }
 
         return true;
+    }
+
+    /**
+     * Which skill loading $skillNumber would evict, or null if under the cap /
+     * already loaded. Least recently touched OTHER loaded skill; a skill with no
+     * touch stamp counts as oldest. Ties → lower number first (deterministic).
+     */
+    public function evictionCandidate(AiPreset $preset, int $skillNumber, bool $ignoreCap = false): ?int
+    {
+        $loaded = $this->loadedSkillNumbersRaw($preset);
+        if (!$ignoreCap && (in_array($skillNumber, $loaded, true) || count($loaded) < self::MAX_LOADED)) {
+            return null;
+        }
+
+        $best = null;
+        $bestTouched = PHP_INT_MAX;
+        foreach ($loaded as $n) {
+            if ($n === $skillNumber) {
+                continue;
+            }
+            $t = $this->meta->get($preset, self::NS, self::KEY_TOUCHED . $n);
+            $t = is_numeric($t) ? (int) $t : -1;
+            if ($t < $bestTouched) {
+                $bestTouched = $t;
+                $best = $n;
+            }
+        }
+        return $best;
+    }
+
+    // ── Touch / cycle clock ───────────────────────────────────────────────────
+
+    /** Completed cycles for this preset (advanced by tickHysteresis). */
+    public function currentCycle(AiPreset $preset): int
+    {
+        return (int) $this->meta->get($preset, self::NS, self::KEY_CYCLE, 0);
+    }
+
+    /** Mark skill N as used in the current cycle. Cheap; idempotent within a cycle. */
+    public function touch(AiPreset $preset, int $skillNumber): void
+    {
+        $now = $this->currentCycle($preset);
+        if ((int) $this->meta->get($preset, self::NS, self::KEY_TOUCHED . $skillNumber, -1) !== $now) {
+            $this->meta->set($preset, self::NS, self::KEY_TOUCHED . $skillNumber, $now);
+        }
+    }
+
+    /**
+     * Cycles since each LOADED skill was last used: [number => cycles], 0 = used in
+     * the last completed cycle. Skills loaded before stamps existed are omitted.
+     * Read-only.
+     *
+     * @return array<int,int>
+     */
+    public function untouchedCycles(AiPreset $preset): array
+    {
+        $now = $this->currentCycle($preset);
+        $out = [];
+        foreach ($this->loadedSkillNumbersRaw($preset) as $n) {
+            $t = $this->meta->get($preset, self::NS, self::KEY_TOUCHED . $n);
+            if (is_numeric($t)) {
+                $out[$n] = max(0, $now - (int) $t - 1);
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Touch loaded STANDARD skills whose sandbox folder a command mentions
+     * (".skills/pdf" in a terminal/code command). Their scripts are run through
+     * generic tools, so this is the only usage pulse they have.
+     */
+    public function noteContentUse(AiPreset $preset, string $content): void
+    {
+        if ($content === '' || !str_contains($content, '.skills/')) {
+            return;
+        }
+        $loaded = $this->loadedSkillNumbersRaw($preset);
+        if ($loaded === []) {
+            return;
+        }
+        $skills = $this->skillModel
+            ->where('preset_id', $preset->getId())
+            ->whereIn('number', $loaded)
+            ->where('source', Skill::SOURCE_FILE)
+            ->get(['number', 'source_path']);
+        foreach ($skills as $skill) {
+            if (str_contains($content, '.skills/' . $skill->source_path)) {
+                $this->touch($preset, (int) $skill->number);
+            }
+        }
     }
 
     /**
@@ -101,6 +225,9 @@ class SkillLoadService
         }
         if ($this->meta->has($preset, self::NS, self::KEY_IDLE . $skillNumber)) {
             $this->meta->remove($preset, self::NS, self::KEY_IDLE . $skillNumber);
+        }
+        if ($this->meta->has($preset, self::NS, self::KEY_TOUCHED . $skillNumber)) {
+            $this->meta->remove($preset, self::NS, self::KEY_TOUCHED . $skillNumber);
         }
     }
 
@@ -257,6 +384,30 @@ class SkillLoadService
         return $loaded;
     }
 
+    /**
+     * Loaded skill numbers straight from metadata — read-only: no reconcile against
+     * existing rows, no orphan cleanup, no DB writes. For hot read paths that run
+     * outside the agent's own cycle bookkeeping (RAG filtering). A ghost number for a
+     * deleted skill is harmless there: it simply matches nothing.
+     *
+     * @return int[]  sorted ascending
+     */
+    public function loadedSkillNumbersRaw(AiPreset $preset): array
+    {
+        $out = [];
+        foreach ($this->meta->export($preset, self::NS) as $key => $value) {
+            if (!$value || !str_starts_with((string) $key, self::KEY_LOADED)) {
+                continue;
+            }
+            $n = $this->numberFromKey((string) $key);
+            if ($n !== null) {
+                $out[] = $n;
+            }
+        }
+        sort($out);
+        return $out;
+    }
+
     // ── Hysteresis ────────────────────────────────────────────────────────────
 
     /**
@@ -275,6 +426,7 @@ class SkillLoadService
             }
             if (in_array($usedPluginName, $skill->getToolNames(), true)) {
                 $this->meta->set($preset, self::NS, self::KEY_IDLE . $number, 0);
+                $this->touch($preset, $number);
             }
         }
     }
@@ -320,6 +472,10 @@ class SkillLoadService
 
             $this->meta->set($preset, self::NS, self::KEY_IDLE . $number, $idle);
         }
+
+        // Advance the cycle clock last: everything touched during this cycle carries
+        // the pre-increment value, so it reads as "0 cycles untouched" next cycle.
+        $this->meta->set($preset, self::NS, self::KEY_CYCLE, $this->currentCycle($preset) + 1);
 
         return $unloaded;
     }
@@ -399,7 +555,7 @@ class SkillLoadService
      */
     private function numberFromKey(string $key): ?int
     {
-        foreach ([self::KEY_LOADED, self::KEY_IDLE] as $prefix) {
+        foreach ([self::KEY_LOADED, self::KEY_IDLE, self::KEY_TOUCHED, self::KEY_SYNCED] as $prefix) {
             if (str_starts_with($key, $prefix)) {
                 $rest = substr($key, strlen($prefix));
                 return ctype_digit($rest) ? (int) $rest : null;

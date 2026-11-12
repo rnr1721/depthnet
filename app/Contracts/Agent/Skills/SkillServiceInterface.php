@@ -14,6 +14,8 @@ interface SkillServiceInterface
      * @param string|null $description
      * @param string|null $firstItem   If provided, added as item #1 immediately
      * @param array|null  $tools       Optional array of tools associated with the skill
+     * @param bool        $isExperience Agent-learned skill that may reach RAG. Mutually
+     *                                  exclusive with $tools (refused if both are set).
      * @return array{success: bool, message: string, skill_number: int|null}
      */
     public function addSkill(
@@ -21,12 +23,18 @@ interface SkillServiceInterface
         string $title,
         ?string $description = null,
         ?string $firstItem = null,
-        ?array $tools = null
+        ?array $tools = null,
+        bool $isExperience = false
     ): array;
 
     /**
-     * Update a skill's own fields (title/description/tools) — NOT its items.
+     * Update a skill's own fields (title/description/tools/is_experience) — NOT its items.
      * Only provided keys are changed. tools: pass an array to set, or omit to leave.
+     *
+     * Guest (library) skills: a CHANGED title/description is refused (they mirror
+     * SKILL.md); tools and is_experience stay editable. tools + is_experience are
+     * mutually exclusive on the resulting state; a guest skill with scripts cannot
+     * be experience.
      *
      * @param AiPreset $preset
      * @param integer $skillNumber
@@ -129,9 +137,17 @@ interface SkillServiceInterface
      * @param AiPreset $preset
      * @param string $query
      * @param integer $limit
+     * @param bool    $includeFileSkills false → skip guest (library) skills
+     * @param bool    $experienceOnly    true  → only is_experience skills (RAG source)
      * @return array
      */
-    public function searchItemsData(AiPreset $preset, string $query, int $limit = 5): array;
+    public function searchItemsData(
+        AiPreset $preset,
+        string $query,
+        int $limit = 5,
+        bool $includeFileSkills = true,
+        bool $experienceOnly = false
+    ): array;
 
     /**
      * Render the [SKILLS] inventory block for the system prompt.
@@ -157,9 +173,28 @@ interface SkillServiceInterface
      *                                  list are dropped from display so a renamed/
      *                                  deleted plugin never shows as a capability.
      *                                  Empty array = don't filter (show all tools).
+     * @param  array<int,int> $untouchedCycles Loaded skill number => cycles since it
+     *                                  was last used (SkillLoadService::untouchedCycles);
+     *                                  shown next to "● loaded" so the agent can see
+     *                                  what is sitting on the desk unused.
      * @return string
      */
-    public function getSkillsForContext(AiPreset $preset, array $loadedNumbers = [], array $livePluginNames = []): string;
+    public function getSkillsForContext(
+        AiPreset $preset,
+        array $loadedNumbers = [],
+        array $livePluginNames = [],
+        array $untouchedCycles = []
+    ): string;
+
+    /**
+     * Deterministic past-tense line about the loaded skills, appended to a
+     * compaction recap ('' when nothing is loaded): titles, approximate size,
+     * cycles since last use, and a nudge to unload what the next work won't need.
+     *
+     * @param int[]          $loadedNumbers
+     * @param array<int,int> $untouchedCycles number => cycles since last use
+     */
+    public function loadedSkillsSnapshot(AiPreset $preset, array $loadedNumbers, array $untouchedCycles = []): string;
 
     /**
      * Delete all skills associated with the given preset.

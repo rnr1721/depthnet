@@ -158,7 +158,10 @@ class CompactionService implements CompactionServiceInterface
 
         $this->writeJournal($preset, $recapText, $focus);
 
-        $recap = $this->writeRecapMessage($preset, $recapText, $fromId, $toId);
+        // The desk survives the fold (loaded skills are re-injected every cycle), so
+        // the recap says what is on it: facts, not a decision. Window recap only —
+        // the journal keeps the pure summary.
+        $recap = $this->writeRecapMessage($preset, $this->withLoadedSkillsSnapshot($preset, $recapText), $fromId, $toId);
 
         // Mark the folded range compacted. The recap itself is NOT in this set
         // (it was created just now with a higher id, outside [fromId, toId]).
@@ -393,6 +396,31 @@ class CompactionService implements CompactionServiceInterface
      * folded id range (for a future unfold path). Both survive because we own
      * the row directly rather than delegating it to the pool flush.
      */
+    /**
+     * Append the deterministic loaded-skills line (SkillService::loadedSkillsSnapshot)
+     * to the recap. Never fatal: compaction must not fail over a courtesy line.
+     */
+    private function withLoadedSkillsSnapshot(AiPreset $preset, string $recapText): string
+    {
+        try {
+            /** @var \App\Services\Agent\Skills\SkillLoadService $load */
+            $load   = app(\App\Services\Agent\Skills\SkillLoadService::class);
+            $loaded = $load->loadedSkillNumbers($preset);
+            if ($loaded === []) {
+                return $recapText;
+            }
+            $line = app(\App\Contracts\Agent\Skills\SkillServiceInterface::class)
+                ->loadedSkillsSnapshot($preset, $loaded, $load->untouchedCycles($preset));
+            return $line === '' ? $recapText : rtrim($recapText) . "\n\n" . $line;
+        } catch (\Throwable $e) {
+            $this->logger->warning('CompactionService: loaded-skills snapshot failed — recap written without it', [
+                'preset_id' => $preset->getId(),
+                'error'     => $e->getMessage(),
+            ]);
+            return $recapText;
+        }
+    }
+
     private function writeRecapMessage(AiPreset $preset, string $recapText, int $fromId, int $toId): Message
     {
         $body = self::RECAP_LABEL . "\n" . $recapText;

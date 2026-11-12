@@ -54,6 +54,35 @@
                                 </div>
                             </div>
 
+                            <!-- Standard skill: where it comes from -->
+                            <div v-if="info.source === 'file'"
+                                :class="['px-6 py-3 border-b text-xs space-y-1', isDark ? 'border-gray-700 bg-sky-950 bg-opacity-40 text-gray-300' : 'border-gray-200 bg-sky-50 text-gray-700']">
+                                <div class="flex items-center justify-between">
+                                    <span>📄 {{ t('sk_badge_standard') }}:
+                                        <span class="font-mono">{{ info.source_path }}</span>
+                                        <span v-if="info.has_scripts"> · ⚡ scripts</span>
+                                        <span v-if="info.source_meta?.file_count"> · {{ info.source_meta.file_count }}
+                                            {{ t('sk_library_files') }}</span>
+                                    </span>
+                                    <button @click="refreshFromLibrary" :disabled="refreshing"
+                                        :class="['px-2 py-1 rounded text-xs font-medium disabled:opacity-50', isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-white hover:bg-gray-100 text-gray-700 ring-1 ring-gray-300']">
+                                        ↻ {{ t('sk_library_refresh') }}</button>
+                                </div>
+                                <div v-if="info.source_meta?.license">{{ t('sk_meta_license') }}: {{
+                                    info.source_meta.license }}</div>
+                                <div v-if="info.source_meta?.compatibility">{{ t('sk_meta_compatibility') }}: {{
+                                    info.source_meta.compatibility }}</div>
+                                <div v-if="info.source_meta?.allowed_tools">
+                                    allowed-tools: <span class="font-mono">{{ info.source_meta.allowed_tools }}</span>
+                                    <span :class="isDark ? 'text-gray-500' : 'text-gray-400'"> — {{
+                                        t('sk_meta_allowed_tools_note') }}</span>
+                                </div>
+                                <div v-for="(w, i) in (info.source_meta?.warnings || [])" :key="i"
+                                    :class="isDark ? 'text-amber-400' : 'text-amber-700'">⚠ {{ w }}</div>
+                                <div :class="isDark ? 'text-gray-500' : 'text-gray-400'">{{ t('sk_readonly_note') }}
+                                </div>
+                            </div>
+
                             <!-- Edit skill panel (title/description/tools) -->
                             <div v-if="editingSkill"
                                 :class="['px-6 py-4 border-b space-y-3', isDark ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50']">
@@ -61,15 +90,15 @@
                                     <label
                                         :class="['block text-xs font-medium mb-1', isDark ? 'text-gray-400' : 'text-gray-600']">{{
                                             t('sk_title') }}</label>
-                                    <input v-model="skillForm.title" type="text"
-                                        :class="['w-full rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-white text-gray-900 ring-gray-300']" />
+                                    <input v-model="skillForm.title" type="text" :disabled="readOnly"
+                                        :class="['w-full disabled:opacity-60 disabled:cursor-not-allowed rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-white text-gray-900 ring-gray-300']" />
                                 </div>
                                 <div>
                                     <label
                                         :class="['block text-xs font-medium mb-1', isDark ? 'text-gray-400' : 'text-gray-600']">{{
                                             t('sk_description') }}</label>
-                                    <input v-model="skillForm.description" type="text"
-                                        :class="['w-full rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-white text-gray-900 ring-gray-300']" />
+                                    <input v-model="skillForm.description" type="text" :disabled="readOnly"
+                                        :class="['w-full disabled:opacity-60 disabled:cursor-not-allowed rounded-lg border-0 ring-1 ring-inset focus:ring-2 focus:ring-emerald-500 transition-all px-3 py-2 text-sm', isDark ? 'bg-gray-700 text-white ring-gray-600' : 'bg-white text-gray-900 ring-gray-300']" />
                                 </div>
                                 <div>
                                     <label
@@ -90,6 +119,17 @@
                                                 t('sk_tool_inactive') }}</span>
                                         </span>
                                     </div>
+                                </div>
+                                <div>
+                                    <label
+                                        :class="['flex items-center space-x-2 text-sm', experienceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer', isDark ? 'text-gray-300' : 'text-gray-700']">
+                                        <input type="checkbox" v-model="skillForm.is_experience"
+                                            :disabled="experienceLocked"
+                                            class="rounded text-violet-600 focus:ring-violet-500" />
+                                        <span>💭 {{ t('sk_experience') }}</span>
+                                    </label>
+                                    <p :class="['text-xs mt-1 ml-6', isDark ? 'text-gray-500' : 'text-gray-400']">
+                                        {{ experienceHint }}</p>
                                 </div>
                                 <div class="flex space-x-2 pt-1">
                                     <button @click="saveSkill"
@@ -135,7 +175,7 @@
                                                     :class="['text-sm leading-relaxed', isDark ? 'text-gray-300' : 'text-gray-700']">
                                                     {{ item.content }}</p>
                                             </div>
-                                            <div
+                                            <div v-if="!readOnly"
                                                 class="flex items-center space-x-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <button @click="startEdit(item)"
                                                     :class="['p-1.5 rounded-lg transition-colors focus:outline-none', isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700']"
@@ -236,19 +276,36 @@ const editForm = useForm({ preset_id: null, skill_number: null, item_number: nul
 
 // Skill-level edit (title/description/tools)
 const editingSkill = ref(false);
-const skillForm = useForm({ preset_id: null, skill_number: null, title: '', description: '', tools: [] });
+const skillForm = useForm({ preset_id: null, skill_number: null, title: '', description: '', tools: [], is_experience: false });
 const toolsText = ref('');
+
 
 const parsedTools = computed(() =>
     toolsText.value.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
 );
 const isKnownTool = (name) => props.availablePluginNames.includes(name);
 
+// Fresh skill data from the show endpoint (source, read_only, is_experience, source_meta …).
+const info = ref({});
+const refreshing = ref(false);
+const readOnly = computed(() => !!(info.value.read_only ?? props.skill?.read_only));
+
+// Mirrors SkillService::updateSkill: experience ⟂ tools; a library skill with scripts
+// can't be experience (RAG would surface it without its files).
+const experienceLocked = computed(() => parsedTools.value.length > 0 || !!info.value.has_scripts);
+const experienceHint = computed(() => {
+    if (info.value.has_scripts) return t('sk_experience_locked_scripts');
+    if (parsedTools.value.length > 0) return t('sk_experience_locked_tools');
+    return t('sk_experience_hint');
+});
+watch(experienceLocked, (locked) => { if (locked) skillForm.is_experience = false; });
+
 const handleEscape = (e) => { if (e.key === 'Escape' && show.value && !editingItem.value && !editingSkill.value) close(); };
 
 const close = () => {
     show.value = false;
     items.value = [];
+    info.value = {};
     editingItem.value = null;
     editingSkill.value = false;
     document.body.style.overflow = '';
@@ -262,6 +319,7 @@ const loadItems = async () => {
             params: { preset_id: props.preset.id },
         });
         items.value = res.data.items ?? [];
+        info.value = res.data ?? {};
         // seed the tools field from the fetched skill data (fresh source of truth)
         if (Array.isArray(res.data.tools)) {
             toolsText.value = res.data.tools.join(', ');
@@ -279,6 +337,7 @@ const toggleEditSkill = () => {
     if (editingSkill.value) {
         skillForm.title = props.skill?.title ?? '';
         skillForm.description = props.skill?.description ?? '';
+        skillForm.is_experience = !!(info.value.is_experience ?? props.skill?.is_experience);
         // toolsText was seeded in loadItems from fetched data; fall back to prop
         if (!toolsText.value && Array.isArray(props.skill?.tools)) {
             toolsText.value = props.skill.tools.join(', ');
@@ -294,12 +353,29 @@ const saveSkill = () => {
     skillForm.preset_id = props.preset?.id;
     skillForm.skill_number = props.skill?.number;
     skillForm.tools = parsedTools.value;
-    skillForm.post(route('admin.skills.update'), {
+    // Read-only skill: never send title/description (they mirror SKILL.md).
+    skillForm.transform((data) => {
+        if (!readOnly.value) return data;
+        const { title, description, ...rest } = data;
+        return rest;
+    }).post(route('admin.skills.update'), {
         onSuccess: () => {
             editingSkill.value = false;
             emit('success');
         },
     });
+};
+
+// --- standard skill: re-import from the library ---
+const refreshFromLibrary = () => {
+    refreshing.value = true;
+    router.post(route('admin.skills.library.refresh'),
+        { preset_id: props.preset?.id, skill_number: props.skill?.number, force: true },
+        {
+            preserveState: true,
+            preserveScroll: true,
+            onFinish: () => { refreshing.value = false; loadItems(); },
+        });
 };
 
 // --- item edit ---

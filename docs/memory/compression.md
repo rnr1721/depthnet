@@ -128,6 +128,23 @@ Two supporting details make this hold up over time:
   and more often. Collapsing them keeps exactly one recap live and the window
   count honest.
 
+### Loaded skills in the recap
+
+Loaded skills and the focused goal are not part of the window — they are
+re-injected every cycle, so a fold does not remove them. That is exactly why the
+agent can forget they are there: the desk stays full after the conversation that
+filled it is gone. So when skills are loaded at the moment of folding, a
+deterministic line (no LLM) is appended to the recap in the window:
+
+```
+At the moment of folding, these skills were loaded: #1 pdf (~2.1k tokens, unused 14 cycles);
+#4 Deploy (~600 tokens, used last cycle) — together ~2.7k tokens on the desk every cycle.
+Unload what the next work will not need (`skill unload N`).
+```
+
+Facts only — the decision stays with the agent. The journal entry keeps the pure
+recap without this line.
+
 ### The compressor preset
 
 Compaction summarisation is done by a **separate preset** you assign as the

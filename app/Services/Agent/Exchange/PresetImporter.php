@@ -308,7 +308,6 @@ class PresetImporter implements PresetImporterInterface
             'cp_context_limit'           => $p['cp_context_limit'] ?? 5,
             'voice_mp_commands'          => $p['voice_mp_commands'] ?? '',
             'default_call_message'       => $p['default_call_message'] ?? null,
-            'metadata'                   => $p['metadata'] ?? [],
             'target_plugins_whitelist'   => $p['target_plugins_whitelist'] ?? null,
 
 

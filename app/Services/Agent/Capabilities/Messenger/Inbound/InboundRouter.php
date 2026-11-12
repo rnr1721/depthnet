@@ -72,6 +72,21 @@ class InboundRouter
         }
 
         $presetId = (int) $preset->getId();
+
+        $messages = array_values(array_filter($messages, function (InboundMessage $m) use ($presetId) {
+            $fresh = $this->cache->add("messenger_seen_{$presetId}_{$m->chat->id}_{$m->id}", true, 86400);
+            if (!$fresh) {
+                $this->logger->info('InboundRouter: duplicate dropped', [
+                    'preset_id' => $presetId, 'chat' => $m->chat->id, 'message_id' => $m->id,
+                ]);
+            }
+            return $fresh;
+        }));
+
+        if ($messages === []) {
+            return new DeliveryReport();
+        }
+
         $usePool  = $settings->sendToPool && $this->pool->isEnabled($preset);
         $wake     = false;
         $blocks   = [];
@@ -243,7 +258,8 @@ class InboundRouter
 
     /**
      * The chat [speak] answers: the latest message that called the agent
-     * (private message or mention), else the latest message at all.
+     * (private message or mention). Null when nothing in the batch called it —
+     * group chatter alone must not capture the agent's speech.
      *
      * @param InboundMessage[] $messages
      */
@@ -256,7 +272,7 @@ class InboundRouter
             }
         }
 
-        return $last ?? ($messages !== [] ? $messages[array_key_last($messages)] : null);
+        return $last;
     }
 
     /**

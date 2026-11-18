@@ -10,8 +10,31 @@ use App\Models\SkillItem;
 use Illuminate\Support\Facades\DB;
 use Psr\Log\LoggerInterface;
 
+/**
+ * Two library roots, searched in priority order:
+ *
+ *   user    {shared_path}/skills/{name}   — the user's skills (git-ignored)
+ *   bundled resources/skills/{name}       — skills that ship with DepthNet (in git)
+ *
+ * A skill's identity is its NAME (agent_skills.source_path), never its root, so
+ * everything downstream (sandbox sync, `skill read`, hash-based refresh) works
+ * through resolveDir() without knowing about roots. A user folder with the same
+ * name as a bundled one OVERRIDES it — the same idea as resources/views/vendor
+ * overriding a package's views: copy the folder, edit the copy, the original
+ * stays untouched for the next update; delete the copy and the bundled one is back.
+ *
+ * DepthNet tools: `metadata: { depthnet-tools: "code, terminal" }` in SKILL.md
+ * seeds the skill's tools on import and keeps following the file on refresh —
+ * until the user edits the tools in the UI; from then on the user's choice wins.
+ */
 class SkillLibraryService implements SkillLibraryServiceInterface
 {
+    public const ORIGIN_USER    = 'user';
+    public const ORIGIN_BUNDLED = 'bundled';
+
+    /** SKILL.md frontmatter key: metadata.depthnet-tools — comma/space-separated plugin names. */
+    public const META_TOOLS_KEY = 'depthnet-tools';
+
     /** Hard limits for one skill folder — a library entry is instructions + small scripts, not a dataset. */
     public const MAX_FILES = 1000;
     public const MAX_BYTES = 50 * 1024 * 1024;
@@ -23,6 +46,7 @@ class SkillLibraryService implements SkillLibraryServiceInterface
     public const SKIP_DIRS = ['.git', '.svn', '.hg', 'node_modules', '__pycache__', '.venv', 'venv'];
 
     private ?string $root;
+    private ?string $bundled;
 
     public function __construct(
         protected SkillMdParser $parser,
@@ -31,8 +55,10 @@ class SkillLibraryService implements SkillLibraryServiceInterface
         protected SkillItem $skillItemModel,
         protected LoggerInterface $logger,
         ?string $libraryRoot = null,
+        ?string $bundledRoot = null,
     ) {
-        $this->root = $libraryRoot;
+        $this->root    = $libraryRoot;
+        $this->bundled = $bundledRoot;
     }
 
     public function libraryRoot(): string
@@ -40,29 +66,58 @@ class SkillLibraryService implements SkillLibraryServiceInterface
         return $this->root ??= rtrim((string) config('sandbox.sandbox.shared_path', '/shared'), '/') . '/skills';
     }
 
+    public function bundledRoot(): string
+    {
+        return $this->bundled ??= rtrim(resource_path('skills'), '/');
+    }
+
+    public function libraryRoots(): array
+    {
+        return [
+            self::ORIGIN_USER    => $this->libraryRoot(),
+            self::ORIGIN_BUNDLED => $this->bundledRoot(),
+        ];
+    }
+
     // ── Library ──────────────────────────────────────────────────────────────
 
     public function scanLibrary(): array
     {
-        $root = $this->libraryRoot();
-        if (!is_dir($root)) {
-            return [];
-        }
+        $this->ensureUserRoot();
 
+        /** @var array<string, array> $out name => entry; first root wins */
         $out = [];
-        foreach (scandir($root) ?: [] as $entry) {
-            if ($entry === '.' || $entry === '..' || str_starts_with($entry, '.')) {
+
+        foreach ($this->libraryRoots() as $origin => $root) {
+            if (!is_dir($root)) {
                 continue;
             }
-            $dir = $root . '/' . $entry;
-            if (is_link($dir) || !is_dir($dir) || !is_file($dir . '/SKILL.md')) {
-                continue;
+
+            foreach (scandir($root) ?: [] as $entry) {
+                if ($entry === '.' || $entry === '..' || str_starts_with($entry, '.')) {
+                    continue;
+                }
+                $dir = $root . '/' . $entry;
+                if (is_link($dir) || !is_dir($dir) || !is_file($dir . '/SKILL.md')) {
+                    continue;
+                }
+
+                // Same name already found in a higher-priority root: that one is
+                // what resolveDir() returns — mark it as overriding this one.
+                if (isset($out[$entry])) {
+                    $out[$entry]['overrides'] = true;
+                    continue;
+                }
+
+                $info = $this->inspect($dir, $entry);
+                unset($info['parsed'], $info['layout']);
+                $info['origin']    = $origin;
+                $info['overrides'] = false;
+                $out[$entry] = $info;
             }
-            $info = $this->inspect($dir, $entry);
-            unset($info['parsed']);
-            $out[] = $info;
         }
 
+        $out = array_values($out);
         usort($out, fn ($a, $b) => strcmp($a['name'], $b['name']));
         return $out;
     }
@@ -95,15 +150,44 @@ class SkillLibraryService implements SkillLibraryServiceInterface
         return ['skills' => $skills, 'orphans' => $orphans];
     }
 
+    /**
+     * Create the user library folder on first use, with a README saying what goes
+     * there — so whoever opens shared/ sees where their skills belong. Not a
+     * .gitkeep: shared/ is git-ignored and must hold nothing from the repo.
+     * Silent on failure (read-only mount etc.): the library just shows empty.
+     */
+    private function ensureUserRoot(): void
+    {
+        $root = $this->libraryRoot();
+        if (is_dir($root) || !@mkdir($root, 0775, true)) {
+            return;
+        }
+
+        @file_put_contents($root . '/README.md', <<<'MD'
+# Your skills
+
+One folder per skill: `<name>/SKILL.md` (+ optional `scripts/`, `references/`, `assets/`).
+Format: https://agentskills.io — `name` in the frontmatter must match the folder name.
+
+Skills shipped with DepthNet live in `resources/skills/`. To change one, copy its folder
+here and edit the copy: a folder here with the same name overrides the shipped one.
+
+DepthNet tools a skill reveals when loaded:
+`metadata: { depthnet-tools: "code, terminal" }` in the SKILL.md frontmatter.
+
+MD);
+    }
+
     // ── Attach / refresh ─────────────────────────────────────────────────────
 
     public function attach(AiPreset $preset, string $name): array
     {
         $name = trim($name);
-        $dir = $this->resolveDir($name);
-        if ($dir === null) {
+        $location = $this->resolveLocation($name);
+        if ($location === null) {
             return ['success' => false, 'message' => "Library skill \"{$name}\" not found.", 'skill_number' => null];
         }
+        $dir = $location['dir'];
 
         $existing = $this->findGuest($preset, $name);
         if ($existing !== null) {
@@ -123,10 +207,12 @@ class SkillLibraryService implements SkillLibraryServiceInterface
                 'skill_number' => null,
             ];
         }
-        $parsed = $info['parsed'];
+        $parsed   = $info['parsed'];
+        $declared = $this->declaredTools($parsed);
+        $origin   = $location['origin'];
 
         try {
-            $number = DB::transaction(function () use ($preset, $name, $parsed, $info) {
+            $number = DB::transaction(function () use ($preset, $name, $parsed, $info, $declared, $origin) {
                 // Serialise number allocation per preset.
                 $max = $this->skillModel->newQuery()
                     ->where('preset_id', $preset->id)
@@ -139,11 +225,11 @@ class SkillLibraryService implements SkillLibraryServiceInterface
                     'number'        => $number,
                     'title'         => $parsed->name,
                     'description'   => $parsed->description,
-                    'tools'         => null,
+                    'tools'         => $declared,
                     'source'        => Skill::SOURCE_FILE,
                     'source_path'   => $name,
                     'source_hash'   => $info['hash'],
-                    'source_meta'   => $this->buildMeta($parsed, $info),
+                    'source_meta'   => $this->buildMeta($parsed, $info, $origin, $declared),
                     'is_experience' => false,
                 ]);
 
@@ -157,6 +243,9 @@ class SkillLibraryService implements SkillLibraryServiceInterface
         }
 
         $msg = "Skill #{$number} imported from library: {$name} (" . count($parsed->items) . ' items)';
+        if ($declared !== null) {
+            $msg .= '; tools: ' . implode(', ', $declared) . ' (hidden until the skill is loaded)';
+        }
         if ($parsed->warnings !== []) {
             $msg .= '. Warnings: ' . implode(' ', $parsed->warnings);
         }
@@ -178,10 +267,11 @@ class SkillLibraryService implements SkillLibraryServiceInterface
             return ['success' => false, 'message' => "Skill #{$skillNumber} is not a library skill.", 'changed' => false];
         }
 
-        $dir = $this->skillDirectory($skill);
-        if ($dir === null) {
+        $location = is_string($skill->source_path) ? $this->resolveLocation($skill->source_path) : null;
+        if ($location === null) {
             return ['success' => false, 'message' => "Library folder \"{$skill->source_path}\" is gone; skill #{$skillNumber} kept as is.", 'changed' => false];
         }
+        $dir = $location['dir'];
 
         $info = $this->inspect($dir, (string) $skill->source_path);
         if (!$force && $info['hash'] !== null && $info['hash'] === $skill->source_hash) {
@@ -193,15 +283,23 @@ class SkillLibraryService implements SkillLibraryServiceInterface
         }
         $parsed = $info['parsed'];
 
+        $declared = $this->declaredTools($parsed);
+        [$tools, $toolsNote] = $this->reconcileTools($skill, $declared);
+
         try {
-            DB::transaction(function () use ($skill, $parsed, $info) {
-                // Row (number, tools, is_experience, loaded_N state) stays; content is re-cut.
-                $skill->update([
+            DB::transaction(function () use ($skill, $parsed, $info, $location, $declared, $tools) {
+                // Row (number, is_experience, loaded_N state) stays; content is re-cut.
+                // tools follow SKILL.md only while the user hasn't edited them (reconcileTools).
+                $update = [
                     'title'       => $parsed->name,
                     'description' => $parsed->description,
                     'source_hash' => $info['hash'],
-                    'source_meta' => $this->buildMeta($parsed, $info),
-                ]);
+                    'source_meta' => $this->buildMeta($parsed, $info, $location['origin'], $declared),
+                ];
+                if ($tools !== false) {
+                    $update['tools'] = $tools;
+                }
+                $skill->update($update);
                 $this->skillItemModel->newQuery()->where('skill_id', $skill->id)->delete();
                 $this->writeItems($skill, $parsed->items);
             });
@@ -210,7 +308,79 @@ class SkillLibraryService implements SkillLibraryServiceInterface
             return ['success' => false, 'message' => 'Error refreshing: ' . $e->getMessage(), 'changed' => false];
         }
 
-        return ['success' => true, 'message' => 'Re-imported (' . count($parsed->items) . ' items).', 'changed' => true];
+        return [
+            'success' => true,
+            'message' => 'Re-imported (' . count($parsed->items) . ' items).' . $toolsNote,
+            'changed' => true,
+        ];
+    }
+
+    // ── DepthNet tools from SKILL.md ─────────────────────────────────────────
+
+    /**
+     * metadata.depthnet-tools → normalized plugin names, or null when none.
+     * Names are not checked against the registry here — SkillLoadService ignores
+     * unknown names at read time, so a skill can name a plugin that is installed later.
+     *
+     * @return string[]|null
+     */
+    private function declaredTools(ParsedSkill $parsed): ?array
+    {
+        $raw = trim((string) ($parsed->metadata[self::META_TOOLS_KEY] ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+
+        $names = [];
+        foreach (preg_split('/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $n) {
+            $n = strtolower($n);
+            if (preg_match('/^[a-z0-9_-]+$/', $n)) {
+                $names[$n] = true;
+            }
+        }
+
+        return $names === [] ? null : array_keys($names);
+    }
+
+    /**
+     * Decide the skill's tools after a refresh.
+     *
+     * Rule: tools follow SKILL.md until the user edits them. "Edited" = current
+     * tools differ from what SKILL.md declared at the previous import
+     * (source_meta.declared_tools). Skills imported before this existed have no
+     * record and no tools — they count as unedited and pick up the declaration.
+     *
+     * @param  string[]|null $declared
+     * @return array{0: string[]|null|false, 1: string}  [tools to write — false = leave as is, note]
+     */
+    private function reconcileTools(Skill $skill, ?array $declared): array
+    {
+        $previous = $skill->source_meta['declared_tools'] ?? null;
+        $current  = $skill->getToolNames() ?: null;
+
+        if ($this->sameToolSet($declared, $previous)) {
+            return [false, '']; // declaration unchanged — nothing to follow
+        }
+
+        if (!$this->sameToolSet($current, $previous)) {
+            $now = $declared === null ? 'no tools' : implode(', ', $declared);
+            return [false, " SKILL.md now declares {$now}; your edited tools were kept."];
+        }
+
+        if ($declared !== null && $skill->isExperience()) {
+            return [false, ' SKILL.md declares tools, but this skill is an experience skill; tools were not set.'];
+        }
+
+        return [$declared, ' Tools updated from SKILL.md: ' . ($declared === null ? 'none' : implode(', ', $declared)) . '.'];
+    }
+
+    private function sameToolSet(?array $a, ?array $b): bool
+    {
+        $a = $a ?? [];
+        $b = $b ?? [];
+        sort($a);
+        sort($b);
+        return $a === $b;
     }
 
     public function refreshAll(AiPreset $preset): array
@@ -402,27 +572,45 @@ class SkillLibraryService implements SkillLibraryServiceInterface
      */
     private function resolveDir(string $name): ?string
     {
+        return $this->resolveLocation($name)['dir'] ?? null;
+    }
+
+    /**
+     * Name → [dir, origin] from the first root that has it, or null. Every root
+     * gets the full guard on its own: `..`, absolute names and symlinked skill
+     * folders pointing outside THAT root are refused.
+     *
+     * @return array{dir: string, origin: string}|null
+     */
+    private function resolveLocation(string $name): ?array
+    {
         if (!SkillMdParser::isValidName($name)) {
             return null;
         }
 
-        $root = realpath($this->libraryRoot());
-        if ($root === false) {
-            return null;
+        foreach ($this->libraryRoots() as $origin => $rootPath) {
+            $root = realpath($rootPath);
+            if ($root === false) {
+                continue;
+            }
+
+            $candidate = $root . '/' . $name;
+            if (is_link($candidate)) {
+                // Never followed. Skipped like scanLibrary() skips it, so the list
+                // and resolution agree (a bundled skill of that name still resolves).
+                continue;
+            }
+            $real = realpath($candidate);
+            if ($real === false || !is_dir($real) || !str_starts_with($real, $root . '/')) {
+                continue;
+            }
+            if (!is_file($real . '/SKILL.md')) {
+                continue;
+            }
+            return ['dir' => $real, 'origin' => $origin];
         }
 
-        $candidate = $root . '/' . $name;
-        if (is_link($candidate)) {
-            return null;
-        }
-        $real = realpath($candidate);
-        if ($real === false || !is_dir($real) || !str_starts_with($real, $root . '/')) {
-            return null;
-        }
-        if (!is_file($real . '/SKILL.md')) {
-            return null;
-        }
-        return $real;
+        return null;
     }
 
     /**
@@ -500,25 +688,34 @@ class SkillLibraryService implements SkillLibraryServiceInterface
             'has_scripts' => $hasScripts,
             'file_count'  => count($files),
             'hash'        => $files === [] ? null : $this->hashFiles($files),
-            // Internal: scanLibrary() strips it; attach()/refresh() use it.
+            'tools'       => $this->declaredTools($parsed) ?? [],
+            // Internal: scanLibrary() strips these; attach()/refresh() use them.
+            // layout comes from THIS folder's walk — the old code re-walked
+            // libraryRoot()/name, which is the wrong folder for a bundled skill.
+            'layout'      => self::summarizeLayout(array_keys($files)),
             'parsed'      => $parsed,
         ];
     }
 
-    private function buildMeta(ParsedSkill $parsed, array $info): array
+    /** @param string[]|null $declaredTools */
+    private function buildMeta(ParsedSkill $parsed, array $info, string $origin, ?array $declaredTools): array
     {
         return [
-            'name'          => $parsed->declaredName !== '' ? $parsed->declaredName : $parsed->name,
-            'license'       => $parsed->license,
-            'compatibility' => $parsed->compatibility,
-            'allowed_tools' => $parsed->allowedTools, // verbatim, never mapped to DepthNet tools
-            'metadata'      => $parsed->metadata,
-            'has_files'     => $info['has_files'],
-            'has_scripts'   => $info['has_scripts'],
-            'file_count'    => $info['file_count'],
-            'layout'        => self::summarizeLayout(array_keys($this->walk($this->libraryRoot() . '/' . $parsed->name) ?? [])),
-            'warnings'      => $parsed->warnings,
-            'imported_at'   => now()->toIso8601String(),
+            'name'           => $parsed->declaredName !== '' ? $parsed->declaredName : $parsed->name,
+            'origin'         => $origin,
+            'license'        => $parsed->license,
+            'compatibility'  => $parsed->compatibility,
+            'allowed_tools'  => $parsed->allowedTools, // verbatim, never mapped to DepthNet tools
+            'metadata'       => $parsed->metadata,
+            // What SKILL.md declared at this import — reconcileTools() compares the
+            // skill's current tools to it to tell "user edited" from "follows file".
+            'declared_tools' => $declaredTools,
+            'has_files'      => $info['has_files'],
+            'has_scripts'    => $info['has_scripts'],
+            'file_count'     => $info['file_count'],
+            'layout'         => $info['layout'],
+            'warnings'       => $parsed->warnings,
+            'imported_at'    => now()->toIso8601String(),
         ];
     }
 

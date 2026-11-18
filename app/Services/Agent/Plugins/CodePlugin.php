@@ -367,24 +367,28 @@ class CodePlugin implements CommandPluginInterface
 
         if ($modifier && str_starts_with($modifier, 'around:')) {
             // around:functionName
-            $symbol  = substr($modifier, 7);
+            $symbol  = trim(substr($modifier, 7));
             $context_lines = (int) $context->get('around_context_lines', 20);
-            // Find line number of first match, then extract context
+            // Find line number of first match, then extract context.
+            // grep -F --: a symbol is a literal name, not a regex, and must not be
+            // read as an option if it starts with "-". The not-found message gets
+            // the symbol escaped too — it used to be spliced raw into a
+            // double-quoted echo, so a " broke the command and $(...) executed.
             $cmd = sprintf(
-                'line=$(grep -n %s %s 2>/dev/null | head -1 | cut -d: -f1); '
+                'line=$(grep -n -F -- %s %s 2>/dev/null | head -1 | cut -d: -f1); '
                 . 'if [ -n "$line" ]; then '
                 . 'from=$((line > %d ? line - %d : 1)); '
                 . 'to=$((line + %d)); '
                 . 'echo "Context around line $line:"; '
                 . 'sed -n "${from},${to}p" %s; '
-                . 'else echo "Symbol not found: %s"; fi',
+                . 'else echo %s; fi',
                 escapeshellarg($symbol),
                 escapeshellarg($path),
                 $context_lines,
                 $context_lines,
                 $context_lines,
                 escapeshellarg($path),
-                $symbol
+                escapeshellarg("Symbol not found: {$symbol}")
             );
             return $this->exec($context, $cmd, "{$path} around:{$symbol}");
         }
@@ -436,7 +440,8 @@ class CodePlugin implements CommandPluginInterface
         // grep: recursive, with line numbers, binary files skipped
         $cmd = sprintf(
             'tmp=$(mktemp) && ' .
-            'grep -rn --binary-files=without-match %s %s 2>/dev/null | tee "$tmp" | head -50; ' .
+            // "--" so a query starting with "-" is searched for, not read as an option
+            'grep -rn --binary-files=without-match -- %s %s 2>/dev/null | tee "$tmp" | head -50; ' .
             'echo "---"; echo "Total matches: $(wc -l < "$tmp")"; ' .
             'rm -f "$tmp"',
             escapeshellarg($query),
@@ -516,7 +521,10 @@ class CodePlugin implements CommandPluginInterface
 
         return $status->running
             ? "LSP server: running (language: {$status->language}, PID: {$status->pid})"
-            : 'LSP server: not running. Start with [code lsp-start][/code].';
+            // lsp-start is not in the tool_calls schema; it isn't needed either —
+            // every LSP method auto-starts the server.
+            : 'LSP server: not running. It starts automatically on the next '
+                . 'symbols / references / definition / hover / diagnostics call.';
     }
 
     /**
@@ -725,7 +733,7 @@ class CodePlugin implements CommandPluginInterface
 
         $fileSize = (int) trim($this->execRaw($context, sprintf('stat -c%%s %s 2>/dev/null || echo 0', escapeshellarg($path))));
         if ($fileSize > 1024 * 1024) { // 1MB
-            return "Error: file too large ({$fileSize} bytes). Use [terminal] for large file editing.";
+            return "Error: file too large ({$fileSize} bytes). Edit it from the terminal instead (sed, a script).";
         }
 
         $search  = $params['search']  ?? null;
@@ -987,9 +995,10 @@ class CodePlugin implements CommandPluginInterface
         $operations = $this->parseBatchOperations($content);
 
         if (empty($operations)) {
-            return 'Error: No valid operations found. Format:\n'
-                 . '1. path: file.php | search: old | replace: new\n'
-                 . '2. path: file2.php | search: old | replace: new';
+            // Double quotes: in single quotes "\n" reached the model as a literal backslash-n.
+            return "Error: No valid operations found. Format:\n"
+                 . "1. path: file.php | search: old | replace: new\n"
+                 . "2. path: file2.php | search: old | replace: new";
         }
 
         $results = [];

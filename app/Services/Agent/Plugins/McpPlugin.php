@@ -14,6 +14,7 @@ use App\Models\McpServer;
 use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
 use App\Services\Agent\Mcp\Exceptions\McpToolErrorException;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
+use App\Services\Agent\Plugins\Support\CommandHint;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -1026,30 +1027,18 @@ class McpPlugin implements CommandPluginInterface
     // ── Syntax of hints ───────────────────────────────────────────────────────
     //
     // Every hint inside a result or an error is written in the syntax the model
-    // actually uses this cycle. A tool_calls model that is told "[mcp tools]x[/mcp]"
-    // may start writing tags as plain text — which nothing executes.
-
-    private function isToolCallsMode(PluginExecutionContext $context): bool
-    {
-        return $context->preset->getAgentResultMode() === 'tool_calls';
-    }
+    // actually uses this cycle — see CommandHint.
 
     /**
      * A plugin method call: [mcp tools]github[/mcp]  |  mcp(method="tools", content="github")
      */
     private function howTo(PluginExecutionContext $context, string $method, string $content = ''): string
     {
-        if ($this->isToolCallsMode($context)) {
-            return 'mcp(method="' . $method . '"'
-                . ($content !== '' ? ', content="' . $content . '"' : '')
-                . ')';
-        }
-
-        return "[mcp {$method}]{$content}[/mcp]";
+        return CommandHint::method($context->preset, $this->getName(), $method, $content);
     }
 
     /**
-     * A tool call on a server:
+     * A tool call on a server — MCP-specific (tool + arguments), so not in CommandHint:
      *   [mcp github]tool_name: {"arg": "value"}[/mcp]
      *   mcp(method="github", tool="tool_name", arguments={"arg": "value"})
      */
@@ -1059,7 +1048,7 @@ class McpPlugin implements CommandPluginInterface
         string $toolName = 'tool_name',
         string $arguments = '{"arg": "value"}',
     ): string {
-        if ($this->isToolCallsMode($context)) {
+        if (CommandHint::isToolCalls($context->preset)) {
             return "mcp(method=\"{$serverKey}\", tool=\"{$toolName}\", arguments={$arguments})";
         }
 

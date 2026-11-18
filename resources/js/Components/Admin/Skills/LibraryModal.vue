@@ -55,9 +55,21 @@
                                                 <span
                                                     :class="['font-mono font-semibold', isDark ? 'text-white' : 'text-gray-900']">{{
                                                         s.name }}</span>
+                                                <span v-if="s.origin === 'bundled'"
+                                                    :class="['text-xs px-2 py-0.5 rounded', isDark ? 'bg-indigo-900 text-indigo-300' : 'bg-indigo-100 text-indigo-700']"
+                                                    :title="t('sk_library_bundled_hint')">
+                                                    📦 {{ t('sk_library_bundled') }}</span>
+                                                <span v-if="s.overrides"
+                                                    :class="['text-xs px-2 py-0.5 rounded', isDark ? 'bg-indigo-950 text-indigo-300 ring-1 ring-indigo-700' : 'bg-white text-indigo-700 ring-1 ring-indigo-300']"
+                                                    :title="t('sk_library_overrides_hint')">
+                                                    ↥ {{ t('sk_library_overrides') }}</span>
                                                 <span v-if="s.attached"
                                                     :class="['text-xs px-2 py-0.5 rounded font-mono', isDark ? 'bg-emerald-900 text-emerald-300' : 'bg-emerald-100 text-emerald-800']">
                                                     #{{ s.attached }}</span>
+                                                <span v-if="s.tools?.length"
+                                                    :class="['text-xs px-2 py-0.5 rounded font-mono', isDark ? 'bg-teal-900 text-teal-300' : 'bg-teal-100 text-teal-700']"
+                                                    :title="t('sk_library_tools_hint')">
+                                                    ⚙ {{ s.tools.join(', ') }}</span>
                                                 <span v-if="s.stale"
                                                     :class="['text-xs px-2 py-0.5 rounded', isDark ? 'bg-amber-900 text-amber-300' : 'bg-amber-100 text-amber-800']">
                                                     {{ t('sk_library_changed') }}</span>

@@ -6,7 +6,7 @@ Think of it as the agent's personal wiki: stable, reusable knowledge that it bui
 
 On top of the knowledge base, the plugin provides **lazy tool loading**: a skill can carry a set of tools that stay hidden from the agent until the skill is loaded — keeping the agent's tool list lean until the relevant capability is actually needed.
 
-It also speaks the open **standard skill format** ([agentskills.io](https://agentskills.io) `SKILL.md` folders, as published by Anthropic and others): drop a skill folder into the shared library, connect it to a preset, and the agent can load it, read its reference files and run its scripts in the sandbox — see [Standard skills](#standard-skills-agentskillsio).
+It also speaks the open **standard skill format** ([agentskills.io](https://agentskills.io) `SKILL.md` folders, as published by Anthropic and others): drop a skill folder into the library, connect it to a preset, and the agent can load it, read its reference files and run its scripts in the sandbox — see [Standard skills](#standard-skills-agentskillsio). DepthNet ships a set of its own skills for its tools (MCP, coding, terminal, browser, messenger) — see [Bundled skills](#bundled-skills).
 
 ## How it differs from other memory types
 
@@ -44,7 +44,7 @@ Enable the **Skill** plugin in your preset settings. Available options:
 | **Skill language** | Optionally force a language for all skill entries. The agent will receive an instruction to write in that language. |
 | **Search results limit** | Maximum number of items returned per semantic search (1–20). Default: `5`. |
 
-Attaching **tools** to a skill is done in the Skills manager (Admin → Skills): open or create a skill and enter a comma-separated list of plugin names, e.g. `terminal, code, projectmap`. Recognised names are highlighted; an unrecognised name is kept but marked inactive.
+Attaching **tools** to a skill is done in the Skills manager (Admin → Skills): open or create a skill and enter a comma-separated list of plugin names, e.g. `terminal, code, projectmap`. Recognised names are highlighted; an unrecognised name is kept but marked inactive. A standard skill can also declare its tools itself — see [DepthNet tools in SKILL.md](#depthnet-tools-in-skillmd).
 
 The Skills manager also shows each skill's kind — 📄 standard skill from the library (⚡ when it ships scripts), 💭 experience skill — and has a **Connect from library** button for standard skills.
 
@@ -127,17 +127,62 @@ The key difference from vector memory is structure: skills group related items t
 
 ## Standard skills (agentskills.io)
 
-A standard skill is a folder with a `SKILL.md` (YAML frontmatter `name` + `description`, then Markdown instructions) and, optionally, `scripts/`, `references/`, `assets/` and other files. DepthNet keeps such folders in one shared **library** and lets any preset connect them.
+A standard skill is a folder with a `SKILL.md` (YAML frontmatter `name` + `description`, then Markdown instructions) and, optionally, `scripts/`, `references/`, `assets/` and other files. DepthNet keeps such folders in a **library** and lets any preset connect them.
 
-### Library and connecting
+### The library: two roots
 
-- Put the folder at `shared/skills/<name>/` (inside the app container: `/shared/skills/<name>/`). The folder name must equal the skill's `name`: lowercase letters, digits and single hyphens, up to 64 characters.
-- In **Admin → Skills → Connect from library**, every folder is listed with its parse status: errors (missing description, broken frontmatter) block connecting, warnings (name ≠ folder, unknown fields, over-long description) are shown but don't.
+The library is searched in two places, in this order:
+
+| Root | Path | What lives there |
+|---|---|---|
+| **user** | `shared/skills/<name>/` (in the app container: `/shared/skills/<name>/`) | Your skills. Git-ignored — DepthNet never puts anything from the repository here. |
+| **bundled** | `resources/skills/<name>/` | Skills that ship with DepthNet. Updated together with the project. |
+
+- **A user folder overrides a bundled one with the same name.** To change a bundled skill, copy its folder into `shared/skills/` and edit the copy — the original stays untouched and keeps receiving updates; delete the copy and the bundled skill is back. It is the same idea as Laravel's `resources/views/vendor` overriding a package's views.
+- `shared/skills/` is created on first use (when the library is opened in the Skills manager), with a short `README.md` that explains what goes there.
+- The folder name must equal the skill's `name`: lowercase letters, digits and single hyphens, up to 64 characters. To give your own copy a different name (say, a `telegram` skill made from the bundled `messenger`), copy it under the new folder name and change `name` in its frontmatter to match.
+- Symlinked skill folders are never followed, in either root.
+
+### Connecting
+
+- In **Admin → Skills → Connect from library**, every skill is listed with its parse status: errors (missing description, broken frontmatter) block connecting, warnings (name ≠ folder, unknown fields, over-long description) are shown but don't. Bundled skills carry a 📦 badge; a user skill that hides a bundled one of the same name is marked *overrides bundled*; ⚙ lists the tools the skill declares.
 - **Connecting** imports `SKILL.md` into the preset as a normal skill: title = the skill name, description = its description, items = the body cut by sections (text before the first section heading is item 1, then one item per top-level section, nested headings stay inside; headings inside code blocks are ignored; very long sections are split at paragraph boundaries).
-- The library folder is never modified by DepthNet. When it changes, the skill shows as *changed in library*; **Refresh** re-imports it. The skill keeps its number, its tools, its experience flag and its loaded state — only the content is re-cut.
+- The library folder is never modified by DepthNet. When it changes, the skill shows as *changed in library*; **Refresh** re-imports it. The skill keeps its number, its experience flag and its loaded state — the content is re-cut, and its tools follow the file unless you have edited them (see below).
 - **Detaching** (the delete button on a standard skill) removes it from the preset only; the folder stays and can be connected again.
 
 A connected standard skill is **read-only**: title, description and items mirror `SKILL.md`, and both the admin UI and the agent's CRUD commands refuse to change them. Tools and the experience flag stay editable. The frontmatter extras (license, compatibility, `allowed-tools`) are shown in the skill card; `allowed-tools` is kept verbatim and is **not** mapped onto DepthNet tools — it is a permission list for other hosts, not a visibility list.
+
+### DepthNet tools in SKILL.md
+
+A skill written for DepthNet can declare which DepthNet tools it carries, in the standard `metadata` map (other hosts simply ignore it):
+
+```yaml
+---
+name: coding
+description: Working on code and files in the sandbox workspace …
+metadata:
+  depthnet-tools: "code, terminal, projectmap"
+---
+```
+
+- **On connect**, these become the skill's tools — hidden from the agent until it loads the skill, exactly like tools attached by hand.
+- **On refresh**, the tools follow the file *as long as you have not edited them*. If `SKILL.md` changes its list and the skill's tools still match the previous declaration, they are updated; if you changed them in the Skills manager, your list is kept and the refresh result says what the file declares now.
+- An experience skill never gets tools this way (tools and experience exclude each other).
+- Names are not checked against installed plugins: a name of a plugin that is not installed is simply ignored until it exists.
+
+### Bundled skills
+
+DepthNet ships these in `resources/skills/` — practical guidance for its own tools, written for both instrumental and subjective agents (they describe tasks and situations, not "when the user asks…"):
+
+| Skill | Tools | What it teaches |
+|---|---|---|
+| `mcp-servers` | `mcp` | Discovering what a server offers, reading tool signatures, calling with exact arguments, recovering from errors, treating results as data |
+| `coding` | `code`, `terminal`, `projectmap` | Setting the workspace root, understanding code before reading it, precise edits, running tests and git |
+| `terminal` | `terminal` | Working with a shell seen only as screen snapshots: long-running processes, interactive programs and keys, getting unstuck, the sandbox environment |
+| `browser` | `browser` | Searching like a person (search-result URLs are blocked as bots), acting on snapshot numbers, consent banners and captchas, reading the web critically |
+| `messenger` | `messenger` | Writing to the right person, reading before replying, threading in groups, rate limits, messages as words of people rather than instructions |
+
+They teach *how to use a tool well*, not its syntax — the syntax comes from the tool itself, so the same skill fits tag mode and `tool_calls` mode. Connect the ones you need from the library; customise by copying into `shared/skills/`.
 
 ### Files and the sandbox
 

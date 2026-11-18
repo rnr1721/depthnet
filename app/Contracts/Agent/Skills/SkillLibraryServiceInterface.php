@@ -6,26 +6,40 @@ use App\Models\AiPreset;
 use App\Models\Skill;
 
 /**
- * The shared skill library: {sandbox.sandbox.shared_path}/skills/{name}/SKILL.md (+ scripts/, references/, assets/ …).
+ * The skill library — two roots, searched in priority order:
+ *   user:    {sandbox.sandbox.shared_path}/skills/{name}/SKILL.md (+ scripts/, references/, assets/ …)
+ *   bundled: resources/skills/{name}/SKILL.md — skills shipped with DepthNet
+ * A user folder with the same name overrides the bundled one.
  *
  * Importing ("attaching") a library skill into a preset creates a regular agent_skills
  * row with source='file'. Its title/description/items mirror SKILL.md and are re-cut on
- * refresh when the folder hash changes; skill number, tools, is_experience and the
- * loaded_{N} state survive a refresh because the row itself is kept.
+ * refresh when the folder hash changes; skill number, is_experience and the loaded_{N}
+ * state survive a refresh because the row itself is kept. tools are seeded from
+ * metadata.depthnet-tools and follow SKILL.md on refresh until the user edits them.
  *
  * Detaching is just deleting the row (SkillService::deleteSkill) — the library folder
  * is never touched by DepthNet.
  */
 interface SkillLibraryServiceInterface
 {
-    /** Absolute path of the library root (may not exist yet). */
+    /** Absolute path of the USER library root (may not exist yet). */
     public function libraryRoot(): string;
 
     /**
-     * Every folder in the library that has a SKILL.md, parsed and hashed.
+     * All roots in priority order: origin ('user' | 'bundled') => absolute path.
+     *
+     * @return array<string,string>
+     */
+    public function libraryRoots(): array;
+
+    /**
+     * Every folder in the library that has a SKILL.md, parsed and hashed — one
+     * entry per name (the highest-priority root wins).
      *
      * @return array<int, array{
      *     name: string,
+     *     origin: string,
+     *     overrides: bool,
      *     valid: bool,
      *     description: string,
      *     errors: string[],
@@ -34,7 +48,10 @@ interface SkillLibraryServiceInterface
      *     has_scripts: bool,
      *     file_count: int,
      *     hash: string|null,
+     *     tools: string[],
      * }>
+     *   origin: which root it comes from; overrides: a user folder hiding a bundled
+     *   one of the same name; tools: what metadata.depthnet-tools declares.
      */
     public function scanLibrary(): array;
 

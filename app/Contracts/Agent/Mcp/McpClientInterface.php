@@ -72,6 +72,8 @@ interface McpClientInterface
      * @return array     List of content blocks: [['type'=>'text','text'=>...],
      *                   ['type'=>'image','data'=>base64,'mimeType'=>...], ...]
      *
+     * @throws \App\Services\Agent\Mcp\Exceptions\McpToolErrorException
+     *         the tool ran and reported failure (result.isError) — server is healthy
      * @throws \RuntimeException on MCP-level or transport errors
      */
     public function callToolRaw(McpServer $server, string $toolName, array $arguments): array;

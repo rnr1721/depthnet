@@ -624,6 +624,9 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
                             ? $commandResult->result
                             : ('ERROR: ' . $commandResult->error)
                     ),
+                // Structured flag for engines that support it (Anthropic tool_result
+                // is_error). Engines that don't simply ignore the extra key.
+                'is_error'     => !$commandResult->success,
             ];
         }
 

@@ -6,6 +6,7 @@ use App\Contracts\Agent\PluginManagerFactoryInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Models\AiPreset;
+use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Skills\SkillToolGate;
 
 /**
@@ -47,7 +48,7 @@ class ToolSchemaBuilder implements ToolSchemaBuilderInterface
                 continue; // owned by a skill that isn't loaded
             }
 
-            $schema = $this->getPluginSchema($entry['plugin'], $entry['context']->config);
+            $schema = $this->getPluginSchema($entry['plugin'], $entry['context']->config, $entry['context']);
             if ($schema !== null) {
                 $tools[] = $schema;
             }
@@ -59,11 +60,17 @@ class ToolSchemaBuilder implements ToolSchemaBuilderInterface
     /**
      * Prefer plugin-defined schema; fall back to auto-generated.
      *
+     * Optional hook getToolSchemaForContext(PluginExecutionContext): for plugins
+     * whose schema depends on preset DATA, not just config (McpPlugin lists the
+     * preset's real servers). Same opt-in convention as registerShortcodes().
+     *
      * @param array<string, mixed> $config
      */
-    protected function getPluginSchema(object $plugin, array $config): ?array
+    protected function getPluginSchema(object $plugin, array $config, ?PluginExecutionContext $context = null): ?array
     {
-        $custom = $plugin->getToolSchema($config);
+        $custom = ($context !== null && method_exists($plugin, 'getToolSchemaForContext'))
+            ? $plugin->getToolSchemaForContext($context)
+            : $plugin->getToolSchema($config);
         if (!empty($custom)) {
             return [
                 'type'     => 'function',

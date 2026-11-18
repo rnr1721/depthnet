@@ -612,8 +612,15 @@ class ClaudeModel implements AIModelEngineInterface
                         if (is_array($toolUseBlocks) && !empty($toolUseBlocks) && ($toolUseBlocks[0]['type'] ?? '') === 'tool_use') {
                             $blocks = [];
 
-                            // Text block (model's reasoning) goes BEFORE tool_use per Anthropic spec
-                            if (!empty(trim((string)$content))) {
+                            // Text block (model's reasoning) goes BEFORE tool_use per Anthropic spec.
+                            // In tool_calls mode persistToolCalls() stores the raw tool_use
+                            // JSON as the message content, so content usually IS the same
+                            // JSON as tool_calls_raw. Echoing it back as text would show the
+                            // model its own calls written as JSON text — doubling tokens and
+                            // teaching it to "write" tool calls instead of making them.
+                            $isJsonEcho = trim((string) $content) === trim((string) $toolCallsRaw);
+
+                            if (!$isJsonEcho && !empty(trim((string)$content))) {
                                 $blocks[] = [
                                     'type' => 'text',
                                     'text' => $content,
@@ -648,24 +655,30 @@ class ClaudeModel implements AIModelEngineInterface
                             if (empty($tr['tool_call_id'])) {
                                 continue;
                             }
-                            $blocks[] = [
+                            $block = [
                                 'type'        => 'tool_result',
                                 'tool_use_id' => $tr['tool_call_id'],
                                 'content'     => $tr['content'] ?? '',
                             ];
+
+                            if (!empty($tr['is_error'])) {
+                                $block['is_error'] = true;
+                            }
+
+                            $blocks[] = $block;
                         }
 
                         if (!empty($blocks)) {
-                            // Append the human-readable formatted result as a text block
-                            // in the same user turn. Anthropic API requires strictly
-                            // alternating roles — we cannot add a separate message.
-                            // The text block lets Claude process the formatted output
-                            // (with success/error markers, timestamps etc.) alongside
-                            // the structured tool_result blocks.
-                            $blocks[] = [
-                                'type' => 'text',
-                                'text' => $content,
-                            ];
+                            // Previously the full formatted result ($content) was appended
+                            // here as a text block — every tool output went into the context
+                            // TWICE (tool_result + text). Success/error is now carried by
+                            // is_error on each tool_result; only the timestamp line is kept.
+                            if (preg_match('/for date [^\n]+/', (string) $content, $m)) {
+                                $blocks[] = [
+                                    'type' => 'text',
+                                    'text' => 'Command results ' . trim($m[0]),
+                                ];
+                            }
 
                             $messages[] = [
                                 'role'    => 'user',

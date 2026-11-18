@@ -5,6 +5,7 @@ namespace App\Services\Agent;
 use App\Contracts\Agent\CommandExecutorInterface;
 use App\Contracts\Agent\PluginExecutionContextBuilderInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
+use App\Exceptions\PluginUserException;
 use App\Models\AiPreset;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 use App\Services\Agent\Plugins\DTO\CommandResult;
@@ -142,7 +143,23 @@ class CommandExecutor implements CommandExecutorInterface
                 $plugin->collapseOutput()
             );
 
-        } catch (\Exception $e) {
+        } catch (PluginUserException $e) {
+            // A message written for the model (bad argument, unknown server...).
+            // Not an application failure: no error log, no "Error executing" prefix.
+            // Flush the plugin's meta buffer so it can't leak into the next command.
+            $meta = isset($plugin) ? $plugin->getPluginExecutionMeta() : [];
+
+            return new CommandResult(
+                $command,
+                '',
+                false,
+                $e->getMessage(),
+                $meta
+            );
+
+        } catch (\Throwable $e) {
+            // \Throwable, not \Exception: a TypeError inside a plugin must fail
+            // this command, not the whole thinking cycle.
             $this->logger->error("Command execution error", [
                 'plugin' => $command->plugin,
                 'method' => $command->method,

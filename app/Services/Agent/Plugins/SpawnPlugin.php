@@ -9,6 +9,7 @@ use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Exceptions\PresetException;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
+use App\Services\Agent\Plugins\Support\CommandHint;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginHandoffTrait;
@@ -71,7 +72,10 @@ class SpawnPlugin implements CommandPluginInterface
         $instructions[] = 'Create a spawn with a practical system prompt:'
             . "\n" . '[spawn spawn]slug: json_validator'
             . "\n" . 'prompt: You are a JSON validator. Receive JSON, return only "valid" or "invalid" with a reason.[/spawn]'
-            . "\n" . 'slug must be lowercase letters, digits, underscores only (e.g. risk_analyzer, data_parser).';
+            . "\n" . 'slug must be lowercase letters, digits, underscores only (e.g. risk_analyzer, data_parser).'
+            . "\n" . 'The prompt runs to the end and may span many lines. If it contains a line starting with '
+            . 'slug:, prompt:, engine:, context_limit:, search:, replace: or limit:, fence it: prompt: <<< … >>> on their own lines.'
+            . "\n" . 'Optional: engine: <engine name>, context_limit: <number> — run the spawn on another engine or context size.';
 
         $instructions[] = 'List active spawns: [spawn list][/spawn]';
 
@@ -82,7 +86,9 @@ class SpawnPlugin implements CommandPluginInterface
             . "\n" . '— then edit using exact text from the read result:'
             . "\n" . '[spawn edit]my_tool'
             . "\n" . 'search: exact phrase from current prompt'
-            . "\n" . 'replace: new phrase[/spawn]';
+            . "\n" . 'replace: new phrase[/spawn]'
+            . "\n" . 'If the phrase appears more than once, add "limit: 1" or a longer, unique phrase. '
+            . 'For multi-line text use search: <<< … >>> and replace: <<< … >>>.';
 
         $instructions[] = 'Send a task to spawn (transfers control to it): [spawn send]preset_code:your task here[/spawn]';
 
@@ -119,10 +125,10 @@ class SpawnPlugin implements CommandPluginInterface
 
         $contentParts = [
             'Argument format depends on method:',
-            '• spawn  — "slug: my_tool\nprompt: system prompt text" — slug is lowercase [a-z0-9_], prompt should be a practical instruction (e.g. "You are a JSON validator…");',
+            '• spawn  — "slug: my_tool\nprompt: system prompt text" — slug is lowercase [a-z0-9_], prompt should be a practical instruction (e.g. "You are a JSON validator…"); the prompt may span many lines; optional "engine: <name>" and "context_limit: <n>" lines run the spawn on another engine or context size; if the prompt itself has a line starting with one of these field names, fence it: "prompt: <<<\n...\n>>>";',
             '• list   — leave empty;',
             '• read   — preset_code of the spawn — ALWAYS call read before edit to get the exact current prompt text;',
-            '• edit   — "preset_code\nsearch: exact text from read result\nreplace: new text" — search must match exactly;',
+            '• edit   — "preset_code\nsearch: exact text from read result\nreplace: new text" — search must match exactly and once (add "\nlimit: 1" to change only the first of several matches); fence multi-line text as "search: <<<\n...\n>>>";',
             '• send   — "preset_code:message" — transfers control to the spawn with the given message;',
             '• kill   — preset_code of the spawn to delete;',
         ];
@@ -276,7 +282,10 @@ class SpawnPlugin implements CommandPluginInterface
             return $this->list($content, $context);
         }
 
-        return 'Use a named method: [spawn spawn], [spawn send], [spawn kill], etc.';
+        return 'Use a named method: ' . implode(', ', array_map(
+            fn (string $m) => CommandHint::method($context->preset, $this->getName(), $m),
+            ['spawn', 'send', 'kill']
+        )) . ', etc.';
     }
 
     public function spawn(string $content, PluginExecutionContext $context): string
@@ -383,8 +392,9 @@ class SpawnPlugin implements CommandPluginInterface
         $params  = $this->parseKeyValue($rest);
         $search  = $params['search']  ?? null;
         $replace = $params['replace'] ?? null;
+        $limit   = isset($params['limit']) ? (int) $params['limit'] : null;
 
-        if ($search === null || $replace === null) {
+        if ($search === null || $search === '' || $replace === null) {
             return 'Error: edit requires "search" and "replace".';
         }
 
@@ -392,10 +402,25 @@ class SpawnPlugin implements CommandPluginInterface
             $current = $this->spawnService->readPrompt($spawned->id, $context->preset->id);
 
             if (!str_contains($current, $search)) {
-                return "Error: search string not found in prompt of '{$presetCode}'.";
+                return "Error: search string not found in prompt of '{$presetCode}'. Read it with "
+                    . CommandHint::method($context->preset, $this->getName(), 'read', $presetCode)
+                    . ' and copy the exact text.';
             }
 
-            $updated = str_replace($search, $replace, $current);
+            // Same rule as editing your own prompt: an ambiguous search is
+            // refused rather than silently changing every occurrence.
+            $count = substr_count($current, $search);
+            if ($count > 1 && $limit !== 1) {
+                return "Error: the search text appears {$count} times in the prompt of '{$presetCode}'. "
+                    . 'Add "limit: 1" to change only the first, or extend the search text so it matches one place.';
+            }
+
+            if ($limit === 1) {
+                $pos     = strpos($current, $search);
+                $updated = substr($current, 0, $pos) . $replace . substr($current, $pos + strlen($search));
+            } else {
+                $updated = str_replace($search, $replace, $current);
+            }
             $this->spawnService->updatePrompt($spawned->id, $context->preset->id, $updated);
 
             return "Prompt updated: {$presetCode}";
@@ -517,35 +542,75 @@ class SpawnPlugin implements CommandPluginInterface
     // -------------------------------------------------------------------------
 
     /**
-     * Parse simple "key: value" multiline format.
-     * Identical to CodePlugin::parseKeyValue — kept local to avoid coupling.
+     * Field names this plugin reads. ONLY these start a new field; every other
+     * line — "Rules:", "Output format:", "Example: …" — is part of the current
+     * value. A generic "any word:" parser cut spawn prompts at their first such
+     * line and silently dropped the rest.
+     */
+    private const FIELD_KEYS = ['slug', 'prompt', 'engine', 'context_limit', 'search', 'replace', 'limit'];
+
+    /**
+     * Parse the "key: value" multiline payload.
+     *
+     * A field runs until the next line that starts with a known key. For text
+     * that itself contains such a line, a fenced block is taken verbatim:
+     *
+     *     prompt: <<<
+     *     ...any text, including "search: ..." lines...
+     *     >>>
      *
      * @return array<string, string>
      */
     private function parseKeyValue(string $content): array
     {
+        $keys     = implode('|', self::FIELD_KEYS);
+        $keyLine  = '/^\s*(' . $keys . ')\s*:\s*(.*)$/i';
+        $openLine = '/^\s*(' . $keys . ')\s*:\s*<<<\s*$/i';
+
         $result     = [];
         $lines      = explode("\n", $content);
+        $n          = count($lines);
         $currentKey = null;
         $buffer     = [];
 
-        foreach ($lines as $line) {
-            if (preg_match('/^(\w+):\s*(.*)$/', $line, $m)) {
-                if ($currentKey !== null) {
-                    $result[$currentKey] = implode("\n", $buffer);
+        $flush = function () use (&$result, &$currentKey, &$buffer) {
+            if ($currentKey !== null) {
+                $result[$currentKey] = trim(implode("\n", $buffer));
+            }
+            $currentKey = null;
+            $buffer     = [];
+        };
+
+        for ($i = 0; $i < $n; $i++) {
+            $line = $lines[$i];
+
+            // Fenced block: verbatim until a line that is exactly ">>>".
+            if (preg_match($openLine, $line, $m)) {
+                $j = $i + 1;
+                while ($j < $n && !preg_match('/^\s*>>>\s*$/', $lines[$j])) {
+                    $j++;
                 }
-                $currentKey = $m[1];
+                if ($j < $n) {
+                    $flush();
+                    $result[strtolower($m[1])] = implode("\n", array_slice($lines, $i + 1, $j - $i - 1));
+                    $i = $j;
+                    continue;
+                }
+                // Unclosed fence → treat the line as a plain field below.
+            }
+
+            if (preg_match($keyLine, $line, $m)) {
+                $flush();
+                $currentKey = strtolower($m[1]);
                 $buffer     = [$m[2]];
             } elseif ($currentKey !== null) {
                 $buffer[] = $line;
             }
         }
 
-        if ($currentKey !== null) {
-            $result[$currentKey] = implode("\n", $buffer);
-        }
+        $flush();
 
-        return array_map('trim', $result);
+        return $result;
     }
 
     /**

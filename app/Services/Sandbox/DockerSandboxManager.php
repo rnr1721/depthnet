@@ -837,6 +837,199 @@ class DockerSandboxManager implements SandboxManagerInterface
                str_contains($current, $managerPattern);
     }
 
+    // ── File delivery & environment ──────────────────────────────────────────
+
+    /** The image runs everything as sandbox-user; manager.sh bind-mounts its home. */
+    private const SANDBOX_HOME = '/home/sandbox-user';
+
+    /**
+     * @inheritDoc
+     */
+    public function getHomeDirectory(string $sandboxId): string
+    {
+        return self::SANDBOX_HOME;
+    }
+
+    /**
+     * Docker backend: the sandbox home is a bind mount of
+     * ${HOST_SHARED_PATH}/{shared_prefix}-{id}, which this app sees under
+     * {sandbox.shared_path}. So delivery is a plain local copy — no docker exec,
+     * works even while the container is stopped. The app runs with the host UID,
+     * so files land with the right owner without chown.
+     *
+     * @inheritDoc
+     */
+    public function putDirectory(string $sandboxId, string $localDir, string $remotePath, array $excludeNames = []): void
+    {
+        $localDir = rtrim($localDir, '/');
+        if (!is_dir($localDir)) {
+            throw new SandboxException("Source directory not found: {$localDir}", 0, null, $sandboxId);
+        }
+
+        $target = $this->localPathFor($sandboxId, $remotePath);
+        $parent = dirname($target);
+        $base   = basename($target);
+
+        if (!is_dir($parent) && !@mkdir($parent, 0755, true) && !is_dir($parent)) {
+            throw new SandboxException("Cannot create {$parent}", 0, null, $sandboxId);
+        }
+
+        $suffix = bin2hex(random_bytes(4));
+        $tmp    = "{$parent}/.{$base}.tmp-{$suffix}";
+        $old    = "{$parent}/.{$base}.old-{$suffix}";
+
+        try {
+            $this->copyTree($localDir, $tmp, array_flip($excludeNames));
+
+            // Swap: current → old, tmp → current, drop old. Two renames inside one
+            // directory; a reader sees either the previous or the new tree.
+            if (file_exists($target) || is_link($target)) {
+                if (!@rename($target, $old)) {
+                    throw new SandboxException("Cannot move aside {$target}", 0, null, $sandboxId);
+                }
+            }
+            if (!@rename($tmp, $target)) {
+                if (file_exists($old)) {
+                    @rename($old, $target); // roll back
+                }
+                throw new SandboxException("Cannot move {$tmp} into place", 0, null, $sandboxId);
+            }
+        } finally {
+            $this->removeTree($tmp);
+            $this->removeTree($old);
+        }
+
+        $this->log('Directory delivered to sandbox', [
+            'sandbox_id' => $sandboxId,
+            'remote'     => $remotePath,
+        ]);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function pathExists(string $sandboxId, string $remotePath): bool
+    {
+        try {
+            return file_exists($this->localPathFor($sandboxId, $remotePath));
+        } catch (SandboxException) {
+            return false;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function probe(string $sandboxId): array
+    {
+        // Read-only. Every line is key=value; anything missing stays ''.
+        $script = <<<'SH'
+. /etc/os-release 2>/dev/null; echo "os=${PRETTY_NAME:-}"
+echo "python=$(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)"
+if command -v pip3 >/dev/null 2>&1; then echo pip=pip3; elif python3 -m pip --version >/dev/null 2>&1; then echo pip=module; else echo pip=none; fi
+echo "node=$(node --version 2>/dev/null)"
+if sudo -n true >/dev/null 2>&1; then echo sudo=1; else echo sudo=0; fi
+echo "venv=${VIRTUAL_ENV:-}"
+if [ -n "${VIRTUAL_ENV:-}" ]; then if [ -w "$VIRTUAL_ENV" ]; then echo venv_writable=1; else echo venv_writable=0; fi; fi
+if grep -qs ' /tmp .*noexec' /proc/mounts; then echo tmp_noexec=1; else echo tmp_noexec=0; fi
+echo "mem_limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null)"
+echo "home=$HOME"
+if [ -f "$HOME/.bashrc" ]; then echo bashrc=1; else echo bashrc=0; fi
+SH;
+
+        $result = $this->executeCommand($sandboxId, $script, 'sandbox-user', 20);
+        if ($result->exitCode !== 0 && trim($result->output) === '') {
+            throw new SandboxException('Probe failed: ' . trim($result->error), 0, null, $sandboxId);
+        }
+
+        $out = [];
+        foreach (preg_split('/\R/', $result->output) ?: [] as $line) {
+            if (preg_match('/^([a-z_]+)=(.*)$/', trim($line), $m)) {
+                $out[$m[1]] = trim($m[2]);
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Map a home-relative path to the app-side path of the bind mount.
+     * Refuses absolute paths, `..` and odd sandbox ids.
+     */
+    private function localPathFor(string $sandboxId, string $remotePath): string
+    {
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $sandboxId)) {
+            throw new SandboxException("Invalid sandbox id: {$sandboxId}", 0, null, $sandboxId);
+        }
+
+        $rel = str_replace('\\', '/', $remotePath);
+        if (str_starts_with($rel, '/')) {
+            throw new SandboxException("Sandbox path must be relative to home: {$remotePath}", 0, null, $sandboxId);
+        }
+        $rel = trim($rel, '/');
+        if ($rel === '' || str_contains($rel, "\0") || preg_match('#(^|/)\.\.(/|$)#', $rel)) {
+            throw new SandboxException("Invalid sandbox path: {$remotePath}", 0, null, $sandboxId);
+        }
+
+        $sharedPath = rtrim((string) $this->config->get('sandbox.sandbox.shared_path', '/shared'), '/');
+        $prefix     = (string) $this->config->get('sandbox.sandbox.shared_prefix', 'sandbox');
+        $home       = "{$sharedPath}/{$prefix}-{$sandboxId}";
+
+        if (!is_dir($home)) {
+            throw new SandboxException("Sandbox home not found at {$home}", 0, null, $sandboxId);
+        }
+
+        return $home . '/' . $rel;
+    }
+
+    /** Recursive copy: regular files and dirs only; symlinks and excluded names skipped. */
+    private function copyTree(string $from, string $to, array $exclude): void
+    {
+        if (!@mkdir($to, 0755, true) && !is_dir($to)) {
+            throw new SandboxException("Cannot create {$to}");
+        }
+
+        foreach (scandir($from) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..' || isset($exclude[$entry])) {
+                continue;
+            }
+            $src = "{$from}/{$entry}";
+            $dst = "{$to}/{$entry}";
+
+            if (is_link($src)) {
+                continue;
+            }
+            if (is_dir($src)) {
+                $this->copyTree($src, $dst, $exclude);
+                continue;
+            }
+            if (!is_file($src)) {
+                continue;
+            }
+            if (!@copy($src, $dst)) {
+                throw new SandboxException("Cannot copy {$src}");
+            }
+            @chmod($dst, is_executable($src) ? 0755 : 0644);
+        }
+    }
+
+    /** rm -rf without following symlinks. Silent if the path does not exist. */
+    private function removeTree(string $path): void
+    {
+        if (is_link($path) || is_file($path)) {
+            @unlink($path);
+            return;
+        }
+        if (!is_dir($path)) {
+            return;
+        }
+        foreach (scandir($path) ?: [] as $entry) {
+            if ($entry !== '.' && $entry !== '..') {
+                $this->removeTree("{$path}/{$entry}");
+            }
+        }
+        @rmdir($path);
+    }
+
     /**
      * Get sandbox container prefix from config
      *

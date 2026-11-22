@@ -11,6 +11,7 @@ use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Models\AiPreset;
 use App\Services\Agent\Code\DTO\ProjectFingerprint;
 use App\Services\Agent\Code\DTO\WorkspaceRootDetection;
+use App\Services\Agent\Plugins\Support\CommandHint;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -318,7 +319,11 @@ class WorkspaceTopologyService implements WorkspaceTopologyServiceInterface
         $iconResolver = $this->makeIconResolver($adapter, $showIcons);
         $tree         = $this->formatAsTree($entries, $iconResolver, $maxFiles);
 
-        return $this->trimToMaxLength($tree, $maxLength ?? self::DEFAULT_MAX_MAP_LENGTH);
+        // The truncation note lands in the system prompt every cycle — write it
+        // in the syntax this preset's model actually uses.
+        $expandHint = CommandHint::method($preset, 'projectmap', 'expand', 'path');
+
+        return $this->trimToMaxLength($tree, $maxLength ?? self::DEFAULT_MAX_MAP_LENGTH, $expandHint);
     }
 
     public function listDirectory(AiPreset $preset, string $path, int $maxItems = 100): string
@@ -570,7 +575,7 @@ class WorkspaceTopologyService implements WorkspaceTopologyServiceInterface
 
     // ── Private: output trimming ──────────────────────────────────────────
 
-    private function trimToMaxLength(string $tree, int $maxLength): string
+    private function trimToMaxLength(string $tree, int $maxLength, string $expandHint): string
     {
         if (mb_strlen($tree) <= $maxLength) {
             return $tree;
@@ -583,7 +588,7 @@ class WorkspaceTopologyService implements WorkspaceTopologyServiceInterface
             $trimmed = mb_substr($trimmed, 0, $lastNewline);
         }
 
-        return $trimmed . "\n... (truncated, use [projectmap expand]path[/projectmap] to drill down)";
+        return $trimmed . "\n... (truncated, drill down with {$expandHint})";
     }
 
     // ── Sandbox helpers ──────────────────────────────────────────────────

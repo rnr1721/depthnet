@@ -290,11 +290,18 @@ Route::middleware('auth')->group(function () {
             Route::get('/', [SkillController::class, 'index'])->name('index');
             Route::post('/', [SkillController::class, 'store'])->name('store');
             Route::post('/update', [SkillController::class, 'update'])->name('update');
-            Route::get('/{number}', [SkillController::class, 'show'])->name('show');
+
+            // Library (standard skills). Declared before /{number}; /{number} is
+            // also constrained to digits so "library" can never be taken for a number.
+            Route::get('/library', [SkillController::class, 'library'])->name('library');
+            Route::post('/library/attach', [SkillController::class, 'attachLibrary'])->name('library.attach');
+            Route::post('/library/refresh', [SkillController::class, 'refreshLibrary'])->name('library.refresh');
+
+            Route::get('/{number}', [SkillController::class, 'show'])->name('show')->where('number', '[0-9]+');
             Route::post('/add-item', [SkillController::class, 'addItem'])->name('add-item');
             Route::post('/update-item', [SkillController::class, 'updateItem'])->name('update-item');
             Route::delete('/item', [SkillController::class, 'destroyItem'])->name('destroy-item');
-            Route::delete('/{number}', [SkillController::class, 'destroy'])->name('destroy');
+            Route::delete('/{number}', [SkillController::class, 'destroy'])->name('destroy')->where('number', '[0-9]+');
         });
 
         // Known Sources Management routes

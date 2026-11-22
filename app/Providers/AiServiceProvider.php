@@ -88,6 +88,7 @@ use App\Contracts\Agent\PulseServiceInterface;
 use App\Contracts\Agent\Search\SearchDateParserInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
+use App\Contracts\Agent\Skills\SkillLibraryServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Contracts\Agent\Spawn\SpawnServiceInterface;
 use App\Contracts\Agent\Terminal\TerminalServiceInterface;
@@ -265,6 +266,7 @@ use App\Services\Agent\PulseService;
 use App\Services\Agent\Search\SearchDateParser;
 use App\Services\Agent\ShortcodeManagerService;
 use App\Services\Agent\ShortcodeScopeResolverService;
+use App\Services\Agent\Skills\SkillLibraryService;
 use App\Services\Agent\Skills\SkillService;
 use App\Services\Agent\Spawn\SpawnService;
 use App\Services\Agent\Terminal\TerminalService;
@@ -514,6 +516,8 @@ class AiServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\Agent\Skills\SkillToolGate::class);
 
         $this->app->singleton(SkillServiceInterface::class, SkillService::class);
+
+        $this->app->singleton(SkillLibraryServiceInterface::class, SkillLibraryService::class);
 
         $this->app->bind(HeartServiceInterface::class, HeartService::class);
 

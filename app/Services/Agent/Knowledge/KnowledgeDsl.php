@@ -71,6 +71,32 @@ final class KnowledgeDsl
         self::NATURE_NOTE,
     ];
 
+    // ── Read-only sources (recall only) ───────────────────────────────────────
+    //
+    // Natures that can be RECALLED but never written through the facade.
+    // A document is source material the user provided (uploaded through the
+    // chat, chunked by the file pipeline) — not knowledge the agent formed.
+    // It has no "home" to write to here, so it lives outside NATURES: that
+    // keeps validate() rejecting remember/document, while recall may narrow
+    // to it explicitly.
+
+    /** Uploaded source material, searched by meaning. → documents (read-only) */
+    public const NATURE_DOCUMENT = 'document';
+
+    public const READ_ONLY_NATURES = [
+        self::NATURE_DOCUMENT,
+    ];
+
+    /** Everything recall may be narrowed to: the writable natures + read-only sources. */
+    public const RECALL_NATURES = [
+        self::NATURE_EPISODE,
+        self::NATURE_PERSON,
+        self::NATURE_RELATION,
+        self::NATURE_SKILL,
+        self::NATURE_NOTE,
+        self::NATURE_DOCUMENT,
+    ];
+
     /**
      * Parse a raw DSL payload (already JSON-decoded to an array) into a
      * validated shape, or return an error describing why it isn't valid DSL.
@@ -115,6 +141,16 @@ final class KnowledgeDsl
         }
 
         $nature = $decoded['nature'] ?? null;
+
+        if (is_string($nature) && in_array($nature, self::READ_ONLY_NATURES, true)) {
+            return self::fail(sprintf(
+                '"%s" is read-only: it can be recalled (op "recall" with nature "%s") '
+                . 'but not written or forgotten through memory. Writable natures: %s.',
+                $nature,
+                $nature,
+                implode(', ', self::NATURES)
+            ));
+        }
 
         if (!is_string($nature) || !in_array($nature, self::NATURES, true)) {
             return self::fail(sprintf(

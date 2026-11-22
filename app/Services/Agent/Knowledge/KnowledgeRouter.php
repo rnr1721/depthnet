@@ -2,6 +2,7 @@
 
 namespace App\Services\Agent\Knowledge;
 
+use App\Contracts\Agent\FileStorage\FileServiceInterface;
 use App\Contracts\Agent\Journal\JournalServiceInterface;
 use App\Contracts\Agent\Memory\PersonMemoryServiceInterface;
 use App\Contracts\Agent\Ontology\OntologyServiceInterface;
@@ -32,6 +33,13 @@ use Psr\Log\LoggerInterface;
  * Everything here is preset-scoped: $preset is the memory owner. For cross-preset
  * (memory-optimizer / shared-memory) execution, the CALLER passes the effective
  * preset — the router is agnostic to whose memory it is.
+ *
+ * DOCUMENTS are a sixth, READ-ONLY recall source: uploaded source material,
+ * not knowledge. They are never written here (KnowledgeDsl keeps "document"
+ * out of the writable natures) and are searched only when the caller narrows
+ * recall to them, or when the plugin config opts them into the wide recall
+ * (recall_documents). Reason: the file search is heavy (it scores every chunk
+ * of every visible file), and recall may run several times per cycle.
  */
 class KnowledgeRouter
 {
@@ -41,6 +49,7 @@ class KnowledgeRouter
         protected OntologyServiceInterface      $ontologyService,
         protected SkillServiceInterface         $skillService,
         protected VectorMemoryFactoryInterface  $vectorMemoryFactory,
+        protected FileServiceInterface          $fileService,
         protected LoggerInterface               $logger,
     ) {
     }
@@ -265,7 +274,7 @@ class KnowledgeRouter
 
         // Which sources to hit. Empty $natures → all. Each nature maps to the
         // one source that owns it, symmetric with the write table.
-        $want = $this->sourcesFor($natures);
+        $want = $this->sourcesFor($natures, $config);
 
         // ── notes (vector memory) ────────────────────────────────────────────
         if (isset($want['notes'])) {
@@ -361,7 +370,17 @@ class KnowledgeRouter
             }
         }
 
-        return $this->composeRecall($blocks, $query, $natures);
+        // ── documents (uploaded files, read-only) ────────────────────────────
+        // Only when asked for (see sourcesFor). Each line carries a stable
+        // reference "doc:FILE#CHUNK" so the agent can cite the original in
+        // what it remembers and open it later with the documents tool.
+        if (isset($want['documents'])) {
+            foreach ($this->documentLines($preset, $query, $perSource, $config, $seen) as $line) {
+                $blocks['documents'][] = $line;
+            }
+        }
+
+        return $this->composeRecall($blocks, $query, $natures, isset($want['documents']));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -399,11 +418,15 @@ class KnowledgeRouter
         // the item with the title so the skill isn't invisible to searchItems.
         $firstItem = $content !== '' ? $content : $title;
 
+        // Learned by the agent → experience skill (reaches RAG). The user can turn
+        // it into a classic, console-loaded skill in the UI.
         return $this->skillService->addSkill(
             $preset,
             $title,
             isset($args['description']) ? (string) $args['description'] : null,
-            $firstItem
+            $firstItem,
+            null,
+            true
         );
     }
 
@@ -562,14 +585,82 @@ class KnowledgeRouter
     }
 
     /**
+     * Search uploaded documents and turn the best chunks into lean lines.
+     *
+     * The recall query may carry the memory filters ("time:… | domain:… |
+     * pulse:…"); they mean nothing to the file index, so they are stripped and
+     * only the semantic part is searched. A query that is nothing but filters
+     * skips documents entirely rather than matching everything.
+     *
+     * @param array<string,mixed> $config
+     * @param array<string,true>  $seen
+     * @return string[]
+     */
+    private function documentLines(AiPreset $preset, string $query, int $limit, array $config, array &$seen): array
+    {
+        $semantic = $this->stripRecallFilters($query);
+        if ($semantic === '') {
+            return [];
+        }
+
+        $threshold = (float) ($config['document_similarity_threshold'] ?? 0.2);
+        $result    = $this->safe(fn () => $this->fileService->search($preset, $semantic, $limit, $threshold));
+
+        if (empty($result['success']) || empty($result['results'])) {
+            return [];
+        }
+
+        $lines = [];
+        foreach ($result['results'] as $r) {
+            $chunk = $r['chunk'] ?? null;
+            if ($chunk === null) {
+                continue;
+            }
+            $key = 'doc:' . $chunk->id;
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            $file  = $chunk->file;
+            $name  = $file?->original_name ?? 'unknown file';
+            $ref   = 'doc:' . ($file?->id ?? $chunk->file_id) . '#' . $chunk->chunk_index;
+            $score = round(((float) ($r['similarity'] ?? 0)) * 100);
+
+            $lines[] = "• {$name} ({$ref}, {$score}%) — " . $this->clip((string) $chunk->content, 240);
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Remove the memory filter segments ("time:", "domain:", "pulse:") from a
+     * recall query, leaving the semantic text.
+     */
+    private function stripRecallFilters(string $query): string
+    {
+        $parts = array_filter(
+            array_map('trim', explode('|', $query)),
+            fn (string $p) => $p !== '' && !preg_match('/^(time|domain|pulse):/i', $p)
+        );
+
+        return trim(implode(' ', $parts));
+    }
+
+    /**
      * Map an optional list of natures to the set of recall sources to query.
      * Empty → every source (default wide recall). Otherwise only the sources
      * owning the requested natures, symmetric with the write routing table.
      *
+     * Documents are read-only and opt-in: they join an unfiltered recall only
+     * when config.recall_documents is on, and are otherwise searched only when
+     * the caller names the "document" nature.
+     *
      * @param  string[] $natures
+     * @param  array<string,mixed> $config
      * @return array<string,true>  Source keys to hit, as a set.
      */
-    private function sourcesFor(array $natures): array
+    private function sourcesFor(array $natures, array $config = []): array
     {
         // nature → the single source that owns it (same mapping as writes).
         $natureToSource = [
@@ -578,11 +669,18 @@ class KnowledgeRouter
             KnowledgeDsl::NATURE_PERSON   => 'people',
             KnowledgeDsl::NATURE_SKILL    => 'skills',
             KnowledgeDsl::NATURE_RELATION => 'relations',
+            KnowledgeDsl::NATURE_DOCUMENT => 'documents',
         ];
 
-        // No filter → all sources.
+        // The wide recall: every writable source, plus documents if opted in.
+        $wide = array_fill_keys(array_values($natureToSource), true);
+        if (empty($config['recall_documents'])) {
+            unset($wide['documents']);
+        }
+
+        // No filter → wide.
         if (empty($natures)) {
-            return array_fill_keys(array_values($natureToSource), true);
+            return $wide;
         }
 
         $want = [];
@@ -594,7 +692,7 @@ class KnowledgeRouter
 
         // Unknown/empty-after-filter → fall back to wide rather than silently
         // returning nothing (a bad filter shouldn't blank the recall).
-        return $want !== [] ? $want : array_fill_keys(array_values($natureToSource), true);
+        return $want !== [] ? $want : $wide;
     }
 
     /**
@@ -609,8 +707,9 @@ class KnowledgeRouter
      *
      * @param array<string,string[]> $blocks
      * @param string[] $natures  The filter that was applied (for the scope note).
+     * @param bool $withDocuments Whether documents were part of the search.
      */
-    private function composeRecall(array $blocks, string $query, array $natures = []): string
+    private function composeRecall(array $blocks, string $query, array $natures = [], bool $withDocuments = false): string
     {
         // Short source tags for per-line attribution.
         $tag = [
@@ -619,6 +718,7 @@ class KnowledgeRouter
             'people'    => 'person',
             'skills'    => 'skill',
             'relations' => 'relation',
+            'documents' => 'document',
         ];
         $labels = [
             'notes'     => 'Notes',
@@ -626,12 +726,13 @@ class KnowledgeRouter
             'people'    => 'People',
             'skills'    => 'Skills',
             'relations' => 'Relations',
+            'documents' => 'Documents',
         ];
 
         // Header states scope so "nothing found" is never ambiguous about where
         // it looked.
         $scope = empty($natures)
-            ? 'all sources'
+            ? ($withDocuments ? 'all memory and documents' : 'all memory')
             : implode(', ', array_map(fn ($n) => $tag[$this->sourceKeyForNature($n)] ?? $n, $natures));
 
         if (empty($blocks)) {
@@ -649,7 +750,7 @@ class KnowledgeRouter
                 // we own — prefix them. people/skills are pre-formatted blocks;
                 // the [People]/[Skills] header already attributes them, so we
                 // don't double-tag inside the block.
-                if (in_array($key, ['notes', 'episodes', 'relations'], true)) {
+                if (in_array($key, ['notes', 'episodes', 'relations', 'documents'], true)) {
                     // Insert the [src] tag after the leading bullet if present.
                     $line = preg_replace('/^•\s*/', "• [{$tag[$key]}] ", $line, 1, $count);
                     if (!$count) {
@@ -672,6 +773,7 @@ class KnowledgeRouter
             KnowledgeDsl::NATURE_PERSON   => 'people',
             KnowledgeDsl::NATURE_SKILL    => 'skills',
             KnowledgeDsl::NATURE_RELATION => 'relations',
+            KnowledgeDsl::NATURE_DOCUMENT => 'documents',
         ][$nature] ?? $nature;
     }
 

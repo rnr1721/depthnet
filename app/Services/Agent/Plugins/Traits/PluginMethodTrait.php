@@ -20,7 +20,7 @@ trait PluginMethodTrait
         // Lifecycle / dispatch
         'execute', 'hasMethod', 'callMethod', 'getAvailableMethods',
         // Optional hooks
-        'registerShortcodes', 'getToolSchema',
+        'registerShortcodes', 'getToolSchema', 'getToolSchemaForContext',
         // UI / formatting
         'getMergeSeparator', 'getSelfClosingTags',
         'getCustomSuccessMessage', 'getCustomErrorMessage',

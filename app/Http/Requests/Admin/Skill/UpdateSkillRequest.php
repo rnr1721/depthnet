@@ -17,9 +17,11 @@ class UpdateSkillRequest extends FormRequest
             'preset_id'    => 'required|integer',
             'skill_number' => 'required|integer|min:1',
             'title'        => 'nullable|string|max:255',
-            'description'  => 'nullable|string|max:500',
+            // agentskills.io spec: description ≤ 1024 chars (column is TEXT now).
+            'description'  => 'nullable|string|max:1024',
             'tools'        => 'nullable|array',
             'tools.*'      => 'string|max:100',
+            'is_experience' => 'nullable|boolean',
         ];
     }
 
@@ -37,7 +39,7 @@ class UpdateSkillRequest extends FormRequest
     public function getFields(): array
     {
         $fields = [];
-        foreach (['title', 'description', 'tools'] as $key) {
+        foreach (['title', 'description', 'tools', 'is_experience'] as $key) {
             if ($this->has($key)) {
                 $fields[$key] = $this->validated($key);
             }

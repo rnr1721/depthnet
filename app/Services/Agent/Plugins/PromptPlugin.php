@@ -9,6 +9,7 @@ use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Models\PresetPromptVersion;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Related\Prompt\AnnotationError;
+use App\Services\Agent\Plugins\Support\CommandHint;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
@@ -385,7 +386,7 @@ class PromptPlugin implements CommandPluginInterface
         $code = trim($content);
 
         if ($code === '') {
-            return 'Error: Mode code is required. Switch with [mode]code[/mode]. Available: '
+            return 'Error: Mode code is required. Switch with ' . $this->hint($context, 'execute', 'code') . '. Available: '
                 . implode(', ', $context->preset->getAvailablePromptCodes());
         }
 
@@ -530,8 +531,8 @@ class PromptPlugin implements CommandPluginInterface
 
         if ($search === null || $search === '' || $replace === null) {
             return 'Error: edit requires "search" and "replace" fields. '
-                . 'Write [mode edit]search: <old>' . "\n" . 'replace: <new>[/mode]. '
-                . 'Call [mode show][/mode] first to copy the exact text to search for.';
+                . 'Write ' . $this->hint($context, 'edit', "search: <old>\nreplace: <new>") . '. '
+                . 'Call ' . $this->hint($context, 'show') . ' first to copy the exact text to search for.';
         }
 
         $active = $this->promptService->getActive($context->preset);
@@ -546,7 +547,7 @@ class PromptPlugin implements CommandPluginInterface
                 . 'Most likely you\'re quoting the prompt as you see it — with placeholders '
                 . 'already filled in (e.g. [[current_mode]] shown as its value). Edits work '
                 . 'against the raw source where the placeholder literal still stands. '
-                . 'Call [mode show][/mode] to see the exact raw text, then copy your search from there.';
+                . 'Call ' . $this->hint($context, 'show') . ' to see the exact raw text, then copy your search from there.';
         }
 
         $count = substr_count($currentContent, $search);
@@ -589,7 +590,7 @@ class PromptPlugin implements CommandPluginInterface
         }
 
         if (!in_array('rewrite', $this->enabledCapabilities($context->config), true)) {
-            return 'Error: Full rewrite is not enabled for this preset. Use [mode edit] for targeted changes.';
+            return 'Error: Full rewrite is not enabled for this preset. Use ' . $this->hint($context, 'edit') . ' for targeted changes.';
         }
 
         $params  = $this->parseKeyValue($content);
@@ -610,8 +611,8 @@ class PromptPlugin implements CommandPluginInterface
 
         if ($newText === null || trim($newText) === '') {
             return 'Error: rewrite needs the full new prompt text in a "content:" field. '
-                . 'Write [mode rewrite]content: <your full new prompt>[/mode]. '
-                . 'For a small change, use [mode edit] instead — it is safer.';
+                . 'Write ' . $this->hint($context, 'rewrite', 'content: <your full new prompt>') . '. '
+                . 'For a small change, use ' . $this->hint($context, 'edit') . ' instead — it is safer.';
         }
 
         $active = $this->promptService->getActive($context->preset);
@@ -659,9 +660,17 @@ class PromptPlugin implements CommandPluginInterface
 
         $currentContent = $active->getContent();
         $lines = ['Prompt history (newest first):'];
+        $markedCurrent = false;
 
         foreach ($versions as $v) {
-            $isCurrent = $v->getContent() === $currentContent ? ' ← current' : '';
+            // Several versions can hold the same content (a revert re-creates an
+            // older one). Only the newest of them IS the current state — marking
+            // all of them would make "which one am I on" ambiguous.
+            $isCurrent = '';
+            if (!$markedCurrent && $v->getContent() === $currentContent) {
+                $isCurrent     = ' ← current';
+                $markedCurrent = true;
+            }
             $when      = $this->relativeTime($v->created_at);
             $who       = $this->actorLabel($v->getEditedBy());
             $sum       = $v->getEditSummary() ? " — {$v->getEditSummary()}" : '';
@@ -669,7 +678,7 @@ class PromptPlugin implements CommandPluginInterface
         }
 
         $lines[] = '';
-        $lines[] = 'Use [mode diff]N[/mode] to see a version\'s changes, or [mode revert]N[/mode] to restore one.';
+        $lines[] = 'Use ' . $this->hint($context, 'diff', 'N') . ' to see a version\'s changes, or ' . $this->hint($context, 'revert', 'N') . ' to restore one.';
 
         return implode("\n", $lines);
     }
@@ -690,8 +699,8 @@ class PromptPlugin implements CommandPluginInterface
 
         $versionNum = $this->extractVersionNumber($content);
         if ($versionNum === null) {
-            return 'Error: tell me which version to compare, e.g. [mode diff]3[/mode]. '
-                . 'Call [mode history][/mode] to see the version numbers.';
+            return 'Error: tell me which version to compare, e.g. ' . $this->hint($context, 'diff', '3') . '. '
+                . 'Call ' . $this->hint($context, 'history') . ' to see the version numbers.';
         }
 
         $active = $this->promptService->getActive($context->preset);
@@ -702,7 +711,7 @@ class PromptPlugin implements CommandPluginInterface
         $version = $this->promptService->getVersion($context->preset, $active->getId(), $versionNum);
         if (!$version) {
             return "Error: version {$versionNum} doesn't exist for your prompt. "
-                . 'Call [mode history][/mode] to see the available versions.';
+                . 'Call ' . $this->hint($context, 'history') . ' to see the available versions.';
         }
 
         $diff = $this->textDiff($version->getContent(), $active->getContent());
@@ -729,8 +738,8 @@ class PromptPlugin implements CommandPluginInterface
 
         $versionNum = $this->extractVersionNumber($content);
         if ($versionNum === null) {
-            return 'Error: tell me which version to revert to, e.g. [mode revert]3[/mode]. '
-                . 'Call [mode history][/mode] to see the available version numbers.';
+            return 'Error: tell me which version to revert to, e.g. ' . $this->hint($context, 'revert', '3') . '. '
+                . 'Call ' . $this->hint($context, 'history') . ' to see the available version numbers.';
         }
 
         $active = $this->promptService->getActive($context->preset);
@@ -751,12 +760,12 @@ class PromptPlugin implements CommandPluginInterface
 
             return "Reverted your prompt to the content of version {$versionNum}.{$versionNote} "
                 . 'It takes effect from the next cycle. '
-                . 'Call [mode show][/mode] to confirm the restored text.';
+                . 'Call ' . $this->hint($context, 'show') . ' to confirm the restored text.';
 
         } catch (\RuntimeException $e) {
             // Service throws when the version is missing or already current.
             return 'Error: ' . $e->getMessage()
-                . ' — call [mode history][/mode] to see which versions you can revert to.';
+                . ' — call ' . $this->hint($context, 'history') . ' to see which versions you can revert to.';
         }
     }
 
@@ -803,11 +812,11 @@ class PromptPlugin implements CommandPluginInterface
 
             return "{$label} your active prompt{$detail}.{$versionNote} "
                 . 'It takes effect from the next cycle. '
-                . 'If this went wrong, use [mode show][/mode] to check, or [mode revert]N[/mode] to undo.';
+                . 'If this went wrong, use ' . $this->hint($context, 'show') . ' to check, or ' . $this->hint($context, 'revert', 'N') . ' to undo.';
 
         } catch (\RuntimeException $e) {
             return 'Error: ' . $e->getMessage()
-                . ' — your prompt was not changed. Use [mode show][/mode] to review the current text.';
+                . ' — your prompt was not changed. Use ' . $this->hint($context, 'show') . ' to review the current text.';
         }
     }
 
@@ -853,6 +862,15 @@ class PromptPlugin implements CommandPluginInterface
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * A "how to call this" hint in the syntax the model uses now (tags or
+     * tool_calls). Every hint inside a result or an error goes through here.
+     */
+    private function hint(PluginExecutionContext $context, string $method, string $content = ''): string
+    {
+        return CommandHint::method($context->preset, $this->getName(), $method, $content);
+    }
 
     /**
      * Get the code of the currently active prompt. Falls back to 'default'.
@@ -1056,9 +1074,17 @@ class PromptPlugin implements CommandPluginInterface
     }
 
     /**
-     * A compact, dependency-free unified-ish diff for two short texts.
-     * Line-based: marks removed lines with "-" and added lines with "+".
-     * Good enough for prompt-sized content; no external tools.
+     * A compact, dependency-free line diff for prompt-sized texts.
+     *
+     * Aligns the two versions by their longest common subsequence of lines, so
+     * an inserted or removed line shows as ONE "+"/"-" line instead of shifting
+     * everything below it into a wall of false changes (which a position-by-
+     * position comparison does). Unchanged lines are shown only as context:
+     * up to CONTEXT lines around each change, runs between them collapsed to
+     * "… N unchanged lines". Blank-line-only changes are still shown.
+     *
+     * O(n·m) memory/time — fine for prompts (hundreds of lines). For very
+     * large inputs falls back to a plain "-old / +new" listing.
      */
     private function textDiff(string $old, string $new): string
     {
@@ -1066,27 +1092,91 @@ class PromptPlugin implements CommandPluginInterface
             return '';
         }
 
-        $oldLines = explode("\n", $old);
-        $newLines = explode("\n", $new);
+        $a = explode("\n", $old);
+        $b = explode("\n", $new);
+        $n = count($a);
+        $m = count($b);
 
-        $out = [];
-        $max = max(count($oldLines), count($newLines));
-        for ($i = 0; $i < $max; $i++) {
-            $o = $oldLines[$i] ?? null;
-            $n = $newLines[$i] ?? null;
+        if ($n * $m > 1_000_000) {
+            return implode("\n", array_merge(
+                array_map(fn ($l) => "- {$l}", $a),
+                array_map(fn ($l) => "+ {$l}", $b)
+            ));
+        }
 
-            if ($o === $n) {
-                if ($o !== null && $o !== '') {
-                    $out[] = "  {$o}";
+        // LCS length table, built from the end so the walk below goes forward.
+        $lcs = array_fill(0, $n + 1, array_fill(0, $m + 1, 0));
+        for ($i = $n - 1; $i >= 0; $i--) {
+            for ($j = $m - 1; $j >= 0; $j--) {
+                $lcs[$i][$j] = $a[$i] === $b[$j]
+                    ? $lcs[$i + 1][$j + 1] + 1
+                    : max($lcs[$i + 1][$j], $lcs[$i][$j + 1]);
+            }
+        }
+
+        // Walk: ops as [type, line] with type ' ', '-', '+'.
+        $ops = [];
+        $i = $j = 0;
+        while ($i < $n && $j < $m) {
+            if ($a[$i] === $b[$j]) {
+                $ops[] = [' ', $a[$i]];
+                $i++;
+                $j++;
+            } elseif ($lcs[$i + 1][$j] >= $lcs[$i][$j + 1]) {
+                $ops[] = ['-', $a[$i++]];
+            } else {
+                $ops[] = ['+', $b[$j++]];
+            }
+        }
+        while ($i < $n) {
+            $ops[] = ['-', $a[$i++]];
+        }
+        while ($j < $m) {
+            $ops[] = ['+', $b[$j++]];
+        }
+
+        // Keep context lines near changes; collapse long unchanged runs.
+        $context = 2;
+        $keep    = [];
+        foreach ($ops as $k => [$type]) {
+            if ($type !== ' ') {
+                for ($c = max(0, $k - $context); $c <= min(count($ops) - 1, $k + $context); $c++) {
+                    $keep[$c] = true;
                 }
+            }
+        }
+
+        // A collapsed run of a single line saves nothing — show it instead.
+        $total = count($ops);
+        for ($k = 0; $k < $total; $k++) {
+            if (isset($keep[$k]) || $ops[$k][0] !== ' ') {
                 continue;
             }
-            if ($o !== null) {
-                $out[] = "- {$o}";
+            $runEnd = $k;
+            while ($runEnd + 1 < $total && $ops[$runEnd + 1][0] === ' ' && !isset($keep[$runEnd + 1])) {
+                $runEnd++;
             }
-            if ($n !== null) {
-                $out[] = "+ {$n}";
+            if ($runEnd === $k) {
+                $keep[$k] = true;
             }
+            $k = $runEnd;
+        }
+
+        $out     = [];
+        $skipped = 0;
+        foreach ($ops as $k => [$type, $line]) {
+            if ($type === ' ' && !isset($keep[$k])) {
+                $skipped++;
+                continue;
+            }
+            if ($skipped > 0) {
+                $out[]   = "  … {$skipped} unchanged line" . ($skipped === 1 ? '' : 's');
+                $skipped = 0;
+            }
+            $out[] = "{$type} {$line}";
+        }
+        if ($skipped > 0) {
+            $out[] = "  … {$skipped} unchanged line" . ($skipped === 1 ? '' : 's');
         }
 
         return implode("\n", $out);

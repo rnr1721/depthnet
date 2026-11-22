@@ -16,10 +16,12 @@ class StoreSkillRequest extends FormRequest
         return [
             'preset_id'   => 'required|integer',
             'title'       => 'required|string|max:255',
-            'description' => 'nullable|string|max:500',
+            // agentskills.io spec: description ≤ 1024 chars (column is TEXT now).
+            'description' => 'nullable|string|max:1024',
             'first_item'  => 'nullable|string',
             'tools'       => 'nullable|array',
             'tools.*'     => 'string|max:100',
+            'is_experience' => 'nullable|boolean',
         ];
     }
 
@@ -48,5 +50,11 @@ class StoreSkillRequest extends FormRequest
     public function getTools(): ?array
     {
         return $this->validated('tools');
+    }
+
+    /** Skills created in the UI are classic unless explicitly marked. */
+    public function getIsExperience(): bool
+    {
+        return (bool) $this->validated('is_experience', false);
     }
 }

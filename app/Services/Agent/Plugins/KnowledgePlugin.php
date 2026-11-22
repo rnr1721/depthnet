@@ -145,7 +145,11 @@ class KnowledgePlugin implements CommandPluginInterface
             '  query may carry filters: "time:yesterday | domain:work | optimization"',
             '  narrow to specific kinds when you know where to look (nature at top level):',
             '  {"op":"recall","nature":"episode|note","args":{"query":"the argument we had"}}',
-            '  omit nature to search all sources. Each result is tagged with its source.',
+            '  omit nature to search all of memory. Each result is tagged with its source.',
+            '  uploaded files are a read-only source: add "document" to search them',
+            '  {"op":"recall","nature":"document","args":{"query":"invoice payment terms"}}',
+            '  each document hit carries a reference like doc:42#3 (file 42, chunk 3) —',
+            '  mention it when you remember something learned from that file.',
             '  Note: episode results lead with the best semantic matches, but a few',
             '  recent entries may be blended into the tail regardless of the query —',
             '  the ★-marked first hit is the strongest match; the top hits are the relevant ones.',
@@ -156,6 +160,7 @@ class KnowledgePlugin implements CommandPluginInterface
             'The kinds: episode (what happened), person (about someone), relation (an',
             'entity or its property), skill (reusable know-how), note (an insight by',
             'meaning). You name the kind; the system decides where it lives.',
+            'document is not a kind you write — files arrive through the chat; you only recall them.',
             'One quirk: recalling a relation matches by the ENTITY NAME appearing in',
             'your query, not by meaning — search for the thing\'s name, not a description.',
         ];
@@ -170,12 +175,13 @@ class KnowledgePlugin implements CommandPluginInterface
         return [
             'Unified memory tool. Say plainly, in your own words, what you want done with memory. ',
             'Do NOT format anything. No JSON, no fields, no pipes. Just natural language intent. ',
-            $langInstruction .
+            $langInstruction,
             '',
             'Examples:',
             '  "remember that Женя loves punk aesthetic and travel"',
             '  "note that Eugeny prefers concise responses"',
             '  "recall what I know about database optimization from last week"',
+            '  "look in the uploaded documents for the payment terms"',
             '  "record that I refactored the memory plugin today and it worked"',
             '  "eugeny lives in kharkiv"',
             '',
@@ -201,8 +207,9 @@ class KnowledgePlugin implements CommandPluginInterface
             'description' => 'Unified memory. Emit ONE JSON object with "op" and (for remember/forget) '
                 . '"nature", plus "args". op ∈ {remember, recall, relate, forget}. '
                 . 'nature ∈ {episode, person, relation, skill, note} — the KIND of knowledge, '
-                . 'never a storage name. The system routes it. recall searches everything; '
-                . 'call it multiple times per turn if useful.'
+                . 'never a storage name. The system routes it. recall searches all of memory; '
+                . 'call it multiple times per turn if useful. Uploaded files are a read-only '
+                . 'source: recall with nature "document" to search them.'
                 . $langInstruction,
             'parameters'  => [
                 'type'       => 'object',
@@ -214,10 +221,12 @@ class KnowledgePlugin implements CommandPluginInterface
                     ],
                     'nature' => [
                         'type'        => 'string',
-                        'enum'        => KnowledgeDsl::NATURES,
+                        'enum'        => KnowledgeDsl::RECALL_NATURES,
                         'description' => 'Kind of knowledge (required for remember; forget uses "note"). '
                             . 'episode=what happened, person=about someone, relation=entity/edge, '
-                            . 'skill=reusable know-how, note=insight recalled by meaning.',
+                            . 'skill=reusable know-how, note=insight recalled by meaning, '
+                            . 'document=uploaded files (recall only — never written). '
+                            . 'For recall, several kinds may be joined with "|", e.g. "episode|note".',
                     ],
                     'args' => [
                         'type'        => 'object',
@@ -230,7 +239,8 @@ class KnowledgePlugin implements CommandPluginInterface
                             . 'remember/note: {content, domain?}. '
                             . 'relate: {source, relation, target, valid_from?}. '
                             . 'recall: {query} (may carry "time:/domain:/pulse:" filters); put optional '
-                            . 'nature at the TOP level (sibling of op) to narrow sources. '
+                            . 'nature at the TOP level (sibling of op) to narrow sources; document hits carry '
+                . 'a reference like doc:42#3 to cite when remembering what came from that file. '
                             . 'forget: {content} or {id}.',
                     ],
                 ],
@@ -330,6 +340,26 @@ class KnowledgePlugin implements CommandPluginInterface
                 'value'       => 3,
                 'required'    => false,
             ],
+            'recall_documents' => [
+                'type'        => 'checkbox',
+                'label'       => 'Include documents in every recall',
+                'description' => 'Uploaded files are always searchable when the model asks for them '
+                    . '(recall with nature "document"). With this on, they also join every unfiltered '
+                    . 'recall. Off by default: document search scores every chunk of every visible file, '
+                    . 'and recall may run several times per cycle.',
+                'value'       => false,
+                'required'    => false,
+            ],
+            'document_similarity_threshold' => [
+                'type'        => 'number',
+                'label'       => 'Document match threshold',
+                'description' => 'Minimum similarity (0.0–1.0) for a document chunk to appear in recall.',
+                'min'         => 0.0,
+                'max'         => 1.0,
+                'step'        => 0.01,
+                'value'       => 0.2,
+                'required'    => false,
+            ],
             'max_entries' => [
                 'type' => 'number',
                 'label' => 'Max Vector Memory Entries',
@@ -377,6 +407,13 @@ class KnowledgePlugin implements CommandPluginInterface
             $errors['memory_engine'] = 'Memory engine must be tfidf or embedding.';
         }
 
+        if (isset($config['document_similarity_threshold'])) {
+            $t = (float) $config['document_similarity_threshold'];
+            if ($t < 0.0 || $t > 1.0) {
+                $errors['document_similarity_threshold'] = 'Threshold must be between 0.0 and 1.0.';
+            }
+        }
+
         // NOTE: "formulator mode requires a formulator preset" is a CROSS-FIELD
         // rule between this config and the preset column — it can't be enforced
         // here (no preset access). It's enforced softly at runtime (fail-safe to
@@ -387,16 +424,20 @@ class KnowledgePlugin implements CommandPluginInterface
 
     public function getDefaultConfig(): array
     {
-        return [
-            'enabled'           => false,
-            'input_mode'        => self::MODE_DIRECT,
-            'memory_mode'       => 'flat',
-            'memory_engine'     => 'tfidf',
-            'recall_per_source' => 3,
-            'knowledge_language' => 'en',
-            'max_entries' => 1000,
-            'contract_hints_enabled' => false,
-        ];
+        return array_merge(
+            [
+                'enabled'                       => false,
+                'input_mode'                    => self::MODE_DIRECT,
+                'memory_mode'                   => 'flat',
+                'memory_engine'                 => 'tfidf',
+                'recall_per_source'             => 3,
+                'recall_documents'              => false,
+                'document_similarity_threshold' => 0.2,
+                'max_entries'                   => 1000,
+                'contract_hints_enabled'        => false,
+            ],
+            $this->getDefaultLanguageConfig('knowledge_language')
+        );
     }
 
     public function getCustomSuccessMessage(): ?string
@@ -552,7 +593,8 @@ class KnowledgePlugin implements CommandPluginInterface
     /**
      * Normalize the optional recall nature filter into a clean string[] of valid
      * natures. Accepts either an array (["episode","note"]) or a pipe string
-     * ("episode|note"). Unknown natures are dropped; empty → wide recall.
+     * ("episode|note"). Includes the read-only "document" source. Unknown
+     * natures are dropped; empty → wide recall.
      *
      * @param  mixed $raw
      * @return string[]
@@ -570,7 +612,7 @@ class KnowledgePlugin implements CommandPluginInterface
         $clean = [];
         foreach ($list as $n) {
             $n = trim((string) $n);
-            if ($n !== '' && in_array($n, KnowledgeDsl::NATURES, true)) {
+            if ($n !== '' && in_array($n, KnowledgeDsl::RECALL_NATURES, true)) {
                 $clean[] = $n;
             }
         }

@@ -38,6 +38,11 @@ use Psr\Log\LoggerInterface;
  *   [skill load]N[/skill]       — load skill N: inject its content into context and,
  *                                 if it has tools, un-hide them in the schema
  *   [skill unload]N[/skill]     — unload skill N: drop it from context, re-hide tools
+ *   [skill read]pdf[/skill]     — list the files a standard (library) skill ships
+ *   [skill read]pdf references/forms.md[/skill]          — read one of them
+ *   [skill read]pdf references/forms.md 200-400[/skill]  — read a line range
+ *                                 (works without a sandbox; files are read from the
+ *                                 library through SkillLibraryService's path guard)
  *
  * load/unload do NOT touch SkillLoadService directly — they SIGNAL the requested
  * numbers via pluginExecutionMeta ('skill_load' / 'skill_unload', space-joined when
@@ -59,6 +64,14 @@ class SkillPlugin implements CommandPluginInterface
     /** Execution-meta keys the handler reads to drive SkillLoadService. */
     public const META_LOAD   = 'skill_load';
     public const META_UNLOAD = 'skill_unload';
+
+    /** `skill read` output cap; longer files are paged by line range. */
+    private const READ_MAX_CHARS = 20000;
+    private const READ_MAX_LIST  = 200;
+
+    private const READ_SCHEMA_HINT = 'read: files of a standard (library) skill. "pdf" lists them; '
+        . '"pdf references/forms.md" reads one; "pdf references/forms.md 200-400" reads a line range. '
+        . 'The skill can be given by number or name.';
 
     public function __construct(
         protected SkillServiceInterface $skillService,
@@ -92,6 +105,8 @@ class SkillPlugin implements CommandPluginInterface
             'List all skills (shows which are loaded): [skill list][/skill]',
             'Load a skill into context (reveals its tools if any): [skill load]1[/skill]',
             'Unload a skill when no longer needed: [skill unload]1[/skill]',
+            'List files a standard skill ships: [skill read]pdf[/skill]',
+            'Read one of them (optional line range): [skill read]pdf references/forms.md[/skill] or [skill read]pdf references/forms.md 200-400[/skill]',
         ];
 
         if ($this->isNavigationOnly($config)) {
@@ -144,7 +159,7 @@ class SkillPlugin implements CommandPluginInterface
                         'method' => [
                             'type'        => 'string',
                             'description' => 'Operation to perform',
-                            'enum'        => ['list', 'load', 'unload'],
+                            'enum'        => ['list', 'load', 'unload', 'read'],
                         ],
                         'content' => [
                             'type'        => 'string',
@@ -155,6 +170,7 @@ class SkillPlugin implements CommandPluginInterface
                                 'unload: the skill NUMBER or exact TITLE to drop from context. '
                                     . 'Example: "1" or "Code". Empty unloads the only loaded skill if there is just one.',
                                 'list: leave empty.',
+                                self::READ_SCHEMA_HINT,
                             ]),
                         ],
                     ],
@@ -178,7 +194,7 @@ class SkillPlugin implements CommandPluginInterface
                     'method' => [
                         'type'        => 'string',
                         'description' => 'Operation to perform',
-                        'enum'        => ['execute', 'add', 'update', 'delete', 'show', 'search', 'list', 'load', 'unload'],
+                        'enum'        => ['execute', 'add', 'update', 'delete', 'show', 'search', 'list', 'load', 'unload', 'read'],
                     ],
                     'content' => [
                         'type'        => 'string',
@@ -193,6 +209,7 @@ class SkillPlugin implements CommandPluginInterface
                             'load: REQUIRED — the skill NUMBER to bring into context (reveals its tools). Example: "1".',
                             'unload: REQUIRED — the skill NUMBER to drop from context. Example: "1".',
                             'list: leave empty.',
+                            self::READ_SCHEMA_HINT,
                         ]),
                     ],
                 ],
@@ -302,9 +319,39 @@ class SkillPlugin implements CommandPluginInterface
             return $result['message'];
         }
 
+        // Over the cap, the handler will evict the least recently used skill when it
+        // applies this load. Name it now, so the agent isn't surprised by a vanished desk.
+        $evict = null;
+        try {
+            $evict = app(\App\Services\Agent\Skills\SkillLoadService::class)->evictionCandidate($context->preset, $number);
+        } catch (\Throwable) {
+        }
+
         $this->appendMeta(self::META_LOAD, (string) $number);
 
-        return "Loaded skill #{$number} into context.\n\n" . $result['message'];
+        $message = "Loaded skill #{$number} into context.";
+        if ($evict !== null) {
+            $message .= "\nLoaded-skill limit (" . \App\Services\Agent\Skills\SkillLoadService::MAX_LOADED
+                . ") reached: skill #{$evict} will be unloaded — it was used least recently. Load it again if you still need it.";
+        }
+
+        // Standard skill with files: deliver them now, not on the next context build,
+        // so the very next action can already cd there.
+        $skill = \App\Models\Skill::query()
+            ->where('preset_id', $context->preset->getId())
+            ->where('number', $number)
+            ->first();
+        if ($skill !== null && $skill->hasBundledFiles()) {
+            [$sandboxDir, $envLine] = $this->syncForRead($context, $skill);
+            if ($sandboxDir !== null) {
+                $message .= "\nIts files are in your sandbox at {$sandboxDir} — cd there to run its scripts.";
+                if ($envLine !== null) {
+                    $message .= "\nSandbox: {$envLine}";
+                }
+            }
+        }
+
+        return $message . "\n\n" . $result['message'];
     }
 
     /**
@@ -341,6 +388,135 @@ class SkillPlugin implements CommandPluginInterface
         return $result['message'];
     }
 
+    /**
+     * Read files shipped by a standard (library) skill. Available in both modes and
+     * does not require the skill to be loaded or a sandbox to exist.
+     *
+     *   "<skill>"                     → file listing with sizes
+     *   "<skill> <relpath>"           → file content (first READ_MAX_CHARS)
+     *   "<skill> <relpath> <A>-<B>"   → lines A..B (also "<A>" or "<A>-")
+     */
+    public function read(string $content, PluginExecutionContext $context): string
+    {
+        if (!$context->enabled) {
+            return "Error: Skill plugin is disabled.";
+        }
+
+        $args = preg_split('/\s+/', trim($content), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($args === []) {
+            return 'Usage: `skill read <skill> [path] [from-to]`, e.g. `skill read pdf references/forms.md`. '
+                . $this->standardSkillsHint($context);
+        }
+
+        $number = $this->resolveSkillRef($args[0], $context, forUnload: false);
+        if ($number === null) {
+            return "Unknown skill \"{$args[0]}\". " . $this->standardSkillsHint($context);
+        }
+
+        $skill = \App\Models\Skill::query()
+            ->where('preset_id', $context->preset->getId())
+            ->where('number', $number)
+            ->first();
+        if ($skill === null || !$skill->isFromFile()) {
+            return "Skill #{$number} is not a standard skill and ships no files; `skill load {$number}` brings its content in.";
+        }
+
+        /** @var \App\Contracts\Agent\Skills\SkillLibraryServiceInterface $library */
+        $library = app(\App\Contracts\Agent\Skills\SkillLibraryServiceInterface::class); // lazy: no container cycle
+        $name = (string) $skill->source_path;
+
+        // Reading a skill's files is using it: make sure the sandbox has the same
+        // copy a load would deliver, so the agent runs scripts from there instead of
+        // retyping them. Cheap when already current; never fatal for the read.
+        [$sandboxDir, $envLine] = $this->syncForRead($context, $skill);
+
+        // Reading a loaded skill's files is using it (keeps it off the LRU edge).
+        try {
+            $load = app(\App\Services\Agent\Skills\SkillLoadService::class);
+            if ($load->isLoaded($context->preset, $number)) {
+                $load->touch($context->preset, $number);
+            }
+        } catch (\Throwable) {
+        }
+
+        // ── listing ──────────────────────────────────────────────────────────
+        if (count($args) === 1) {
+            $files = $library->listFiles($skill);
+            if ($files === null) {
+                return "The library folder of skill #{$number} ({$name}) is missing.";
+            }
+            $lines = ["Files of skill #{$number} {$name} (" . count($files) . '):'];
+            $shown = 0;
+            foreach ($files as $rel => $size) {
+                if (++$shown > self::READ_MAX_LIST) {
+                    $lines[] = '… ' . (count($files) - self::READ_MAX_LIST) . ' more';
+                    break;
+                }
+                $lines[] = "  {$rel}  (" . $library->humanSize($size) . ')';
+            }
+            $lines[] = "Read one: `skill read {$name} <path>`";
+            if ($sandboxDir !== null) {
+                $lines[] = "Your sandbox has this folder at {$sandboxDir} — run the skill's scripts from there (cd {$sandboxDir}); don't copy or retype them.";
+                if ($envLine !== null) {
+                    $lines[] = "Sandbox: {$envLine}";
+                }
+            }
+            return implode("\n", $lines);
+        }
+
+        // ── file ─────────────────────────────────────────────────────────────
+        $range = null;
+        if (count($args) >= 3 && preg_match('/^(\d+)(?:-(\d*))?$/', end($args), $m)) {
+            array_pop($args);
+            $from  = max(1, (int) $m[1]);
+            $to    = isset($m[2]) ? ($m[2] === '' ? PHP_INT_MAX : (int) $m[2]) : $from;
+            $range = [$from, max($from, $to)];
+        }
+        $path = implode(' ', array_slice($args, 1)); // paths with spaces survive
+
+        $r = $library->readFile($skill, $path);
+        if (!$r['success']) {
+            return $r['message'];
+        }
+
+        $all   = explode("\n", $r['content']);
+        $total = count($all);
+        [$from, $to] = $range ?? [1, $total];
+        $to = min($to, $total);
+        if ($from > $total) {
+            return "{$name}/{$r['path']} has only {$total} lines.";
+        }
+
+        // Take whole lines up to the char cap.
+        $out = [];
+        $chars = 0;
+        $last = $from - 1;
+        for ($i = $from; $i <= $to; $i++) {
+            $line = $all[$i - 1];
+            if ($chars + mb_strlen($line) + 1 > self::READ_MAX_CHARS) {
+                if ($out !== []) {
+                    break;
+                }
+                // A single huge line (minified JSON …): cut it rather than flood the context.
+                $line = mb_substr($line, 0, self::READ_MAX_CHARS) . ' [… line truncated]';
+            }
+            $out[] = $line;
+            $chars += mb_strlen($line) + 1;
+            $last = $i;
+        }
+
+        $header = "{$name}/{$r['path']} — lines {$from}-{$last} of {$total}";
+        if ($sandboxDir !== null) {
+            $header .= "\n(in your sandbox: {$sandboxDir}/{$r['path']}"
+                . (str_starts_with($r['path'], 'scripts/') ? " — run it from {$sandboxDir}, don't retype it)" : ')');
+        }
+        $footer = $last < $total
+            ? "\n[… continue: `skill read {$name} {$r['path']} " . ($last + 1) . '-' . min($total, $last + 400) . '`]'
+            : '';
+
+        return $header . "\n" . implode("\n", $out) . $footer;
+    }
+
     // -------------------------------------------------------------------------
     // CRUD (FULL mode only — refused in console mode)
     // -------------------------------------------------------------------------
@@ -363,7 +539,9 @@ class SkillPlugin implements CommandPluginInterface
 
         $firstItem = isset($parts[1]) ? trim($parts[1]) : null;
 
-        $result = $this->skillService->addSkill($context->preset, $title, null, $firstItem ?: null);
+        // Created by the agent itself → experience (may reach RAG). The user can
+        // switch it to a classic, console-loaded skill in the UI.
+        $result = $this->skillService->addSkill($context->preset, $title, null, $firstItem ?: null, null, true);
         return $result['message'];
     }
 
@@ -518,7 +696,8 @@ class SkillPlugin implements CommandPluginInterface
                 return $this->skillService->getSkillsForContext(
                     $preset,
                     $skillLoad->loadedSkillNumbers($preset),
-                    $skillLoad->livePluginNames()
+                    $skillLoad->livePluginNames(),
+                    $skillLoad->untouchedCycles($preset)
                 );
             },
             $scope,
@@ -555,7 +734,7 @@ class SkillPlugin implements CommandPluginInterface
 
         if ($this->isNavigationOnly($context->config)) {
             return "Skill content is managed through knowledge here. Use knowledge to "
-                . "remember/recall skills; use [skill list], [skill load]N and [skill unload]N "
+                . "remember/recall skills; use `skill list`, `skill load N` and `skill unload N` "
                 . "to bring them into context.";
         }
 
@@ -600,6 +779,44 @@ class SkillPlugin implements CommandPluginInterface
         }
 
         return [$skill, $item];
+    }
+
+    /**
+     * Deliver the skill folder to the preset's sandbox and prepare the home, the
+     * same as a load does (probe + one-time bootstrap: ~/.tmp, .bashrc, TMPDIR —
+     * both cached, so repeated reads cost nothing).
+     *
+     * @return array{0: ?string, 1: ?string}  [folder inside the sandbox, environment line]
+     *                                         — nulls when there is no sandbox / nothing
+     *                                         to deliver / delivery failed
+     */
+    private function syncForRead(PluginExecutionContext $context, \App\Models\Skill $skill): array
+    {
+        try {
+            $syncer = app(\App\Services\Agent\Skills\SkillSandboxSync::class);
+            $sync   = $syncer->ensureSynced($context->preset, $skill);
+            if (!in_array($sync['status'], ['synced', 'updated'], true)) {
+                return [null, null];
+            }
+            $env = $syncer->environment($context->preset, (string) $sync['sandbox_id']);
+            return [$sync['dir'], $env !== null ? $syncer->environmentLine($env) : null];
+        } catch (\Throwable $e) {
+            $this->logger->warning('SkillPlugin::read sandbox sync failed', ['error' => $e->getMessage()]);
+            return [null, null];
+        }
+    }
+
+    /** "Standard skills: #3 pdf, #5 xlsx" — or a note that there are none. */
+    private function standardSkillsHint(PluginExecutionContext $context): string
+    {
+        $std = array_filter(
+            $this->skillService->listSkillsData($context->preset),
+            fn ($s) => ($s['source'] ?? null) === \App\Models\Skill::SOURCE_FILE
+        );
+        if ($std === []) {
+            return 'This preset has no standard (library) skills.';
+        }
+        return 'Standard skills: ' . implode(', ', array_map(fn ($s) => "#{$s['number']} {$s['title']}", $std)) . '.';
     }
 
     public function allowsCrossPresetExecution(): bool

@@ -4,6 +4,8 @@ namespace App\Services\Agent\Mcp;
 
 use App\Contracts\Agent\Mcp\McpClientInterface;
 use App\Models\McpServer;
+use App\Services\Agent\Mcp\Exceptions\McpSessionExpiredException;
+use App\Services\Agent\Mcp\Exceptions\McpToolErrorException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\Response;
 use Psr\Log\LoggerInterface;
@@ -31,15 +33,28 @@ class McpClient implements McpClientInterface
     ];
 
     /**
-     * Cache of established sessions: server key => session info.
-     * Avoids re-initializing on every call within the same request lifecycle.
+     * Cache of established sessions: session key => session info.
+     *
+     * The client is a singleton inside a long-lived queue worker, so this cache
+     * outlives a single cycle and is shared by ALL presets the worker serves.
+     * It is therefore keyed by the DB row id (see sessionKey()), never by
+     * server_key — two presets may both have a "github" server with different
+     * URLs and tokens, and must not share a session.
      */
     private array $sessions = [];
 
     /**
+     * Mcp-Session-Id values, kept apart from $sessions on purpose: the id
+     * arrives in the initialize response, BEFORE the session entry exists.
+     * Storing it inside $sessions would either lose it (the old bug) or make
+     * a half-finished handshake look complete.
+     */
+    private array $sessionIds = [];
+
+    /**
      * Cache of resolved POST endpoints for legacy SSE transport.
      * Legacy SSE servers send the message endpoint URL in the first SSE event.
-     * Format: server_key => absolute URL
+     * Format: session key => absolute URL
      */
     private array $sseEndpoints = [];
 
@@ -88,13 +103,7 @@ class McpClient implements McpClientInterface
             'arguments' => (object) $arguments, // MCP spec: arguments MUST be an object
         ]);
 
-        if (isset($response['error'])) {
-            throw new \RuntimeException(
-                "MCP tool error [{$toolName}]: "
-                . ($response['error']['message'] ?? 'Unknown error')
-                . (isset($response['error']['code']) ? " (code: {$response['error']['code']})" : '')
-            );
-        }
+        $this->assertToolSucceeded($response, $toolName);
 
         return $this->extractContent($response['result'] ?? []);
     }
@@ -126,6 +135,44 @@ class McpClient implements McpClientInterface
         }
     }
 
+    /**
+     * Cache key for per-server client state. The DB id, not server_key:
+     * server_key is unique only within a preset (see $sessions).
+     */
+    protected function sessionKey(McpServer $server): string
+    {
+        return 'id:' . $server->getId();
+    }
+
+    /**
+     * Throw on a JSON-RPC error OR a tool-level failure (result.isError).
+     *
+     * isError is how the spec reports "the tool ran and failed" — before this
+     * check such results were rendered as normal output under a SUCCESS header.
+     *
+     * Both cases throw McpToolErrorException: either way the server answered,
+     * so it is reachable and healthy — only this particular call was wrong.
+     *
+     * @throws McpToolErrorException JSON-RPC error (unknown tool, invalid params) or isError
+     */
+    protected function assertToolSucceeded(array $response, string $toolName): void
+    {
+        if (isset($response['error'])) {
+            throw new McpToolErrorException(
+                "MCP tool error [{$toolName}]: "
+                . ($response['error']['message'] ?? 'Unknown error')
+                . (isset($response['error']['code']) ? " (code: {$response['error']['code']})" : '')
+            );
+        }
+
+        if (!empty($response['result']['isError'])) {
+            $text = $this->extractContent($response['result']);
+            throw new McpToolErrorException(
+                "Tool '{$toolName}' reported an error: " . ($text !== '' ? $text : '(no details)')
+            );
+        }
+    }
+
     // -------------------------------------------------------------------------
     //  Protocol Handshake
     // -------------------------------------------------------------------------
@@ -137,7 +184,7 @@ class McpClient implements McpClientInterface
      */
     protected function ensureInitialized(McpServer $server): void
     {
-        $key = $server->getKey();
+        $key = $this->sessionKey($server);
 
         if (isset($this->sessions[$key])) {
             return;
@@ -151,10 +198,12 @@ class McpClient implements McpClientInterface
                 'protocolVersion'    => '2024-11-05',
                 'serverCapabilities' => [],
                 'serverInfo'         => ['name' => 'legacy-sse'],
-                'sessionId'          => null,
             ];
             return;
         }
+
+        // A fresh handshake must not inherit a stale session id.
+        unset($this->sessionIds[$key]);
 
         $initParams = [
             'protocolVersion' => self::SUPPORTED_PROTOCOL_VERSIONS[0],
@@ -169,26 +218,31 @@ class McpClient implements McpClientInterface
 
         $serverProtocolVersion = $response['result']['protocolVersion'] ?? null;
 
+        $serverName = $server->getKey();
+
         if ($serverProtocolVersion && !in_array($serverProtocolVersion, self::SUPPORTED_PROTOCOL_VERSIONS, true)) {
             $this->logger->warning(
-                "MCP server [{$key}] uses unsupported protocol version: {$serverProtocolVersion}. "
+                "MCP server [{$serverName}] uses unsupported protocol version: {$serverProtocolVersion}. "
                 . 'Proceeding with best-effort compatibility.'
             );
         }
 
-        // Send notifications/initialized (JSON-RPC notification — no id, no response expected)
-        $this->sendNotification($server, 'notifications/initialized');
-
+        // Register the session BEFORE the notification, so buildHeaders() sends the
+        // negotiated protocol version. The session id (if any) is already captured
+        // in $sessionIds by parseResponse() of the initialize call above.
         $this->sessions[$key] = [
             'protocolVersion'    => $serverProtocolVersion ?? self::SUPPORTED_PROTOCOL_VERSIONS[0],
             'serverCapabilities' => $response['result']['capabilities'] ?? [],
             'serverInfo'         => $response['result']['serverInfo'] ?? [],
-            'sessionId'          => null, // will be set from response header if provided
         ];
 
-        $this->logger->debug("MCP session initialized for [{$key}]", [
+        // Send notifications/initialized (JSON-RPC notification — no id, no response expected)
+        $this->sendNotification($server, 'notifications/initialized');
+
+        $this->logger->debug("MCP session initialized for [{$serverName}]", [
             'protocolVersion' => $this->sessions[$key]['protocolVersion'],
             'serverInfo'      => $this->sessions[$key]['serverInfo'],
+            'hasSessionId'    => isset($this->sessionIds[$key]),
         ]);
     }
 
@@ -197,8 +251,9 @@ class McpClient implements McpClientInterface
      */
     public function resetSession(McpServer $server): void
     {
-        unset($this->sessions[$server->getKey()]);
-        unset($this->sseEndpoints[$server->getKey()]);
+        $key = $this->sessionKey($server);
+
+        unset($this->sessions[$key], $this->sessionIds[$key], $this->sseEndpoints[$key]);
     }
 
     public function callToolRaw(McpServer $server, string $toolName, array $arguments): array
@@ -210,13 +265,7 @@ class McpClient implements McpClientInterface
             'arguments' => (object) $arguments,
         ]);
 
-        if (isset($response['error'])) {
-            throw new \RuntimeException(
-                "MCP tool error [{$toolName}]: "
-                . ($response['error']['message'] ?? 'Unknown error')
-                . (isset($response['error']['code']) ? " (code: {$response['error']['code']})" : '')
-            );
-        }
+        $this->assertToolSucceeded($response, $toolName);
 
         // Return raw content blocks; do NOT run extractContent (which would drop base64).
         return $response['result']['content'] ?? [];
@@ -262,7 +311,22 @@ class McpClient implements McpClientInterface
             return $this->sendLegacySse($server, $payload, $headers, $timeout);
         }
 
-        $response = $this->sendWithRetry($server, $payload, $headers, $timeout);
+        try {
+            $response = $this->sendWithRetry($server, $payload, $headers, $timeout);
+        } catch (McpSessionExpiredException $e) {
+            // The server dropped our session (restart, idle timeout). Spec: start a
+            // new one. Exactly one retry; never during initialize itself.
+            if ($skipInit) {
+                throw $e;
+            }
+
+            $this->logger->info("MCP session expired for [{$server->getKey()}], re-initializing");
+
+            $this->resetSession($server);
+            $this->ensureInitialized($server);
+
+            $response = $this->sendWithRetry($server, $payload, $this->buildHeaders($server), $timeout);
+        }
 
         return $this->parseResponse($response, $id, $server);
     }
@@ -326,7 +390,7 @@ class McpClient implements McpClientInterface
         array $headers,
         int $timeout,
     ): array {
-        $key = $server->getKey();
+        $key = $server->getKey(); // human-readable, for logs/errors
 
         $buffer       = '';
         $endpoint     = null;
@@ -381,7 +445,7 @@ class McpClient implements McpClientInterface
 
             // Once we know the endpoint and haven't posted yet — send the payload
             if ($endpoint !== null && !$posted) {
-                $this->sseEndpoints[$key] = $endpoint;
+                $this->sseEndpoints[$this->sessionKey($server)] = $endpoint;
                 $this->logger->debug("MCP legacy SSE endpoint discovered for [{$key}]", [
                     'endpoint' => $endpoint,
                 ]);
@@ -592,8 +656,16 @@ class McpClient implements McpClientInterface
                     return $response;
                 }
 
-                // Don't retry client errors (4xx) except 429
                 $status = $response->status();
+
+                // 404 on a request that carried a session id = session expired.
+                if ($status === 404 && isset($headers['Mcp-Session-Id'])) {
+                    throw new McpSessionExpiredException(
+                        "MCP server [{$server->getKey()}] session expired (HTTP 404)"
+                    );
+                }
+
+                // Don't retry client errors (4xx) except 429
                 if ($status >= 400 && $status < 500 && $status !== 429) {
                     throw new \RuntimeException(
                         "MCP server [{$server->getKey()}] HTTP {$status}: {$response->body()}"
@@ -630,7 +702,7 @@ class McpClient implements McpClientInterface
         ];
 
         // Include Mcp-Session-Id if we have one
-        $sessionId = $this->sessions[$server->getKey()]['sessionId'] ?? null;
+        $sessionId = $this->sessionIds[$this->sessionKey($server)] ?? null;
         if ($sessionId) {
             $headers['Mcp-Session-Id'] = $sessionId;
         }
@@ -643,7 +715,7 @@ class McpClient implements McpClientInterface
      */
     protected function getSessionProtocolVersion(McpServer $server): string
     {
-        return $this->sessions[$server->getKey()]['protocolVersion']
+        return $this->sessions[$this->sessionKey($server)]['protocolVersion']
             ?? self::SUPPORTED_PROTOCOL_VERSIONS[0];
     }
 
@@ -656,10 +728,12 @@ class McpClient implements McpClientInterface
      */
     protected function parseResponse(Response $response, int $requestId, McpServer $server): array
     {
-        // Capture session ID from response headers if present
+        // Capture session ID from response headers if present. Unconditional: the
+        // id is normally issued on the initialize response, when no session entry
+        // exists yet (the old isset() guard silently dropped it).
         $sessionId = $response->header('Mcp-Session-Id');
-        if ($sessionId && isset($this->sessions[$server->getKey()])) {
-            $this->sessions[$server->getKey()]['sessionId'] = $sessionId;
+        if ($sessionId) {
+            $this->sessionIds[$this->sessionKey($server)] = $sessionId;
         }
 
         $contentType = $response->header('Content-Type') ?? '';

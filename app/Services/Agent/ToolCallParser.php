@@ -38,8 +38,9 @@ use Psr\Log\LoggerInterface;
  *   tool.name        → plugin
  *   input.method     → method      (default: 'execute')
  *   input.content    → content     (default: '')
- *   If input has no 'content' key, remaining fields (excluding 'method') are
- *   JSON-encoded into content so structured plugins (e.g. McpPlugin) can parse them.
+ *   If 'content' is absent or empty, remaining fields (excluding 'method' and
+ *   'content') are JSON-encoded into content so structured plugins (e.g.
+ *   McpPlugin with tool + arguments) can parse them. A non-empty content wins.
  *
  * @implements ToolCallParserInterface
  */
@@ -351,17 +352,27 @@ class ToolCallParser implements ToolCallParserInterface
         $method     = $input['method']   ?? 'execute';
         $toolCallId = $toolCall['id']    ?? null;
 
-        if (isset($input['content'])) {
-            $content = (string) $input['content'];
+        $rawContent = $input['content'] ?? null;
+
+        if (is_array($rawContent)) {
+            // Model passed an object where a string was expected — keep it as JSON
+            // instead of the "Array" that a (string) cast would produce.
+            $content = json_encode($rawContent, JSON_UNESCAPED_UNICODE);
+        } elseif ($rawContent !== null && $rawContent !== '') {
+            $content = (string) $rawContent;
         } else {
-            $inputWithoutMethod = array_filter(
+            // No content, or an EMPTY one: models often fill every schema field,
+            // sending content="" next to structured fields (McpPlugin's tool +
+            // arguments). An empty string must not hide them. The empty content
+            // key itself is dropped, so a plain empty call still yields ''.
+            $rest = array_filter(
                 $input,
-                fn ($key) => $key !== 'method',
+                fn ($key) => $key !== 'method' && $key !== 'content',
                 ARRAY_FILTER_USE_KEY
             );
-            $content = empty($inputWithoutMethod)
+            $content = empty($rest)
                 ? ''
-                : json_encode($inputWithoutMethod, JSON_UNESCAPED_UNICODE);
+                : json_encode($rest, JSON_UNESCAPED_UNICODE);
         }
 
         return new ParsedCommand(

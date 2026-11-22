@@ -138,4 +138,41 @@ interface SandboxManagerInterface
      * @return string|null Container name or null if not detected
      */
     public function getCurrentContainer(): ?string;
+
+    // ── File delivery & environment (used by standard skills; backend-agnostic) ──
+
+    /**
+     * Absolute home directory of the sandbox user, as seen INSIDE the sandbox.
+     * Callers address files relative to it and never learn how the backend maps it.
+     */
+    public function getHomeDirectory(string $sandboxId): string;
+
+    /**
+     * Copy a local directory into the sandbox, replacing $remotePath atomically
+     * enough that a reader never sees a half-copied tree.
+     *
+     * $remotePath is RELATIVE to the sandbox home (e.g. ".skills/pdf"); `..` and
+     * absolute paths are refused. Symlinks are skipped; the executable bit is kept.
+     *
+     * @param string[] $excludeNames Directory/file basenames to skip anywhere (".git", "__pycache__" …)
+     * @throws SandboxException on failure
+     */
+    public function putDirectory(string $sandboxId, string $localDir, string $remotePath, array $excludeNames = []): void;
+
+    /**
+     * Whether a path (relative to the sandbox home) exists in the sandbox. Cheap —
+     * must not require the sandbox to be running when the backend can avoid it.
+     */
+    public function pathExists(string $sandboxId, string $remotePath): bool;
+
+    /**
+     * One read-only look at the sandbox environment, as a flat key => value map:
+     *   os, python (x.y), pip (pip3|module|none), node, sudo (1|0), venv, venv_writable,
+     *   tmp_noexec (1|0), mem_limit, home, bashrc (1|0)
+     * Values are '' when unknown. Requires a running sandbox.
+     *
+     * @return array<string,string>
+     * @throws SandboxException when the sandbox cannot be reached
+     */
+    public function probe(string $sandboxId): array;
 }

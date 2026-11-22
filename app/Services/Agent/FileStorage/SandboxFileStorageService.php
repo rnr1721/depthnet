@@ -48,8 +48,7 @@ class SandboxFileStorageService implements FileStorageServiceInterface
             mkdir($directory, 0755, true);
         }
 
-        $filename    = $this->uniqueFilename($upload);
-        $destination = "{$directory}/{$filename}";
+        $filename = $this->uniqueFilename($upload, $directory);
 
         if (!$upload->move($directory, $filename)) {
             throw new \RuntimeException(
@@ -163,7 +162,7 @@ class SandboxFileStorageService implements FileStorageServiceInterface
     /**
      * Relative directory inside the sandbox home, stored in files.storage_path prefix.
      *
-     * Without project: workspace/presets/{preset_id}/files
+     * Without project: files            (~/files — shared by every preset on this sandbox)
      * With project:    projects/{project_slug}/files
      */
     private function relativeDirectory(AiPreset $preset, ?string $projectSlug): string
@@ -176,11 +175,42 @@ class SandboxFileStorageService implements FileStorageServiceInterface
     }
 
     /**
-     * Generate a unique filename preserving the original extension.
+     * A human-readable filename that does not collide with an existing file.
+     *
+     * Sandbox files are meant to be found and opened by the agent in its
+     * terminal, so the original name is kept. On collision a counter is added
+     * before the extension — "report.pdf" → "report (2).pdf" — instead of
+     * overwriting: two uploads of the same name used to land on ONE physical
+     * file, with two DB records pointing at it, so deleting either removed the
+     * other's content too.
      */
-    private function uniqueFilename(UploadedFile $upload): string
+    private function uniqueFilename(UploadedFile $upload, string $directory): string
     {
-        return $upload->getClientOriginalName();
+        $name = $this->sanitizeFilename($upload->getClientOriginalName());
+
+        $ext  = pathinfo($name, PATHINFO_EXTENSION);
+        $base = $ext !== '' ? mb_substr($name, 0, -(mb_strlen($ext) + 1)) : $name;
+        $dot  = $ext !== '' ? ".{$ext}" : '';
+
+        $candidate = $name;
+        for ($i = 2; file_exists("{$directory}/{$candidate}"); $i++) {
+            $candidate = "{$base} ({$i}){$dot}";
+        }
+
+        return $candidate;
+    }
+
+    /**
+     * Keep only the base name and drop characters that break paths or shells
+     * badly: separators, control characters, a leading dot (hidden file / "..").
+     */
+    private function sanitizeFilename(string $name): string
+    {
+        $name = basename(str_replace('\\', '/', $name));
+        $name = preg_replace('/[\x00-\x1F\x7F\/]/u', '', $name) ?? '';
+        $name = ltrim(trim($name), '.');
+
+        return $name !== '' ? $name : 'file_' . uniqid();
     }
 
     /**

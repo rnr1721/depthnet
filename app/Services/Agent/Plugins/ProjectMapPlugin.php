@@ -8,6 +8,7 @@ use App\Contracts\Agent\PlaceholderServiceInterface;
 use App\Contracts\Agent\PresetSandboxServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
+use App\Services\Agent\Plugins\Support\CommandHint;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -253,7 +254,7 @@ class ProjectMapPlugin implements CommandPluginInterface
                  . "Detection method: {$detection->method}\n"
                  . ($detection->isSuccessful()
                      ? 'System message will now show this directory.'
-                     : 'Set manually: [projectmap root]~/your-project[/projectmap]');
+                     : 'Set manually: ' . CommandHint::method($context->preset, $this->getName(), 'root', '~/your-project'));
         }
 
         // Path specified
@@ -285,7 +286,8 @@ class ProjectMapPlugin implements CommandPluginInterface
 
         $arg = trim($content);
         if ($arg === '') {
-            return 'Error: expand requires a directory path. Example: [projectmap expand]storage/framework[/projectmap]';
+            return 'Error: expand requires a directory path. Example: '
+                . CommandHint::method($context->preset, $this->getName(), 'expand', 'storage/framework');
         }
 
         // Relative paths are resolved against the current workspace root.

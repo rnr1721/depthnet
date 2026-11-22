@@ -9,6 +9,7 @@ use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
 use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Terminal\TerminalServiceInterface;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
+use App\Services\Agent\Plugins\Support\CommandHint;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
@@ -140,7 +141,7 @@ class TerminalPlugin implements CommandPluginInterface
             'name'        => self::PLUGIN_NAME,
             'description' => 'Persistent interactive terminal (tmux) inside the sandbox. '
                 . 'Maintains shell state between cycles — working directory, running processes, history. '
-                . 'Use [terminal on] to auto-inject screen into system prompt each cycle, [terminal off] to stop. '
+                . 'Method "on" injects the screen into the system prompt every cycle, "off" stops it. '
                 . 'When monitor is ON, terminal_screen in the system prompt always shows the current screen.',
             'parameters'  => [
                 'type'       => 'object',
@@ -186,7 +187,8 @@ class TerminalPlugin implements CommandPluginInterface
 
     public function getCustomErrorMessage(): ?string
     {
-        return 'Terminal error. Check sandbox status with [terminal status][/terminal].';
+        // No context here, so no mode-specific syntax — name the method instead.
+        return 'Terminal error. Check the sandbox and session with the terminal "status" method.';
     }
 
     // ── Config ────────────────────────────────────────────────────────────────
@@ -314,7 +316,8 @@ class TerminalPlugin implements CommandPluginInterface
                 );
 
                 if ($screen === null) {
-                    return '[terminal_screen: session not running — use [terminal]any command[/terminal]]';
+                    return '[terminal_screen: session not running — start it with '
+                        . CommandHint::method($context->preset, self::PLUGIN_NAME, 'execute', 'any command') . ']';
                 }
 
                 return "[TERMINAL SCREEN]\n{$screen}\n[END TERMINAL SCREEN]";
@@ -363,7 +366,8 @@ class TerminalPlugin implements CommandPluginInterface
             $context->get('prompt_pattern', null) ?: null,
         );
 
-        return $output ?? 'Command sent but could not capture output. Try [terminal screen][/terminal].';
+        return $output ?? 'Command sent but could not capture output. Try '
+            . CommandHint::method($context->preset, self::PLUGIN_NAME, 'screen') . '.';
     }
 
     /**
@@ -403,7 +407,8 @@ class TerminalPlugin implements CommandPluginInterface
             (int) $context->get('capture_lines', 50),
         );
 
-        return $output ?? 'Input sent. Use [terminal screen][/terminal] to check the result.';
+        return $output ?? 'Input sent. Check the result with '
+            . CommandHint::method($context->preset, self::PLUGIN_NAME, 'screen') . '.';
     }
 
     /**
@@ -433,7 +438,8 @@ class TerminalPlugin implements CommandPluginInterface
             $lines,
         );
 
-        return $screen ?? 'No terminal session running. Use [terminal]any command[/terminal] to start one.';
+        return $screen ?? 'No terminal session running. Start one with '
+            . CommandHint::method($context->preset, self::PLUGIN_NAME, 'execute', 'any command') . '.';
     }
 
     /**
@@ -464,7 +470,8 @@ class TerminalPlugin implements CommandPluginInterface
 
         $this->pluginMetadata->set($context->preset, self::PLUGIN_NAME, self::META_MONITOR, false);
 
-        return 'Terminal monitor OFF — terminal keeps running. Use [terminal screen][/terminal] to check manually.';
+        return 'Terminal monitor OFF — terminal keeps running. Check it manually with '
+            . CommandHint::method($context->preset, self::PLUGIN_NAME, 'screen') . '.';
     }
 
     /**
@@ -489,7 +496,7 @@ class TerminalPlugin implements CommandPluginInterface
 
         $monitorText = $monitorOn
             ? 'ON (screen injected into prompt every cycle)'
-            : 'OFF (use [terminal screen][/terminal] for manual snapshot)';
+            : 'OFF (manual snapshot: ' . CommandHint::method($context->preset, self::PLUGIN_NAME, 'screen') . ')';
 
         return implode("\n", [
             'Terminal status:',

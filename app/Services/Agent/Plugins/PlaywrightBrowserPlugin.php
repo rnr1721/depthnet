@@ -11,6 +11,9 @@ use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
 use App\Services\Agent\Plugins\Traits\PluginConfigTrait;
 use App\Services\Agent\Plugins\Traits\PluginExecutionMetaTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
+use App\Contracts\Agent\Capabilities\VisionServiceInterface;
+use App\Services\Agent\Capabilities\Vision\DTO\ImageData;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -37,9 +40,14 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
         'brave'      => ['label' => 'Brave',      'url' => 'https://search.brave.com/search?q='],
     ];
 
+    /** Max image size we are willing to download and send to vision (bytes). */
+    private const VISION_MAX_BYTES = 10 * 1024 * 1024;
+
     public function __construct(
         protected LoggerInterface $logger,
         protected BrowserServiceFactory $serviceFactory,
+        protected VisionServiceInterface $vision,
+        protected HttpFactory $http,
     ) {
     }
 
@@ -119,8 +127,9 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             'name'        => 'browser',
             'description' => 'Persistent Playwright browser with session memory. '
                 . 'Sessions survive across thinking cycles. Each preset gets its own session. '
-                . 'The page is returned as a numbered snapshot — act on elements by their number.'
-                . $searchEnabled ? '' : ' Direct search is disabled; open the search engine as a normal page instead for searching.',
+                . 'The page is returned as a numbered snapshot — act on elements by their number. '
+                . 'Opening a direct image URL returns a vision description of the image.'
+                . ($searchEnabled ? '' : ' Direct search is disabled; open the search engine as a normal page instead for searching.'),
             'parameters'  => [
                 'type'       => 'object',
                 'properties' => [
@@ -300,7 +309,20 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
             return 'Error: Domain not allowed by security policy.';
         }
 
-        return $this->render($this->service($context)->open($this->sessionId($context), $url));
+        $result = $this->service($context)->open($this->sessionId($context), $url);
+        $rendered = $this->render($result);
+
+        // Chromium shows a direct image link in its built-in viewer: title
+        // "name (W×H)" and no text. The snapshot carries no pixels, so fetch
+        // the image here and pass it through vision.
+        if ($result->ok && $this->looksLikeImage($result)) {
+            $description = $this->describeImage($url, $context);
+            if ($description !== '') {
+                $rendered .= "\n\n" . $description;
+            }
+        }
+
+        return $rendered;
     }
 
     public function search(string $content, PluginExecutionContext $context): string
@@ -503,6 +525,68 @@ class PlaywrightBrowserPlugin implements CommandPluginInterface
         }
 
         return implode("\n", $lines);
+    }
+
+    // ── Image vision ─────────────────────────────────────────────────────────
+
+    /**
+     * True when the snapshot is Chromium's built-in image viewer.
+     */
+    private function looksLikeImage(BrowserResult $result): bool
+    {
+        if (!$result->hasSnapshot()) {
+            return false;
+        }
+
+        $s = $result->snapshot;
+
+        return trim($s->text) === ''
+            && empty($s->links)
+            && empty($s->inputs)
+            && preg_match('/\(\d+\s*[×x]\s*\d+\)\s*$/u', $s->title) === 1;
+    }
+
+    /**
+     * Download the image and describe it via the vision service.
+     * Returns an agent-facing line, or '' when this isn't an image after all.
+     */
+    private function describeImage(string $url, PluginExecutionContext $context): string
+    {
+        $preset = $context->preset;
+
+        if (!$this->vision->isAvailable($preset)) {
+            return '👁 Vision: not configured for this preset — image received but not analysed.';
+        }
+
+        try {
+            $response = $this->http->timeout(20)->get($url);
+
+            if (!$response->successful()) {
+                return "👁 Vision: could not fetch image (HTTP {$response->status()}).";
+            }
+
+            $mime = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+            if (!str_starts_with($mime, 'image/')) {
+                return '';
+            }
+
+            $bytes = $response->body();
+            if ($bytes === '' || strlen($bytes) > self::VISION_MAX_BYTES) {
+                return '👁 Vision: image is empty or too large to analyse.';
+            }
+
+            // Normalization (resize/format/quality) happens inside VisionService.
+            $image  = ImageData::fromBinary($bytes, $mime, 'browser:image');
+            $vision = $this->vision->describeResult($image, null, $preset);
+
+            return $vision->success
+                ? '👁 Vision: ' . $vision->text
+                : '👁 Vision error: ' . ($vision->error ?? 'unknown error');
+        } catch (\Throwable $e) {
+            // Don't log the URL: it may carry an access token.
+            $this->logger->warning('Browser image vision failed: ' . $e->getMessage());
+            return '👁 Vision: image analysis failed.';
+        }
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────

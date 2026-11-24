@@ -13,6 +13,7 @@ use App\Services\Agent\Plugins\Traits\PluginHasDateKeywordsTrait;
 use App\Services\Agent\Plugins\Traits\PluginHasLanguageSettingsTrait;
 use App\Services\Agent\Plugins\Traits\PluginMethodTrait;
 use App\Services\Agent\Plugins\DTO\PluginExecutionContext;
+use App\Services\Agent\Plugins\Support\CommandHint;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -89,7 +90,7 @@ class RagQueryPlugin implements CommandPluginInterface
         $pulseEnabled = !empty($config['pulse_search_enabled']);
 
         $instructions = [
-            "Add a simple RAG query: [rag query]{$exQuery}[/rag]",
+            "Add a simple RAG query: [rag query]{$exQuery}[/rag]  (or just [rag]{$exQuery}[/rag])",
             "Add a time-bounded RAG query: [rag query]time:{$yesterday} | {$exQuery}[/rag]",
             "Search by month: [rag query]time:2026-03 | {$exQuery}[/rag]",
             "Search by year: [rag query]time:2025 | {$exQuery}[/rag]",
@@ -187,10 +188,20 @@ class RagQueryPlugin implements CommandPluginInterface
         ];
     }
 
-    /** @inheritDoc */
+    /**
+     * Default command — [rag]text[/rag] without a method is the natural way to
+     * write a query, so treat it as one instead of failing.
+     */
     public function execute(string $content, PluginExecutionContext $context): string
     {
-        return "Invalid format. Use correct syntax";
+        if (trim($content) === '') {
+            return 'Error: RAG query cannot be empty. Queue one with '
+                . CommandHint::method($context->preset, $this->getName(), 'query', 'your query')
+                . ', or see pending ones with '
+                . CommandHint::method($context->preset, $this->getName(), 'show') . '.';
+        }
+
+        return $this->query($content, $context);
     }
 
     /**
@@ -217,8 +228,9 @@ class RagQueryPlugin implements CommandPluginInterface
 
         if (count($queries) >= self::MAX_QUERIES) {
             return sprintf(
-                'Error: RAG query limit reached (%d max per cycle). Use [rag clear][/rag] to reset.',
-                self::MAX_QUERIES
+                'Error: RAG query limit reached (%d max per cycle). Use %s to reset.',
+                self::MAX_QUERIES,
+                CommandHint::method($context->preset, $this->getName(), 'clear')
             );
         }
 

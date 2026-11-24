@@ -42,7 +42,7 @@ class McpServerRepository implements McpServerRepositoryInterface
             'name'           => $data['name'],
             'server_key'     => $data['server_key'],
             'url'            => $data['url'],
-            'transport'      => $data['transport'] ?? 'sse',
+            'transport'      => $data['transport'] ?? 'streamable_http',
             'headers'        => $data['headers'] ?? [],
             'is_enabled'     => $data['is_enabled'] ?? true,
             'added_by_agent' => $addedByAgent,

@@ -27,6 +27,7 @@ class StoreMcpServerRequest extends FormRequest
             'headers'    => ['nullable', 'array'],
             'headers.*'  => ['string', 'max:4096'],
             'is_enabled' => ['sometimes', 'boolean'],
+            'transport'  => ['sometimes', 'string', 'in:streamable_http,sse'],
         ];
     }
 

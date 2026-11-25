@@ -201,6 +201,7 @@ class AgentActions implements AgentActionsInterface
 
         $handoff = $executionResult?->pluginExecutionMeta['handoff'] ?? null;
         $turn = (bool) ($executionResult?->pluginExecutionMeta['turn'] ?? false);
+        $stop = (bool) ($executionResult?->pluginExecutionMeta['stop'] ?? false);
         $containedLongContext = $executionResult?->containedLongContextPlugin ?? false;
 
         // Planner pipeline signals (see AgentTaskPlugin / determineTurnNeed).
@@ -220,6 +221,7 @@ class AgentActions implements AgentActionsInterface
             $handoff,
             $executionResult?->results ?? [],
             $turn,
+            $stop,
             $containedLongContext,
             $createdTask,
             $plannerCommitted,

@@ -81,6 +81,13 @@ interface AiActionsResponseInterface
     public function hasTurn(): bool;
 
     /**
+     * If is stop (if model ask to stop processing further actions)
+     *
+     * @return boolean
+     */
+    public function hasStop(): bool;
+
+    /**
      * Whether any plugin executed this cycle declared itself as requiring
      * procedural continuity (needsLongContext). Read by the work-mode detector.
      *

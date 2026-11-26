@@ -3,12 +3,13 @@
     <div :class="[
       'min-w-0 sm:min-w-[300px] max-w-[88%] sm:max-w-md lg:max-w-2xl xl:max-w-3xl rounded-2xl px-4 py-3 shadow-sm transition-all hover:shadow-md relative group',
       'break-words [overflow-wrap:anywhere]',
+      message.pending ? 'opacity-60' : '',
       messageClass,
       message.role === 'user' ? 'ml-auto' : 'mr-auto'
     ]">
 
-      <!-- Action buttons: delete + speak (shown on hover) -->
-      <div :class="[
+      <!-- Action buttons: delete + speak (shown on hover); none while sending -->
+      <div v-if="!message.pending" :class="[
         'absolute top-2 right-2 flex items-center gap-1',
         'opacity-0 group-hover:opacity-100 transition-opacity touch-visible'
       ]">
@@ -302,7 +303,14 @@
           ? 'text-indigo-200'
           : (isDark ? 'text-gray-400' : 'text-gray-500')
       ]">
-        {{ formatTime(message.created_at) }}
+        <span v-if="message.pending" class="inline-flex items-center gap-1">
+          <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          {{ t('chat_sending') }}
+        </span>
+        <template v-else>{{ formatTime(message.created_at) }}</template>
       </div>
       <!-- File attachments -->
       <MessageAttachments v-if="message.metadata?.attachments?.length" :metadata="message.metadata" :isDark="isDark"

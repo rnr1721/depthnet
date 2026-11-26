@@ -87,8 +87,44 @@ export function useChat(props) {
 
     function lastMessageId() {
         let max = 0;
-        for (const m of localMessages.value) if (m.id > max) max = m.id;
+        for (const m of localMessages.value) if (!m.pending && m.id > max) max = m.id;
         return max;
+    }
+
+    // ── Optimistic sending ────────────────────────────────────────────────
+    // The user's message is shown at once as a "pending" bubble (negative temp
+    // id, never tracked in allLoadedMessageIds) and replaced by the real row
+    // when the server answers. Matters with attachments in "chat" mode: the
+    // server describes images synchronously, which can take a while.
+
+    let tempSeq = 0;
+
+    function addPendingMessage(content) {
+        const id = -(Date.now() * 10 + (tempSeq++ % 10));
+        localMessages.value = [...localMessages.value, {
+            id,
+            role: 'user',
+            content,
+            created_at: new Date().toISOString(),
+            metadata: {},
+            pending: true,
+        }];
+        return id;
+    }
+
+    /**
+     * Replace the pending bubble with the server message (or just drop it:
+     * on error, or when the input went to the pool without a visible message).
+     */
+    function resolvePendingMessage(tempId, serverMessage = null) {
+        localMessages.value = localMessages.value.filter(m => m.id !== tempId);
+        if (serverMessage && serverMessage.id) {
+            appendUnique([serverMessage]);
+        }
+    }
+
+    function pendingMessages() {
+        return localMessages.value.filter(m => m.pending);
     }
 
     function appendUnique(messages, { prepend = false } = {}) {
@@ -121,9 +157,13 @@ export function useChat(props) {
             if (myGen !== generation) return; // stale: preset switched meanwhile
 
             if (response.data.success) {
-                localMessages.value = response.data.messages || [];
+                // Keep bubbles that are still being sent
+                const pending = pendingMessages();
+                localMessages.value = [...(response.data.messages || []), ...pending];
                 pagination.value = response.data.pagination || null;
-                allLoadedMessageIds.value = new Set(localMessages.value.map(m => m.id));
+                allLoadedMessageIds.value = new Set(
+                    localMessages.value.filter(m => !m.pending).map(m => m.id)
+                );
                 if (response.data.presetMetadata) presetMetadata.value = response.data.presetMetadata;
                 if (presetId) currentPresetId.value = presetId;
                 applyStatus(response.data.agentStatus);
@@ -327,6 +367,9 @@ export function useChat(props) {
         loadOlderMessages,
         refreshMessages,
         fetchStatus,
+        setAgentStatus: applyStatus,
+        addPendingMessage,
+        resolvePendingMessage,
         switchPreset,
         resetChatState,
         startFrequentRefresh,

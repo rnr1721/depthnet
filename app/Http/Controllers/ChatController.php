@@ -228,8 +228,23 @@ class ChatController extends Controller
         if (!empty($photoResult['photos'])) {
             $meta['photos'] = $photoResult['photos']; // [{original_name, described, error?}]
         }
-        if ($meta !== ($message->metadata ?? [])) {
+        if ($meta !== ($message->metadata ?? []) && $message->exists) {
             $message->update(['metadata' => $meta]);
+        }
+
+        // JSON for the chat UI (axios): no full Inertia reload of index() —
+        // presets, plugins, agents, users — on every single message.
+        if ($request->expectsJson()) {
+            // Pool mode without dispatch: the input went to the pool and no
+            // visible message was created (make(), not create()).
+            $visible = $message->exists && $message->is_visible_to_user;
+
+            return response()->json([
+                'success'     => true,
+                'message'     => $visible ? $message->fresh() : null,
+                'pooled'      => !$message->exists,
+                'agentStatus' => $this->agentStatusFor($presetId),
+            ]);
         }
 
         return back();

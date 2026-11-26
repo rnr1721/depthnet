@@ -94,10 +94,10 @@
 
       <!-- Message input (only for chat view) -->
       <MessageInput v-show="activeView === 'chat'" ref="messageInputComponent" :disabled="false" :canAttachToDocs="isAdmin"
-        :isProcessing="isProcessing"
+        :isProcessing="isProcessing" :draftKey="draftKey" :sendError="sendError"
         :isDark="isDark" :hasSTT="hasSTT" :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS"
         :ttsEnabled="ttsEnabled" :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
-        :wakeWord="currentPreset?.preset_code || currentPreset?.name || ''" @send="sendMessage"
+        :wakeWord="currentPreset?.preset_code || currentPreset?.name || ''" @send="onInputSend"
         @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
     </div>
 
@@ -125,7 +125,7 @@
 </template>
 
 <script setup>
-import { useForm, router, usePage } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
@@ -196,7 +196,12 @@ const { savePresetId } = useSelectedPreset();
 const mobileMenuOpen = ref(false);
 const mobileTabsOpen = ref(false);
 
-const form = useForm({ content: '', files: [] });
+const sendError = ref('');
+
+// Draft per user + preset (MessageInput keeps it in localStorage)
+const draftKey = computed(() => selectedPresetId.value
+  ? `chat_draft_${props.user?.id ?? 'guest'}_${selectedPresetId.value}`
+  : null);
 
 const isAdmin = computed(() => props.user && props.user.is_admin);
 
@@ -259,6 +264,9 @@ const {
   isLoadingOlder,
   agentStatus,
   fetchStatus,
+  setAgentStatus,
+  addPendingMessage,
+  resolvePendingMessage,
   pagination,
   loadLatestMessages,
   refreshMessages,
@@ -363,40 +371,72 @@ function handleTogglePresetActive(presetId, value) {
 // Message sending — must include preset_id
 // -------------------------------------------------------------------------
 
-function sendMessage(content, files = [], attachMode = 'documents') {
-  if (!content.trim() || form.processing || isProcessing.value) return;
+/**
+ * Send via axios + JSON (no Inertia visit): the server no longer re-runs the
+ * whole index() — presets, plugins, agents, users — for every message.
+ *
+ * The message appears at once as a pending bubble; the input is cleared (and
+ * its draft removed) only after the server confirmed, so a failed send keeps
+ * the text.
+ *
+ * @param {string|null} draftKey  set when the text came from the input field
+ */
+async function sendMessage(content, files = [], attachMode = 'documents', draftKey = null) {
+  if (!content.trim() || isProcessing.value) return;
 
+  const fromInput = draftKey !== null;
   isProcessing.value = true;
+  sendError.value = '';
   mobileMenuOpen.value = false;
   mobileTabsOpen.value = false;
   isUserAtBottom.value = true;
   shouldAutoRefresh.value = true;
 
-  form.content = content;
-  form.files = files;
+  const tempId = addPendingMessage(content);
+  messagesComponent.value?.scrollToBottom();
 
-  form.transform(data => ({
-    ...data,
-    preset_id: selectedPresetId.value,
-    attach_mode: attachMode,
-  })).post(route('chat.message'), {
-    preserveScroll: true,
-    forceFormData: true,
-    onSuccess: () => {
-      form.reset();
-      isProcessing.value = false;
-      // Show the just-sent message right away instead of waiting for the next poll,
-      // and pick up "queued" so the status bar reacts immediately.
-      refreshMessages();
-      fetchStatus();
-      requestAnimationFrame(() => messagesComponent.value?.scrollToBottom());
-    },
-    onError: (errors) => {
-      console.error('Send message error:', errors);
-      isProcessing.value = false;
-      messageInputComponent.value?.focusInput();
-    },
-  });
+  const body = new FormData();
+  body.append('content', content);
+  body.append('preset_id', String(selectedPresetId.value));
+  body.append('attach_mode', attachMode);
+  files.forEach((file) => body.append('files[]', file));
+
+  try {
+    const { data } = await axios.post(route('chat.message'), body);
+
+    resolvePendingMessage(tempId, data.message);
+    if (fromInput) messageInputComponent.value?.reset(draftKey);
+    if (data.agentStatus) setAgentStatus(data.agentStatus);
+
+    // Anything that appeared meanwhile (system messages from attachments, etc.)
+    refreshMessages();
+    messagesComponent.value?.scrollToBottom();
+  } catch (error) {
+    resolvePendingMessage(tempId, null);
+    sendError.value = describeSendError(error);
+    // Not from the input (wake word): put the text there so it isn't lost
+    if (!fromInput) messageInputComponent.value?.setContent(content);
+    console.error('Send message error:', error);
+  } finally {
+    isProcessing.value = false;
+  }
+}
+
+function onInputSend(content, files, attachMode, draftKey) {
+  sendMessage(content, files, attachMode, draftKey ?? '');
+}
+
+function describeSendError(error) {
+  const status = error?.response?.status;
+  const data = error?.response?.data;
+  if (status === 429) return t('chat_send_rate_limited');
+  if (status === 422 && data?.errors) {
+    const first = Object.values(data.errors)[0];
+    return Array.isArray(first) ? first[0] : String(first);
+  }
+  if (status === 419) return t('chat_send_session_expired');
+  if (!error?.response) return t('chat_send_offline');
+  return data?.message || t('chat_send_failed');
 }
 
 // -------------------------------------------------------------------------
@@ -595,7 +635,13 @@ watch(() => props.users, (newUsers) => {
 // New messages at the END (not older ones prepended): auto-scroll + TTS.
 // Watching the last id instead of length: prepending older pages also changes
 // length and used to feed old messages into TTS.
-watch(() => localMessages.value[localMessages.value.length - 1]?.id ?? 0, (newLast, oldLast) => {
+const maxRealMessageId = computed(() => {
+  let max = 0;
+  for (const m of localMessages.value) if (!m.pending && m.id > max) max = m.id;
+  return max;
+});
+
+watch(maxRealMessageId, (newLast, oldLast) => {
   if (!newLast || !oldLast || newLast <= oldLast) return;
 
   const newMessages = localMessages.value.filter(m => m.id > oldLast);

@@ -82,6 +82,24 @@
       </div>
     </Transition>
 
+    <!-- Send error (text stays in the field) -->
+    <Transition name="stt-hint">
+      <div v-if="sendError" :class="[
+        'mb-2 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2',
+        isDark ? 'bg-red-900/50 text-red-200' : 'bg-red-50 text-red-700'
+      ]">
+        <span>⚠️</span>
+        <span class="flex-1 min-w-0 break-words">{{ sendError }}</span>
+      </div>
+    </Transition>
+
+    <!-- Draft restored hint -->
+    <Transition name="stt-hint">
+      <div v-if="draftRestored" :class="['mb-1 text-[11px] italic', isDark ? 'text-gray-500' : 'text-gray-400']">
+        {{ t('chat_draft_restored') }}
+      </div>
+    </Transition>
+
     <!-- Markdown toolbar -->
     <Transition name="stt-hint">
       <MarkdownToolbar v-if="showFormat" class="mb-2" :isDark="isDark" :preview="showPreview"
@@ -234,7 +252,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, computed, h, onMounted, onBeforeUnmount } from 'vue';
+import { ref, nextTick, computed, h, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import EmojiPicker from './EmojiPicker.vue';
 import MarkdownToolbar from './MarkdownToolbar.vue';
@@ -257,6 +275,10 @@ const props = defineProps({
   wakeWord: { type: String, default: '' },
   // Only admins may store files into preset documents (server enforces it too)
   canAttachToDocs: { type: Boolean, default: false },
+  // localStorage key for the draft (per user + preset); null = no drafts
+  draftKey: { type: String, default: null },
+  // Error of the last send attempt, shown above the field
+  sendError: { type: String, default: '' },
 });
 
 const emit = defineEmits(['send', 'toggleMic', 'toggleTTS']);
@@ -383,11 +405,18 @@ function onDocKeydown(e) {
 onMounted(() => {
   document.addEventListener('pointerdown', onDocPointerDown);
   document.addEventListener('keydown', onDocKeydown);
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('pagehide', onPageHide);
+  if (props.draftKey) loadDraft(props.draftKey);
 });
 
 onBeforeUnmount(() => {
+  flushDraft();
+  clearTimeout(draftHintTimer);
   document.removeEventListener('pointerdown', onDocPointerDown);
   document.removeEventListener('keydown', onDocKeydown);
+  document.removeEventListener('visibilitychange', onVisibility);
+  window.removeEventListener('pagehide', onPageHide);
 });
 
 /**
@@ -475,20 +504,112 @@ function autoResize() {
   });
 }
 
+/**
+ * Emits 'send' but does NOT clear anything: the parent calls reset() only
+ * after the server confirmed. A failed send (network, 429, 422) keeps the
+ * text, the files and the draft.
+ */
 function handleSubmit() {
   if (!content.value.trim() || props.disabled || props.isProcessing) return;
   const mode = !hasAnyAttachment.value ? 'documents' : (props.canAttachToDocs ? attachMode.value : 'chat');
-  emit('send', content.value, attachedFiles.value, mode);
+  showEmoji.value = false;
+  showPreview.value = false;
+  draftRestored.value = false;
+  emit('send', content.value, [...attachedFiles.value], mode, props.draftKey);
+}
+
+/**
+ * Clear after a successful send.
+ * @param {string|null} sentWithKey draftKey at the moment of sending: if the user
+ *        switched presets meanwhile, only that preset's stored draft is removed
+ *        and the field (now another preset's draft) is left alone.
+ */
+function reset(sentWithKey = props.draftKey) {
+  if (sentWithKey && sentWithKey !== props.draftKey) {
+    removeDraft(sentWithKey);
+    return;
+  }
   content.value = '';
   attachedFiles.value = [];
   attachMode.value = 'chat';
-  showEmoji.value = false;
-  showPreview.value = false;
+  removeDraft(props.draftKey);
   if (messageInput.value) messageInput.value.style.height = 'auto';
   // On mobile we don't steal focus back (it would re-open the keyboard);
   // focus was kept anyway thanks to @pointerdown.prevent on the send button.
   if (!isMobile.value) focusInput();
 }
+
+// ── Drafts (text only: File objects can't be stored) ──
+const DRAFT_TTL_MS = 14 * 24 * 3600 * 1000;
+const draftRestored = ref(false);
+let draftTimer = null;
+let draftHintTimer = null;
+
+function readDraft(key) {
+  if (!key) return '';
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return '';
+    const d = JSON.parse(raw);
+    if (!d?.text || (d.ts && Date.now() - d.ts > DRAFT_TTL_MS)) {
+      localStorage.removeItem(key);
+      return '';
+    }
+    return d.text;
+  } catch {
+    return '';
+  }
+}
+
+function writeDraft(key, text) {
+  if (!key) return;
+  try {
+    if (text && text.trim()) localStorage.setItem(key, JSON.stringify({ text, ts: Date.now() }));
+    else localStorage.removeItem(key);
+  } catch { /* storage full / disabled */ }
+}
+
+function removeDraft(key) {
+  if (!key) return;
+  try { localStorage.removeItem(key); } catch { }
+}
+
+function flushDraft(key = props.draftKey) {
+  if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+  writeDraft(key, content.value);
+}
+
+function loadDraft(key) {
+  const text = readDraft(key);
+  content.value = text;
+  autoResize();
+  if (text) {
+    draftRestored.value = true;
+    clearTimeout(draftHintTimer);
+    draftHintTimer = setTimeout(() => { draftRestored.value = false; }, 4000);
+  } else {
+    draftRestored.value = false;
+  }
+}
+
+// Debounced save while typing
+watch(content, () => {
+  if (!props.draftKey) return;
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => { draftTimer = null; writeDraft(props.draftKey, content.value); }, 400);
+});
+
+// Preset switch: save the old preset's draft, load the new one's
+watch(() => props.draftKey, (newKey, oldKey) => {
+  if (oldKey) flushDraft(oldKey);
+  attachedFiles.value = [];
+  loadDraft(newKey);
+});
+
+// Mobile: the tab may be killed right after going to background — save NOW,
+// the debounce might never fire.
+function onPageHide() { flushDraft(); }
+function onVisibility() { if (document.hidden) flushDraft(); }
 
 function handleKeydown(event) {
   // Formatting shortcuts
@@ -543,7 +664,7 @@ function humanSize(bytes) {
   return (bytes / 1_048_576).toFixed(1) + ' MB';
 }
 
-defineExpose({ focusInput, setContent, getContent, insertRecognizedText });
+defineExpose({ focusInput, setContent, getContent, insertRecognizedText, reset });
 </script>
 
 <style>

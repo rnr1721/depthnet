@@ -26,6 +26,7 @@ use App\Models\AiPreset;
 use App\Services\Agent\DTO\ModelRequestDTO;
 use App\Services\Agent\Plugins\CompactPlugin;
 use App\Services\Agent\Plugins\ReflectPlugin;
+use App\Services\Agent\Status\TracksAgentStatus;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -66,6 +67,8 @@ use Psr\Log\LoggerInterface;
  */
 class Agent implements AgentInterface
 {
+    use TracksAgentStatus;
+
     private const MODE_CYCLE  = 'cycle';
     private const MODE_SINGLE = 'single';
 
@@ -109,7 +112,7 @@ class Agent implements AgentInterface
     {
         $presetId = $currentPreset->getId();
         try {
-            $this->setupPresetEnvironment($currentPreset);
+            $this->trackStatus('prepare', null, fn () => $this->setupPresetEnvironment($currentPreset));
 
             // Consolidate BEFORE assembling context: an agent-armed [compact],
             // or the watchdog when the window has grown too large. Either writes
@@ -117,9 +120,13 @@ class Agent implements AgentInterface
             // fresh, post-fold window with the recap as its trailing turn.
             $this->maybeCompact($currentPreset);
 
-            $context  = $this->buildContext($currentPreset);
+            $context  = $this->trackStatus('context', null, fn () => $this->buildContext($currentPreset));
             $response = $this->generateResponse($context, $currentPreset);
-            $result   = $this->agentActionsHandler->handleResponse($response, $currentPreset);
+            $result   = $this->trackStatus(
+                'act',
+                null,
+                fn () => $this->agentActionsHandler->handleResponse($response, $currentPreset)
+            );
 
             return $result;
         } catch (\Exception $e) {
@@ -170,10 +177,10 @@ class Agent implements AgentInterface
         }
 
         if ($this->shouldRunPrePass($preset)) {
-            $this->runPrePass($currentEngine, $context, $preset);
+            $this->trackStatus('reasoning', null, fn () => $this->runPrePass($currentEngine, $context, $preset));
         }
 
-        return $currentEngine->generate(
+        return $this->trackStatus('generate', $this->modelLabel($preset), fn () => $currentEngine->generate(
             new ModelRequestDTO(
                 $preset,
                 $this->memoryService,
@@ -183,7 +190,20 @@ class Agent implements AgentInterface
                 $context,
                 $additionalParams
             )
-        );
+        ));
+    }
+
+    /**
+     * Model name for the status line ("думает · deepseek-chat").
+     */
+    private function modelLabel(AiPreset $preset): ?string
+    {
+        try {
+            $config = $preset->engine_config ?? [];
+            return is_array($config) && !empty($config['model']) ? (string) $config['model'] : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -236,7 +256,7 @@ class Agent implements AgentInterface
                 );
             }
 
-            $this->compaction->compact($preset, is_string($focus) ? $focus : null);
+            $this->trackStatus('compact', null, fn () => $this->compaction->compact($preset, is_string($focus) ? $focus : null));
             return; // agent trigger handled — don't also watchdog this cycle
         }
 
@@ -267,7 +287,7 @@ class Agent implements AgentInterface
             ]);
             // No agent focus — the journal type stays mode-derived. If a goal is in
             // focus, the compressor gets it as a thread hint so the recap keeps it.
-            $this->compaction->compact($preset, null, $this->watchdogThreadHint($preset));
+            $this->trackStatus('compact', 'watchdog', fn () => $this->compaction->compact($preset, null, $this->watchdogThreadHint($preset)));
         }
     }
 

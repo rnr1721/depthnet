@@ -4,6 +4,8 @@ import axios from 'axios';
 const MESSAGES_PER_PAGE = 30;
 const REFRESH_INTERVAL_MS = 5000;
 const USERS_REFRESH_INTERVAL_MS = 30000;
+const STATUS_FAST_POLL_MS = 2000;
+const ACTIVE_STATES = ['working', 'queued', 'stopping'];
 
 /**
  * Chat state + polling.
@@ -32,6 +34,7 @@ export function useChat(props) {
     const presetMetadata = ref({});
     const currentPresetId = ref(props.currentPresetId);
     const isLoadingOlder = ref(false);
+    const agentStatus = ref(null);
 
     const allLoadedMessageIds = ref(new Set());
 
@@ -39,6 +42,48 @@ export function useChat(props) {
     let usersRefreshInterval = null;
     let generation = 0;          // bumped on every preset switch / reset
     let refreshInFlight = false;
+    let statusTimer = null;
+
+    // ── Agent status ──────────────────────────────────────────────────────
+    // Arrives with every message poll (5s). While the agent is busy, an extra
+    // lightweight poll of chat/status runs every 2s so phases feel live.
+
+    function applyStatus(status) {
+        if (!status) return;
+        agentStatus.value = status;
+        scheduleStatusPoll();
+    }
+
+    function scheduleStatusPoll() {
+        if (statusTimer) return;
+        if (!ACTIVE_STATES.includes(agentStatus.value?.state)) return;
+        statusTimer = setTimeout(async () => {
+            statusTimer = null;
+            await fetchStatus();
+        }, STATUS_FAST_POLL_MS);
+    }
+
+    async function fetchStatus() {
+        if (typeof document !== 'undefined' && document.hidden) {
+            scheduleStatusPoll();
+            return;
+        }
+        const myGen = generation;
+        try {
+            const { data } = await axios.get(route('chat.status'), {
+                params: { preset_id: currentPresetId.value },
+            });
+            if (myGen === generation) applyStatus(data);
+        } catch {
+            // status is best-effort; next message poll will bring it again
+        }
+    }
+
+    function clearStatus() {
+        if (statusTimer) clearTimeout(statusTimer);
+        statusTimer = null;
+        agentStatus.value = null;
+    }
 
     function lastMessageId() {
         let max = 0;
@@ -81,6 +126,7 @@ export function useChat(props) {
                 allLoadedMessageIds.value = new Set(localMessages.value.map(m => m.id));
                 if (response.data.presetMetadata) presetMetadata.value = response.data.presetMetadata;
                 if (presetId) currentPresetId.value = presetId;
+                applyStatus(response.data.agentStatus);
             } else {
                 console.error('Failed to load messages:', response.data.error);
                 localMessages.value = [];
@@ -162,6 +208,7 @@ export function useChat(props) {
                 if (added.length && !isUserAtBottom.value) hasUnreadMessages.value = true;
             }
             if (response.data.presetMetadata) presetMetadata.value = response.data.presetMetadata;
+            applyStatus(response.data.agentStatus);
         } catch (error) {
             if (error.code === 'ECONNABORTED' || error.name === 'CanceledError') return;
             console.error('Error refreshing messages:', error);
@@ -173,6 +220,7 @@ export function useChat(props) {
     async function switchPreset(presetId) {
         try {
             generation++;
+            clearStatus();
             localMessages.value = [];
             pagination.value = null;
             allLoadedMessageIds.value = new Set();
@@ -193,6 +241,7 @@ export function useChat(props) {
     /** Reset chat state completely (after clearing history). */
     function resetChatState() {
         generation++;
+        clearStatus();
         localMessages.value = [];
         pagination.value = null;
         allLoadedMessageIds.value = new Set();
@@ -249,6 +298,7 @@ export function useChat(props) {
     function cleanup() {
         stopFrequentRefresh();
         stopUsersRefresh();
+        clearStatus();
     }
 
     onBeforeUnmount(cleanup);
@@ -261,6 +311,7 @@ export function useChat(props) {
         isBackgroundRefreshing,
         isProcessing,
         isLoadingOlder,
+        agentStatus,
         localUsers,
         isUserAtBottom,
         shouldAutoRefresh,
@@ -275,6 +326,7 @@ export function useChat(props) {
         loadLatestMessages,
         loadOlderMessages,
         refreshMessages,
+        fetchStatus,
         switchPreset,
         resetChatState,
         startFrequentRefresh,

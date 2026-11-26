@@ -17,6 +17,7 @@ use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\DTO\ModelRequestDTO;
+use App\Services\Agent\Status\TracksAgentStatus;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -41,6 +42,8 @@ use Psr\Log\LoggerInterface;
  */
 class CyclePromptEnricher implements CyclePromptEnricherInterface
 {
+    use TracksAgentStatus;
+
     public function __construct(
         protected PresetServiceInterface             $presetService,
         protected PresetRegistryInterface            $presetRegistry,
@@ -77,7 +80,7 @@ class CyclePromptEnricher implements CyclePromptEnricherInterface
                 return null;
             }
 
-            return $this->callVoice($voicePreset, $preset, $context);
+            return $this->trackStatus('impulse', $voicePreset->getName(), fn () => $this->callVoice($voicePreset, $preset, $context));
 
         } catch (\Throwable $e) {
             $this->logger->error('CyclePromptEnricher::enrich error: ' . $e->getMessage(), [

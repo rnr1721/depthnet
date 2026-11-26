@@ -9,6 +9,9 @@ $isSandboxEnvironment = (function () {
 })();
 
 return [
+
+    'cycle_lock_ttl' => (int) env('AGENT_CYCLE_LOCK_TTL', 900),
+
     /*
     |--------------------------------------------------------------------------
     | AI Engines Configuration

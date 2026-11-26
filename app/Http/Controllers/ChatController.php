@@ -10,6 +10,7 @@ use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Contracts\Agent\Status\AgentStatusServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatFileAttachmentServiceInterface;
@@ -38,8 +39,31 @@ class ChatController extends Controller
         protected PresetServiceInterface $presetService,
         protected AuthServiceInterface $authService,
         protected LoggerInterface $logger,
-        protected PresetAccessServiceInterface $presetAccess
+        protected PresetAccessServiceInterface $presetAccess,
+        protected AgentStatusServiceInterface $agentStatus
     ) {
+    }
+
+    /**
+     * Agent status for the UI. Admins get labels + timeline (plugin names, RAG
+     * presets, voices); others only the state and timing.
+     */
+    protected function agentStatusFor(int $presetId): array
+    {
+        $user = $this->authService->getCurrentUser();
+
+        return $this->agentStatus->get($presetId, (bool) ($user && $user->isAdmin()));
+    }
+
+    /**
+     * GET chat/status?preset_id= — cheap (one cache read), polled every ~2s
+     * by the UI while the agent is working.
+     */
+    public function getAgentStatus(Request $request): JsonResponse
+    {
+        $preset = $this->resolveAccessiblePreset($request);
+
+        return response()->json($this->agentStatusFor($preset->getId()));
     }
 
     /**
@@ -296,7 +320,10 @@ class ChatController extends Controller
 
             $messages = $this->chatService->getNewMessages($preset->getId(), $lastMessageId, $limit);
 
-            $response = ['messages' => $messages];
+            $response = [
+                'messages'    => $messages,
+                'agentStatus' => $this->agentStatusFor($preset->getId()),
+            ];
 
             if (count($messages) > 0) {
                 $preset->refresh();
@@ -330,6 +357,7 @@ class ChatController extends Controller
                 'pagination'     => $result['pagination'],
                 'presetMetadata' => $preset->metadata ?? [],
                 'presetId'       => $preset->getId(),
+                'agentStatus'    => $this->agentStatusFor($preset->getId()),
             ]);
         } catch (HttpExceptionInterface $e) {
             throw $e; // 403/404 from resolveAccessiblePreset

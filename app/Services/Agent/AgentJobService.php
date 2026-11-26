@@ -9,17 +9,31 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Jobs\ProcessAgentThinking;
 use App\Models\AiPreset;
+use App\Services\Agent\Status\TracksAgentStatus;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Support\Facades\Artisan;
 use Psr\Log\LoggerInterface;
 
 class AgentJobService implements AgentJobServiceInterface
 {
+    use TracksAgentStatus;
+
     private string $queue = 'ai';
     private const LOCK_PREFIX = 'task_lock_';
 
-    /** Lock TTL in seconds — safety net if process dies without releasing */
-    private const LOCK_TTL = 300;
+    /**
+     * Lock TTL in seconds — safety net if process dies without releasing.
+     *
+     * Was a fixed 300s. A cycle with a reasoner model can exceed that:
+     * pre-pass (up to the 120s HTTP timeout) + 3s cooldown + main generation
+     * (up to 120s) + inner voices + RAG query formulation + slow tools.
+     * When the lock expires mid-cycle, canStart() lets a SECOND cycle of the
+     * same preset run in parallel. Configurable: config('ai.cycle_lock_ttl').
+     */
+    private function lockTtl(): int
+    {
+        return max(60, (int) config('ai.cycle_lock_ttl', 900));
+    }
 
     public function __construct(
         private OptionsServiceInterface $options,
@@ -58,6 +72,7 @@ class AgentJobService implements AgentJobServiceInterface
                 return false;
             }
             ProcessAgentThinking::dispatch($presetId)->onQueue($this->queue);
+            $this->agentStatus()?->queued($presetId);
             return true;
         }
 
@@ -68,6 +83,7 @@ class AgentJobService implements AgentJobServiceInterface
 
         $this->logger->info("AgentJobService: Starting thinking loop for preset {$presetId}");
         ProcessAgentThinking::dispatch($presetId)->onQueue($this->queue);
+        $this->agentStatus()?->queued($presetId);
 
         return true;
     }
@@ -81,6 +97,9 @@ class AgentJobService implements AgentJobServiceInterface
         }
 
         $this->logger->info("AgentJobService: Stopping thinking loop for preset {$presetId}");
+        // The running cycle is not interrupted — it finishes on its own.
+        // Tell the UI so "stop" doesn't look ignored while "thinking" stays on.
+        $this->agentStatus()?->markStopping($presetId);
         $this->releaseLock($presetId);
 
         return true;
@@ -182,17 +201,24 @@ class AgentJobService implements AgentJobServiceInterface
      */
     private function executeThinkingCycle(int $presetId): void
     {
-        $lock = $this->cache->lock(self::LOCK_PREFIX . $presetId, self::LOCK_TTL);
+        $lock = $this->cache->lock(self::LOCK_PREFIX . $presetId, $this->lockTtl());
 
         if (!$lock->get()) {
             $this->logger->info("AgentJobService: Skipped preset {$presetId} — could not acquire lock");
             return;
         }
 
+        $status  = $this->agentStatus();
+        $outcome = 'waiting';
+        $extra   = [];
+        $status?->beginCycle($presetId);
+
         try {
             $preset = $this->presetService->findById($presetId);
             if (!$preset) {
                 $this->logger->error("AgentJobService: Preset {$presetId} not found — aborting cycle");
+                $outcome = 'error';
+                $extra   = ['error' => 'Preset not found'];
                 return;
             }
 
@@ -208,6 +234,8 @@ class AgentJobService implements AgentJobServiceInterface
                     'preset_id' => $presetId,
                     'error'     => $agentResponse->getErrorMessage(),
                 ]);
+                $outcome = 'error';
+                $extra   = ['error' => (string) $agentResponse->getErrorMessage()];
                 return;
             }
 
@@ -216,35 +244,46 @@ class AgentJobService implements AgentJobServiceInterface
                 'message_id' => $agentResponse->getMessage()->id,
             ]);
 
-            $this->scheduleNextCycle($presetId, $preset);
+            $delay = $this->scheduleNextCycle($presetId, $preset);
+            if ($delay !== null) {
+                $outcome = 'sleeping';
+                $extra   = ['next_at' => time() + $delay];
+            }
 
         } catch (\Throwable $e) {
             $this->logger->error("AgentJobService: Cycle failed for preset {$presetId}", [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+            $outcome = 'error';
+            $extra   = ['error' => $e->getMessage()];
             throw $e;
         } finally {
+            $status?->endCycle($outcome, $extra);
             $lock->release();
         }
     }
 
     /**
      * Schedule the next cycle — only if preset is still active.
+     *
+     * @return int|null delay in seconds, or null when nothing was scheduled
      */
-    private function scheduleNextCycle(int $presetId, AiPreset $preset): void
+    private function scheduleNextCycle(int $presetId, AiPreset $preset): ?int
     {
         if (!$this->chatStatusService->getPresetStatus($presetId)) {
             $this->logger->info("AgentJobService: Not scheduling next cycle — preset {$presetId} inactive");
-            return;
+            return null;
         }
 
-        $delay = $preset->getLoopInterval();
+        $delay = (int) $preset->getLoopInterval();
         ProcessAgentThinking::dispatch($presetId)->onQueue($this->queue)->delay($delay);
 
         $this->logger->info("AgentJobService: Next cycle scheduled for preset {$presetId}", [
             'delay_seconds' => $delay,
         ]);
+
+        return $delay;
     }
 
     /**

@@ -71,6 +71,7 @@ Route::middleware('auth')->group(function () {
         Route::get('older-messages', [ChatController::class, 'loadOlderMessages'])->name('older-messages');
         Route::get('new-messages/{lastId?}', [ChatController::class, 'getNewMessages'])->name('new-messages');
         Route::get('users', [ChatController::class, 'getUsers'])->name('users');
+        Route::get('status', [ChatController::class, 'getAgentStatus'])->name('status');
 
         // Admin only: destructive actions and agent configuration
         Route::middleware(AdminMiddleware::class)->group(function () {

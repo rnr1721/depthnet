@@ -89,11 +89,14 @@
           :isDark="isDark" @click="scrollToBottomForced" class="bottom-4" />
       </div>
 
+      <!-- What the agent is doing right now (phases, timeline on tap) -->
+      <AgentStatusBar v-show="activeView === 'chat'" :status="agentStatus" :isDark="isDark" />
+
       <!-- Message input (only for chat view) -->
-      <MessageInput v-show="activeView === 'chat'" ref="messageInputComponent" :disabled="false"
-        :canAttachToDocs="isAdmin" :isProcessing="isProcessing" :isDark="isDark" :hasSTT="hasSTT"
-        :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS" :ttsEnabled="ttsEnabled"
-        :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
+      <MessageInput v-show="activeView === 'chat'" ref="messageInputComponent" :disabled="false" :canAttachToDocs="isAdmin"
+        :isProcessing="isProcessing"
+        :isDark="isDark" :hasSTT="hasSTT" :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS"
+        :ttsEnabled="ttsEnabled" :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
         :wakeWord="currentPreset?.preset_code || currentPreset?.name || ''" @send="sendMessage"
         @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
     </div>
@@ -138,6 +141,7 @@ import MessageInput from '@/Components/Chat/MessageInput.vue';
 import AboutModal from '@/Components/Chat/AboutModal.vue';
 import ClearHistoryModal from '@/Components/Chat/ClearHistoryModal.vue';
 import LogViewer from '@/Components/Chat/LogViewer.vue';
+import AgentStatusBar from '@/Components/Chat/AgentStatusBar.vue';
 
 import { useTheme } from '@/Composables/useTheme';
 import { useChat } from '@/Composables/useChat';
@@ -253,6 +257,8 @@ const {
   isInitialLoading,
   isBackgroundRefreshing,
   isLoadingOlder,
+  agentStatus,
+  fetchStatus,
   pagination,
   loadLatestMessages,
   refreshMessages,
@@ -379,8 +385,10 @@ function sendMessage(content, files = [], attachMode = 'documents') {
     onSuccess: () => {
       form.reset();
       isProcessing.value = false;
-      // Show the just-sent message right away instead of waiting for the next poll
+      // Show the just-sent message right away instead of waiting for the next poll,
+      // and pick up "queued" so the status bar reacts immediately.
       refreshMessages();
+      fetchStatus();
       requestAnimationFrame(() => messagesComponent.value?.scrollToBottom());
     },
     onError: (errors) => {

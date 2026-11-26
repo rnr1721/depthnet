@@ -17,8 +17,7 @@
       <div v-if="isBackgroundRefreshing" class="absolute top-4 right-4">
         <div class="flex items-center space-x-2">
           <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
-          <span :class="['text-xs', isDark ? 'text-gray-500' : 'text-gray-400']">{{ t('chat_checking_messages')
-            }}</span>
+          <span :class="['text-xs', isDark ? 'text-gray-500' : 'text-gray-400']">{{ t('chat_checking_messages') }}</span>
         </div>
       </div>
 
@@ -194,14 +193,12 @@ html.chat-viewport-locked body {
   overflow: hidden;
   overscroll-behavior: none;
   /* Any gap (keyboard animation, browser bars) blends with the chat, not white */
-  background-color: #f9fafb;
-  /* gray-50 */
+  background-color: #f9fafb; /* gray-50 */
 }
 
 html.dark.chat-viewport-locked,
 html.dark.chat-viewport-locked body {
-  background-color: #111827;
-  /* gray-900 */
+  background-color: #111827; /* gray-900 */
 }
 
 /* Root of Chat/Index.vue: follows the layout viewport; --app-height only when

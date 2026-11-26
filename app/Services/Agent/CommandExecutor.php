@@ -10,10 +10,13 @@ use App\Models\AiPreset;
 use App\Services\Agent\Plugins\DTO\CommandExecutionResult;
 use App\Services\Agent\Plugins\DTO\CommandResult;
 use App\Services\Agent\Plugins\DTO\ParsedCommand;
+use App\Services\Agent\Status\TracksAgentStatus;
 use Psr\Log\LoggerInterface;
 
 class CommandExecutor implements CommandExecutorInterface
 {
+    use TracksAgentStatus;
+
     public function __construct(
         protected PluginRegistryInterface $pluginRegistry,
         protected PluginExecutionContextBuilderInterface $contextBuilder,
@@ -37,11 +40,9 @@ class CommandExecutor implements CommandExecutorInterface
         }
 
         foreach ($commands as $command) {
-            if ($mainPreset && in_array($command->plugin, $mainPresetCommands)) {
-                $result = $this->executeCommand($command, $mainPreset);
-            } else {
-                $result = $this->executeCommand($command, $preset);
-            }
+            $runAs  = ($mainPreset && in_array($command->plugin, $mainPresetCommands)) ? $mainPreset : $preset;
+            $label  = $command->method === 'execute' ? $command->plugin : "{$command->plugin} {$command->method}";
+            $result = $this->trackStatus('tool', $label, fn () => $this->executeCommand($command, $runAs));
             $results[] = $result;
             $pluginExecutionMeta = $this->mergeExecutionMetaStrings($pluginExecutionMeta, $result->executionMeta);
 

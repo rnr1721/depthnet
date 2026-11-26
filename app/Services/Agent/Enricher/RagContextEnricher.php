@@ -28,6 +28,7 @@ use App\Services\Agent\Enricher\Rag\RagItem;
 use App\Services\Agent\Enricher\Rag\RagSection;
 use App\Services\Agent\Plugins\RagQueryPlugin;
 use App\Services\Agent\Plugins\RhythmPlugin;
+use App\Services\Agent\Status\TracksAgentStatus;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -49,6 +50,8 @@ use Psr\Log\LoggerInterface;
  */
 class RagContextEnricher implements RagContextEnricherInterface
 {
+    use TracksAgentStatus;
+
     /**
      * Enable verbose debug logging for RAG pipeline.
      */
@@ -126,12 +129,12 @@ class RagContextEnricher implements RagContextEnricherInterface
             }
 
             // Agent-provided queries only apply to the primary config
-            $queries = $this->formulateQueries(
+            $queries = $this->trackStatus('rag_query', $ragPreset->getName(), fn () => $this->formulateQueries(
                 $ragPreset,
                 $initiatorPreset ?? $preset,
                 $context,
                 $config->is_primary
-            );
+            ));
 
             if (empty($queries)) {
                 $this->debugLog('empty queries, skipping search');
@@ -139,7 +142,10 @@ class RagContextEnricher implements RagContextEnricherInterface
             }
 
             // ── Retrieve from all sources ────────────────────────────────────
-            $retrieval = $this->runRetrieval($preset, $context, $config, $queries, $seenIds);
+            // Closure (not fn): $seenIds is accumulated by reference across configs.
+            $retrieval = $this->trackStatus('rag_search', $ragPreset->getName(), function () use ($preset, $context, $config, $queries, &$seenIds) {
+                return $this->runRetrieval($preset, $context, $config, $queries, $seenIds);
+            });
 
             $this->logRetrieval($config, $queries, $retrieval);
 

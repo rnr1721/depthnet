@@ -1,27 +1,24 @@
 <template>
   <div :class="[
-    'flex-1 overflow-y-auto p-4 sm:p-6 space-y-4',
+    'chat-scroll flex-1 min-h-0 overflow-y-auto p-3 sm:p-6 space-y-4',
     isDark ? 'bg-gray-900' : 'bg-gray-50'
   ]" ref="messagesContainer">
 
     <!-- Load older messages button -->
     <LoadOlderMessagesButton v-if="pagination && pagination.has_more_pages" :hasMorePages="pagination.has_more_pages"
       :currentPage="pagination.current_page" :totalPages="pagination.last_page" :isDark="isDark"
-      @loadOlder="handleLoadOlder" />
+      :isLoading="isLoadingOlder" @loadOlder="handleLoadOlder" />
 
     <!-- Empty state -->
     <div v-if="filteredMessages.length === 0" :class="[
       'text-center my-8 p-8 rounded-2xl relative',
       isDark ? 'text-gray-400 bg-gray-800' : 'text-gray-500 bg-white'
     ]">
-      <!-- Background refresh indicator for empty state -->
       <div v-if="isBackgroundRefreshing" class="absolute top-4 right-4">
         <div class="flex items-center space-x-2">
           <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
-          <span :class="[
-            'text-xs',
-            isDark ? 'text-gray-500' : 'text-gray-400'
-          ]">{{ t('chat_checking_messages') || 'Checking for messages...' }}</span>
+          <span :class="['text-xs', isDark ? 'text-gray-500' : 'text-gray-400']">{{ t('chat_checking_messages')
+            }}</span>
         </div>
       </div>
 
@@ -36,21 +33,15 @@
       :showAgentResults="showAgentResults" :showCommandResults="showCommandResults" :hasTTS="hasTTS"
       :speakingMessageId="speakingMessageId" :presetName="presetName" @speak="$emit('speakMessage', $event)" />
 
-    <!-- Background refresh indicator for non-empty state -->
-    <div v-if="isBackgroundRefreshing && filteredMessages.length > 0" :class="[
-      'flex items-center justify-center py-2',
-      isDark ? 'text-gray-500' : 'text-gray-400'
-    ]">
-      <div class="flex items-center space-x-2">
-        <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-indigo-600"></div>
-        <span class="text-xs">{{ t('chat_refreshing') || 'Refreshing...' }}</span>
-      </div>
-    </div>
+    <!--
+      The "Refreshing..." line for the non-empty state was removed on purpose:
+      it appeared every 5 seconds at the bottom and made the list jump.
+    -->
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ChatMessage from './ChatMessage.vue';
 import LoadOlderMessagesButton from './LoadOlderMessagesButton.vue';
@@ -66,107 +57,111 @@ const props = defineProps({
   showCommandResults: Boolean,
   pagination: Object,
   isBackgroundRefreshing: Boolean,
+  isLoadingOlder: { type: Boolean, default: false },
   hasTTS: { type: Boolean, default: false },
   speakingMessageId: { type: [Number, String, null], default: null },
   presetName: { type: String, default: null },
 });
 
-const emit = defineEmits(['deleteMessage', 'scrollUpdate', 'speakMessage']);
+const emit = defineEmits(['deleteMessage', 'scrollUpdate', 'speakMessage', 'loadOlder']);
 
 const messagesContainer = ref(null);
+const BOTTOM_THRESHOLD = 100;
 
-const filteredMessages = computed(() => {
-  return props.messages || [];
-});
+const filteredMessages = computed(() => props.messages || []);
 
-/**
- * Handle load older messages request
- */
+// "Was the user at the bottom before the last layout change?"
+// Used to keep the list pinned when the container shrinks (keyboard opens).
+let stickToBottom = true;
+let resizeObserver = null;
+
+// ── Load older: restore position when the new page is actually rendered ──
+let pendingRestore = null;
+
 function handleLoadOlder() {
-  // Save scroll position
-  const scrollHeightBefore = messagesContainer.value?.scrollHeight || 0;
-  const scrollTopBefore = messagesContainer.value?.scrollTop || 0;
-
-  // Emit to parent
+  const el = messagesContainer.value;
+  pendingRestore = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
   emit('loadOlder');
-
-  // Restore scroll position after new messages are added
-  setTimeout(() => {
-    if (messagesContainer.value) {
-      const scrollHeightAfter = messagesContainer.value.scrollHeight;
-      const heightDiff = scrollHeightAfter - scrollHeightBefore;
-      messagesContainer.value.scrollTop = scrollTopBefore + heightDiff;
-    }
-  }, 100);
 }
 
-/**
- * Check if user is at bottom of messages container
- */
+watch(() => props.messages?.[0]?.id, async () => {
+  if (!pendingRestore) return;
+  const saved = pendingRestore;
+  pendingRestore = null;
+  await nextTick();
+  const el = messagesContainer.value;
+  if (el) el.scrollTop = saved.top + (el.scrollHeight - saved.height);
+});
+
+watch(() => props.isLoadingOlder, (loading) => {
+  // Request finished without new messages -> drop pending restore
+  if (!loading) setTimeout(() => { pendingRestore = null; }, 0);
+});
+
+// ── Bottom tracking ──
+function isAtBottomNow() {
+  const el = messagesContainer.value;
+  if (!el) return true;
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - BOTTOM_THRESHOLD;
+}
+
 function checkIfAtBottom() {
-  if (!messagesContainer.value) return true;
-
-  const container = messagesContainer.value;
-  const threshold = 100;
-
-  const isAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - threshold;
-
-  emit('scrollUpdate', {
-    isAtBottom,
-    shouldAutoRefresh: isAtBottom
-  });
-
+  const isAtBottom = isAtBottomNow();
+  stickToBottom = isAtBottom;
+  emit('scrollUpdate', { isAtBottom, shouldAutoRefresh: isAtBottom });
   return isAtBottom;
 }
 
-/**
- * Scroll to bottom of messages
- */
 function scrollToBottom() {
-  setTimeout(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-    }
-  }, 100);
+  // Two frames: let images/markdown lay out first.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const el = messagesContainer.value;
+    if (el) el.scrollTop = el.scrollHeight;
+    stickToBottom = true;
+  }));
 }
 
-/**
- * Force scroll to bottom
- */
 function scrollToBottomForced() {
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-  }
-  emit('scrollUpdate', {
-    isAtBottom: true,
-    shouldAutoRefresh: true,
-    hasUnreadMessages: false
-  });
+  const el = messagesContainer.value;
+  if (el) el.scrollTop = el.scrollHeight;
+  stickToBottom = true;
+  emit('scrollUpdate', { isAtBottom: true, shouldAutoRefresh: true, hasUnreadMessages: false });
 }
 
 onMounted(() => {
-  if (messagesContainer.value) {
-    messagesContainer.value.addEventListener('scroll', checkIfAtBottom);
+  const el = messagesContainer.value;
+  if (el) {
+    el.addEventListener('scroll', checkIfAtBottom, { passive: true });
+
+    // Keyboard open/close, orientation change, input growing: container height
+    // changes WITHOUT a scroll event. If the user was at the bottom, keep it there.
+    if ('ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver(() => {
+        if (stickToBottom) el.scrollTop = el.scrollHeight;
+      });
+      resizeObserver.observe(el);
+    }
   }
   scrollToBottom();
 });
 
 onBeforeUnmount(() => {
-  if (messagesContainer.value) {
-    messagesContainer.value.removeEventListener('scroll', checkIfAtBottom);
-  }
+  messagesContainer.value?.removeEventListener('scroll', checkIfAtBottom);
+  resizeObserver?.disconnect();
 });
 
-// Expose methods to parent
-defineExpose({
-  scrollToBottom,
-  scrollToBottomForced,
-  checkIfAtBottom
-});
+defineExpose({ scrollToBottom, scrollToBottomForced, checkIfAtBottom });
 </script>
 
 <style>
-/* Custom scrollbar styling */
+.chat-scroll {
+  /* no scroll chaining / pull-to-refresh from the message list */
+  overscroll-behavior: contain;
+  /* we restore position manually after prepending older messages */
+  overflow-anchor: none;
+  -webkit-overflow-scrolling: touch;
+}
+
 .overflow-y-auto::-webkit-scrollbar {
   width: 6px;
 }
@@ -190,5 +185,30 @@ defineExpose({
 
 .dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background-color: #6b7280;
+}
+
+/* Chat page: the document itself never scrolls, only the message list. */
+html.chat-viewport-locked,
+html.chat-viewport-locked body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Any gap (keyboard animation, browser bars) blends with the chat, not white */
+  background-color: #f9fafb;
+  /* gray-50 */
+}
+
+html.dark.chat-viewport-locked,
+html.dark.chat-viewport-locked body {
+  background-color: #111827;
+  /* gray-900 */
+}
+
+/* Root of Chat/Index.vue: follows the layout viewport; --app-height only when
+   the keyboard overlays the page (iOS), see useAppViewport.js */
+.chat-app-root {
+  position: fixed;
+  inset: 0;
+  height: var(--app-height, auto);
 }
 </style>

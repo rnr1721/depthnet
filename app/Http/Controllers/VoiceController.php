@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Contracts\Agent\Capabilities\SttServiceInterface;
 use App\Contracts\Agent\Capabilities\TtsServiceInterface;
-use App\Contracts\Agent\Models\PresetServiceInterface;
+use App\Contracts\Chat\PresetAccessServiceInterface;
 use App\Services\Agent\Capabilities\Speech\DTO\AudioData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +29,7 @@ class VoiceController extends Controller
     public function __construct(
         protected SttServiceInterface $sttService,
         protected TtsServiceInterface $ttsService,
-        protected PresetServiceInterface $presetService,
+        protected PresetAccessServiceInterface $presetAccess,
         protected LoggerInterface $logger,
     ) {
     }
@@ -43,7 +43,8 @@ class VoiceController extends Controller
      */
     public function config(Request $request): JsonResponse
     {
-        $preset = $this->resolvePreset($request->query('preset_id'));
+        // Not found OR not allowed -> same answer as "voice is off" (always 200, see above)
+        $preset = $this->presetAccess->tryResolve((int) $request->query('preset_id', 0));
 
         if ($preset === null) {
             return response()->json(['stt' => null, 'tts' => null]);
@@ -76,11 +77,8 @@ class VoiceController extends Controller
             'speed'     => ['nullable', 'numeric', 'between:0.25,4.0'],
         ]);
 
-        $preset = $this->resolvePreset($validated['preset_id'] ?? null);
-
-        if ($preset === null) {
-            return response()->json(['message' => 'Preset not found.'], 404);
-        }
+        // 404 / 403: otherwise any user could spend any preset's paid TTS provider
+        $preset = $this->presetAccess->resolve((int) ($validated['preset_id'] ?? 0));
 
         $result = $this->ttsService->synthesizeResult(
             $validated['text'],
@@ -109,16 +107,13 @@ class VoiceController extends Controller
     public function transcribe(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'audio'     => ['required', 'file', 'max:25600'], // KB → 25 MB
+            // MediaRecorder: audio/webm (finfo often says video/webm), audio/ogg, Safari audio/mp4
+            'audio'     => ['required', 'file', 'max:25600', 'mimetypes:audio/*,video/webm,video/mp4,video/ogg'], // KB → 25 MB
             'preset_id' => ['nullable', 'integer'],
             'language'  => ['nullable', 'string', 'max:10'],
         ]);
 
-        $preset = $this->resolvePreset($validated['preset_id'] ?? null);
-
-        if ($preset === null) {
-            return response()->json(['message' => 'Preset not found.'], 404);
-        }
+        $preset = $this->presetAccess->resolve((int) ($validated['preset_id'] ?? 0));
 
         $file = $request->file('audio');
 
@@ -143,19 +138,5 @@ class VoiceController extends Controller
             'language' => $result->language,
             'duration' => $result->durationSec,
         ]);
-    }
-
-    // -------------------------------------------------------------------------
-
-    private function resolvePreset(mixed $presetId): mixed
-    {
-        try {
-            return $presetId
-                ? $this->presetService->findById((int) $presetId)
-                : $this->presetService->getDefaultPreset();
-        } catch (\Throwable $e) {
-            $this->logger->debug('VoiceController: preset lookup failed — ' . $e->getMessage());
-            return null;
-        }
     }
 }

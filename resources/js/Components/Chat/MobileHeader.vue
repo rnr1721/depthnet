@@ -1,6 +1,9 @@
 <template>
     <div :class="[
-        'lg:hidden fixed top-0 left-0 right-0 z-40 p-4 border-b flex items-center justify-between flex-shrink-0',
+        // Not fixed anymore: it's a regular flex child of the chat column, so the
+        // keyboard can't push it around. Safe-area padding for notched phones.
+        'lg:hidden relative z-30 px-3 py-2 border-b flex items-center justify-between flex-shrink-0',
+        'pt-[max(0.5rem,env(safe-area-inset-top))]',
         isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
     ]">
         <button @click="$emit('openMenu')" :class="[

@@ -1,7 +1,11 @@
 <template>
   <PageTitle :title="t('chat')" />
+  <!--
+    Height = visible viewport (see useAppViewport). h-screen (100vh) on mobile is
+    the height WITHOUT keyboard and without browser bars -> things jumped.
+  -->
   <div :class="[
-    'flex h-screen overflow-hidden transition-colors duration-300',
+    'chat-app-root flex overflow-hidden transition-colors duration-300',
     isDark ? 'bg-gray-900' : 'bg-gray-50'
   ]">
     <!-- Mobile menu overlay -->
@@ -30,19 +34,38 @@
       :isAdmin="isAdmin" :currentPreset="currentPreset" :currentPresetId="selectedPresetId"
       v-model:isChatActive="isChatActive" v-model:selectedExportFormat="selectedExportFormat"
       :exportFormats="exportFormats" :isExporting="isExporting" :selectedAgentId="selectedAgentId"
-      @closeMobileMenu="mobileMenuOpen = false" @clearHistory="showClearHistory" @editPreset="editCurrentPreset"
+      @closeMobileMenu="mobileMenuOpen = false" @clearHistory="showClearHistory" @editPreset="handleEditPreset()"
       @toggleTheme="toggleTheme" @exportChat="exportChat" />
 
     <!-- Main chat area -->
-    <div class="flex-1 flex flex-col overflow-hidden lg:ml-0">
-      <!-- Mobile header -->
+    <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+      <!-- Mobile header (regular flex child now, not fixed) -->
       <MobileHeader :isDark="isDark" :appName="page.props.app_name" @openMenu="mobileMenuOpen = true"
         @openUsers="mobileTabsOpen = true" />
 
-      <div class="lg:hidden h-20"></div>
+      <!-- View tabs: preset chat / Laravel log (admin only) -->
+      <div v-if="isAdmin" :class="[
+        'flex items-center gap-1 px-2 sm:px-4 pt-2 border-b flex-shrink-0',
+        isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+      ]">
+        <button v-for="tab in viewTabs" :key="tab.id" type="button" @click="activeView = tab.id" :class="[
+          'px-3 py-1.5 text-sm rounded-t-lg border-b-2 -mb-px transition-colors flex items-center gap-1.5 max-w-[60%]',
+          activeView === tab.id
+            ? (isDark ? 'border-indigo-400 text-white' : 'border-indigo-600 text-gray-900')
+            : (isDark ? 'border-transparent text-gray-400 hover:text-gray-200' : 'border-transparent text-gray-500 hover:text-gray-800')
+        ]">
+          <span>{{ tab.icon }}</span>
+          <span class="truncate">{{ tab.label }}</span>
+          <span v-if="tab.id === 'chat' && hasUnreadMessages && activeView !== 'chat'"
+            class="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0"></span>
+        </button>
+      </div>
+
+      <!-- Log view: mounted on first open, then kept alive (v-show) -->
+      <LogViewer v-if="logMounted" v-show="activeView === 'log'" :isDark="isDark" :active="activeView === 'log'" />
 
       <!-- Loading state -->
-      <div v-if="isInitialLoading" :class="[
+      <div v-if="isInitialLoading" v-show="activeView === 'chat'" :class="[
         'flex-1 flex items-center justify-center',
         isDark ? 'bg-gray-900' : 'bg-gray-50'
       ]">
@@ -52,22 +75,25 @@
         </div>
       </div>
 
-      <!-- Messages -->
-      <ChatMessages v-if="!isInitialLoading" ref="messagesComponent" :messages="localMessages" :pagination="pagination"
-        :isDark="isDark" :is-admin="isAdmin" :appName="page.props.app_name" :showAgentResults="showAgentResults"
-        :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing" :hasTTS="hasTTS"
-        :presetName="currentPreset?.name" :speakingMessageId="currentlySpeakingId" @deleteMessage="deleteMessage"
-        @scrollUpdate="handleScrollUpdate" @loadOlder="handleLoadOlder" @speakMessage="handleSpeakMessage"
-        class="pb-40 lg:pb-0" />
+      <!-- Messages + floating button share a relative box -->
+      <div v-if="!isInitialLoading" v-show="activeView === 'chat'" class="relative flex-1 min-h-0 flex flex-col">
+        <ChatMessages ref="messagesComponent" :messages="localMessages" :pagination="pagination" :isDark="isDark"
+          :is-admin="isAdmin" :appName="page.props.app_name" :showAgentResults="showAgentResults"
+          :showCommandResults="showCommandResults" :isBackgroundRefreshing="isBackgroundRefreshing"
+          :isLoadingOlder="isLoadingOlder" :hasTTS="hasTTS" :presetName="currentPreset?.name"
+          :speakingMessageId="currentlySpeakingId" @deleteMessage="deleteMessage" @scrollUpdate="handleScrollUpdate"
+          @loadOlder="handleLoadOlder" @speakMessage="handleSpeakMessage" />
 
-      <!-- Scroll to bottom button -->
-      <ScrollToBottomButton v-if="hasUnreadMessages || !isUserAtBottom" :hasUnreadMessages="hasUnreadMessages"
-        :isDark="isDark" @click="scrollToBottomForced" class="bottom-24 lg:bottom-4" />
+        <!-- Scroll to bottom button -->
+        <ScrollToBottomButton v-if="hasUnreadMessages || !isUserAtBottom" :hasUnreadMessages="hasUnreadMessages"
+          :isDark="isDark" @click="scrollToBottomForced" class="bottom-4" />
+      </div>
 
-      <!-- Message input -->
-      <MessageInput ref="messageInputComponent" :disabled="form.processing" :isProcessing="isProcessing"
-        :isDark="isDark" :hasSTT="hasSTT" :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS"
-        :ttsEnabled="ttsEnabled" :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
+      <!-- Message input (only for chat view) -->
+      <MessageInput v-show="activeView === 'chat'" ref="messageInputComponent" :disabled="false"
+        :canAttachToDocs="isAdmin" :isProcessing="isProcessing" :isDark="isDark" :hasSTT="hasSTT"
+        :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS" :ttsEnabled="ttsEnabled"
+        :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
         :wakeWord="currentPreset?.preset_code || currentPreset?.name || ''" @send="sendMessage"
         @toggleMic="handleToggleMic" @toggleTTS="toggleTTS" />
     </div>
@@ -78,7 +104,7 @@
         :isDark="isDark" :presetMetadata="presetMetadata" :user="user" :presetActiveMap="presetActiveMap"
         :agents="agents" @mentionUser="mentionUser" @showAbout="showAboutModal = true"
         @selectPreset="handlePresetSelect" @editPreset="handleEditPreset" @togglePresetActive="handleTogglePresetActive"
-        @agentFilterChanged="selectedAgentId = $event" /> />
+        @agentFilterChanged="selectedAgentId = $event" />
     </div>
 
     <!-- Preset Modal -->
@@ -97,7 +123,7 @@
 
 <script setup>
 import { useForm, router, usePage } from '@inertiajs/vue3';
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
 
@@ -111,6 +137,7 @@ import ScrollToBottomButton from '@/Components/Chat/ScrollToBottomButton.vue';
 import MessageInput from '@/Components/Chat/MessageInput.vue';
 import AboutModal from '@/Components/Chat/AboutModal.vue';
 import ClearHistoryModal from '@/Components/Chat/ClearHistoryModal.vue';
+import LogViewer from '@/Components/Chat/LogViewer.vue';
 
 import { useTheme } from '@/Composables/useTheme';
 import { useChat } from '@/Composables/useChat';
@@ -118,6 +145,7 @@ import { useVoice } from '@/Composables/useVoice';
 import { useVoiceConfig } from '@/Composables/useVoiceConfig';
 import { usePresets } from '@/Composables/usePresets';
 import { useSelectedPreset } from '@/Composables/useSelectedPreset';
+import { useAppViewport } from '@/Composables/useAppViewport';
 
 const { t } = useI18n();
 const page = usePage();
@@ -158,6 +186,7 @@ const props = defineProps({
 });
 
 const { isDark, toggleTheme } = useTheme();
+useAppViewport();
 const { savePresetId } = useSelectedPreset();
 
 const mobileMenuOpen = ref(false);
@@ -185,6 +214,21 @@ const isClearingHistory = ref(false);
 
 const selectedAgentId = ref(null);
 
+// ── View tabs (chat / log) ──
+const activeView = ref('chat');
+const logMounted = ref(false);
+watch(activeView, (v) => {
+  if (v === 'log') logMounted.value = true;
+  if (v === 'chat') {
+    // Returning to chat: container was display:none, re-pin to bottom
+    nextTick(() => { if (isUserAtBottom.value) messagesComponent.value?.scrollToBottom(); });
+  }
+});
+const viewTabs = computed(() => [
+  { id: 'chat', icon: '💬', label: currentPreset.value?.name || t('chat') },
+  { id: 'log', icon: '📜', label: t('log_tab') },
+]);
+
 // Find agent name for the currently selected preset — used in ClearHistoryModal
 const currentPresetAgentName = computed(() => {
   if (!props.agents?.length || !selectedPresetId.value) return null;
@@ -208,6 +252,7 @@ const {
   presetMetadata,
   isInitialLoading,
   isBackgroundRefreshing,
+  isLoadingOlder,
   pagination,
   loadLatestMessages,
   refreshMessages,
@@ -334,11 +379,9 @@ function sendMessage(content, files = [], attachMode = 'documents') {
     onSuccess: () => {
       form.reset();
       isProcessing.value = false;
-      startFrequentRefresh();
-      requestAnimationFrame(() => {
-        messagesComponent.value?.scrollToBottom();
-        messageInputComponent.value?.focusInput();
-      });
+      // Show the just-sent message right away instead of waiting for the next poll
+      refreshMessages();
+      requestAnimationFrame(() => messagesComponent.value?.scrollToBottom());
     },
     onError: (errors) => {
       console.error('Send message error:', errors);
@@ -371,6 +414,7 @@ function scrollToBottomForced() {
 // -------------------------------------------------------------------------
 
 function deleteMessage(messageId) {
+  if (!isAdmin.value) return;
   if (confirm(t('chat_delete_message_confirm') || 'Are you sure you want to delete this message?')) {
     router.delete(route('chat.delete-message', messageId), {
       preserveScroll: true,
@@ -387,54 +431,37 @@ function showClearHistory() {
   showClearHistoryModal.value = true;
 }
 
-async function handleClearHistory(options) {
+function handleClearHistory(options) {
   if (isClearingHistory.value) return;
+  isClearingHistory.value = true;
 
-  try {
-    isClearingHistory.value = true;
-
-    const requestData = { preset_id: selectedPresetId.value };
-    if (options.clearMessages) requestData.clear_messages = true;
-    if (options.clearMemory) requestData.clear_memory = true;
-    if (options.clearVectorMemory) requestData.clear_vector_memory = true;
-    if (options.clearWorkspace) requestData.clear_workspace = true;
-    if (options.clearGoals) requestData.clear_goals = true;
-    if (options.clearSkills) requestData.clear_skills = true;
-    if (options.clearPerson) requestData.clear_person = true;
-    if (options.clearHeart) requestData.clear_heart = true;
-    if (options.clearOntology) requestData.clear_ontology = true;
-    if (options.clearJournal) requestData.clear_journal = true;
-    if (options.clearContracts) requestData.clear_contracts = true;
-    if (options.clearPatterns) requestData.clear_patterns = true;
-    if (options.clearAgent) requestData.clear_agent = true;
-
-    await router.post(route('chat.clear'), requestData, {
-      preserveScroll: true,
-      onSuccess: () => {
-        if (options.clearMessages) {
-          resetChatState();
-          stopFrequentRefresh();
-
-          setTimeout(async () => {
-            try {
-              await loadLatestMessages(null, false);
-              startFrequentRefresh();
-              setTimeout(() => messagesComponent.value?.scrollToBottom(), 100);
-            } catch (error) {
-              console.error('Failed to reload messages after clear:', error);
-            }
-          }, 100);
-        }
-
-        showClearHistoryModal.value = false;
-      },
-      onError: (errors) => console.error('Error clearing history:', errors),
-    });
-  } catch (error) {
-    console.error('Failed to clear history:', error);
-  } finally {
-    isClearingHistory.value = false;
+  const requestData = { preset_id: selectedPresetId.value };
+  const flags = {
+    clearMessages: 'clear_messages', clearMemory: 'clear_memory', clearVectorMemory: 'clear_vector_memory',
+    clearWorkspace: 'clear_workspace', clearGoals: 'clear_goals', clearSkills: 'clear_skills',
+    clearPerson: 'clear_person', clearHeart: 'clear_heart', clearOntology: 'clear_ontology',
+    clearJournal: 'clear_journal', clearContracts: 'clear_contracts', clearPatterns: 'clear_patterns',
+    clearAgent: 'clear_agent',
+  };
+  for (const [opt, key] of Object.entries(flags)) {
+    if (options[opt]) requestData[key] = true;
   }
+
+  // router.post() doesn't return a promise: the old `await` + finally reset the
+  // "clearing" flag immediately. onFinish is the right place.
+  router.post(route('chat.clear'), requestData, {
+    preserveScroll: true,
+    onSuccess: async () => {
+      if (options.clearMessages) {
+        resetChatState();
+        await loadLatestMessages(null, false);
+        messagesComponent.value?.scrollToBottom();
+      }
+      showClearHistoryModal.value = false;
+    },
+    onError: (errors) => console.error('Error clearing history:', errors),
+    onFinish: () => { isClearingHistory.value = false; },
+  });
 }
 
 // -------------------------------------------------------------------------
@@ -443,7 +470,10 @@ async function handleClearHistory(options) {
 
 function mentionUser(userName) {
   const mention = `${props.toLabel} ${userName}`;
-  const currentContent = form.content.toLowerCase();
+  // The draft lives inside MessageInput, not in `form` (form.content is empty
+  // until sending) -> previously a mention wiped what the user had typed.
+  const draft = messageInputComponent.value?.getContent?.() ?? '';
+  const currentContent = draft.toLowerCase();
 
   if (currentContent.includes(mention.toLowerCase())) {
     messageInputComponent.value?.focusInput();
@@ -451,9 +481,9 @@ function mentionUser(userName) {
   }
 
   const mentionPattern = new RegExp(`^${props.toLabel}\\s+\\w+,\\s*`, 'i');
-  const newContent = mentionPattern.test(form.content)
-    ? form.content.replace(mentionPattern, `${mention}, `)
-    : `${mention}, ${form.content}`;
+  const newContent = mentionPattern.test(draft)
+    ? draft.replace(mentionPattern, `${mention}, `)
+    : `${mention}, ${draft}`;
 
   messageInputComponent.value?.setContent(newContent);
 }
@@ -461,11 +491,8 @@ function mentionUser(userName) {
 async function handleEditPreset(presetId = null) {
   if (!isAdmin.value) return;
 
-  if (presetId) {
-    await loadAndEditPreset(presetId);
-  } else {
-    editCurrentPreset();
-  }
+  // "Edit current preset" must edit the SELECTED preset, not the server default
+  await loadAndEditPreset(presetId || selectedPresetId.value);
 }
 
 async function loadAndEditPreset(presetId) {
@@ -540,10 +567,10 @@ function handleMobileMention(userName) {
 // Watchers
 // -------------------------------------------------------------------------
 
-// Sync selectedPresetId from server-side prop changes
-watch(() => props.currentPresetId, (newValue) => {
-  selectedPresetId.value = newValue;
-});
+// NOTE: the old watch(props.currentPresetId -> selectedPresetId) was removed.
+// Selection is client-owned (localStorage). That watch could switch the
+// selection to a new *default* preset after any Inertia reload while messages
+// of the old preset stayed on screen — and the next message went elsewhere.
 
 // Sync availablePresets chat_active flags when server re-renders
 watch(() => props.availablePresets, (newPresets) => {
@@ -554,21 +581,23 @@ watch(() => props.availablePresets, (newPresets) => {
 }, { deep: true });
 
 watch(() => props.users, (newUsers) => {
-  localUsers.value = [...newUsers];
+  localUsers.value = [...(newUsers || [])];
 }, { deep: true });
 
-// Auto-scroll when new messages arrive
-watch(() => localMessages.value.length, (newLength, oldLength) => {
-  if (newLength > oldLength && shouldAutoRefresh.value) {
-    requestAnimationFrame(() => {
-      setTimeout(() => messagesComponent.value?.scrollToBottom(), 50);
-    });
+// New messages at the END (not older ones prepended): auto-scroll + TTS.
+// Watching the last id instead of length: prepending older pages also changes
+// length and used to feed old messages into TTS.
+watch(() => localMessages.value[localMessages.value.length - 1]?.id ?? 0, (newLast, oldLast) => {
+  if (!newLast || !oldLast || newLast <= oldLast) return;
 
-    // Auto-voice for new messages
-    if (ttsEnabled.value && newLength > oldLength) {
-      const newMessages = localMessages.value.slice(oldLength);
-      speakNewMessages(newMessages);
-    }
+  const newMessages = localMessages.value.filter(m => m.id > oldLast);
+  if (!newMessages.length) return;
+
+  if (shouldAutoRefresh.value) {
+    messagesComponent.value?.scrollToBottom();
+  }
+  if (ttsEnabled.value) {
+    speakNewMessages(newMessages);
   }
 });
 
@@ -577,13 +606,12 @@ watch(() => localMessages.value.length, (newLength, oldLength) => {
 // -------------------------------------------------------------------------
 
 onMounted(async () => {
-  localUsers.value = [...props.users];
+  localUsers.value = [...(props.users || [])];
 
   // Persist the selected preset (restored or default) so admin links open the right one
   savePresetId(selectedPresetId.value);
 
   try {
-    // Load messages for the restored/selected preset (may differ from server default)
     await loadLatestMessages(selectedPresetId.value);
     messagesComponent.value?.scrollToBottom();
     markInitialLoadDone();
@@ -591,27 +619,14 @@ onMounted(async () => {
     console.error('Failed to load initial messages:', error);
   }
 
-  refreshInterval = setInterval(() => {
-    refreshMessages().catch(err => console.error('Periodic refresh failed:', err));
-  }, 5000);
-
+  // Single poller lives in useChat (idempotent)
+  startFrequentRefresh();
   startUsersRefresh();
 });
 
 onBeforeUnmount(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval);
-    refreshInterval = null;
-  }
-
   cleanupChat();
-
-  if (typeof window !== 'undefined') {
-    cancelAnimationFrame(requestAnimationFrame(() => { }));
-  }
 });
-
-let refreshInterval = null;
 </script>
 
 <style>

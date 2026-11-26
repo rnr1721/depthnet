@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\FileController;
 use App\Http\Controllers\Admin\GoalController;
 use App\Http\Controllers\Admin\JournalController;
 use App\Http\Controllers\Admin\KnownSourceController;
+use App\Http\Controllers\Admin\LogViewerController;
 use App\Http\Controllers\Admin\MemoryController;
 use App\Http\Controllers\Admin\OntologyController;
 use App\Http\Controllers\Admin\PersonController;
@@ -44,11 +45,14 @@ Route::get('/', [WelcomeController::class,'index'])->name('home');
 // Authentication routes
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::get('/register', [AuthController::class, 'showRegistrationForm'])->name('register');
-    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+    // Self-hosted instance: registration can be closed via config('auth.registration_enabled')
+    if (config('auth.registration_enabled', true)) {
+        Route::get('/register', [AuthController::class, 'showRegistrationForm'])->name('register');
+        Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+    }
     Route::get('/forgot-password', [AuthController::class, 'showForgotPasswordForm'])->name('password.request');
-    Route::post('/forgot-password', [AuthController::class, 'sendResetLinkEmail'])->name('password.email');
+    Route::post('/forgot-password', [AuthController::class, 'sendResetLinkEmail'])->middleware('throttle:5,1')->name('password.email');
     Route::get('/reset-password/{token}', [AuthController::class, 'showResetPasswordForm'])->name('password.reset');
     Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
 });
@@ -58,27 +62,33 @@ Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
     // Chat routes
+    // Available to every authenticated user. Preset access is checked in the
+    // controller: non-admins only see/post to the default preset.
     Route::prefix('chat')->name('chat.')->group(function () {
         Route::get('/', [ChatController::class, 'index'])->name('index');
-        Route::post('message', [ChatController::class, 'sendMessage'])->name('message');
-        Route::delete('message/{messageId}', [ChatController::class, 'deleteMessage'])->name('delete-message');
-        Route::post('clear', [ChatController::class, 'clearHistory'])->name('clear');
+        Route::post('message', [ChatController::class, 'sendMessage'])->middleware('throttle:30,1')->name('message');
         Route::get('latest-messages', [ChatController::class, 'getLatestMessages'])->name('latest-messages');
         Route::get('older-messages', [ChatController::class, 'loadOlderMessages'])->name('older-messages');
         Route::get('new-messages/{lastId?}', [ChatController::class, 'getNewMessages'])->name('new-messages');
-        Route::post('preset-settings', [ChatController::class, 'updatePresetSettings'])->name('preset-settings');
-        Route::post('export', [ChatController::class, 'exportChat'])->middleware(AdminMiddleware::class)->name('export');
-        Route::put('preset/{id}', [ChatController::class, 'updatePreset'])->middleware(AdminMiddleware::class)->name('preset.update');
         Route::get('users', [ChatController::class, 'getUsers'])->name('users');
-        Route::get('message/{messageId}/system-prompt', [ChatController::class, 'getSystemPrompt'])->middleware(AdminMiddleware::class)->name('message.system-prompt');
+
+        // Admin only: destructive actions and agent configuration
+        Route::middleware(AdminMiddleware::class)->group(function () {
+            Route::delete('message/{messageId}', [ChatController::class, 'deleteMessage'])->name('delete-message');
+            Route::post('clear', [ChatController::class, 'clearHistory'])->name('clear');
+            Route::post('preset-settings', [ChatController::class, 'updatePresetSettings'])->name('preset-settings');
+            Route::post('export', [ChatController::class, 'exportChat'])->name('export');
+            Route::put('preset/{id}', [ChatController::class, 'updatePreset'])->name('preset.update');
+            Route::get('message/{messageId}/system-prompt', [ChatController::class, 'getSystemPrompt'])->name('message.system-prompt');
+        });
     });
 
+    // Voice: speak/transcribe call paid external APIs -> rate limit
     Route::prefix('voice')->name('voice.')->group(function () {
         Route::get('config', [VoiceController::class, 'config'])->name('config');
-        Route::post('speak', [VoiceController::class, 'speak'])->name('speak');
-        Route::post('transcribe', [VoiceController::class, 'transcribe'])->name('transcribe');
+        Route::post('speak', [VoiceController::class, 'speak'])->middleware('throttle:60,1')->name('speak');
+        Route::post('transcribe', [VoiceController::class, 'transcribe'])->middleware('throttle:30,1')->name('transcribe');
     });
-
     // Profile routes
     Route::prefix('profile')->name('profile.')->group(function () {
         Route::get('/', [ProfileController::class, 'show'])->name('show');
@@ -98,6 +108,10 @@ Route::middleware('auth')->group(function () {
         Route::get('settings', [SettingsController::class, 'index'])
         ->name('settings');
         Route::post('save-options', [SettingsController::class, 'saveOptions'])->name('save-options');
+
+        // Laravel log viewer (JSON, used by the "Log" tab in chat)
+        Route::get('logs', [LogViewerController::class, 'index'])->name('logs.index');
+        Route::post('logs/clear', [LogViewerController::class, 'clear'])->name('logs.clear');
 
         // Users management routes
         Route::prefix('users')->name('users.')->group(function () {

@@ -1,7 +1,8 @@
 <template>
   <div class="flex">
     <div :class="[
-      'min-w-[300px] max-w-xs sm:max-w-md lg:max-w-2xl xl:max-w-3xl rounded-2xl px-4 py-3 shadow-sm transition-all hover:shadow-md relative group',
+      'min-w-0 sm:min-w-[300px] max-w-[88%] sm:max-w-md lg:max-w-2xl xl:max-w-3xl rounded-2xl px-4 py-3 shadow-sm transition-all hover:shadow-md relative group',
+      'break-words [overflow-wrap:anywhere]',
       messageClass,
       message.role === 'user' ? 'ml-auto' : 'mr-auto'
     ]">
@@ -59,13 +60,13 @@
           </svg>
         </button>
 
-        <!-- Delete button -->
-        <button @click="$emit('delete')" :class="[
+        <!-- Delete button (admin only: route is behind AdminMiddleware) -->
+        <button v-if="isAdmin" @click="$emit('delete')" :class="[
           'w-6 h-6 rounded-full flex items-center justify-center',
           'hover:bg-red-500 hover:text-white',
           isDark ? 'text-gray-400 hover:bg-red-600' : 'text-gray-500 hover:bg-red-500'
         ]" :title="t('chat_delete_message')">
-          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
           </svg>
         </button>
@@ -157,7 +158,7 @@
           <div class="text-xs text-indigo-200 opacity-75 mb-1">
             {{ src.source }}
           </div>
-          <div class="text-sm leading-relaxed message-content" v-html="poolSourceHtml(src.content)"></div>
+          <div class="text-sm leading-relaxed message-content" v-html="poolSourceHtml(src.content)" @click="onContentClick"></div>
           {{ formatSourceTime(src.timestamp) }}
           <span v-if="src.ago" :title="t('chat_pool_ago_hint')" class="cursor-help">
             ({{ src.ago }})
@@ -169,7 +170,8 @@
       </div>
 
       <!-- Regular message content -->
-      <div v-else-if="!contentDuplicatedInSystem" class="message-content leading-relaxed" v-html="formattedContent">
+      <div v-else-if="!contentDuplicatedInSystem" class="message-content leading-relaxed" v-html="formattedContent"
+        @click="onContentClick">
       </div>
 
       <div v-else :class="['text-xs italic opacity-50', isDark ? 'text-gray-500' : 'text-gray-400']">
@@ -303,7 +305,8 @@
         {{ formatTime(message.created_at) }}
       </div>
       <!-- File attachments -->
-      <MessageAttachments v-if="message.metadata?.attachments?.length" :metadata="message.metadata" :isDark="isDark" />
+      <MessageAttachments v-if="message.metadata?.attachments?.length" :metadata="message.metadata" :isDark="isDark"
+        :isAdmin="isAdmin" />
 
     </div>
   </div>
@@ -312,11 +315,12 @@
 <script setup>
 import { computed, ref, reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
+import axios from 'axios';
 import DOMPurify from 'dompurify';
-import { marked } from 'marked';
+import { renderMarkdownRaw, sanitizeHtml, mapOutsideCode, escapeHtml, handleMarkdownClick, copyText } from '@/Utils/markdown';
 import MessageAttachments from '@/Components/Chat/MessageAttachments.vue';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const props = defineProps({
   message: Object,
@@ -377,22 +381,13 @@ const copiedSourceId = ref(null);
 
 // Copy command content to clipboard with fallback for older browsers
 async function copyCommand(content, sourceId = null) {
-  try {
-    await navigator.clipboard.writeText(content);
-    copiedCommandId.value = content;
-    if (sourceId) {
-      copiedSourceId.value = sourceId;
-      setTimeout(() => copiedSourceId.value = null, 1500);
-    }
-    setTimeout(() => copiedCommandId.value = null, 1500);
-  } catch {
-    const el = document.createElement('textarea');
-    el.value = content;
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
+  if (!(await copyText(content))) return;
+  copiedCommandId.value = content;
+  if (sourceId) {
+    copiedSourceId.value = sourceId;
+    setTimeout(() => copiedSourceId.value = null, 1500);
   }
+  setTimeout(() => copiedCommandId.value = null, 1500);
 }
 
 const copiedCommandId = ref(null);
@@ -443,7 +438,8 @@ const pluginIcons = {
 
 /** Message is suitable for speech synthesis (role + no command results) */
 const isSpeakable = computed(() => {
-  const { role, content } = props.message;
+  const { role } = props.message;
+  const content = props.message.content || '';
   if (role === 'thinking') return true;
   if (['system', 'assistant', 'speaking'].includes(role)) {
     return !content.includes('<system_output_results>');
@@ -460,12 +456,12 @@ const isCurrentlySpeaking = computed(() =>
 // ─── Computed ─────────────────────────────────────────────────────────────────
 
 const hasCommandResults = computed(() =>
-  props.message.content.includes('<system_output_results>')
+  (props.message.content || '').includes('<system_output_results>')
 );
 
 const commandResults = computed(() => {
   const marker = '<system_output_results>';
-  if (!props.message.content.includes(marker)) return '';
+  if (!(props.message.content || '').includes(marker)) return '';
   const lastIndex = props.message.content.lastIndexOf(marker);
   return lastIndex !== -1
     ? props.message.content.substring(lastIndex + marker.length).trim()
@@ -500,7 +496,7 @@ const poolSources = computed(() => {
 function formatSourceTime(timestamp) {
   if (!timestamp) return '';
   try {
-    return new Date(timestamp).toLocaleTimeString('ru-RU', {
+    return new Date(timestamp).toLocaleTimeString(locale.value, {
       hour: '2-digit', minute: '2-digit'
     });
   } catch {
@@ -562,7 +558,7 @@ const showCopySource = computed(() => {
 const extractedCommands = computed(() => {
   const commands = [];
   let commandCounter = 0;
-  const content = props.message.content;
+  const content = props.message.content || '';
 
   const commandResultsMarker = '<system_output_results>';
   let userContent = content;
@@ -671,85 +667,75 @@ const extractedToolCalls = computed(() => {
   });
 });
 
-const formattedContent = computed(() => {
+// Command tags: [plugin method]...[/plugin]
+const COMMAND_RE = /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs;
+// Unclosed tag. Excludes markdown links "[x](url)", reference defs "[x]: url",
+// "[text][ref]", task lists "[x]" (min 2 chars). Applied only OUTSIDE code.
+const UNCLOSED_RE = /(?<!\])\[([a-z][a-z0-9_]{1,})(?: ([a-z][a-z0-9_]*))?\](?![(:\[])(?![^[]*\[\/\1(?:\s+[a-z][a-z0-9_]*)?\])/g;
 
-  let content = props.message.content;
+function warnChip(text, title) {
+  const cls = props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300';
+  return `<span class="${cls} border px-2 py-1 rounded text-sm font-mono" title="${escapeHtml(title)}"><span class="mr-1">⚠️</span>${escapeHtml(text)}</span>`;
+}
 
-  // Chips collected at function scope so post-parse replacement sees them
-  // regardless of the role branch.
-  const photoBlocks = [];
-  const fileBlocks = [];
-
-  // Remove tool_calls JSON block using depth counter
+function stripToolCallsJson(content) {
   const tcStart = content.indexOf('{"tool_calls"');
-  if (tcStart !== -1) {
-    let depth = 0, end = -1;
-    for (let i = tcStart; i < content.length; i++) {
-      if (content[i] === '{') depth++;
-      else if (content[i] === '}') {
-        depth--;
-        if (depth === 0) { end = i + 1; break; }
-      }
-    }
-    if (end !== -1) {
-      content = content.substring(0, tcStart) + content.substring(end);
+  if (tcStart === -1) return content;
+  let depth = 0, end = -1;
+  for (let i = tcStart; i < content.length; i++) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') {
+      depth--;
+      if (depth === 0) { end = i + 1; break; }
     }
   }
+  return end === -1 ? content : content.substring(0, tcStart) + content.substring(end);
+}
 
-  const commandResultsMarker = '<system_output_results>';
-  let userContent = content;
+/**
+ * Pipeline:
+ *  1. cut tool_calls JSON and everything after <system_output_results>
+ *  2. ```photo / ```file blocks -> slots (chips)
+ *  3. strip complete command tags
+ *  4. OUTSIDE code only: fake markers / unclosed tags -> slots (warnings)
+ *  5. marked (raw HTML is escaped by renderer, no pre-escaping!)
+ *  6. slots -> HTML, sanitize
+ *
+ * Slots use "%%DNSLOT0%%": markdown does not touch it (the old ___X___ form was
+ * turned by marked into <em><strong>X</strong></em>, so chips never appeared).
+ */
+const formattedContent = computed(() => {
+  let content = stripToolCallsJson(props.message.content || '');
 
-  if (content.includes(commandResultsMarker)) {
-    const lastIndex = content.lastIndexOf(commandResultsMarker);
-    if (lastIndex !== -1) userContent = content.substring(0, lastIndex).trim();
-  }
+  const marker = '<system_output_results>';
+  const lastIndex = content.lastIndexOf(marker);
+  if (lastIndex !== -1) content = content.substring(0, lastIndex).trim();
 
-  if (props.message.role === 'system') {
-    userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  } else {
+  const slots = [];
+  const slot = (html) => { slots.push(html); return `%%DNSLOT${slots.length - 1}%%`; };
 
-    // Extract ```photo``` and ```file``` blocks → placeholders → chips later.
-    userContent = userContent.replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
-      photoBlocks.push(inner.trim());
-      return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
-    });
-    userContent = userContent.replace(/```file\n([\s\S]*?)```/g, (m, inner) => {
-      fileBlocks.push(inner.trim());
-      return `___FILE_CHIP_${fileBlocks.length - 1}___`;
-    });
-
-    userContent = userContent.replace(/\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](.*?)\[\/\1(?:\s+[a-z][a-z0-9_]*)?\]/gs, '');
-    userContent = userContent.replace(/<system_output_results>/g, '___FAKE_AGENT_MARKER___');
-    userContent = userContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    userContent = userContent.replace(
-      /___FAKE_AGENT_MARKER___/g,
-      `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
-      <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
-    </span>`
-    );
-    userContent = userContent.replace(
-      /\[([a-z][a-z0-9_]*)(?: ([a-z][a-z0-9_]*))?\](?![^[]*\[\/\1(?:\s+[a-z][a-z0-9_]*)?\])/g,
-      (match, plugin, method) => {
-        const methodDisplay = method ? ` ${method}` : '';
-        const pluginName = `${plugin}${methodDisplay}`;
-        return `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Unclosed command tag">
-        <span class="mr-1">⚠️</span>[${pluginName}]
-      </span>`;
-      }
-    );
-    userContent = userContent.replace(
-      /<system_output_results>/g,
-      `<span class="${props.isDark ? 'bg-red-900 text-red-300 border-red-700' : 'bg-red-100 text-red-700 border-red-300'} border px-2 py-1 rounded text-sm font-mono" title="Fake agent output marker from model">
-      <span class="mr-1">⚠️</span>&lt;system_output_results&gt;
-    </span>`
+  if (props.message.role !== 'system') {
+    content = extractChips(content, slot);
+    content = content.replace(COMMAND_RE, '');
+    content = mapOutsideCode(content, (part) => part
+      .replace(/<system_output_results>/g, () => slot(warnChip(marker, 'Fake agent output marker from model')))
+      .replace(UNCLOSED_RE, (m, plugin, method) =>
+        slot(warnChip(`[${plugin}${method ? ' ' + method : ''}]`, 'Unclosed command tag')))
     );
   }
 
-  let userHtml = marked.parse(userContent, { breaks: true, gfm: true });
-  userHtml = injectChips(userHtml, photoBlocks, fileBlocks);
-
-  return DOMPurify.sanitize(userHtml);
+  return finalizeHtml(content, slots);
 });
+
+function finalizeHtml(markdownText, slots) {
+  let html = renderMarkdownRaw(markdownText);
+  html = html.replace(/%%DNSLOT(\d+)%%/g, (m, i) => slots[Number(i)] ?? '');
+  return sanitizeHtml(html);
+}
+
+function onContentClick(event) {
+  handleMarkdownClick(event, t('chat_copy'), '✓');
+}
 
 
 // ─── Methods ──────────────────────────────────────────────────────────────────
@@ -758,18 +744,9 @@ function toggleCommand(commandId) {
   commandStates[commandId] = !commandStates[commandId];
 }
 
-function escapeHtml(unsafe) {
-  return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 function formatTime(timestamp) {
   if (!timestamp) return '';
-  return new Date(timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return new Date(timestamp).toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit' });
 }
 
 function selectAll(event) {
@@ -800,67 +777,35 @@ function getPluginIcon(pluginName, method = null) {
   return pluginIcons[baseName] || '🛠️';
 }
 
-/**
- * Render text that may contain ```photo``` / ```file``` markers into safe HTML
- * with chips. Shared by pool sources (and reusable elsewhere).
- */
-function renderPhotoChips(rawText) {
-  if (!rawText) return '';
-
-  const photoBlocks = [];
-  const fileBlocks = [];
-
-  let text = String(rawText);
-
-  text = text.replace(/```photo\n([\s\S]*?)```/g, (m, inner) => {
-    photoBlocks.push(inner.trim());
-    return `___PHOTO_CHIP_${photoBlocks.length - 1}___`;
-  });
-
-  text = text.replace(/```file\n([\s\S]*?)```/g, (m, inner) => {
-    fileBlocks.push(inner.trim());
-    return `___FILE_CHIP_${fileBlocks.length - 1}___`;
-  });
-
-  let html = marked.parse(text, { breaks: true, gfm: true });
-  html = injectChips(html, photoBlocks, fileBlocks);
-
-  return DOMPurify.sanitize(html);
+/** ```photo / ```file blocks -> chip slots. */
+function extractChips(text, slot) {
+  const chip = (kind, body) => {
+    const safe = escapeHtml(body);
+    const photo = kind === 'photo';
+    const sum = photo
+      ? (props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700')
+      : (props.isDark ? 'bg-sky-900 text-sky-200' : 'bg-sky-50 text-sky-700');
+    const border = photo
+      ? (props.isDark ? 'border-teal-800' : 'border-teal-200')
+      : (props.isDark ? 'border-sky-800' : 'border-sky-200');
+    const textCls = props.isDark ? 'text-gray-300' : 'text-gray-600';
+    const label = photo ? t('chat_photo_shown') : t('chat_file_shown');
+    const inner = photo
+      ? `<div class="${textCls} text-sm mt-1 pl-2 border-l-2 ${border}">${safe}</div>`
+      : `<pre class="${textCls} text-xs mt-1 pl-2 border-l-2 ${border} whitespace-pre-wrap">${safe}</pre>`;
+    return `<details class="${kind}-chip my-1"><summary class="${sum} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none"><span>${photo ? '📷' : '📄'}</span><span>${escapeHtml(label)}</span></summary>${inner}</details>`;
+  };
+  return String(text)
+    .replace(/```photo\n([\s\S]*?)```/g, (m, inner) => '\n\n' + slot(chip('photo', inner.trim())) + '\n\n')
+    .replace(/```file\n([\s\S]*?)```/g, (m, inner) => '\n\n' + slot(chip('file', inner.trim())) + '\n\n');
 }
 
 /** Per-source rendered HTML for pool messages. */
 function poolSourceHtml(content) {
-  return renderPhotoChips(content);
-}
-
-/**
- * Replace ___PHOTO_CHIP_n___ / ___FILE_CHIP_n___ placeholders in an HTML string
- * with chip markup. Shared by formattedContent and renderPhotoChips.
- */
-function injectChips(html, photoBlocks, fileBlocks) {
-  photoBlocks.forEach((desc, i) => {
-    const safe = desc.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const chip = `<details class="photo-chip my-1">
-      <summary class="${props.isDark ? 'bg-teal-900 text-teal-200' : 'bg-teal-50 text-teal-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
-        <span>📷</span><span>${t('chat_photo_shown') || 'Photo shown'}</span>
-      </summary>
-      <div class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-sm mt-1 pl-2 border-l-2 ${props.isDark ? 'border-teal-800' : 'border-teal-200'}">${safe}</div>
-    </details>`;
-    html = html.replace(`___PHOTO_CHIP_${i}___`, chip);
-  });
-
-  fileBlocks.forEach((body, i) => {
-    const safe = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const chip = `<details class="file-chip my-1">
-      <summary class="${props.isDark ? 'bg-sky-900 text-sky-200' : 'bg-sky-50 text-sky-700'} inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer select-none">
-        <span>📄</span><span>${t('chat_file_shown') || 'File shown'}</span>
-      </summary>
-      <pre class="${props.isDark ? 'text-gray-300' : 'text-gray-600'} text-xs mt-1 pl-2 border-l-2 ${props.isDark ? 'border-sky-800' : 'border-sky-200'} whitespace-pre-wrap">${safe}</pre>
-    </details>`;
-    html = html.replace(`___FILE_CHIP_${i}___`, chip);
-  });
-
-  return html;
+  if (!content) return '';
+  const slots = [];
+  const slot = (html) => { slots.push(html); return `%%DNSLOT${slots.length - 1}%%`; };
+  return finalizeHtml(extractChips(content, slot), slots);
 }
 
 </script>
@@ -934,6 +879,100 @@ function injectChips(html, photoBlocks, fileBlocks) {
 
 .dark .message-content blockquote {
   border-left-color: #4b5563;
+}
+
+/* Code blocks (rendered by Utils/markdown.js) */
+.message-content .md-code {
+  margin: 0.5rem 0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background-color: #f3f4f6;
+  max-width: 100%;
+}
+
+.dark .message-content .md-code {
+  border-color: rgba(255, 255, 255, 0.08);
+  background-color: #111827;
+}
+
+.message-content .md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  font-size: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.75;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.dark .message-content .md-code-head {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.message-content .md-code-copy {
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.message-content .md-code-copy:hover {
+  background-color: rgba(127, 127, 127, 0.2);
+}
+
+.message-content .md-code pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.75rem;
+  overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  -webkit-overflow-scrolling: touch;
+}
+
+.message-content .md-code pre code {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.message-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  padding: 0.25rem 0.5rem;
+}
+
+.message-content a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message-content p {
+  margin: 0.25rem 0;
+}
+
+.message-content ul {
+  list-style: disc;
+}
+
+.message-content ol {
+  list-style: decimal;
+}
+
+.message-content hr {
+  margin: 0.75rem 0;
+  opacity: 0.3;
 }
 
 @media (hover: none) {

@@ -28,7 +28,6 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -37,27 +36,15 @@ const props = defineProps({
   hasMorePages: Boolean,
   currentPage: Number,
   totalPages: Number,
-  isDark: Boolean
+  isDark: Boolean,
+  // Real loading state from useChat (was a fake 500ms timer)
+  isLoading: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['loadOlder']);
 
-const isLoading = ref(false);
-
-/**
- * Load older messages
- */
-async function loadOlderMessages() {
-  if (isLoading.value || !props.hasMorePages) return;
-
-  isLoading.value = true;
-
-  try {
-    emit('loadOlder');
-  } finally {
-    setTimeout(() => {
-      isLoading.value = false;
-    }, 500);
-  }
+function loadOlderMessages() {
+  if (props.isLoading || !props.hasMorePages) return;
+  emit('loadOlder');
 }
 </script>

@@ -100,6 +100,7 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Wake\WakeScheduleServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
+use App\Contracts\Chat\PresetAccessServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
@@ -282,6 +283,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
 use App\Services\Agent\Wake\WakeScheduleService;
 use App\Services\Agent\Workspace\WorkspaceService;
+use App\Services\Chat\PresetAccessService;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -291,6 +293,8 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+
+        $this->app->bind(PresetAccessServiceInterface::class, PresetAccessService::class);
 
         $this->app->singleton(PulseServiceInterface::class, PulseService::class);
 

@@ -53,14 +53,15 @@ class UpdatePresetSettingsRequest extends FormRequest
             ->toArray();
 
         return [
+            // Both required: ChatController::updatePresetSettings reads
+            // $validated['preset_id'] and ['chat_active'] directly
+            // ("sometimes" let an empty request through -> undefined index -> 500).
             'preset_id' => [
-                'sometimes',
                 'required',
                 'integer',
                 Rule::in($availablePresetIds)
             ],
             'chat_active' => [
-                'sometimes',
                 'required',
                 'boolean'
             ]
@@ -122,7 +123,7 @@ class UpdatePresetSettingsRequest extends FormRequest
         }
 
         // Convert string preset_id to integer
-        if ($this->has('preset_id')) {
+        if ($this->filled('preset_id')) {
             $this->merge([
                 'preset_id' => (int) $this->preset_id
             ]);

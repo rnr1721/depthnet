@@ -19,6 +19,7 @@ use App\Contracts\Agent\AiActionsResponseInterface;
  *   systemMessage   — optional text to surface as a visible system message (e.g. speak output)
  *   handoff         — optional inter-agent routing data extracted from AgentPlugin
  *   turn            — model requested one extra turn
+ *   stop            — model requested to stop processing further actions
  *   containedLongContextPlugin — a needsLongContext plugin ran (work-mode detector)
  *   createdTask     — a task was created this cycle (planner productive signal)
  *   plannerCommitted — planner ended its planning round via [task commit]
@@ -38,6 +39,7 @@ class ActionsResponseDTO implements AiActionsResponseInterface
         private ?array $handoff = null,
         private array $commandResults = [],
         private readonly bool $turn = false,
+        private readonly bool $stop = false,
         private readonly bool $containedLongContextPlugin = false,
         private readonly bool $createdTask = false,
         private readonly bool $plannerCommitted = false,
@@ -63,6 +65,7 @@ class ActionsResponseDTO implements AiActionsResponseInterface
             $this->handoff,
             $this->commandResults,
             $this->turn,
+            $this->stop,
             $this->containedLongContextPlugin,
             $this->createdTask,
             $this->plannerCommitted,
@@ -164,6 +167,19 @@ class ActionsResponseDTO implements AiActionsResponseInterface
     public function hasTurn(): bool
     {
         return $this->turn;
+    }
+
+    /**
+     * Whether the agent should stop processing further actions.
+     *
+     * Set by AgentPlugin when the model writes [agent stop] or when the agent is paused.
+     * Consumed by AgentActionsHandler to halt further processing.
+     *
+     * @return bool
+     */
+    public function hasStop(): bool
+    {
+        return $this->stop;
     }
 
     /**

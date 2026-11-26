@@ -17,6 +17,7 @@ use App\Contracts\Agent\Enricher\Rag\RagSilentCacheInterface;
 use App\Contracts\Agent\Models\PresetServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\Plugins\PluginMetadataServiceInterface;
+use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Chat\InputPoolServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
@@ -89,7 +90,7 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
         protected InputPoolServiceInterface $inputPoolService,
         protected AgentMessageServiceInterface $agentMessageService,
         protected PresetServiceInterface $presetService,
-        protected ChatStatusService $chatStatusService,
+        protected ChatStatusServiceInterface $chatStatusService,
         protected Cache $cache,
         protected LoggerInterface $logger,
         protected ContextModeResolverInterface $contextModeResolver,
@@ -277,6 +278,10 @@ class AgentActionsHandler implements AgentActionsHandlerInterface
             // self-continue for (e.g. validator whose task already left VALIDATING,
             // or a role whose task is done). Go idle; the orchestrator re-wakes on
             // the next event.
+            return false;
+        }
+
+        if ($actionsResult->hasStop()) {
             return false;
         }
 

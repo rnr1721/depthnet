@@ -141,13 +141,15 @@ export function usePresets(props, isAdmin) {
    * Edit current preset.
    */
   const editCurrentPreset = async () => {
-    if (!props.currentPreset?.id) {
+    // Edit the SELECTED preset; props.currentPreset is the server default one.
+    const presetId = selectedPresetId.value || props.currentPreset?.id;
+    if (!presetId) {
       console.error('No current preset available');
       return;
     }
 
     try {
-      const response = await axios.get(route('admin.presets.show', props.currentPreset.id));
+      const response = await axios.get(route('admin.presets.show', presetId));
 
       if (response.data.success) {
         editingPreset.value = response.data.data.preset;

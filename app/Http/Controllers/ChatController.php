@@ -10,11 +10,13 @@ use App\Contracts\Agent\Orchestrator\AgentServiceInterface;
 use App\Contracts\Agent\Orchestrator\AgentTaskServiceInterface;
 use App\Contracts\Agent\PluginRegistryInterface;
 use App\Contracts\Agent\ShortcodeManagerServiceInterface;
+use App\Contracts\Agent\Status\AgentStatusServiceInterface;
 use App\Contracts\Auth\AuthServiceInterface;
 use App\Contracts\Chat\ChatExporterServiceInterface;
 use App\Contracts\Chat\ChatFileAttachmentServiceInterface;
 use App\Contracts\Chat\ChatServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
+use App\Contracts\Chat\PresetAccessServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Contracts\Users\UserServiceInterface;
 use App\Exceptions\PresetException;
@@ -28,6 +30,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class ChatController extends Controller
 {
@@ -35,8 +38,41 @@ class ChatController extends Controller
         protected ChatServiceInterface $chatService,
         protected PresetServiceInterface $presetService,
         protected AuthServiceInterface $authService,
-        protected LoggerInterface $logger
+        protected LoggerInterface $logger,
+        protected PresetAccessServiceInterface $presetAccess,
+        protected AgentStatusServiceInterface $agentStatus
     ) {
+    }
+
+    /**
+     * Agent status for the UI. Admins get labels + timeline (plugin names, RAG
+     * presets, voices); others only the state and timing.
+     */
+    protected function agentStatusFor(int $presetId): array
+    {
+        $user = $this->authService->getCurrentUser();
+
+        return $this->agentStatus->get($presetId, (bool) ($user && $user->isAdmin()));
+    }
+
+    /**
+     * GET chat/status?preset_id= — cheap (one cache read), polled every ~2s
+     * by the UI while the agent is working.
+     */
+    public function getAgentStatus(Request $request): JsonResponse
+    {
+        $preset = $this->resolveAccessiblePreset($request);
+
+        return response()->json($this->agentStatusFor($preset->getId()));
+    }
+
+    /**
+     * Preset the current user may work with (see PresetAccessService):
+     * admin — requested preset_id or default; others — default only, else 403.
+     */
+    protected function resolveAccessiblePreset(Request $request)
+    {
+        return $this->presetAccess->resolve((int) $request->input('preset_id', 0));
     }
 
     /**
@@ -141,12 +177,8 @@ class ChatController extends Controller
         ChatFileAttachmentServiceInterface $chatFileAttachmentService
     ) {
         $user     = $authService->getCurrentUser();
-        $presetId = (int) $request->input('preset_id', 0);
-
-        // Fall back to default preset when no preset_id is provided
-        if (!$presetId) {
-            $presetId = $this->presetService->getDefaultPreset()->getId();
-        }
+        $preset   = $this->resolveAccessiblePreset($request);
+        $presetId = $preset->getId();
 
         $content = $request->validated()['content'];
 
@@ -156,10 +188,13 @@ class ChatController extends Controller
         $photoResult = ['photos' => []];
 
         if (!empty($files)) {
-            $preset = $this->presetService->findById($presetId)
-                ?? $this->presetService->getDefaultPreset();
-
             $attachMode = $request->input('attach_mode', 'documents');
+
+            // Non-admins can show files to the agent, but not write them into
+            // the preset's documents / vector memory.
+            if (!$user || !$user->isAdmin()) {
+                $attachMode = 'chat';
+            }
 
             if ($attachMode === 'chat') {
                 $photoResult = $chatFileAttachmentService->describeForChat($files, $preset);
@@ -193,8 +228,23 @@ class ChatController extends Controller
         if (!empty($photoResult['photos'])) {
             $meta['photos'] = $photoResult['photos']; // [{original_name, described, error?}]
         }
-        if ($meta !== ($message->metadata ?? [])) {
+        if ($meta !== ($message->metadata ?? []) && $message->exists) {
             $message->update(['metadata' => $meta]);
+        }
+
+        // JSON for the chat UI (axios): no full Inertia reload of index() —
+        // presets, plugins, agents, users — on every single message.
+        if ($request->expectsJson()) {
+            // Pool mode without dispatch: the input went to the pool and no
+            // visible message was created (make(), not create()).
+            $visible = $message->exists && $message->is_visible_to_user;
+
+            return response()->json([
+                'success'     => true,
+                'message'     => $visible ? $message->fresh() : null,
+                'pooled'      => !$message->exists,
+                'agentStatus' => $this->agentStatusFor($presetId),
+            ]);
         }
 
         return back();
@@ -280,20 +330,15 @@ class ChatController extends Controller
     public function getNewMessages(Request $request, int $lastMessageId): JsonResponse
     {
         try {
-            $presetId = (int) $request->get('preset_id', 0);
-            $limit    = min((int) $request->get('limit', 50), 200);
-
-            $preset = $presetId
-                ? $this->presetService->findById($presetId)
-                : $this->presetService->getDefaultPreset();
-
-            if (!$preset) {
-                return response()->json(['success' => false, 'error' => 'Preset not found'], 404);
-            }
+            $limit  = min(max((int) $request->get('limit', 50), 1), 200);
+            $preset = $this->resolveAccessiblePreset($request);
 
             $messages = $this->chatService->getNewMessages($preset->getId(), $lastMessageId, $limit);
 
-            $response = ['messages' => $messages];
+            $response = [
+                'messages'    => $messages,
+                'agentStatus' => $this->agentStatusFor($preset->getId()),
+            ];
 
             if (count($messages) > 0) {
                 $preset->refresh();
@@ -302,6 +347,8 @@ class ChatController extends Controller
 
             return response()->json($response);
 
+        } catch (HttpExceptionInterface $e) {
+            throw $e; // 403/404 from resolveAccessiblePreset
         } catch (\Exception $e) {
             $this->logger->error('Error fetching new messages', ['error' => $e->getMessage()]);
             return response()->json(['messages' => []], 500);
@@ -314,16 +361,8 @@ class ChatController extends Controller
     public function getLatestMessages(Request $request): JsonResponse
     {
         try {
-            $presetId = $request->get('preset_id');
-            $perPage  = min((int) $request->get('per_page', 30), 100);
-
-            $preset = $presetId
-                ? $this->presetService->findById($presetId)
-                : $this->presetService->getDefaultPreset();
-
-            if (!$preset) {
-                return response()->json(['success' => false, 'error' => 'Preset not found'], 404);
-            }
+            $perPage = min(max((int) $request->get('per_page', 30), 1), 100);
+            $preset  = $this->resolveAccessiblePreset($request);
 
             $result = $this->chatService->getLatestMessagesWithPagination($preset->getId(), $perPage);
 
@@ -333,7 +372,10 @@ class ChatController extends Controller
                 'pagination'     => $result['pagination'],
                 'presetMetadata' => $preset->metadata ?? [],
                 'presetId'       => $preset->getId(),
+                'agentStatus'    => $this->agentStatusFor($preset->getId()),
             ]);
+        } catch (HttpExceptionInterface $e) {
+            throw $e; // 403/404 from resolveAccessiblePreset
         } catch (\Exception $e) {
             $this->logger->error('Error fetching latest messages', ['error' => $e->getMessage()]);
             return response()->json([
@@ -350,17 +392,9 @@ class ChatController extends Controller
     public function loadOlderMessages(Request $request): JsonResponse
     {
         try {
-            $page     = max(1, (int) $request->get('page', 1));
-            $perPage  = min((int) $request->get('per_page', 30), 100);
-            $presetId = $request->get('preset_id');
-
-            $preset = $presetId
-                ? $this->presetService->findById($presetId)
-                : $this->presetService->getDefaultPreset();
-
-            if (!$preset) {
-                return response()->json(['success' => false, 'error' => 'Preset not found'], 404);
-            }
+            $page    = max(1, (int) $request->get('page', 1));
+            $perPage = min(max((int) $request->get('per_page', 30), 1), 100);
+            $preset  = $this->resolveAccessiblePreset($request);
 
             $result = $this->chatService->getMessagesPaginatedEnhanced($preset->getId(), $page, $perPage);
 
@@ -370,6 +404,8 @@ class ChatController extends Controller
                 'pagination' => $result['pagination'],
                 'presetId'   => $preset->getId(),
             ]);
+        } catch (HttpExceptionInterface $e) {
+            throw $e; // 403/404 from resolveAccessiblePreset
         } catch (\Exception $e) {
             $this->logger->error('Error loading older messages', ['error' => $e->getMessage()]);
             return response()->json([
@@ -491,7 +527,14 @@ class ChatController extends Controller
     public function getUsers(UserServiceInterface $userService): JsonResponse
     {
         try {
-            $users = $userService->getAllUsers();
+            // Only what the chat needs (mentions). The full model could leak
+            // email and other fields depending on $hidden.
+            $users = $userService->getAllUsers()->map(fn ($user) => [
+                'id'       => $user->id,
+                'name'     => $user->name,
+                'is_admin' => $user->is_admin ?? false,
+            ])->values();
+
             return response()->json($users);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch users'], 500);

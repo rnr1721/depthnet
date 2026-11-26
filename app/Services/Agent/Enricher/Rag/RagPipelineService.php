@@ -15,6 +15,7 @@ use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Models\AiPreset;
 use App\Models\Message;
 use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
+use App\Services\Agent\Status\TracksAgentStatus;
 
 /**
  * RagPipelineService — the single home for RAG assembly and application.
@@ -38,6 +39,7 @@ use App\Services\Agent\ContextBuilder\Traits\ContentCleaningTrait;
 final class RagPipelineService implements RagPipelineServiceInterface
 {
     use ContentCleaningTrait;
+    use TracksAgentStatus;
 
     public function __construct(
         private readonly EnricherFactoryInterface         $enricherFactory,
@@ -204,6 +206,23 @@ final class RagPipelineService implements RagPipelineServiceInterface
         bool $extended,
         array $context,
     ): RagAssembly {
+        return $this->trackStatus(
+            'rag',
+            null,
+            fn () => $this->doResolveForCycle($thinking, $source, $extended, $context)
+        );
+    }
+
+    /**
+     * Body of resolveForCycle(); the status label records which cache path ran
+     * (silent / warm / cold) so the UI can show "memory from cache".
+     */
+    private function doResolveForCycle(
+        AiPreset $thinking,
+        AiPreset $source,
+        bool $extended,
+        array $context,
+    ): RagAssembly {
         $mode = $extended ? 'extended' : 'normal';
 
         // 1. Silent hit — inside a silent act. The full assembly is already built;
@@ -211,12 +230,14 @@ final class RagPipelineService implements RagPipelineServiceInterface
         // collapses N silent cycles (Continue runs) into a single assembly.
         $silent = $this->silentCache->get($thinking->getId(), $mode);
         if ($silent !== null) {
+            $this->annotateStatus('silent');
             return $silent;
         }
 
         // 2. Warm hit — first cycle after speech: warm prewarmable + fresh non-prewarmable.
         $warm = $this->warmCache->get($thinking->getId(), $mode);
         if ($warm !== null) {
+            $this->annotateStatus('warm');
             $seen  = $warm->seenIds;
             $fresh = $this->assemble(
                 thinking:           $thinking,
@@ -242,6 +263,7 @@ final class RagPipelineService implements RagPipelineServiceInterface
         }
 
         // 3. Cold — no cache at all. Full synchronous assembly, then freeze it.
+        $this->annotateStatus('cold');
         $seen = [];
         $full = $this->assemble(
             thinking:           $thinking,

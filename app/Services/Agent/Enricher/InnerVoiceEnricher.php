@@ -18,6 +18,7 @@ use App\Models\AiPreset;
 use App\Models\Message;
 use App\Models\PresetInnerVoiceConfig;
 use App\Services\Agent\DTO\ModelRequestDTO;
+use App\Services\Agent\Status\TracksAgentStatus;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -44,6 +45,8 @@ use Psr\Log\LoggerInterface;
  */
 class InnerVoiceEnricher implements InnerVoiceEnricherInterface
 {
+    use TracksAgentStatus;
+
     public function __construct(
         protected PresetServiceInterface             $presetService,
         protected PresetRegistryInterface            $presetRegistry,
@@ -85,7 +88,8 @@ class InnerVoiceEnricher implements InnerVoiceEnricherInterface
                 return null;
             }
 
-            $response = $this->callVoice($voicePreset, $mainPreset, $config);
+            $label    = !empty($config->label) ? $config->label : $voicePreset->getName();
+            $response = $this->trackStatus('voice', $label, fn () => $this->callVoice($voicePreset, $mainPreset, $config));
 
             if ($response === null) {
                 return null;

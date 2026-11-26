@@ -91,6 +91,7 @@ use App\Contracts\Agent\ShortcodeScopeResolverServiceInterface;
 use App\Contracts\Agent\Skills\SkillLibraryServiceInterface;
 use App\Contracts\Agent\Skills\SkillServiceInterface;
 use App\Contracts\Agent\Spawn\SpawnServiceInterface;
+use App\Contracts\Agent\Status\AgentStatusServiceInterface;
 use App\Contracts\Agent\Terminal\TerminalServiceInterface;
 use App\Contracts\Agent\ToolCallParserInterface;
 use App\Contracts\Agent\ToolSchemaBuilderInterface;
@@ -100,6 +101,7 @@ use App\Contracts\Agent\VectorMemory\VectorMemoryFactoryInterface;
 use App\Contracts\Agent\VectorMemory\VectorMemoryImporterInterface;
 use App\Contracts\Agent\Wake\WakeScheduleServiceInterface;
 use App\Contracts\Agent\Workspace\WorkspaceServiceInterface;
+use App\Contracts\Chat\PresetAccessServiceInterface;
 use App\Contracts\Sandbox\SandboxManagerInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Services\Agent\Agent;
@@ -269,6 +271,7 @@ use App\Services\Agent\ShortcodeScopeResolverService;
 use App\Services\Agent\Skills\SkillLibraryService;
 use App\Services\Agent\Skills\SkillService;
 use App\Services\Agent\Spawn\SpawnService;
+use App\Services\Agent\Status\AgentStatusService;
 use App\Services\Agent\Terminal\TerminalService;
 use App\Services\Agent\ToolCallParser;
 use App\Services\Agent\ToolSchemaBuilder;
@@ -282,6 +285,7 @@ use App\Services\Agent\VectorMemory\VectorMemoryImporter;
 use App\Services\Agent\VectorMemory\VectorMemoryService;
 use App\Services\Agent\Wake\WakeScheduleService;
 use App\Services\Agent\Workspace\WorkspaceService;
+use App\Services\Chat\PresetAccessService;
 use Illuminate\Cache\CacheManager;
 
 class AiServiceProvider extends ServiceProvider
@@ -291,6 +295,12 @@ class AiServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+
+        $this->app->bind(PresetAccessServiceInterface::class, PresetAccessService::class);
+
+// Agent status: SINGLETON — keeps the phase stack of the cycle
+// running in this worker process (see AgentStatusService).
+$this->app->singleton(AgentStatusServiceInterface::class, AgentStatusService::class);
 
         $this->app->singleton(PulseServiceInterface::class, PulseService::class);
 

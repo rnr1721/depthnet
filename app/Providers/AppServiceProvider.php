@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Contracts\ApiKeys\ApiKeyServiceInterface;
+use App\Contracts\Logs\LogViewerServiceInterface;
 use App\Services\Settings\DbOptionsService;
 use Illuminate\Support\ServiceProvider;
 use App\Contracts\Settings\OptionsServiceInterface;
@@ -11,6 +12,7 @@ use App\Contracts\Users\AdminUserServiceInterface;
 use App\Contracts\Users\UserExporterInterface;
 use App\Contracts\Users\UserServiceInterface;
 use App\Services\ApiKeys\ApiKeyService;
+use App\Services\Logs\LogViewerService;
 use App\Services\Settings\SettingsService;
 use App\Services\Users\AdminUserService;
 use App\Services\Users\Exporters\CsvUserExporter;
@@ -24,6 +26,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+
+        $this->app->bind(LogViewerServiceInterface::class, LogViewerService::class);
 
         $this->app->bind(ApiKeyServiceInterface::class, ApiKeyService::class);
 

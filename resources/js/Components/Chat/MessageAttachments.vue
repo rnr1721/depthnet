@@ -1,10 +1,17 @@
 <template>
     <!-- Attachments block — shown below message content -->
     <div v-if="attachments.length" class="mt-2 flex flex-wrap gap-2">
-        <a v-for="file in attachments" :key="file.id" :href="file.id ? route('admin.documents.download', file.id) : '#'"
-            :target="file.id ? '_blank' : undefined" :class="[
+        <!--
+          Download route is admin-only: for other users (and deleted files) render
+          a plain chip instead of a link that would end in 403 / jump to "#".
+        -->
+        <component :is="canDownload(file) ? 'a' : 'span'" v-for="(file, i) in attachments"
+            :key="file.id ?? `deleted-${i}`"
+            :href="canDownload(file) ? route('admin.documents.download', file.id) : undefined"
+            :target="canDownload(file) ? '_blank' : undefined"
+            :rel="canDownload(file) ? 'noopener' : undefined" :class="[
                 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all',
-                file.id
+                canDownload(file)
                     ? (isDark
                         ? 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'
                         : 'bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900')
@@ -26,12 +33,12 @@
             <span v-if="!file.id" class="italic">{{ t('chat_file_deleted') }}</span>
 
             <!-- Download icon when available -->
-            <svg v-if="file.id" class="w-3 h-3 flex-shrink-0 opacity-60" fill="none" stroke="currentColor"
+            <svg v-if="canDownload(file)" class="w-3 h-3 flex-shrink-0 opacity-60" fill="none" stroke="currentColor"
                 viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-        </a>
+        </component>
     </div>
 </template>
 
@@ -50,7 +57,13 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    isAdmin: {
+        type: Boolean,
+        default: false,
+    },
 });
+
+const canDownload = (file) => !!file.id && props.isAdmin;
 
 const attachments = computed(() => props.metadata?.attachments ?? []);
 

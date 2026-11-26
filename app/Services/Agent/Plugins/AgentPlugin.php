@@ -271,7 +271,8 @@ class AgentPlugin implements CommandPluginInterface
             $settings = $service->getModelSettings($context->preset->getId());
 
             if (!$settings['chat_active']) {
-                return 'Agent is already paused.';
+                $this->setPluginExecutionMeta('stop', true);
+                return 'Agent is paused.';
             }
 
             $reason = trim($content);

@@ -97,11 +97,16 @@ class AgentStatusService implements AgentStatusServiceInterface
             if ($state === 'queued') {
                 $snapshot['queued_at'] = $this->ms($now);
             }
-            if ($outcome === 'sleeping' && isset($extra['next_at'])) {
+            if (in_array($outcome, ['sleeping', 'retrying'], true) && isset($extra['next_at'])) {
                 $snapshot['next_at'] = (int) $extra['next_at'] * 1000;
             }
-            if ($outcome === 'error' && isset($extra['error'])) {
+            if (in_array($outcome, ['error', 'retrying'], true) && isset($extra['error'])) {
                 $snapshot['error'] = mb_strimwidth((string) $extra['error'], 0, 300, '…');
+            }
+            foreach (['attempt', 'max_attempts', 'retryable', 'kind', 'gave_up'] as $key) {
+                if (array_key_exists($key, $extra)) {
+                    $snapshot[$key] = $extra[$key];
+                }
             }
 
             $this->cache->put(self::KEY . $presetId, $snapshot, self::STORE_TTL);
@@ -259,6 +264,8 @@ class AgentStatusService implements AgentStatusServiceInterface
                 'cycle_since' => $snapshot['cycle_since'] ?? null,
                 'queued_at'   => $snapshot['queued_at'] ?? null,
                 'next_at'     => $snapshot['next_at'] ?? null,
+                'attempt'     => $snapshot['attempt'] ?? null,
+                'max_attempts'=> $snapshot['max_attempts'] ?? null,
                 'now'         => $now,
             ], fn ($v) => $v !== null);
         }

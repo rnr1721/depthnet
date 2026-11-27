@@ -8,6 +8,7 @@ use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Exceptions\AiModelException;
 use App\Services\Agent\DTO\ModelResponseDTO;
 use App\Services\Agent\Providers\Traits\AiModelPromptTrait;
+use App\Services\Agent\Providers\Traits\RetriesTransientErrors;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Cache\CacheManager;
 use Psr\Log\LoggerInterface;
@@ -20,6 +21,7 @@ use Psr\Log\LoggerInterface;
 class ClaudeModel implements AIModelEngineInterface
 {
     use AiModelPromptTrait;
+    use RetriesTransientErrors;
 
     protected string $serverUrl;
     protected string $apiKey;
@@ -397,10 +399,11 @@ class ClaudeModel implements AIModelEngineInterface
             $headers  = $this->getRequestHeaders();
             $timeout  = config('ai.engines.claude.timeout', 120);
 
-            $response = $this->http
-                ->withHeaders($headers)
-                ->timeout($timeout)
-                ->post($this->serverUrl, $data);
+            $response = $this->withTransientRetry(
+                $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+            )->post($this->serverUrl, $data);
 
             if ($response->failed()) {
                 $errorBody    = $response->json();
@@ -503,16 +506,20 @@ class ClaudeModel implements AIModelEngineInterface
                 'model'        => $this->model,
             ]);
 
+            $status = preg_match('/Claude API Error \((\d{3})\)/', $e->getMessage(), $m) ? (int) $m[1] : null;
+
             if (str_contains($e->getMessage(), 'API Error')) {
                 return new ModelResponseDTO(
                     "error\nClaude API error: " . $e->getMessage(),
-                    true
+                    true,
+                    $this->errorKindMeta($status, $e->getMessage())
                 );
             }
 
             return new ModelResponseDTO(
                 "error\nError on Claude request: " . $e->getMessage(),
-                true
+                true,
+                $this->errorKindMeta(null, $e->getMessage())
             );
         }
     }

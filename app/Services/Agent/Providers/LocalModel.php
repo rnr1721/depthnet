@@ -8,6 +8,7 @@ use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Exceptions\AiModelException;
 use App\Services\Agent\DTO\ModelResponseDTO;
 use App\Services\Agent\Providers\Traits\AiModelPromptTrait;
+use App\Services\Agent\Providers\Traits\RetriesTransientErrors;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Psr\Log\LoggerInterface;
@@ -19,6 +20,7 @@ use Psr\Log\LoggerInterface;
 class LocalModel implements AIModelEngineInterface
 {
     use AiModelPromptTrait;
+    use RetriesTransientErrors;
 
     protected ?string $serverUrl = null;
 
@@ -477,7 +479,9 @@ class LocalModel implements AIModelEngineInterface
                 ]);
             }
 
-            $response = $httpRequest->post($this->serverUrl . $endpoint, $data);
+            // Local server restarting / not up yet → "Connection refused" → retried.
+            // A slow model hitting the read timeout is NOT retried (see classifier).
+            $response = $this->withTransientRetry($httpRequest)->post($this->serverUrl . $endpoint, $data);
 
             if ($response->failed()) {
                 $errorMessage = config('ai.global.error_messages.connection_failed', 'HTTP Error');
@@ -533,9 +537,13 @@ class LocalModel implements AIModelEngineInterface
                 'server_url'   => $this->serverUrl,
             ]);
 
+            // Double quotes: in single quotes "\n" was a literal backslash-n.
+            $status = preg_match('/:\s(\d{3})\s-/', $e->getMessage(), $sm) ? (int) $sm[1] : null;
+
             return new ModelResponseDTO(
-                'error\nError generating response: ' . $e->getMessage(),
-                true
+                "error\nError generating response: " . $e->getMessage(),
+                true,
+                $this->errorKindMeta($status, $e->getMessage())
             );
         }
     }

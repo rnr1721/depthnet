@@ -8,6 +8,7 @@ use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Exceptions\AiModelException;
 use App\Services\Agent\DTO\ModelResponseDTO;
 use App\Services\Agent\Providers\Traits\AiModelPromptTrait;
+use App\Services\Agent\Providers\Traits\RetriesTransientErrors;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Psr\Log\LoggerInterface;
@@ -21,6 +22,7 @@ use Psr\Log\LoggerInterface;
 class GeminiModel implements AIModelEngineInterface
 {
     use AiModelPromptTrait;
+    use RetriesTransientErrors;
 
     protected ?string $serverUrl = null;
     protected string $apiKey;
@@ -514,10 +516,11 @@ class GeminiModel implements AIModelEngineInterface
             $headers = $this->getRequestHeaders();
             $timeout = config('ai.engines.gemini.timeout', 120);
 
-            $response = $this->http
-                ->withHeaders($headers)
-                ->timeout($timeout)
-                ->post($this->serverUrl, $data);
+            $response = $this->withTransientRetry(
+                $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+            )->post($this->serverUrl, $data);
 
             if ($response->failed()) {
                 $errorBody    = $response->json();
@@ -591,36 +594,41 @@ class GeminiModel implements AIModelEngineInterface
      */
     protected function handleError(\Exception $e): ModelResponseDTO
     {
+        // Kind of error (transient / fatal) for the cycle-retry logic — classified by
+        // the ORIGINAL exception text: "API Error (503, ...)", cURL errors, quota.
+        $status = preg_match('/API Error \((\d{3})/', $e->getMessage(), $sm) ? (int) $sm[1] : null;
+        $meta   = $this->errorKindMeta($status, $e->getMessage());
+
         $errorMessages = config('ai.engines.gemini.error_messages', []);
 
         // Check for specific error types
         if (str_contains($e->getMessage(), 'quota')) {
             $message = $errorMessages['quota_exceeded'] ?? "Gemini API quota exceeded. Check your usage at Google AI Studio.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($e->getMessage(), 'PERMISSION_DENIED')) {
             $message = $errorMessages['permission_denied'] ?? "Permission denied. Check your API key permissions.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($e->getMessage(), 'INVALID_ARGUMENT')) {
             $message = $errorMessages['invalid_argument'] ?? "Invalid request format or parameters.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($e->getMessage(), 'model not found')) {
             $message = $errorMessages['model_not_found'] ?? "Selected model is not available. Please choose a different model.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($e->getMessage(), 'API Error')) {
             $message = $errorMessages['api_error'] ?? "Error from Google Gemini API: " . $e->getMessage();
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         $message = $errorMessages['general'] ?? "Error contacting Google Gemini: " . $e->getMessage();
-        return new ModelResponseDTO("error\n{$message}", true);
+        return new ModelResponseDTO("error\n{$message}", true, $meta);
     }
 
     /**

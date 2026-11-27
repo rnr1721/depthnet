@@ -22,8 +22,9 @@ interface AgentStatusServiceInterface
     public function beginCycle(int $presetId): void;
 
     /**
-     * Finish the cycle. $outcome: waiting | sleeping | error.
-     * $extra: next_at (unix seconds) for sleeping, error (string) for error.
+     * Finish the cycle. $outcome: waiting | sleeping | retrying | error.
+     * $extra: next_at (unix seconds) for sleeping/retrying, error (string),
+     *         attempt / max_attempts (retrying), retryable / kind / gave_up (error).
      */
     public function endCycle(string $outcome, array $extra = []): void;
 

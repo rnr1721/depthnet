@@ -90,11 +90,12 @@
       </div>
 
       <!-- What the agent is doing right now (phases, timeline on tap) -->
-      <AgentStatusBar v-show="activeView === 'chat'" :status="agentStatus" :isDark="isDark" />
+      <AgentStatusBar v-show="activeView === 'chat'" :status="agentStatus" :isDark="isDark" :canRetry="isAdmin"
+        @retry="retryCycle" />
 
       <!-- Message input (only for chat view) -->
-      <MessageInput v-show="activeView === 'chat'" ref="messageInputComponent" :disabled="false" :canAttachToDocs="isAdmin"
-        :isProcessing="isProcessing" :draftKey="draftKey" :sendError="sendError"
+      <MessageInput v-show="activeView === 'chat'" ref="messageInputComponent" :disabled="false"
+        :canAttachToDocs="isAdmin" :isProcessing="isProcessing" :draftKey="draftKey" :sendError="sendError"
         :isDark="isDark" :hasSTT="hasSTT" :isListening="isListening" :interimText="interimText" :hasTTS="hasTTS"
         :ttsEnabled="ttsEnabled" :isWakeWordListening="isWakeWordListening" :wakeWordDetected="wakeWordDetected"
         :wakeWord="currentPreset?.preset_code || currentPreset?.name || ''" @send="onInputSend"
@@ -419,6 +420,21 @@ async function sendMessage(content, files = [], attachMode = 'documents', draftK
     console.error('Send message error:', error);
   } finally {
     isProcessing.value = false;
+  }
+}
+
+/**
+ * Manual retry after a failed cycle (or "now" instead of waiting for backoff).
+ * `done` is the status bar's resolver: keeps its button disabled until finished.
+ */
+async function retryCycle(done) {
+  try {
+    const { data } = await axios.post(route('chat.retry'), { preset_id: selectedPresetId.value });
+    if (data.agentStatus) setAgentStatus(data.agentStatus);
+  } catch (error) {
+    console.error('Retry failed:', error);
+  } finally {
+    done?.();
   }
 }
 

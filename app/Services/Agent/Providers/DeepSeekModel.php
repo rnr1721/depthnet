@@ -8,6 +8,7 @@ use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Exceptions\AiModelException;
 use App\Services\Agent\DTO\ModelResponseDTO;
 use App\Services\Agent\Providers\Traits\AiModelPromptTrait;
+use App\Services\Agent\Providers\Traits\RetriesTransientErrors;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Cache\CacheManager;
 use Psr\Log\LoggerInterface;
@@ -23,6 +24,7 @@ use Psr\Log\LoggerInterface;
 class DeepSeekModel implements AIModelEngineInterface
 {
     use AiModelPromptTrait;
+    use RetriesTransientErrors;
 
     protected string $serverUrl;
     protected string $apiKey;
@@ -349,10 +351,11 @@ class DeepSeekModel implements AIModelEngineInterface
                 $data['tool_choice'] = 'auto';
             }
 
-            $response = $this->http
-                ->withHeaders($this->getRequestHeaders())
-                ->timeout((int) config('ai.engines.deepseek.timeout', 120))
-                ->post($this->serverUrl, $data);
+            $response = $this->withTransientRetry(
+                $this->http
+                    ->withHeaders($this->getRequestHeaders())
+                    ->timeout((int) config('ai.engines.deepseek.timeout', 120))
+            )->post($this->serverUrl, $data);
 
             if ($response->failed()) {
                 $errorBody    = $response->json();
@@ -807,16 +810,18 @@ class DeepSeekModel implements AIModelEngineInterface
                 default => $errorMessages['api_error'] ?? "DeepSeek API error: HTTP {$statusCode}",
             };
 
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $this->errorKindMeta($statusCode, $errorMessage));
         }
 
         if (str_contains($errorMessage, 'Connection refused') || str_contains($errorMessage, 'Could not resolve host')) {
             $message = $errorMessages['connection_failed'] ?? 'Failed to connect to DeepSeek API. Check your internet connection.';
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $this->errorKindMeta(null, $errorMessage));
         }
 
         $message = $errorMessages['general'] ?? 'Error contacting DeepSeek: ' . $errorMessage;
-        return new ModelResponseDTO("error\n{$message}", true);
+        // Classified by the ORIGINAL exception text (cURL error etc.), not by the
+        // friendly configured message, which may say nothing about the cause.
+        return new ModelResponseDTO("error\n{$message}", true, $this->errorKindMeta(null, $errorMessage));
     }
 
     /**

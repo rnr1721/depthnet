@@ -8,6 +8,7 @@ use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Exceptions\AiModelException;
 use App\Services\Agent\DTO\ModelResponseDTO;
 use App\Services\Agent\Providers\Traits\AiModelPromptTrait;
+use App\Services\Agent\Providers\Traits\RetriesTransientErrors;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Psr\Log\LoggerInterface;
@@ -20,6 +21,7 @@ use Psr\Log\LoggerInterface;
 class OpenAIModel implements AIModelEngineInterface
 {
     use AiModelPromptTrait;
+    use RetriesTransientErrors;
 
     protected string $serverUrl;
     protected string $apiKey;
@@ -624,10 +626,11 @@ class OpenAIModel implements AIModelEngineInterface
             $headers = $this->getRequestHeaders();
             $timeout = config('ai.engines.openai.timeout', 120);
 
-            $response = $this->http
-                ->withHeaders($headers)
-                ->timeout($timeout)
-                ->post($this->serverUrl, $data);
+            $response = $this->withTransientRetry(
+                $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+            )->post($this->serverUrl, $data);
 
             if ($response->failed()) {
                 $errorBody    = $response->json();
@@ -698,26 +701,31 @@ class OpenAIModel implements AIModelEngineInterface
      */
     protected function handleError(\Exception $e): ModelResponseDTO
     {
+        // Kind of error (transient / fatal) for the cycle-retry logic — classified by
+        // the ORIGINAL exception text: "API Error (503, ...)", cURL errors, quota.
+        $status = preg_match('/API Error \((\d{3})/', $e->getMessage(), $sm) ? (int) $sm[1] : null;
+        $meta   = $this->errorKindMeta($status, $e->getMessage());
+
         $errorMessages = config('ai.engines.openai.error_messages', []);
 
         // Check for specific error types
         if (str_contains($e->getMessage(), 'rate_limit_exceeded')) {
             $message = $errorMessages['rate_limit'] ?? "OpenAI request limit exceeded. Please try again later.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($e->getMessage(), 'insufficient_quota')) {
             $message = $errorMessages['insufficient_quota'] ?? "Not enough OpenAI quota. Check your account balance.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($e->getMessage(), 'API Error')) {
             $message = $errorMessages['api_error'] ?? "Error from OpenAI API: " . $e->getMessage();
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         $message = $errorMessages['general'] ?? "Error contacting OpenAI: " . $e->getMessage();
-        return new ModelResponseDTO("error\n{$message}", true);
+        return new ModelResponseDTO("error\n{$message}", true, $meta);
     }
 
     /**

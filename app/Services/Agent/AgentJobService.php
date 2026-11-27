@@ -9,7 +9,9 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Jobs\ProcessAgentThinking;
 use App\Models\AiPreset;
+use App\Services\Agent\Errors\TransientErrorClassifier;
 use App\Services\Agent\Status\TracksAgentStatus;
+use Illuminate\Support\Str;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Support\Facades\Artisan;
 use Psr\Log\LoggerInterface;
@@ -20,6 +22,16 @@ class AgentJobService implements AgentJobServiceInterface
 
     private string $queue = 'ai';
     private const LOCK_PREFIX = 'task_lock_';
+
+    /** Consecutive failed attempts of the current retry series. */
+    private const RETRY_ATTEMPTS_PREFIX = 'cycle_retry_attempts_';
+
+    /**
+     * Token of the currently scheduled retry job. A retry job whose token no
+     * longer matches is skipped (manual retry / stop / a successful cycle
+     * happened meanwhile). Read by ProcessAgentThinking.
+     */
+    public const RETRY_TOKEN_PREFIX = 'cycle_retry_token_';
 
     /**
      * Lock TTL in seconds — safety net if process dies without releasing.
@@ -100,6 +112,7 @@ class AgentJobService implements AgentJobServiceInterface
         // The running cycle is not interrupted — it finishes on its own.
         // Tell the UI so "stop" doesn't look ignored while "thinking" stays on.
         $this->agentStatus()?->markStopping($presetId);
+        $this->clearRetry($presetId); // a pending auto-retry must not restart a stopped loop
         $this->releaseLock($presetId);
 
         return true;
@@ -234,10 +247,12 @@ class AgentJobService implements AgentJobServiceInterface
                     'preset_id' => $presetId,
                     'error'     => $agentResponse->getErrorMessage(),
                 ]);
-                $outcome = 'error';
-                $extra   = ['error' => (string) $agentResponse->getErrorMessage()];
+                [$outcome, $extra] = $this->handleCycleFailure($presetId, $agentResponse);
                 return;
             }
+
+            // Success ends any retry series.
+            $this->clearRetry($presetId);
 
             $this->logger->info("AgentJobService: Cycle completed", [
                 'preset_id'  => $presetId,
@@ -284,6 +299,113 @@ class AgentJobService implements AgentJobServiceInterface
         ]);
 
         return $delay;
+    }
+
+    // -------------------------------------------------------------------------
+    // Retry after a failed cycle
+    // -------------------------------------------------------------------------
+
+    /**
+     * Manual "retry now" from the UI: drops a pending auto-retry (its job will be
+     * skipped by token) and runs one cycle right away. If the loop is active, a
+     * successful cycle schedules the loop again as usual.
+     */
+    public function retryNow(int $presetId): bool
+    {
+        $this->clearRetry($presetId);
+
+        if ($this->isLocked($presetId)) {
+            $this->logger->info("AgentJobService: retryNow for preset {$presetId} skipped — cycle running");
+            return false;
+        }
+
+        ProcessAgentThinking::dispatch($presetId)->onQueue($this->queue);
+        $this->agentStatus()?->queued($presetId);
+
+        return true;
+    }
+
+    /**
+     * Decide what happens after a failed cycle.
+     *
+     * Before: nothing — no retry, and for an ACTIVE loop scheduleNextCycle() was
+     * skipped too, so one network hiccup silently stopped the loop while the UI
+     * still showed it as running.
+     *
+     * Now: transient errors (network, 429, 5xx/overloaded) → retry with
+     * exponential backoff (30s, 60s, 120s, 240s, 480s by default, capped).
+     * Fatal errors (auth, balance, bad request) or exhausted attempts → stop and
+     * wait for a manual retry; the status bar shows the button.
+     *
+     * Note: the HTTP layer already retried a few times within the cycle
+     * (RetriesTransientErrors); this is for outages longer than ~20 seconds.
+     *
+     * @return array{0: string, 1: array} [outcome, extra] for the status service
+     */
+    private function handleCycleFailure(int $presetId, $agentResponse): array
+    {
+        $error = (string) $agentResponse->getErrorMessage();
+        $kind  = $this->errorKind($agentResponse, $error);
+
+        $max     = max(0, (int) config('ai.cycle_retry.max_attempts', 5));
+        $base    = max(5, (int) config('ai.cycle_retry.base_delay', 30));
+        $cap     = max($base, (int) config('ai.cycle_retry.max_delay', 600));
+        $attempt = (int) $this->cache->get(self::RETRY_ATTEMPTS_PREFIX . $presetId, 0) + 1;
+
+        if ($kind === TransientErrorClassifier::KIND_TRANSIENT && $attempt <= $max) {
+            $delay = (int) min($cap, $base * (2 ** ($attempt - 1)));
+            $token = Str::random(16);
+
+            $this->cache->put(self::RETRY_ATTEMPTS_PREFIX . $presetId, $attempt, 86400);
+            $this->cache->put(self::RETRY_TOKEN_PREFIX . $presetId, $token, $delay + 3600);
+
+            ProcessAgentThinking::dispatch($presetId, $token)->onQueue($this->queue)->delay($delay);
+
+            $this->logger->warning("AgentJobService: transient failure, retry {$attempt}/{$max} in {$delay}s", [
+                'preset_id' => $presetId,
+                'error'     => $error,
+            ]);
+
+            return ['retrying', [
+                'next_at'      => time() + $delay,
+                'attempt'      => $attempt,
+                'max_attempts' => $max,
+                'error'        => $error,
+            ]];
+        }
+
+        $this->clearRetry($presetId);
+
+        return ['error', [
+            'error'     => $error,
+            'retryable' => true,
+            'kind'      => $kind,
+            'gave_up'   => $kind === TransientErrorClassifier::KIND_TRANSIENT, // attempts exhausted
+        ]];
+    }
+
+    /**
+     * error_kind set by the engine (RetriesTransientErrors::errorKindMeta) and
+     * stored on the error system message; falls back to classifying the text.
+     */
+    private function errorKind($agentResponse, string $error): string
+    {
+        try {
+            $meta = $agentResponse->getMessage()?->metadata;
+            if (is_array($meta) && !empty($meta['error_kind'])) {
+                return (string) $meta['error_kind'];
+            }
+        } catch (\Throwable) {
+            // fall through
+        }
+
+        return TransientErrorClassifier::classifyMessage($error);
+    }
+
+    private function clearRetry(int $presetId): void
+    {
+        $this->cache->forget(self::RETRY_ATTEMPTS_PREFIX . $presetId);
+        $this->cache->forget(self::RETRY_TOKEN_PREFIX . $presetId);
     }
 
     /**

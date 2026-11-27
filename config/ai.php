@@ -12,6 +12,12 @@ return [
 
     'cycle_lock_ttl' => (int) env('AGENT_CYCLE_LOCK_TTL', 900),
 
+    'cycle_retry' => [
+        'max_attempts' => 5,
+        'base_delay'   => 30,    // seconds, doubles every attempt
+        'max_delay'    => 600,
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | AI Engines Configuration
@@ -1833,6 +1839,9 @@ return [
     */
 
     'global' => [
+
+        'retry' => ['delays_ms' => [2000, 5000, 12000]],
+
         // Default engine fallback if no engine is set as default
         'fallback_engine' => env('AI_FALLBACK_ENGINE', 'mock'),
 

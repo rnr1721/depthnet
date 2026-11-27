@@ -1721,4 +1721,12 @@ export default {
   agent_unit_ms: "мс",
   agent_unit_s: "с",
   agent_unit_m: "м",
+  agent_retry: "Повторить",
+  agent_retry_now: "Сейчас",
+  agent_retry_attempt: "повтор",
+  agent_state_retrying: "повтор",
+  agent_state_gave_up: "повторы исчерпаны",
+  agent_reason_network: "нет сети",
+  agent_reason_rate_limit: "лимит запросов",
+  agent_reason_overloaded: "провайдер перегружен"
 }

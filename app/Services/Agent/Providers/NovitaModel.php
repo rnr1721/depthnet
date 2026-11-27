@@ -8,6 +8,7 @@ use App\Contracts\Agent\Models\AIModelEngineInterface;
 use App\Exceptions\AiModelException;
 use App\Services\Agent\DTO\ModelResponseDTO;
 use App\Services\Agent\Providers\Traits\AiModelPromptTrait;
+use App\Services\Agent\Providers\Traits\RetriesTransientErrors;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Cache\CacheManager;
 use Psr\Log\LoggerInterface;
@@ -21,6 +22,7 @@ use Psr\Log\LoggerInterface;
 class NovitaModel implements AIModelEngineInterface
 {
     use AiModelPromptTrait;
+    use RetriesTransientErrors;
 
     protected string $serverUrl;
     protected string $apiKey;
@@ -585,10 +587,11 @@ class NovitaModel implements AIModelEngineInterface
             $headers = $this->getRequestHeaders();
             $timeout = (int) config('ai.engines.novita.timeout', 120);
 
-            $response = $this->http
-                ->withHeaders($headers)
-                ->timeout($timeout)
-                ->post($this->serverUrl, $data);
+            $response = $this->withTransientRetry(
+                $this->http
+                    ->withHeaders($headers)
+                    ->timeout($timeout)
+            )->post($this->serverUrl, $data);
 
             if ($response->failed()) {
                 $errorBody    = $response->json();
@@ -706,6 +709,11 @@ class NovitaModel implements AIModelEngineInterface
      */
     protected function handleError(\Exception $e): ModelResponseDTO
     {
+        // Kind of error (transient / fatal) for the cycle-retry logic — classified by
+        // the ORIGINAL exception text: "API Error (503, ...)", cURL errors, quota.
+        $status = preg_match('/API Error \((\d{3})/', $e->getMessage(), $sm) ? (int) $sm[1] : null;
+        $meta   = $this->errorKindMeta($status, $e->getMessage());
+
         $errorMessages = config('ai.engines.novita.error_messages', []);
         $errorMessage = $e->getMessage();
 
@@ -740,32 +748,32 @@ class NovitaModel implements AIModelEngineInterface
                     $message = $errorMessages['api_error'] ?? "Error from Novita AI API: HTTP {$statusCode}";
             }
 
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         // Check for specific error types
         if (str_contains($errorMessage, 'rate_limit_exceeded')) {
             $message = $errorMessages['rate_limit'] ?? "Novita AI request limit exceeded. Please try again later.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($errorMessage, 'insufficient_quota')) {
             $message = $errorMessages['insufficient_quota'] ?? "Not enough Novita AI quota. Check your account balance.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($errorMessage, 'Connection refused') || str_contains($errorMessage, 'Could not resolve host')) {
             $message = $errorMessages['connection_failed'] ?? "Failed to connect to Novita AI. Please check your internet connection.";
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         if (str_contains($errorMessage, 'API Error')) {
             $message = $errorMessages['api_error'] ?? "Error from Novita AI API: " . $errorMessage;
-            return new ModelResponseDTO("error\n{$message}", true);
+            return new ModelResponseDTO("error\n{$message}", true, $meta);
         }
 
         $message = $errorMessages['general'] ?? "Error contacting Novita AI: " . $errorMessage;
-        return new ModelResponseDTO("error\n{$message}", true);
+        return new ModelResponseDTO("error\n{$message}", true, $meta);
     }
 
     /**

@@ -59,6 +59,25 @@ class ChatController extends Controller
      * GET chat/status?preset_id= — cheap (one cache read), polled every ~2s
      * by the UI while the agent is working.
      */
+    /**
+     * POST chat/retry {preset_id} — admin: run a cycle now after a failure
+     * (cancels a pending automatic retry).
+     */
+    public function retryCycle(Request $request, AgentJobServiceFactoryInterface $agentJobServiceFactory): JsonResponse
+    {
+        $preset  = $this->resolveAccessiblePreset($request);
+        $service = $agentJobServiceFactory->make();
+
+        $started = method_exists($service, 'retryNow')
+            ? $service->retryNow($preset->getId())
+            : $service->start($preset->getId(), true);
+
+        return response()->json([
+            'success'     => (bool) $started,
+            'agentStatus' => $this->agentStatusFor($preset->getId()),
+        ]);
+    }
+
     public function getAgentStatus(Request $request): JsonResponse
     {
         $preset = $this->resolveAccessiblePreset($request);

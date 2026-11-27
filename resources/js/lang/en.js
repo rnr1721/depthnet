@@ -1726,5 +1726,13 @@ export default {
   agent_timeline_last: "Last cycle",
   agent_unit_ms: "ms",
   agent_unit_s: "s",
-  agent_unit_m: "m"
+  agent_unit_m: "m",
+  agent_retry: "Retry",
+  agent_retry_now: "Now",
+  agent_retry_attempt: "retry",
+  agent_state_retrying: "retry",
+  agent_state_gave_up: "gave up retrying",
+  agent_reason_network: "no network",
+  agent_reason_rate_limit: "rate limit",
+  agent_reason_overloaded: "provider overloaded"
 }

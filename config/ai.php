@@ -1477,6 +1477,31 @@ return [
             ],
         ],
 
+        'openrouter' => [
+            'display_name'          => 'OpenRouter',
+            'api_key'               => env('OPENROUTER_API_KEY', ''),
+            'model'                 => env('OPENROUTER_MODEL', 'openrouter/auto'),
+            'server_url'            => 'https://openrouter.ai/api/v1/chat/completions',
+            'models_endpoint'       => 'https://openrouter.ai/api/v1/models',
+            'key_endpoint'          => 'https://openrouter.ai/api/v1/key',
+            'max_tokens'            => 8192,
+            'temperature'           => null,   // null = model default
+            'top_p'                 => null,
+            'reasoning_effort'      => '',     // '', 'low', 'medium', 'high'
+            'prompt_cache'          => false,  // see field note in OpenRouterModel
+            'timeout'               => 180,
+            'models_cache_lifetime' => 3600,
+            'log_usage'             => true,
+            'app_title'             => 'DepthNet',
+            'agent_results_role'    => 'assistant',
+            'recommended_vendors'   => ['anthropic/', 'deepseek/', 'qwen/', 'x-ai/'],
+            'validation' => [
+                'temperature' => ['min' => 0, 'max' => 2],
+                'top_p'       => ['min' => 0, 'max' => 1],
+                'max_tokens'  => ['min' => 1, 'max' => 128000],
+            ],
+        ],
+
         /*
         |--------------------------------------------------------------------------
         | Mock Engine (for testing)

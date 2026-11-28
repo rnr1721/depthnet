@@ -264,6 +264,7 @@ use App\Services\Agent\Providers\DeepSeekModel;
 use App\Services\Agent\Providers\FireworksModel;
 use App\Services\Agent\Providers\GeminiModel;
 use App\Services\Agent\Providers\NovitaModel;
+use App\Services\Agent\Providers\OpenRouterModel;
 use App\Services\Agent\PulseService;
 use App\Services\Agent\Search\SearchDateParser;
 use App\Services\Agent\ShortcodeManagerService;
@@ -928,6 +929,8 @@ $this->app->singleton(AgentStatusServiceInterface::class, AgentStatusService::cl
                 return new FireworksModel($httpFactory, $logger, $cache, $config);
             case 'deepseek':
                 return new DeepSeekModel($httpFactory, $logger, $cache, $config);
+            case 'openrouter':
+                return new OpenRouterModel($httpFactory, $logger, $cache, $config);
             default:
                 $logger->warning("Unknown AI engine: {$engineName}");
                 return null;

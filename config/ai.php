@@ -1478,6 +1478,7 @@ return [
         ],
 
         'openrouter' => [
+            'enabled' => true,
             'display_name'          => 'OpenRouter',
             'api_key'               => env('OPENROUTER_API_KEY', ''),
             'model'                 => env('OPENROUTER_MODEL', 'openrouter/auto'),

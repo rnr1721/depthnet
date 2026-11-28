@@ -77,6 +77,7 @@ Built-in support for multiple AI engines with easy preset management:
 - **Claude** (Sonnet, Opus, Haiku)
 - **DeepSeek** (v3.2+, v4)
 - **OpenAI** (GPT-3.5, GPT-4, GPT-4o)
+- **OpenRouter** (Many different models)
 - **Novita Ai** (Cheap fast models)
 - **Fireworks** (Fast inference provider)
 - **Gemini** (from Google) experimental
